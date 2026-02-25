@@ -553,20 +553,31 @@ def mark_full_guard_sent(crosslink_dir):
 
 
 def load_tracking_mode(crosslink_dir):
-    """Read tracking_mode from .crosslink/hook-config.json. Defaults to 'strict'."""
+    """Read tracking_mode from .crosslink/hook-config.json, with .local override. Defaults to 'strict'."""
     if not crosslink_dir:
         return "strict"
+
+    config = {}
     config_path = os.path.join(crosslink_dir, "hook-config.json")
-    if not os.path.isfile(config_path):
-        return "strict"
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-        mode = config.get("tracking_mode", "strict")
-        if mode in ("strict", "normal", "relaxed"):
-            return mode
-    except (json.JSONDecodeError, OSError):
-        pass
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    local_path = os.path.join(crosslink_dir, "hook-config.local.json")
+    if os.path.isfile(local_path):
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                local = json.load(f)
+            config.update(local)  # shallow merge: local keys win
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    mode = config.get("tracking_mode", "strict")
+    if mode in ("strict", "normal", "relaxed"):
+        return mode
     return "strict"
 
 

@@ -37,8 +37,37 @@ DEFAULT_ALLOWED_BASH = [
 ]
 
 
+def _load_config_merged(crosslink_dir):
+    """Load hook-config.json, then shallow-merge hook-config.local.json on top.
+
+    Returns the merged dict, or {} if neither file exists.
+    """
+    if not crosslink_dir:
+        return {}
+
+    config = {}
+    config_path = os.path.join(crosslink_dir, "hook-config.json")
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    local_path = os.path.join(crosslink_dir, "hook-config.local.json")
+    if os.path.isfile(local_path):
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                local = json.load(f)
+            config.update(local)  # shallow merge: local keys win
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return config
+
+
 def load_config(crosslink_dir):
-    """Load hook config from .crosslink/hook-config.json, falling back to defaults.
+    """Load hook config from .crosslink/hook-config.json (with .local override), falling back to defaults.
 
     Returns (tracking_mode, blocked_git, gated_git, allowed_bash).
     tracking_mode is one of: "strict", "normal", "relaxed".
@@ -51,27 +80,18 @@ def load_config(crosslink_dir):
     allowed = list(DEFAULT_ALLOWED_BASH)
     mode = "strict"
 
-    if not crosslink_dir:
+    config = _load_config_merged(crosslink_dir)
+    if not config:
         return mode, blocked, gated, allowed
 
-    config_path = os.path.join(crosslink_dir, "hook-config.json")
-    if not os.path.isfile(config_path):
-        return mode, blocked, gated, allowed
-
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-
-        if config.get("tracking_mode") in ("strict", "normal", "relaxed"):
-            mode = config["tracking_mode"]
-        if "blocked_git_commands" in config:
-            blocked = config["blocked_git_commands"]
-        if "gated_git_commands" in config:
-            gated = config["gated_git_commands"]
-        if "allowed_bash_prefixes" in config:
-            allowed = config["allowed_bash_prefixes"]
-    except (json.JSONDecodeError, OSError):
-        pass
+    if config.get("tracking_mode") in ("strict", "normal", "relaxed"):
+        mode = config["tracking_mode"]
+    if "blocked_git_commands" in config:
+        blocked = config["blocked_git_commands"]
+    if "gated_git_commands" in config:
+        gated = config["gated_git_commands"]
+    if "allowed_bash_prefixes" in config:
+        allowed = config["allowed_bash_prefixes"]
 
     return mode, blocked, gated, allowed
 
@@ -115,18 +135,11 @@ def _find_crosslink(crosslink_dir):
     """Find the crosslink binary, checking config, PATH, and common locations."""
     import shutil
 
-    # 1. Check hook-config.json for explicit path
-    if crosslink_dir:
-        config_path = os.path.join(crosslink_dir, "hook-config.json")
-        if os.path.isfile(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                bin_path = config.get("crosslink_binary")
-                if bin_path and os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
-                    return bin_path
-            except (json.JSONDecodeError, OSError):
-                pass
+    # 1. Check hook-config.json (+ local override) for explicit path
+    config = _load_config_merged(crosslink_dir)
+    bin_path = config.get("crosslink_binary")
+    if bin_path and os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
+        return bin_path
 
     # 2. Check PATH
     found = shutil.which("crosslink")

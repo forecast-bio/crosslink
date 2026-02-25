@@ -1,6 +1,5 @@
 {
   "tracking_mode": "strict",
-  "crosslink_binary": "/Users/max/git-forecast/crosslink/crosslink/target/release/crosslink",
   "blocked_git_commands": [
     "git push", "git merge", "git rebase", "git cherry-pick",
     "git reset", "git checkout .", "git restore .", "git clean",
