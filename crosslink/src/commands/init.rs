@@ -4,6 +4,57 @@ use std::path::Path;
 
 use crate::db::Database;
 
+/// Detect the Python invocation prefix for hook commands based on project toolchain markers.
+///
+/// Checks (in priority order):
+/// 1. `uv.lock` or `pyproject.toml` with `[tool.uv]` → `"uv run python3"`
+/// 2. `poetry.lock` or `pyproject.toml` with `[tool.poetry]` → `"poetry run python3"`
+/// 3. `.venv/` directory → `".venv/bin/python3"`
+/// 4. `Pipfile` or `Pipfile.lock` → `"pipenv run python3"`
+/// 5. Fallback → `"python3"`
+pub fn detect_python_prefix(project_root: &Path) -> String {
+    // 1. uv: check uv.lock or [tool.uv] in pyproject.toml
+    if project_root.join("uv.lock").exists() {
+        return "uv run python3".to_string();
+    }
+    if let Some(ref pyproject) = read_pyproject(project_root) {
+        if pyproject.contains("[tool.uv]") {
+            return "uv run python3".to_string();
+        }
+    }
+
+    // 2. poetry: check poetry.lock or [tool.poetry] in pyproject.toml
+    if project_root.join("poetry.lock").exists() {
+        return "poetry run python3".to_string();
+    }
+    if let Some(ref pyproject) = read_pyproject(project_root) {
+        if pyproject.contains("[tool.poetry]") {
+            return "poetry run python3".to_string();
+        }
+    }
+
+    // 3. local venv
+    if project_root.join(".venv").is_dir() {
+        return ".venv/bin/python3".to_string();
+    }
+
+    // 4. pipenv
+    if project_root.join("Pipfile").exists() || project_root.join("Pipfile.lock").exists() {
+        return "pipenv run python3".to_string();
+    }
+
+    // 5. system default
+    "python3".to_string()
+}
+
+/// Read pyproject.toml contents, returning None if it doesn't exist or can't be read.
+fn read_pyproject(project_root: &Path) -> Option<String> {
+    fs::read_to_string(project_root.join("pyproject.toml")).ok()
+}
+
+/// The placeholder used in the settings.json template for the Python invocation prefix.
+const PYTHON_PREFIX_PLACEHOLDER: &str = "__PYTHON_PREFIX__";
+
 // Embed hook files at compile time from resources/ (packaged with the crate)
 const SETTINGS_JSON: &str = include_str!("../../resources/claude/settings.json");
 pub(crate) const PROMPT_GUARD_PY: &str =
@@ -167,7 +218,7 @@ fn write_mcp_json_merged(mcp_path: &Path) -> Result<Vec<String>> {
     Ok(warnings)
 }
 
-pub fn run(path: &Path, force: bool) -> Result<()> {
+pub fn run(path: &Path, force: bool, python_prefix: Option<&str>) -> Result<()> {
     let crosslink_dir = path.join(".crosslink");
     let claude_dir = path.join(".claude");
     let hooks_dir = claude_dir.join("hooks");
@@ -230,8 +281,12 @@ pub fn run(path: &Path, force: bool) -> Result<()> {
     if !claude_exists || force {
         fs::create_dir_all(&hooks_dir).context("Failed to create .claude/hooks directory")?;
 
-        // Write settings.json
-        fs::write(claude_dir.join("settings.json"), SETTINGS_JSON)
+        // Detect or use provided Python prefix, then template settings.json
+        let prefix = python_prefix
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| detect_python_prefix(path));
+        let settings_content = SETTINGS_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, &prefix);
+        fs::write(claude_dir.join("settings.json"), settings_content)
             .context("Failed to write settings.json")?;
 
         // Write hook scripts
@@ -303,7 +358,7 @@ mod tests {
     #[test]
     fn test_run_fresh_init() {
         let dir = tempdir().unwrap();
-        let result = run(dir.path(), false);
+        let result = run(dir.path(), false, None);
         assert!(result.is_ok());
 
         // Verify directories created
@@ -319,7 +374,7 @@ mod tests {
     #[test]
     fn test_run_creates_hook_files() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Verify hook files
         assert!(dir.path().join(".claude/settings.json").exists());
@@ -339,7 +394,7 @@ mod tests {
     #[test]
     fn test_run_creates_rule_files() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         let rules_dir = dir.path().join(".crosslink/rules");
         assert!(rules_dir.join("global.md").exists());
@@ -358,10 +413,10 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // First init
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Second init without force - should succeed but not recreate
-        let result = run(dir.path(), false);
+        let result = run(dir.path(), false, None);
         assert!(result.is_ok());
     }
 
@@ -370,14 +425,14 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // First init
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Modify a hook file
         let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
         fs::write(&hook_path, "# modified").unwrap();
 
         // Force update
-        run(dir.path(), true).unwrap();
+        run(dir.path(), true, None).unwrap();
 
         // Verify file was restored
         let content = fs::read_to_string(&hook_path).unwrap();
@@ -399,7 +454,7 @@ mod tests {
     #[test]
     fn test_force_init_preserves_existing_mcp_servers() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Add a custom MCP server entry alongside the embedded ones
         let mcp_path = dir.path().join(".mcp.json");
@@ -412,7 +467,7 @@ mod tests {
         fs::write(&mcp_path, serde_json::to_string_pretty(&content).unwrap()).unwrap();
 
         // Force update
-        run(dir.path(), true).unwrap();
+        run(dir.path(), true, None).unwrap();
 
         // Verify all embedded keys and the custom key are present
         let result: serde_json::Value =
@@ -439,7 +494,7 @@ mod tests {
     #[test]
     fn test_force_init_returns_warnings_for_overwritten_keys() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // The first init created .mcp.json with the embedded keys.
         // A second force init should warn about overwriting each one.
@@ -494,14 +549,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_malformed_mcp_json() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Write invalid JSON to .mcp.json
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "not json {{{").unwrap();
 
         // Force init should fail, not silently overwrite
-        let result = run(dir.path(), true);
+        let result = run(dir.path(), true, None);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -518,14 +573,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_non_object_mcp_json() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Write a JSON array to .mcp.json
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "[1, 2, 3]").unwrap();
 
         // Force init should fail, not silently overwrite
-        let result = run(dir.path(), true);
+        let result = run(dir.path(), true, None);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -542,14 +597,14 @@ mod tests {
     #[test]
     fn test_force_init_handles_empty_mcp_json_file() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Write empty file
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "").unwrap();
 
         // Should fail — empty file is not valid JSON
-        let result = run(dir.path(), true);
+        let result = run(dir.path(), true, None);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -562,14 +617,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_non_object_mcp_servers_value() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Write valid JSON where mcpServers is a string instead of object
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, r#"{"mcpServers": "banana"}"#).unwrap();
 
         // Should fail, not silently replace
-        let result = run(dir.path(), true);
+        let result = run(dir.path(), true, None);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -586,14 +641,14 @@ mod tests {
     #[test]
     fn test_init_merges_into_mcp_json_without_mcp_servers_key() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Write a valid object with no mcpServers key
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, r#"{"someOtherKey": true}"#).unwrap();
 
         // Force init should add mcpServers, preserving the other key
-        run(dir.path(), true).unwrap();
+        run(dir.path(), true, None).unwrap();
 
         let content = fs::read_to_string(&mcp_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -608,7 +663,7 @@ mod tests {
         // Create only .crosslink directory
         fs::create_dir_all(dir.path().join(".crosslink")).unwrap();
 
-        let result = run(dir.path(), false);
+        let result = run(dir.path(), false, None);
         assert!(result.is_ok());
 
         // .claude should now exist
@@ -622,7 +677,7 @@ mod tests {
         // Create only .claude directory
         fs::create_dir_all(dir.path().join(".claude")).unwrap();
 
-        let result = run(dir.path(), false);
+        let result = run(dir.path(), false, None);
         assert!(result.is_ok());
 
         // .crosslink should now exist
@@ -632,7 +687,7 @@ mod tests {
     #[test]
     fn test_run_database_usable() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Open the created database and verify it works
         let db_path = dir.path().join(".crosslink/issues.db");
@@ -646,7 +701,7 @@ mod tests {
     #[test]
     fn test_run_rule_files_not_empty() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         let rules_dir = dir.path().join(".crosslink/rules");
 
@@ -661,14 +716,14 @@ mod tests {
     #[test]
     fn test_run_force_updates_rules() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         // Modify a rule file
         let rule_path = dir.path().join(".crosslink/rules/global.md");
         fs::write(&rule_path, "# modified rule").unwrap();
 
         // Force update
-        run(dir.path(), true).unwrap();
+        run(dir.path(), true, None).unwrap();
 
         // Verify file was restored
         let content = fs::read_to_string(&rule_path).unwrap();
@@ -681,7 +736,7 @@ mod tests {
 
         // Multiple force runs should all succeed
         for _ in 0..3 {
-            let result = run(dir.path(), true);
+            let result = run(dir.path(), true, None);
             assert!(result.is_ok());
         }
 
@@ -735,11 +790,194 @@ mod tests {
     #[test]
     fn test_gitignore_includes_local_config() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false).unwrap();
+        run(dir.path(), false, None).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".crosslink/.gitignore")).unwrap();
         assert!(content.contains("agent.json"));
         assert!(content.contains(".locks-cache/"));
         assert!(content.contains("hook-config.local.json"));
+    }
+
+    // --- Python toolchain detection tests ---
+
+    #[test]
+    fn test_detect_python_prefix_default() {
+        let dir = tempdir().unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_uv_lock() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("uv.lock"), "").unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "uv run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_uv_pyproject() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"foo\"\n\n[tool.uv]\ndev-dependencies = []\n",
+        )
+        .unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "uv run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_poetry_lock() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("poetry.lock"), "").unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "poetry run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_poetry_pyproject() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"foo\"\n\n[tool.poetry]\nname = \"foo\"\n",
+        )
+        .unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "poetry run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_venv() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join(".venv")).unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), ".venv/bin/python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_pipenv() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Pipfile"), "").unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "pipenv run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_pipenv_lock() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Pipfile.lock"), "{}").unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "pipenv run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_uv_beats_poetry() {
+        let dir = tempdir().unwrap();
+        // Both uv.lock and poetry.lock present — uv wins
+        fs::write(dir.path().join("uv.lock"), "").unwrap();
+        fs::write(dir.path().join("poetry.lock"), "").unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "uv run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_poetry_beats_venv() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("poetry.lock"), "").unwrap();
+        fs::create_dir(dir.path().join(".venv")).unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "poetry run python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_venv_beats_pipenv() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join(".venv")).unwrap();
+        fs::write(dir.path().join("Pipfile"), "").unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), ".venv/bin/python3");
+    }
+
+    #[test]
+    fn test_detect_python_prefix_pyproject_without_tools_is_default() {
+        let dir = tempdir().unwrap();
+        // Plain pyproject.toml with no tool sections
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"foo\"\nversion = \"1.0\"\n",
+        )
+        .unwrap();
+        assert_eq!(detect_python_prefix(dir.path()), "python3");
+    }
+
+    // --- Settings.json templating tests ---
+
+    #[test]
+    fn test_settings_json_default_uses_python3() {
+        let dir = tempdir().unwrap();
+        run(dir.path(), false, None).unwrap();
+
+        let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+        assert!(
+            content.contains("python3"),
+            "Default init should use python3 in settings.json"
+        );
+        assert!(
+            !content.contains(PYTHON_PREFIX_PLACEHOLDER),
+            "Placeholder should be replaced"
+        );
+    }
+
+    #[test]
+    fn test_settings_json_uv_project() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("uv.lock"), "").unwrap();
+        run(dir.path(), false, None).unwrap();
+
+        let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+        assert!(
+            content.contains("uv run python3"),
+            "uv project should use 'uv run python3' in settings.json"
+        );
+    }
+
+    #[test]
+    fn test_settings_json_cli_override() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("uv.lock"), "").unwrap();
+        // CLI override should beat auto-detection
+        run(dir.path(), false, Some("custom-python")).unwrap();
+
+        let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+        assert!(
+            content.contains("custom-python"),
+            "CLI override should be used in settings.json"
+        );
+        assert!(
+            !content.contains("uv run python3"),
+            "Auto-detected prefix should not appear when overridden"
+        );
+    }
+
+    #[test]
+    fn test_settings_json_produces_valid_json() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("uv.lock"), "").unwrap();
+        run(dir.path(), false, None).unwrap();
+
+        let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(&content);
+        assert!(
+            parsed.is_ok(),
+            "Settings JSON should be valid after templating"
+        );
+    }
+
+    #[test]
+    fn test_force_re_detects_toolchain() {
+        let dir = tempdir().unwrap();
+        // First init: no markers → python3
+        run(dir.path(), false, None).unwrap();
+        let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+        assert!(content.contains("\"python3 \\\"$(git"));
+
+        // Add uv.lock, force re-init → should now use uv
+        fs::write(dir.path().join("uv.lock"), "").unwrap();
+        run(dir.path(), true, None).unwrap();
+        let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+        assert!(
+            content.contains("uv run python3"),
+            "Force re-init should re-detect toolchain"
+        );
     }
 }

@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/pre-web-check.py\"",
+            "command": "__PYTHON_PREFIX__ \"$(git rev-parse --show-toplevel)/.claude/hooks/pre-web-check.py\"",
             "timeout": 5
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/work-check.py\"",
+            "command": "__PYTHON_PREFIX__ \"$(git rev-parse --show-toplevel)/.claude/hooks/work-check.py\"",
             "timeout": 3
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/prompt-guard.py\"",
+            "command": "__PYTHON_PREFIX__ \"$(git rev-parse --show-toplevel)/.claude/hooks/prompt-guard.py\"",
             "timeout": 5
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/post-edit-check.py\"",
+            "command": "__PYTHON_PREFIX__ \"$(git rev-parse --show-toplevel)/.claude/hooks/post-edit-check.py\"",
             "timeout": 5
           }
         ]
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/session-start.py\"",
+            "command": "__PYTHON_PREFIX__ \"$(git rev-parse --show-toplevel)/.claude/hooks/session-start.py\"",
             "timeout": 10
           }
         ]
