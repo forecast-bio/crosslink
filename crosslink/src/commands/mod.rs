@@ -15,6 +15,7 @@ pub mod migrate;
 pub mod milestone;
 pub mod next;
 pub mod relate;
+pub mod review;
 pub mod search;
 pub mod session;
 pub mod show;

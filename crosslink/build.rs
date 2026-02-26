@@ -11,6 +11,7 @@ fn main() {
     println!("cargo:rerun-if-changed=resources/claude/hooks/work-check.py");
     println!("cargo:rerun-if-changed=resources/claude/mcp/safe-fetch-server.py");
     println!("cargo:rerun-if-changed=resources/mcp.json");
+    println!("cargo:rerun-if-changed=resources/claude/commands/review.md");
 
     // Track crosslink config and rules files
     println!("cargo:rerun-if-changed=resources/crosslink/hook-config.json");

@@ -6,60 +6,71 @@ use crate::db::Database;
 
 // Embed hook files at compile time from resources/ (packaged with the crate)
 const SETTINGS_JSON: &str = include_str!("../../resources/claude/settings.json");
-const PROMPT_GUARD_PY: &str = include_str!("../../resources/claude/hooks/prompt-guard.py");
-const POST_EDIT_CHECK_PY: &str = include_str!("../../resources/claude/hooks/post-edit-check.py");
-const SESSION_START_PY: &str = include_str!("../../resources/claude/hooks/session-start.py");
-const PRE_WEB_CHECK_PY: &str = include_str!("../../resources/claude/hooks/pre-web-check.py");
-const WORK_CHECK_PY: &str = include_str!("../../resources/claude/hooks/work-check.py");
+pub(crate) const PROMPT_GUARD_PY: &str =
+    include_str!("../../resources/claude/hooks/prompt-guard.py");
+pub(crate) const POST_EDIT_CHECK_PY: &str =
+    include_str!("../../resources/claude/hooks/post-edit-check.py");
+pub(crate) const SESSION_START_PY: &str =
+    include_str!("../../resources/claude/hooks/session-start.py");
+pub(crate) const PRE_WEB_CHECK_PY: &str =
+    include_str!("../../resources/claude/hooks/pre-web-check.py");
+pub(crate) const WORK_CHECK_PY: &str = include_str!("../../resources/claude/hooks/work-check.py");
 
 // Embed MCP server for safe web fetching
 const SAFE_FETCH_SERVER_PY: &str = include_str!("../../resources/claude/mcp/safe-fetch-server.py");
 const MCP_JSON: &str = include_str!("../../resources/mcp.json");
+
+// Embed slash command for guided policy review
+const REVIEW_CMD_MD: &str = include_str!("../../resources/claude/commands/review.md");
 
 // Embed sanitization patterns
 const SANITIZE_PATTERNS: &str =
     include_str!("../../resources/crosslink/rules/sanitize-patterns.txt");
 
 // Embed hook configuration
-const HOOK_CONFIG_JSON: &str = include_str!("../../resources/crosslink/hook-config.json");
+pub(crate) const HOOK_CONFIG_JSON: &str =
+    include_str!("../../resources/crosslink/hook-config.json");
 
 // Embed tracking mode rule files
-const RULE_TRACKING_STRICT: &str =
+pub(crate) const RULE_TRACKING_STRICT: &str =
     include_str!("../../resources/crosslink/rules/tracking-strict.md");
-const RULE_TRACKING_NORMAL: &str =
+pub(crate) const RULE_TRACKING_NORMAL: &str =
     include_str!("../../resources/crosslink/rules/tracking-normal.md");
-const RULE_TRACKING_RELAXED: &str =
+pub(crate) const RULE_TRACKING_RELAXED: &str =
     include_str!("../../resources/crosslink/rules/tracking-relaxed.md");
 
 // Embed rule files at compile time from resources/crosslink/rules/
-const RULE_GLOBAL: &str = include_str!("../../resources/crosslink/rules/global.md");
-const RULE_PROJECT: &str = include_str!("../../resources/crosslink/rules/project.md");
-const RULE_RUST: &str = include_str!("../../resources/crosslink/rules/rust.md");
-const RULE_PYTHON: &str = include_str!("../../resources/crosslink/rules/python.md");
-const RULE_JAVASCRIPT: &str = include_str!("../../resources/crosslink/rules/javascript.md");
-const RULE_TYPESCRIPT: &str = include_str!("../../resources/crosslink/rules/typescript.md");
-const RULE_TYPESCRIPT_REACT: &str =
+pub(crate) const RULE_GLOBAL: &str = include_str!("../../resources/crosslink/rules/global.md");
+pub(crate) const RULE_PROJECT: &str = include_str!("../../resources/crosslink/rules/project.md");
+pub(crate) const RULE_RUST: &str = include_str!("../../resources/crosslink/rules/rust.md");
+pub(crate) const RULE_PYTHON: &str = include_str!("../../resources/crosslink/rules/python.md");
+pub(crate) const RULE_JAVASCRIPT: &str =
+    include_str!("../../resources/crosslink/rules/javascript.md");
+pub(crate) const RULE_TYPESCRIPT: &str =
+    include_str!("../../resources/crosslink/rules/typescript.md");
+pub(crate) const RULE_TYPESCRIPT_REACT: &str =
     include_str!("../../resources/crosslink/rules/typescript-react.md");
-const RULE_JAVASCRIPT_REACT: &str =
+pub(crate) const RULE_JAVASCRIPT_REACT: &str =
     include_str!("../../resources/crosslink/rules/javascript-react.md");
-const RULE_GO: &str = include_str!("../../resources/crosslink/rules/go.md");
-const RULE_JAVA: &str = include_str!("../../resources/crosslink/rules/java.md");
-const RULE_C: &str = include_str!("../../resources/crosslink/rules/c.md");
-const RULE_CPP: &str = include_str!("../../resources/crosslink/rules/cpp.md");
-const RULE_CSHARP: &str = include_str!("../../resources/crosslink/rules/csharp.md");
-const RULE_RUBY: &str = include_str!("../../resources/crosslink/rules/ruby.md");
-const RULE_PHP: &str = include_str!("../../resources/crosslink/rules/php.md");
-const RULE_SWIFT: &str = include_str!("../../resources/crosslink/rules/swift.md");
-const RULE_KOTLIN: &str = include_str!("../../resources/crosslink/rules/kotlin.md");
-const RULE_SCALA: &str = include_str!("../../resources/crosslink/rules/scala.md");
-const RULE_ZIG: &str = include_str!("../../resources/crosslink/rules/zig.md");
-const RULE_ODIN: &str = include_str!("../../resources/crosslink/rules/odin.md");
-const RULE_ELIXIR: &str = include_str!("../../resources/crosslink/rules/elixir.md");
-const RULE_ELIXIR_PHOENIX: &str = include_str!("../../resources/crosslink/rules/elixir-phoenix.md");
-const RULE_WEB: &str = include_str!("../../resources/crosslink/rules/web.md");
+pub(crate) const RULE_GO: &str = include_str!("../../resources/crosslink/rules/go.md");
+pub(crate) const RULE_JAVA: &str = include_str!("../../resources/crosslink/rules/java.md");
+pub(crate) const RULE_C: &str = include_str!("../../resources/crosslink/rules/c.md");
+pub(crate) const RULE_CPP: &str = include_str!("../../resources/crosslink/rules/cpp.md");
+pub(crate) const RULE_CSHARP: &str = include_str!("../../resources/crosslink/rules/csharp.md");
+pub(crate) const RULE_RUBY: &str = include_str!("../../resources/crosslink/rules/ruby.md");
+pub(crate) const RULE_PHP: &str = include_str!("../../resources/crosslink/rules/php.md");
+pub(crate) const RULE_SWIFT: &str = include_str!("../../resources/crosslink/rules/swift.md");
+pub(crate) const RULE_KOTLIN: &str = include_str!("../../resources/crosslink/rules/kotlin.md");
+pub(crate) const RULE_SCALA: &str = include_str!("../../resources/crosslink/rules/scala.md");
+pub(crate) const RULE_ZIG: &str = include_str!("../../resources/crosslink/rules/zig.md");
+pub(crate) const RULE_ODIN: &str = include_str!("../../resources/crosslink/rules/odin.md");
+pub(crate) const RULE_ELIXIR: &str = include_str!("../../resources/crosslink/rules/elixir.md");
+pub(crate) const RULE_ELIXIR_PHOENIX: &str =
+    include_str!("../../resources/crosslink/rules/elixir-phoenix.md");
+pub(crate) const RULE_WEB: &str = include_str!("../../resources/crosslink/rules/web.md");
 
 /// All rule files to deploy
-const RULE_FILES: &[(&str, &str)] = &[
+pub(crate) const RULE_FILES: &[(&str, &str)] = &[
     ("global.md", RULE_GLOBAL),
     ("project.md", RULE_PROJECT),
     ("rust.md", RULE_RUST),
@@ -238,6 +249,12 @@ pub fn run(path: &Path, force: bool) -> Result<()> {
         fs::create_dir_all(&mcp_dir).context("Failed to create .claude/mcp directory")?;
         fs::write(mcp_dir.join("safe-fetch-server.py"), SAFE_FETCH_SERVER_PY)
             .context("Failed to write safe-fetch-server.py")?;
+
+        // Write slash commands
+        let commands_dir = claude_dir.join("commands");
+        fs::create_dir_all(&commands_dir).context("Failed to create .claude/commands directory")?;
+        fs::write(commands_dir.join("review.md"), REVIEW_CMD_MD)
+            .context("Failed to write review.md")?;
 
         // Merge crosslink's MCP server entry into .mcp.json (preserving existing MCPs)
         let warnings =

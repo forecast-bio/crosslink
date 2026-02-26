@@ -339,6 +339,12 @@ enum Commands {
 
     /// Import shared issues from coordination branch into local SQLite
     MigrateFromShared,
+
+    /// Review crosslink policy configuration
+    Review {
+        #[command(subcommand)]
+        command: ReviewCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -513,6 +519,16 @@ enum LocksCommands {
     Steal {
         /// Issue ID
         id: i64,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReviewCommands {
+    /// Compare deployed policy files against embedded defaults
+    Diff {
+        /// Filter by section: tracking, rules, languages, hooks
+        #[arg(short, long)]
+        section: Option<String>,
     },
 }
 
@@ -987,6 +1003,18 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             commands::migrate::from_shared(&crosslink_dir, &db)
+        }
+        Commands::Review { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let claude_dir = crosslink_dir
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine project root"))?
+                .join(".claude");
+            match command {
+                ReviewCommands::Diff { section } => {
+                    commands::review::diff(&crosslink_dir, &claude_dir, section.as_deref())
+                }
+            }
         }
     }
 }
