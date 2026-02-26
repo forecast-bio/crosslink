@@ -30,7 +30,7 @@ Read `.crosslink/rules/global.md` (the security section), `.crosslink/rules/web.
 Ask the user:
 - Are the OWASP/injection prevention rules current for your stack?
 - Does `sanitize-patterns.txt` cover your application's sensitive patterns?
-- For web projects: are the RFIP (Remote File Inclusion Prevention) rules in `web.md` appropriate?
+- For web projects: are the RFIP (Recursive Framing Interdiction Protocol) rules in `web.md` appropriate?
 
 ## Step 4: Review Language Rules
 
