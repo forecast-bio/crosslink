@@ -2686,3 +2686,51 @@ fn test_unicode_special_characters() {
     let (success, _, _) = run_crosslink(dir.path(), &["list"]);
     assert!(success);
 }
+
+// ==================== Integrity Tests ====================
+
+#[test]
+fn test_integrity_all_checks() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+    let (success, stdout, _) = run_crosslink(dir.path(), &["integrity"]);
+    assert!(success, "integrity command failed");
+    assert!(stdout.contains("schema"));
+    assert!(stdout.contains("Integrity:"));
+}
+
+#[test]
+fn test_integrity_schema_pass() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+    let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "schema"]);
+    assert!(success);
+    assert!(stdout.contains("PASS"));
+}
+
+#[test]
+fn test_integrity_counters_skipped_without_sync() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+    let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "counters"]);
+    assert!(success);
+    assert!(stdout.contains("SKIPPED"));
+}
+
+#[test]
+fn test_integrity_locks_skipped_without_sync() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+    let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "locks"]);
+    assert!(success);
+    assert!(stdout.contains("SKIPPED"));
+}
+
+#[test]
+fn test_integrity_hydration_skipped_without_sync() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+    let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "hydration"]);
+    assert!(success);
+    assert!(stdout.contains("SKIPPED"));
+}

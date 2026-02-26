@@ -364,6 +364,12 @@ enum Commands {
         #[command(subcommand)]
         command: ReviewCommands,
     },
+
+    /// Data integrity checks and repair
+    Integrity {
+        #[command(subcommand)]
+        action: Option<IntegrityCommands>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -558,6 +564,34 @@ enum ReviewCommands {
         /// CI mode: exit 1 if any files have drifted without '# crosslink:custom' marker
         #[arg(long)]
         check: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum IntegrityCommands {
+    /// Check counter consistency (next_display_id, next_comment_id)
+    Counters {
+        /// Repair inconsistencies by recalculating from data
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Verify SQLite matches JSON issue files
+    Hydration {
+        /// Re-hydrate SQLite from JSON
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Check for stale or orphaned locks
+    Locks {
+        /// Release stale locks
+        #[arg(long)]
+        repair: bool,
+    },
+    /// Verify SQLite schema version
+    Schema {
+        /// Re-run migrations to update schema
+        #[arg(long)]
+        repair: bool,
     },
 }
 
@@ -1037,6 +1071,12 @@ fn main() -> Result<()> {
             let db = get_db()?;
             commands::migrate::from_shared(&crosslink_dir, &db)
         }
+        Commands::Integrity { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::integrity_cmd::run(action.as_ref(), &crosslink_dir, &db)
+        }
+
         Commands::Review { command } => {
             let crosslink_dir = find_crosslink_dir()?;
             let claude_dir = crosslink_dir

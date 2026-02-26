@@ -8,6 +8,7 @@ pub mod deps;
 pub mod export;
 pub mod import;
 pub mod init;
+pub mod integrity_cmd;
 pub mod label;
 pub mod list;
 pub mod locks_cmd;
