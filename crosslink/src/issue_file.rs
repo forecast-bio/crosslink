@@ -69,6 +69,12 @@ pub struct TimeEntry {
 pub struct Counters {
     pub next_display_id: i64,
     pub next_comment_id: i64,
+    #[serde(default = "default_one")]
+    pub next_milestone_id: i64,
+}
+
+fn default_one() -> i64 {
+    1
 }
 
 impl Default for Counters {
@@ -76,6 +82,7 @@ impl Default for Counters {
         Counters {
             next_display_id: 1,
             next_comment_id: 1,
+            next_milestone_id: 1,
         }
     }
 }
@@ -165,6 +172,50 @@ pub fn read_milestones_file(path: &std::path::Path) -> anyhow::Result<Milestones
     }
     let content = std::fs::read_to_string(path)?;
     Ok(serde_json::from_str(&content)?)
+}
+
+/// Read a single milestone file from disk.
+pub fn read_milestone_file(path: &std::path::Path) -> anyhow::Result<MilestoneEntry> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read milestone file: {}", path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse milestone file: {}", path.display()))
+}
+
+/// Write a single milestone file to disk (pretty-printed JSON).
+pub fn write_milestone_file(path: &std::path::Path, entry: &MilestoneEntry) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(entry)?;
+    std::fs::write(path, content)
+        .with_context(|| format!("Failed to write milestone file: {}", path.display()))
+}
+
+/// Read all milestone files from a directory.
+pub fn read_all_milestone_files(
+    milestones_dir: &std::path::Path,
+) -> anyhow::Result<Vec<MilestoneEntry>> {
+    let mut entries = Vec::new();
+    if !milestones_dir.exists() {
+        return Ok(entries);
+    }
+    for entry in std::fs::read_dir(milestones_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            match read_milestone_file(&path) {
+                Ok(ms) => entries.push(ms),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping malformed milestone file {}: {e}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    Ok(entries)
 }
 
 use anyhow::Context;
@@ -261,6 +312,7 @@ mod tests {
         let c = Counters {
             next_display_id: 42,
             next_comment_id: 157,
+            next_milestone_id: 3,
         };
         let json = serde_json::to_string(&c).unwrap();
         let parsed: Counters = serde_json::from_str(&json).unwrap();
@@ -404,9 +456,72 @@ mod tests {
         let c = Counters {
             next_display_id: 10,
             next_comment_id: 50,
+            next_milestone_id: 1,
         };
         write_counters(&path, &c).unwrap();
         let loaded = read_counters(&path).unwrap();
         assert_eq!(c, loaded);
+    }
+
+    #[test]
+    fn test_counters_backward_compat_missing_milestone_id() {
+        // Old counters.json without next_milestone_id should default to 1
+        let json = r#"{"next_display_id": 5, "next_comment_id": 3}"#;
+        let parsed: Counters = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.next_milestone_id, 1);
+    }
+
+    #[test]
+    fn test_milestone_file_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("milestone.json");
+
+        let entry = MilestoneEntry {
+            uuid: Uuid::new_v4(),
+            display_id: 1,
+            name: "v1.0".to_string(),
+            description: Some("First release".to_string()),
+            status: "open".to_string(),
+            created_at: Utc::now(),
+            closed_at: None,
+        };
+
+        write_milestone_file(&path, &entry).unwrap();
+        let loaded = read_milestone_file(&path).unwrap();
+        assert_eq!(entry.uuid, loaded.uuid);
+        assert_eq!(entry.name, loaded.name);
+        assert_eq!(entry.description, loaded.description);
+    }
+
+    #[test]
+    fn test_read_all_milestone_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let ms_dir = dir.path().join("milestones");
+        std::fs::create_dir_all(&ms_dir).unwrap();
+
+        for i in 0..3 {
+            let entry = MilestoneEntry {
+                uuid: Uuid::new_v4(),
+                display_id: i + 1,
+                name: format!("v{}.0", i + 1),
+                description: None,
+                status: "open".to_string(),
+                created_at: Utc::now(),
+                closed_at: None,
+            };
+            write_milestone_file(&ms_dir.join(format!("{}.json", entry.uuid)), &entry).unwrap();
+        }
+
+        let loaded = read_all_milestone_files(&ms_dir).unwrap();
+        assert_eq!(loaded.len(), 3);
+    }
+
+    #[test]
+    fn test_read_all_milestone_files_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let ms_dir = dir.path().join("milestones");
+        // Dir doesn't exist
+        let loaded = read_all_milestone_files(&ms_dir).unwrap();
+        assert!(loaded.is_empty());
     }
 }

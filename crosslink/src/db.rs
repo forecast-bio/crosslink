@@ -1122,6 +1122,13 @@ impl Database {
         Ok(count)
     }
 
+    pub fn get_milestone_count(&self) -> Result<i64> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM milestones", [], |row| row.get(0))?;
+        Ok(count)
+    }
+
     // === Hydration helpers (for shared issue coordination) ===
 
     /// Delete all shared data tables in preparation for re-hydration from JSON.

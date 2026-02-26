@@ -969,9 +969,12 @@ fn main() -> Result<()> {
 
         Commands::Milestone { action } => {
             let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let shared = shared_writer::SharedWriter::new(&crosslink_dir)?;
+            let shared_ref = shared.as_ref();
             match action {
                 MilestoneCommands::Create { name, description } => {
-                    commands::milestone::create(&db, &name, description.as_deref())
+                    commands::milestone::create(&db, shared_ref, &name, description.as_deref())
                 }
                 MilestoneCommands::List { status } => commands::milestone::list(&db, Some(&status)),
                 MilestoneCommands::Show { id } => commands::milestone::show(&db, id),
@@ -979,8 +982,10 @@ fn main() -> Result<()> {
                 MilestoneCommands::Remove { id, issue } => {
                     commands::milestone::remove(&db, id, issue)
                 }
-                MilestoneCommands::Close { id } => commands::milestone::close(&db, id),
-                MilestoneCommands::Delete { id } => commands::milestone::delete(&db, id),
+                MilestoneCommands::Close { id } => commands::milestone::close(&db, shared_ref, id),
+                MilestoneCommands::Delete { id } => {
+                    commands::milestone::delete(&db, shared_ref, id)
+                }
             }
         }
 

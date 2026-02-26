@@ -1,11 +1,22 @@
 use anyhow::{bail, Result};
 
 use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
 
-pub fn create(db: &Database, name: &str, description: Option<&str>) -> Result<()> {
-    let id = db.create_milestone(name, description)?;
-    println!("Created milestone #{}: {}", id, name);
+pub fn create(
+    db: &Database,
+    shared: Option<&SharedWriter>,
+    name: &str,
+    description: Option<&str>,
+) -> Result<()> {
+    if let Some(sw) = shared {
+        let id = sw.create_milestone(db, name, description)?;
+        println!("Created milestone #{}: {}", id, name);
+    } else {
+        let id = db.create_milestone(name, description)?;
+        println!("Created milestone #{}: {}", id, name);
+    }
     Ok(())
 }
 
@@ -130,8 +141,11 @@ pub fn remove(db: &Database, milestone_id: i64, issue_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn close(db: &Database, id: i64) -> Result<()> {
-    if db.close_milestone(id)? {
+pub fn close(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
+    if let Some(sw) = shared {
+        sw.close_milestone(db, id)?;
+        println!("Closed milestone #{}", id);
+    } else if db.close_milestone(id)? {
         println!("Closed milestone #{}", id);
     } else {
         println!("Milestone #{} not found", id);
@@ -140,8 +154,11 @@ pub fn close(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn delete(db: &Database, id: i64) -> Result<()> {
-    if db.delete_milestone(id)? {
+pub fn delete(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
+    if let Some(sw) = shared {
+        sw.delete_milestone(db, id)?;
+        println!("Deleted milestone #{}", id);
+    } else if db.delete_milestone(id)? {
         println!("Deleted milestone #{}", id);
     } else {
         println!("Milestone #{} not found", id);
@@ -166,7 +183,7 @@ mod tests {
     #[test]
     fn test_create_milestone() {
         let (db, _dir) = setup_test_db();
-        create(&db, "v1.0", None).unwrap();
+        create(&db, None, "v1.0", None).unwrap();
         let milestones = db.list_milestones(None).unwrap();
         assert_eq!(milestones.len(), 1);
         assert_eq!(milestones[0].name, "v1.0");
@@ -175,7 +192,7 @@ mod tests {
     #[test]
     fn test_create_milestone_with_description() {
         let (db, _dir) = setup_test_db();
-        create(&db, "v1.0", Some("First release")).unwrap();
+        create(&db, None, "v1.0", Some("First release")).unwrap();
         let milestones = db.list_milestones(None).unwrap();
         assert_eq!(milestones[0].description, Some("First release".to_string()));
     }
@@ -250,7 +267,7 @@ mod tests {
     fn test_close_milestone() {
         let (db, _dir) = setup_test_db();
         let id = db.create_milestone("v1.0", None).unwrap();
-        close(&db, id).unwrap();
+        close(&db, None, id).unwrap();
         let m = db.get_milestone(id).unwrap().unwrap();
         assert_eq!(m.status, "closed");
         assert!(m.closed_at.is_some());
@@ -260,7 +277,7 @@ mod tests {
     fn test_delete_milestone() {
         let (db, _dir) = setup_test_db();
         let id = db.create_milestone("v1.0", None).unwrap();
-        delete(&db, id).unwrap();
+        delete(&db, None, id).unwrap();
         let m = db.get_milestone(id).unwrap();
         assert!(m.is_none(), "Milestone should be deleted");
     }
@@ -285,7 +302,7 @@ mod tests {
         #[test]
         fn prop_create_milestone_persists(name in "[a-zA-Z0-9 ]{1,30}") {
             let (db, _dir) = setup_test_db();
-            create(&db, &name, None).unwrap();
+            create(&db, None, &name, None).unwrap();
             let milestones = db.list_milestones(None).unwrap();
             prop_assert_eq!(milestones.len(), 1);
             prop_assert_eq!(&milestones[0].name, &name);

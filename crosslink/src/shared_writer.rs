@@ -16,7 +16,8 @@ use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
 use crate::issue_file::{
-    read_counters, read_issue_file, write_counters, CommentEntry, Counters, IssueFile,
+    read_counters, read_issue_file, read_milestone_file, write_counters, CommentEntry, Counters,
+    IssueFile, MilestoneEntry,
 };
 use crate::sync::SyncManager;
 
@@ -120,7 +121,7 @@ impl SharedWriter {
 
         // Ensure directory structure exists
         std::fs::create_dir_all(cache_dir.join("issues"))?;
-        std::fs::create_dir_all(cache_dir.join("meta"))?;
+        std::fs::create_dir_all(cache_dir.join("meta").join("milestones"))?;
 
         Ok(Some(SharedWriter {
             sync,
@@ -564,6 +565,99 @@ impl SharedWriter {
         Ok(())
     }
 
+    /// Create a milestone on the coordination branch.
+    ///
+    /// Returns the assigned milestone display ID.
+    pub fn create_milestone(
+        &self,
+        db: &Database,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<i64> {
+        let uuid = Uuid::new_v4();
+        let now = Utc::now();
+        let name_owned = name.to_string();
+        let desc_owned = description.map(|s| s.to_string());
+        let display_id = Cell::new(0i64);
+
+        let _ = self.write_commit_push(
+            |writer| {
+                let (id, counters) = writer.claim_milestone_id()?;
+                display_id.set(id);
+                let entry = MilestoneEntry {
+                    uuid,
+                    display_id: id,
+                    name: name_owned.clone(),
+                    description: desc_owned.clone(),
+                    status: "open".to_string(),
+                    created_at: now,
+                    closed_at: None,
+                };
+                let mut json = Vec::new();
+                serde_json::to_writer_pretty(&mut json, &entry)?;
+                Ok(WriteSet {
+                    files: vec![(format!("meta/milestones/{}.json", uuid), json)],
+                    counters: Some(counters),
+                    use_git_rm: false,
+                })
+            },
+            &format!("create milestone: {}", name),
+        )?;
+
+        hydrate_to_sqlite(&self.cache_dir, db)?;
+        Ok(display_id.get())
+    }
+
+    /// Close a milestone on the coordination branch.
+    pub fn close_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
+        let _ = self.write_commit_push(
+            |writer| {
+                let mut entry = writer.load_milestone_by_id(milestone_id)?;
+                entry.status = "closed".to_string();
+                entry.closed_at = Some(Utc::now());
+                let mut json = Vec::new();
+                serde_json::to_writer_pretty(&mut json, &entry)?;
+                Ok(WriteSet {
+                    files: vec![(format!("meta/milestones/{}.json", entry.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("close milestone #{}", milestone_id),
+        )?;
+
+        hydrate_to_sqlite(&self.cache_dir, db)?;
+        Ok(())
+    }
+
+    /// Delete a milestone file from the coordination branch.
+    pub fn delete_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
+        let entry = self.load_milestone_by_id(milestone_id)?;
+        let rel_path = format!("meta/milestones/{}.json", entry.uuid);
+
+        let _ = self.write_commit_push(
+            |writer| {
+                let path = writer
+                    .cache_dir
+                    .join("meta")
+                    .join("milestones")
+                    .join(format!("{}.json", entry.uuid));
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                }
+                Ok(WriteSet {
+                    files: vec![(rel_path.clone(), vec![])],
+                    counters: None,
+                    use_git_rm: true,
+                })
+            },
+            &format!("delete milestone #{}", milestone_id),
+        )?;
+
+        hydrate_to_sqlite(&self.cache_dir, db)?;
+        Ok(())
+    }
+
     /// Promote offline issues (`display_id: null`) to real display IDs.
     ///
     /// Called during sync when connectivity is restored. Scans the cache for
@@ -805,6 +899,36 @@ impl SharedWriter {
         let first = counters.next_display_id;
         counters.next_display_id += count;
         Ok((first, counters))
+    }
+
+    /// Claim a milestone display ID from `meta/counters.json`.
+    ///
+    /// Returns `(claimed_id, updated_counters)`.
+    fn claim_milestone_id(&self) -> Result<(i64, Counters)> {
+        let mut counters = self.read_counters()?;
+        let id = counters.next_milestone_id;
+        counters.next_milestone_id += 1;
+        Ok((id, counters))
+    }
+
+    /// Load a milestone entry by display_id from per-file storage.
+    fn load_milestone_by_id(&self, display_id: i64) -> Result<MilestoneEntry> {
+        let milestones_dir = self.cache_dir.join("meta").join("milestones");
+        if milestones_dir.exists() {
+            for entry in std::fs::read_dir(&milestones_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                if let Ok(ms) = read_milestone_file(&path) {
+                    if ms.display_id == display_id {
+                        return Ok(ms);
+                    }
+                }
+            }
+        }
+        bail!("Milestone #{} not found in shared cache", display_id)
     }
 
     /// Rewrite a just-committed issue to set `display_id: null` and revert the

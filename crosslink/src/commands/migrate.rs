@@ -13,8 +13,8 @@ use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
 use crate::issue_file::{
-    write_counters, write_issue_file, CommentEntry, Counters, IssueFile, MilestoneEntry,
-    MilestonesFile,
+    write_counters, write_issue_file, write_milestone_file, CommentEntry, Counters, IssueFile,
+    MilestoneEntry,
 };
 use crate::sync::SyncManager;
 
@@ -152,35 +152,31 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
 
     // Write counters.json
     let max_display_id = issues.iter().map(|i| i.id).max().unwrap_or(0);
+    let max_milestone_id = milestones.iter().map(|m| m.id).max().unwrap_or(0);
     let counters = Counters {
         next_display_id: max_display_id + 1,
         next_comment_id: max_comment_id + 1,
+        next_milestone_id: max_milestone_id + 1,
     };
     write_counters(&meta_dir.join("counters.json"), &counters)?;
 
-    // Write milestones.json
+    // Write per-file milestones to meta/milestones/{uuid}.json
     if !milestones.is_empty() {
-        let mut milestone_map = HashMap::new();
+        let milestones_dir = meta_dir.join("milestones");
+        std::fs::create_dir_all(&milestones_dir)?;
         for ms in &milestones {
             let uuid = milestone_id_to_uuid[&ms.id];
-            milestone_map.insert(
+            let entry = MilestoneEntry {
                 uuid,
-                MilestoneEntry {
-                    uuid,
-                    display_id: ms.id,
-                    name: ms.name.clone(),
-                    description: ms.description.clone(),
-                    status: ms.status.clone(),
-                    created_at: ms.created_at,
-                    closed_at: ms.closed_at,
-                },
-            );
+                display_id: ms.id,
+                name: ms.name.clone(),
+                description: ms.description.clone(),
+                status: ms.status.clone(),
+                created_at: ms.created_at,
+                closed_at: ms.closed_at,
+            };
+            write_milestone_file(&milestones_dir.join(format!("{}.json", uuid)), &entry)?;
         }
-        let milestones_file = MilestonesFile {
-            milestones: milestone_map,
-        };
-        let mf_json = serde_json::to_string_pretty(&milestones_file)?;
-        std::fs::write(meta_dir.join("milestones.json"), mf_json)?;
     }
 
     // Commit and push
@@ -460,6 +456,7 @@ mod tests {
         let counters = Counters {
             next_display_id: max_display_id + 1,
             next_comment_id: max_comment_id + 1,
+            next_milestone_id: 1,
         };
         assert_eq!(counters.next_display_id, id3 + 1);
         assert_eq!(counters.next_comment_id, cid + 1);

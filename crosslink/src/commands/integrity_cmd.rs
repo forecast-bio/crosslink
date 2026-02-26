@@ -4,7 +4,10 @@ use std::path::Path;
 use crate::db::{Database, SCHEMA_VERSION};
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
-use crate::issue_file::{read_all_issue_files, read_counters, write_counters, Counters};
+use crate::issue_file::{
+    read_all_issue_files, read_all_milestone_files, read_counters, read_milestones_file,
+    write_counters, Counters,
+};
 use crate::sync::SyncManager;
 use crate::IntegrityCommands;
 
@@ -150,6 +153,7 @@ fn check_counters(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<C
     let repaired = Counters {
         next_display_id: expected_display.max(counters.next_display_id),
         next_comment_id: expected_comment.max(counters.next_comment_id),
+        next_milestone_id: counters.next_milestone_id,
     };
     write_counters(&counters_path, &repaired)?;
 
@@ -170,20 +174,48 @@ fn check_hydration(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<
 
     let issues_dir = cache_dir.join("issues");
     let json_issues = read_all_issue_files(&issues_dir)?;
-    let json_count = json_issues
+    let json_issue_count = json_issues
         .iter()
         .filter(|i| i.display_id.is_some())
         .count() as i64;
-    let db_count = db.get_issue_count()?;
+    let db_issue_count = db.get_issue_count()?;
 
-    if json_count == db_count {
+    // Count milestones: per-file first, fall back to legacy single-file
+    let milestones_dir = cache_dir.join("meta").join("milestones");
+    let json_milestone_entries = read_all_milestone_files(&milestones_dir)?;
+    let json_milestone_count = if json_milestone_entries.is_empty() {
+        let legacy_path = cache_dir.join("meta").join("milestones.json");
+        let legacy = read_milestones_file(&legacy_path)?;
+        legacy.milestones.len() as i64
+    } else {
+        json_milestone_entries.len() as i64
+    };
+    let db_milestone_count = db.get_milestone_count()?;
+
+    let issues_ok = json_issue_count == db_issue_count;
+    let milestones_ok = json_milestone_count == db_milestone_count;
+
+    if issues_ok && milestones_ok {
         return Ok(CheckResult {
             name: "hydration".to_string(),
             status: CheckStatus::Pass,
         });
     }
 
-    let details = format!("{} issues in JSON, {} in SQLite", json_count, db_count);
+    let mut issues = Vec::new();
+    if !issues_ok {
+        issues.push(format!(
+            "{} issues in JSON, {} in SQLite",
+            json_issue_count, db_issue_count
+        ));
+    }
+    if !milestones_ok {
+        issues.push(format!(
+            "{} milestones in JSON, {} in SQLite",
+            json_milestone_count, db_milestone_count
+        ));
+    }
+    let details = issues.join("; ");
 
     if !repair {
         return Ok(CheckResult {
@@ -377,6 +409,7 @@ mod tests {
         let counters = Counters {
             next_display_id: 1,
             next_comment_id: 1,
+            next_milestone_id: 1,
         };
         write_counters(&meta_dir.join("counters.json"), &counters).unwrap();
 
@@ -398,6 +431,7 @@ mod tests {
         let counters = Counters {
             next_display_id: 1, // should be 2
             next_comment_id: 1,
+            next_milestone_id: 1,
         };
         write_counters(&meta_dir.join("counters.json"), &counters).unwrap();
 

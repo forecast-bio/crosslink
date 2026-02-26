@@ -112,7 +112,7 @@ impl SyncManager {
             std::fs::create_dir_all(self.cache_dir.join("heartbeats"))?;
             std::fs::create_dir_all(self.cache_dir.join("trust"))?;
             std::fs::create_dir_all(self.cache_dir.join("issues"))?;
-            std::fs::create_dir_all(self.cache_dir.join("meta"))?;
+            std::fs::create_dir_all(self.cache_dir.join("meta").join("milestones"))?;
 
             // Commit the initial state so the branch has at least one commit.
             // Without this, `git log` and other commands fail on the empty orphan.

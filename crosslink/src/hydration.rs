@@ -11,7 +11,9 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::db::{Database, HydratedIssue, HydratedMilestone};
-use crate::issue_file::{read_all_issue_files, read_milestones_file, IssueFile};
+use crate::issue_file::{
+    read_all_issue_files, read_all_milestone_files, read_milestones_file, IssueFile,
+};
 
 /// Statistics returned after hydration.
 #[derive(Debug, Default)]
@@ -40,8 +42,14 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         return Ok(HydrationStats::default());
     }
 
-    let milestones_path = cache_dir.join("meta").join("milestones.json");
-    let milestones_file = read_milestones_file(&milestones_path)?;
+    // Try per-file milestones first (new format), fall back to legacy single-file
+    let milestones_dir = cache_dir.join("meta").join("milestones");
+    let mut milestone_entries = read_all_milestone_files(&milestones_dir)?;
+    if milestone_entries.is_empty() {
+        let legacy_path = cache_dir.join("meta").join("milestones.json");
+        let legacy = read_milestones_file(&legacy_path)?;
+        milestone_entries = legacy.milestones.into_values().collect();
+    }
 
     // Build uuid -> display_id lookup for resolving cross-references
     let mut uuid_to_id: HashMap<String, i64> = issue_files
@@ -50,9 +58,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         .collect();
 
     // Build milestone uuid -> display_id lookup
-    let milestone_uuid_to_id: HashMap<String, i64> = milestones_file
-        .milestones
-        .values()
+    let milestone_uuid_to_id: HashMap<String, i64> = milestone_entries
+        .iter()
         .map(|m| (m.uuid.to_string(), m.display_id))
         .collect();
 
@@ -62,7 +69,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         db.clear_shared_data()?;
 
         // Insert milestones first (issues may reference them)
-        for entry in milestones_file.milestones.values() {
+        for entry in &milestone_entries {
             let created_at = entry.created_at.to_rfc3339();
             let closed_at = entry.closed_at.map(|dt| dt.to_rfc3339());
             db.insert_hydrated_milestone(&HydratedMilestone {
@@ -491,5 +498,74 @@ mod tests {
 
         hydrate_to_sqlite(cache.path(), &db).unwrap();
         // If we got here without error, time entries were inserted successfully
+    }
+
+    #[test]
+    fn test_hydrate_milestones_per_file() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let issue = make_issue(1, "Test");
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        // Write per-file milestone
+        let ms_dir = cache.path().join("meta").join("milestones");
+        std::fs::create_dir_all(&ms_dir).unwrap();
+        let ms_uuid = Uuid::new_v4();
+        let entry = crate::issue_file::MilestoneEntry {
+            uuid: ms_uuid,
+            display_id: 1,
+            name: "v1.0".to_string(),
+            description: None,
+            status: "open".to_string(),
+            created_at: Utc::now(),
+            closed_at: None,
+        };
+        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{}.json", ms_uuid)), &entry)
+            .unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.milestones, 1);
+
+        let ms = db.get_milestone(1).unwrap();
+        assert!(ms.is_some());
+        assert_eq!(ms.unwrap().name, "v1.0");
+    }
+
+    #[test]
+    fn test_hydrate_milestones_legacy_fallback() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let issue = make_issue(1, "Test");
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        // Write legacy single-file milestones.json (no per-file dir)
+        let meta_dir = cache.path().join("meta");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        let ms_uuid = Uuid::new_v4();
+        let mut milestones = std::collections::HashMap::new();
+        milestones.insert(
+            ms_uuid,
+            crate::issue_file::MilestoneEntry {
+                uuid: ms_uuid,
+                display_id: 1,
+                name: "legacy-ms".to_string(),
+                description: None,
+                status: "open".to_string(),
+                created_at: Utc::now(),
+                closed_at: None,
+            },
+        );
+        let mf = crate::issue_file::MilestonesFile { milestones };
+        let json = serde_json::to_string_pretty(&mf).unwrap();
+        std::fs::write(meta_dir.join("milestones.json"), json).unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.milestones, 1);
+
+        let ms = db.get_milestone(1).unwrap();
+        assert!(ms.is_some());
+        assert_eq!(ms.unwrap().name, "legacy-ms");
     }
 }
