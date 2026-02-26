@@ -240,7 +240,7 @@ mod tests {
     fn test_diff_defaults_match() {
         // Init a fresh crosslink dir, then diff — everything should match
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false).unwrap();
+        crate::commands::init::run(dir.path(), false, None).unwrap();
 
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn test_diff_customized_file() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false).unwrap();
+        crate::commands::init::run(dir.path(), false, None).unwrap();
 
         // Modify a rule file
         let rule_path = dir.path().join(".crosslink/rules/global.md");
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_diff_section_filter() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false).unwrap();
+        crate::commands::init::run(dir.path(), false, None).unwrap();
 
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn test_init_creates_commands_dir() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false).unwrap();
+        crate::commands::init::run(dir.path(), false, None).unwrap();
 
         assert!(dir.path().join(".claude/commands/review.md").exists());
         let content = fs::read_to_string(dir.path().join(".claude/commands/review.md")).unwrap();
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn test_check_passes_when_defaults_match() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false).unwrap();
+        crate::commands::init::run(dir.path(), false, None).unwrap();
 
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn test_check_passes_with_custom_marker() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false).unwrap();
+        crate::commands::init::run(dir.path(), false, None).unwrap();
 
         // Modify a rule file but add the custom marker
         let rule_path = dir.path().join(".crosslink/rules/global.md");
