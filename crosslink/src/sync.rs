@@ -113,6 +113,11 @@ impl SyncManager {
             std::fs::create_dir_all(self.cache_dir.join("trust"))?;
             std::fs::create_dir_all(self.cache_dir.join("issues"))?;
             std::fs::create_dir_all(self.cache_dir.join("meta"))?;
+
+            // Commit the initial state so the branch has at least one commit.
+            // Without this, `git log` and other commands fail on the empty orphan.
+            self.git_in_cache(&["add", "locks.json"])?;
+            self.git_in_cache(&["commit", "-m", "Initialize crosslink/locks branch"])?;
         }
 
         Ok(())
