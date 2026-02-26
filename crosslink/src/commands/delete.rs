@@ -2,8 +2,9 @@ use anyhow::{bail, Result};
 use std::io::{self, Write};
 
 use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 
-pub fn run(db: &Database, id: i64, force: bool) -> Result<()> {
+pub fn run(db: &Database, writer: Option<&SharedWriter>, id: i64, force: bool) -> Result<()> {
     // Check if issue exists first
     let issue = match db.get_issue(id)? {
         Some(i) => i,
@@ -23,7 +24,10 @@ pub fn run(db: &Database, id: i64, force: bool) -> Result<()> {
         }
     }
 
-    if db.delete_issue(id)? {
+    if let Some(w) = writer {
+        w.delete_issue(db, id)?;
+        println!("Deleted issue #{}", id);
+    } else if db.delete_issue(id)? {
         println!("Deleted issue #{}", id);
     } else {
         bail!("Failed to delete issue #{}", id);
@@ -35,7 +39,7 @@ pub fn run(db: &Database, id: i64, force: bool) -> Result<()> {
 /// Internal function for testing without stdin interaction
 #[cfg(test)]
 pub fn run_force(db: &Database, id: i64) -> Result<()> {
-    run(db, id, true)
+    run(db, None, id, true)
 }
 
 #[cfg(test)]

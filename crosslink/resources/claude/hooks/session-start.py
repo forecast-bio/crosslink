@@ -181,10 +181,15 @@ def main():
     if session_status:
         context_parts.append(f"## Current Session\n{session_status}")
 
-    # Sync lock state (best-effort, non-blocking)
+    # Show agent identity if in multi-agent mode
+    agent_status = run_crosslink(["agent", "status"])
+    if agent_status and "No agent configured" not in agent_status:
+        context_parts.append(f"## Agent Identity\n{agent_status}")
+
+    # Sync lock state and hydrate shared issues (best-effort, non-blocking)
     sync_result = run_crosslink(["sync"])
     if sync_result:
-        context_parts.append(f"## Lock Sync\n{sync_result}")
+        context_parts.append(f"## Coordination Sync\n{sync_result}")
 
     # Show lock assignments
     locks_result = run_crosslink(["locks", "list"])

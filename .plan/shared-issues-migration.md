@@ -53,7 +53,6 @@ Each issue is a self-contained JSON file at `issues/{uuid}.json`:
     }
   ],
   "blockers": ["f1e2d3c4-..."],
-  "blocking": ["b5a6c7d8-..."],
   "related": ["e9f0a1b2-..."],
   "milestone_uuid": null,
   "time_entries": [
@@ -74,8 +73,8 @@ Key decisions:
   holder is the only writer, so no conflict
 - **Labels are inline** — no separate join table needed
 - **Time entries are inline** — scoped to one issue
-- **Dependencies stored bidirectionally** — both `blockers` and `blocking` arrays,
-  kept consistent by the writing agent
+- **Dependencies stored single-direction** — only `blockers` array on the blocked
+  issue; reverse direction derived during SQLite hydration (see Amendment 2 below)
 
 ## Counters File
 
@@ -422,3 +421,277 @@ Commands affected:
 
 4. **Import/export format** — should `crosslink export` emit the new JSON format
    or keep the current format? Both?
+
+---
+
+# Design Amendments
+
+The following three amendments refine the original plan based on architectural
+review. They simplify Phases 1-4 by replacing the in-memory `IssueIndex` and
+`IssueStore` trait with SQLite hydration and a write-only `SharedWriter`.
+
+---
+
+## Amendment 1: SQLite Hydration (replaces in-memory IssueIndex)
+
+### Decision
+
+JSON on the coordination branch is the source of truth. Local SQLite is always
+the read path, hydrated from JSON on every `crosslink sync`.
+
+### Why
+
+- Eliminates `IssueStore` trait, `SqliteStore`, `SharedStore`, and `IssueIndex`
+- Existing SQL queries in `db.rs` work unchanged against hydrated SQLite
+- Read-only commands (`show`, `list`, `search`, `tree`, `blocked`, `ready`) need zero changes
+
+### Architecture
+
+**Fetch flow:**
+```
+Remote git  →  git fetch/rebase  →  .locks-cache/issues/*.json
+                                          ↓
+                                   hydrate_to_sqlite()
+                                          ↓
+                                   .crosslink/issues.db (local SQLite)
+                                          ↓
+                                   All reads via db.*
+```
+
+**Write flow:**
+```
+Command  →  SharedWriter  →  write JSON to .locks-cache/
+                          →  git add + commit + push (retry on conflict)
+                          →  insert into local SQLite immediately
+```
+
+### New modules
+
+- **`hydration.rs`** — `hydrate_to_sqlite(cache_dir, db)`: reads all
+  `issues/*.json`, runs `DELETE + INSERT` in a single transaction
+- **`shared_writer.rs`** — `SharedWriter` struct wrapping `SyncManager` +
+  `AgentConfig`. Handles JSON write → git push → SQLite update. Returns `None`
+  in single-agent mode (no `agent.json`)
+- **`issue_file.rs`** — `IssueFile` serde struct (the JSON schema)
+
+### Command signature change
+
+Instead of replacing `&Database` with `&dyn IssueStore`:
+
+```rust
+// Before
+pub fn run(db: &Database, ...) -> Result<()>
+
+// After — write commands only
+pub fn run(db: &Database, writer: Option<&SharedWriter>, ...) -> Result<()> {
+    let id = if let Some(w) = writer {
+        w.create_issue(db, title, desc, priority)?
+    } else {
+        db.create_issue(title, desc, priority)?  // unchanged path
+    };
+}
+```
+
+Read-only commands unchanged. Write commands get `Option<&SharedWriter>`.
+
+### Schema migration (v10)
+
+```sql
+ALTER TABLE issues ADD COLUMN uuid TEXT;
+CREATE UNIQUE INDEX idx_issues_uuid ON issues(uuid);
+ALTER TABLE issues ADD COLUMN created_by TEXT;
+ALTER TABLE comments ADD COLUMN uuid TEXT;
+ALTER TABLE comments ADD COLUMN author TEXT;
+ALTER TABLE milestones ADD COLUMN uuid TEXT;
+CREATE UNIQUE INDEX idx_milestones_uuid ON milestones(uuid);
+```
+
+`uuid` is nullable — in single-agent mode it stays NULL, everything works as before.
+
+### What this replaces from the original plan
+
+| Removed | Reason |
+|---------|--------|
+| `IssueStore` trait | SQLite is always the read path |
+| `SqliteStore` wrapper | `Database` used directly |
+| `SharedStore` wrapper | Replaced by `SharedWriter` (write-only) |
+| `IssueIndex` in-memory query engine | SQLite handles all queries |
+| `issue_index.rs` | Not needed |
+| `store.rs` | Not needed |
+| Phase 3 (Dual-Mode Adapter) | Eliminated entirely |
+| Phase 4 (Wire all commands to trait) | Simplified to adding `Option<&SharedWriter>` |
+
+---
+
+## Amendment 2: Cross-Issue Dependencies (single-direction storage)
+
+### Problem
+
+Original plan stores dependencies bidirectionally: `blockers` AND `blocking`
+arrays on each issue JSON. But if Agent A wants to block issue X on issue Y,
+and Y is locked by Agent B, Agent A can't write to Y's file.
+
+### Decision
+
+**Store `blockers` only on the blocked issue.** The reverse direction
+(`blocking`) is derived during SQLite hydration.
+
+### Why this works
+
+- Agent A only writes to issue X's file (which A locks):
+  `"blockers": ["uuid-of-Y"]`
+- Agent A never touches Y's file
+- During `hydrate_to_sqlite()`, all `blockers` arrays are scanned and inserted
+  into the `dependencies(blocker_id, blocked_id)` table — both directions
+  available via SQL
+- Existing queries (`get_blockers`, `get_blocking`, `list_blocked_issues`,
+  `list_ready_issues`) work unchanged against the hydrated table
+- Cycle detection via `would_create_cycle()` DFS works unchanged against SQLite
+
+### JSON format (amended)
+
+```json
+{
+  "uuid": "a1b2c3d4-...",
+  "display_id": 42,
+  "blockers": ["uuid-of-17"],
+  "related": ["uuid-of-99"]
+}
+```
+
+Removed: `"blocking"` array (was bidirectional, required cross-lock writes).
+
+### Write flow for `crosslink block 42 17`
+
+1. Look up UUIDs for #42 and #17 from SQLite
+2. Verify Agent holds lock on #42 (do NOT need lock on #17)
+3. Read `issues/uuid-42.json`, append `"uuid-17"` to `blockers`
+4. Run cycle detection against SQLite (`would_create_cycle`)
+5. Write JSON, commit, push
+6. Insert into SQLite `dependencies` table
+
+### Edge cases
+
+- **Dangling blocker UUID** (blocker deleted by another agent): hydration
+  silently skips the unknown UUID. Stale reference in JSON is harmless.
+- **Race on cycle creation** (A adds X→Y, B adds Y→X simultaneously): after
+  rebase-retry, `SharedWriter` re-hydrates and re-validates. If cycle detected
+  post-rebase, operation fails with error.
+- **`unblock 42 17`**: only modifies #42's file (removes uuid-17 from
+  `blockers`). No lock on #17 needed.
+- **Relations**: same single-direction strategy. Hydration inserts both
+  directions into `relations` table.
+
+### Alternatives rejected
+
+| Option | Why rejected |
+|--------|-------------|
+| Separate `meta/dependencies.json` | Single shared file = contention bottleneck |
+| Message queue for pending deps | Overengineered, requires async consumer |
+| Dependencies table on coordination branch | Same contention as shared file |
+
+---
+
+## Amendment 3: Display ID Strategy (UUIDs primary, stable IDs on push)
+
+### Problem
+
+| Approach | Flaw |
+|----------|------|
+| UUIDs-only, local counter reconciled on fetch | IDs change between syncs — `#5` becomes `#23` |
+| Per-agent namespace (1000-1999, 2000-2999) | Gaps in numbering, namespace exhaustion |
+| Shared counter with rebase-retry | Viable but needs offline handling |
+
+### Decision
+
+**UUIDs as primary identity + stable display IDs assigned from shared counter
+on first push.** Once assigned, a display ID never changes.
+
+### Why this is most scalable
+
+- **Stable**: `#42` stays `#42` forever — users, handoff notes, commit messages
+  all reference it reliably
+- **UUIDs for internals**: `blockers`, `parent_uuid`, `related`, `milestone_uuid`
+  all use UUIDs — immune to display ID assignment
+- **Offline-capable**: agents create issues offline with temporary local IDs,
+  resolved on next sync
+- **Low contention**: issue creation is infrequent (dozens/day), rebase-retry
+  adds <1s latency in rare conflicts
+
+### Counter claim flow
+
+```
+1. Generate UUID v4
+2. Fetch latest from remote (best-effort)
+3. Read meta/counters.json: { "next_display_id": 42 }
+4. Claim display_id = 42, write next_display_id = 43
+5. Write issues/{uuid}.json with display_id: 42
+6. git add + commit + push
+7. Push rejected? → pull --rebase, re-read counter, reassign, retry (max 3)
+```
+
+### Offline (temporary local IDs)
+
+Issues created offline get `display_id: null` in JSON and negative IDs in
+SQLite (`-1`, `-2`, ...). Users see these as `L1`, `L2`.
+
+On next successful sync:
+1. Read `counters.json`, claim N sequential IDs
+2. Rewrite JSON files with real display IDs
+3. Commit + push
+4. Re-hydrate SQLite (negative IDs → positive)
+5. Print: `"Issue L1 has been assigned display ID #50"`
+
+**Parsing in CLI:**
+```rust
+fn parse_issue_id(s: &str) -> Result<i64> {
+    if let Some(n) = s.strip_prefix('L') {
+        Ok(-(n.parse::<i64>()?))  // L1 → -1
+    } else {
+        Ok(s.parse()?)            // 42 → 42
+    }
+}
+```
+
+### Counter recovery
+
+If `counters.json` is corrupted or missing: scan all `issues/*.json` for max
+`display_id`, set `next_display_id = max + 1`.
+
+---
+
+## Amended Implementation Phases
+
+These replace the original Phases 1-4:
+
+| Phase | Description | Modules |
+|-------|-------------|---------|
+| 1 | `IssueFile` serde struct + `hydration.rs` + schema v10 | `issue_file.rs`, `hydration.rs`, `db.rs` |
+| 2 | `SharedWriter` + counter management + push-with-retry | `shared_writer.rs` |
+| 3 | Integrate hydration into `SyncManager` + `crosslink sync` | `sync.rs` |
+| 4 | Wire write commands to `SharedWriter` (incremental) | `commands/*.rs`, `main.rs` |
+| 5 | Lock claim/release commands (unchanged) | `commands/locks_cmd.rs` |
+| 6 | Migration tool + offline→online ID promotion | `commands/migrate.rs` |
+| 7 | Daemon periodic hydration + CLI UX polish | `daemon.rs` |
+
+## Amended Files Changed Summary
+
+### New files:
+- `crosslink/src/issue_file.rs` — `IssueFile` serde struct (JSON schema)
+- `crosslink/src/hydration.rs` — JSON → SQLite hydration
+- `crosslink/src/shared_writer.rs` — write-path coordination for multi-agent mode
+- `crosslink/src/commands/migrate.rs` — migration commands
+
+### Modified files:
+- `crosslink/src/db.rs` — schema v10 migration (uuid columns), `insert_hydrated_issue()`, `clear_shared_data()`, `insert_dependency_raw()`
+- `crosslink/src/sync.rs` — issue/counter file operations, hydration integration
+- `crosslink/src/main.rs` — construct `SharedWriter`, pass to write commands, `parse_issue_id()`
+- `crosslink/src/commands/*.rs` — write commands get `Option<&SharedWriter>` parameter
+- `crosslink/src/commands/locks_cmd.rs` — claim/release/steal commands
+- `crosslink/src/daemon.rs` — periodic fetch + hydration cycle
+- `crosslink/Cargo.toml` — add `uuid` crate
+
+### Unchanged:
+- `crosslink/src/models.rs` — kept as-is, used by both modes
+- `crosslink/src/locks.rs` — kept as-is
+- `crosslink/src/identity.rs` — kept as-is

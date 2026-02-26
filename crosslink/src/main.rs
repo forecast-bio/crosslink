@@ -1,10 +1,13 @@
 mod commands;
 mod daemon;
 mod db;
+mod hydration;
 mod identity;
+mod issue_file;
 mod lock_check;
 mod locks;
 mod models;
+mod shared_writer;
 mod sync;
 mod utils;
 
@@ -330,6 +333,12 @@ enum Commands {
 
     /// Sync locks and issue state from remote
     Sync,
+
+    /// Migrate local SQLite issues to shared coordination branch
+    MigrateToShared,
+
+    /// Import shared issues from coordination branch into local SQLite
+    MigrateFromShared,
 }
 
 #[derive(Subcommand)]
@@ -487,6 +496,24 @@ enum LocksCommands {
         /// Issue ID
         id: i64,
     },
+    /// Claim a lock on an issue
+    Claim {
+        /// Issue ID
+        id: i64,
+        /// Branch name for context
+        #[arg(short, long)]
+        branch: Option<String>,
+    },
+    /// Release a lock on an issue
+    Release {
+        /// Issue ID
+        id: i64,
+    },
+    /// Steal a stale lock from another agent
+    Steal {
+        /// Issue ID
+        id: i64,
+    },
 }
 
 fn find_crosslink_dir() -> Result<PathBuf> {
@@ -510,6 +537,40 @@ fn get_db() -> Result<Database> {
     Database::open(&db_path).context("Failed to open database")
 }
 
+/// Try to create a SharedWriter for multi-agent mode.
+/// Returns None if agent.json is absent or sync cache isn't initialized.
+fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWriter> {
+    match shared_writer::SharedWriter::new(crosslink_dir) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("Warning: SharedWriter unavailable: {}", e);
+            None
+        }
+    }
+}
+
+/// Parse an issue ID string, supporting both regular IDs and offline local IDs.
+///
+/// - `"42"` → `42` (regular display ID)
+/// - `"L1"` or `"l1"` → `-1` (offline local ID, stored as negative in SQLite)
+///
+/// Used when offline issue creation is enabled (display_id: null in JSON).
+#[allow(dead_code)]
+fn parse_issue_id(s: &str) -> Result<i64> {
+    if let Some(n) = s.strip_prefix('L').or_else(|| s.strip_prefix('l')) {
+        let num: i64 = n
+            .parse()
+            .with_context(|| format!("Invalid local issue ID: {}", s))?;
+        if num <= 0 {
+            bail!("Local issue ID must be positive: {}", s);
+        }
+        Ok(-num)
+    } else {
+        s.parse()
+            .with_context(|| format!("Invalid issue ID: {}", s))
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -529,6 +590,7 @@ fn main() -> Result<()> {
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work,
@@ -537,6 +599,7 @@ fn main() -> Result<()> {
             };
             commands::create::run(
                 &db,
+                writer.as_ref(),
                 &title,
                 description.as_deref(),
                 &priority,
@@ -554,6 +617,7 @@ fn main() -> Result<()> {
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work: true,
@@ -562,6 +626,7 @@ fn main() -> Result<()> {
             };
             commands::create::run(
                 &db,
+                writer.as_ref(),
                 &title,
                 description.as_deref(),
                 &priority,
@@ -580,6 +645,7 @@ fn main() -> Result<()> {
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
             let opts = commands::create::CreateOpts {
                 labels: &label,
                 work,
@@ -588,6 +654,7 @@ fn main() -> Result<()> {
             };
             commands::create::run_subissue(
                 &db,
+                writer.as_ref(),
                 parent,
                 &title,
                 description.as_deref(),
@@ -634,8 +701,11 @@ fn main() -> Result<()> {
             priority,
         } => {
             let db = get_db()?;
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
             commands::update::run(
                 &db,
+                writer.as_ref(),
                 id,
                 title.as_deref(),
                 description.as_deref(),
@@ -646,10 +716,11 @@ fn main() -> Result<()> {
         Commands::Close { id, no_changelog } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
             if cli.quiet {
-                commands::status::close_quiet(&db, id, !no_changelog, &crosslink_dir)
+                commands::status::close_quiet(&db, writer.as_ref(), id, !no_changelog, &crosslink_dir)
             } else {
-                commands::status::close(&db, id, !no_changelog, &crosslink_dir)
+                commands::status::close(&db, writer.as_ref(), id, !no_changelog, &crosslink_dir)
             }
         }
 
@@ -660,8 +731,10 @@ fn main() -> Result<()> {
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
             commands::status::close_all(
                 &db,
+                writer.as_ref(),
                 label.as_deref(),
                 priority.as_deref(),
                 !no_changelog,
@@ -671,37 +744,51 @@ fn main() -> Result<()> {
 
         Commands::Reopen { id } => {
             let db = get_db()?;
-            commands::status::reopen(&db, id)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::status::reopen(&db, writer.as_ref(), id)
         }
 
         Commands::Delete { id, force } => {
             let db = get_db()?;
-            commands::delete::run(&db, id, force)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::delete::run(&db, writer.as_ref(), id, force)
         }
 
         Commands::Comment { id, text } => {
             let db = get_db()?;
-            commands::comment::run(&db, id, &text)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::comment::run(&db, writer.as_ref(), id, &text)
         }
 
         Commands::Label { id, label } => {
             let db = get_db()?;
-            commands::label::add(&db, id, &label)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::label::add(&db, writer.as_ref(), id, &label)
         }
 
         Commands::Unlabel { id, label } => {
             let db = get_db()?;
-            commands::label::remove(&db, id, &label)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::label::remove(&db, writer.as_ref(), id, &label)
         }
 
         Commands::Block { id, blocker } => {
             let db = get_db()?;
-            commands::deps::block(&db, id, blocker)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::deps::block(&db, writer.as_ref(), id, blocker)
         }
 
         Commands::Unblock { id, blocker } => {
             let db = get_db()?;
-            commands::deps::unblock(&db, id, blocker)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::deps::unblock(&db, writer.as_ref(), id, blocker)
         }
 
         Commands::Blocked => {
@@ -716,12 +803,16 @@ fn main() -> Result<()> {
 
         Commands::Relate { id, related } => {
             let db = get_db()?;
-            commands::relate::add(&db, id, related)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::relate::add(&db, writer.as_ref(), id, related)
         }
 
         Commands::Unrelate { id, related } => {
             let db = get_db()?;
-            commands::relate::remove(&db, id, related)
+            let crosslink_dir = find_crosslink_dir()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::relate::remove(&db, writer.as_ref(), id, related)
         }
 
         Commands::Related { id } => {
@@ -809,7 +900,7 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             match action {
                 SessionCommands::Start => commands::session::start(&db, &crosslink_dir),
-                SessionCommands::End { notes } => commands::session::end(&db, notes.as_deref()),
+                SessionCommands::End { notes } => commands::session::end(&db, notes.as_deref(), &crosslink_dir),
                 SessionCommands::Status => commands::session::status(&db),
                 SessionCommands::Work { id } => commands::session::work(&db, id, &crosslink_dir),
                 SessionCommands::LastHandoff => commands::session::last_handoff(&db),
@@ -864,12 +955,34 @@ fn main() -> Result<()> {
             match action {
                 LocksCommands::List => commands::locks_cmd::list(&crosslink_dir, &db, cli.json),
                 LocksCommands::Check { id } => commands::locks_cmd::check(&crosslink_dir, id),
+                LocksCommands::Claim { id, branch } => {
+                    commands::locks_cmd::claim(&crosslink_dir, id, branch.as_deref())
+                }
+                LocksCommands::Release { id } => {
+                    commands::locks_cmd::release(&crosslink_dir, id)
+                }
+                LocksCommands::Steal { id } => {
+                    commands::locks_cmd::steal(&crosslink_dir, id)
+                }
             }
         }
 
         Commands::Sync => {
             let crosslink_dir = find_crosslink_dir()?;
-            commands::locks_cmd::sync_cmd(&crosslink_dir)
+            let db = get_db()?;
+            commands::locks_cmd::sync_cmd(&crosslink_dir, &db)
+        }
+
+        Commands::MigrateToShared => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::migrate::to_shared(&crosslink_dir, &db)
+        }
+
+        Commands::MigrateFromShared => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            commands::migrate::from_shared(&crosslink_dir, &db)
         }
     }
 }

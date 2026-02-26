@@ -11,6 +11,7 @@ pub mod init;
 pub mod label;
 pub mod list;
 pub mod locks_cmd;
+pub mod migrate;
 pub mod milestone;
 pub mod next;
 pub mod relate;

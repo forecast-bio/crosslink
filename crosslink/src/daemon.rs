@@ -9,6 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::db::Database;
+use crate::hydration::hydrate_to_sqlite;
 
 const FLUSH_INTERVAL_SECS: u64 = 30;
 
@@ -192,18 +193,41 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
             }
         }
 
-        // Heartbeat: push agent heartbeat every N cycles
+        // Heartbeat + fetch/hydrate: every N cycles
         heartbeat_counter += 1;
         if heartbeat_counter.is_multiple_of(HEARTBEAT_EVERY_N) {
             if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
                 if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
                     let _ = sync.init_cache();
+
+                    // Push heartbeat
                     match sync.push_heartbeat(&agent, active_issue_id) {
                         Ok(()) => println!(
                             "Heartbeat pushed at {}",
                             chrono::Utc::now().format("%H:%M:%S")
                         ),
                         Err(e) => eprintln!("Heartbeat push failed: {}", e),
+                    }
+
+                    // Fetch latest coordination branch and hydrate SQLite
+                    match sync.fetch() {
+                        Ok(()) => {
+                            if let Ok(db) = Database::open(&db_path) {
+                                match hydrate_to_sqlite(sync.cache_path(), &db) {
+                                    Ok(stats) => {
+                                        if stats.issues > 0 {
+                                            println!(
+                                                "Hydrated {} issue(s) at {}",
+                                                stats.issues,
+                                                chrono::Utc::now().format("%H:%M:%S")
+                                            );
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Hydration failed: {}", e),
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Fetch failed: {}", e),
                     }
                 }
             }
