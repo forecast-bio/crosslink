@@ -1,12 +1,18 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
+use uuid::Uuid;
 
 use crate::db::Database;
+use crate::issue_file::{CommentEntry, IssueFile, TimeEntry};
 use crate::models::Issue;
 use crate::utils::format_issue_id;
 
+// Legacy export types — kept for backward compatibility with `import` command.
+// NOTE: The import command still reads the old ExportData envelope format.
+// If you need round-trip import/export, the import command needs updating too.
 #[derive(Serialize, Deserialize)]
 pub struct ExportedIssue {
     pub id: i64,
@@ -35,51 +41,122 @@ pub struct ExportData {
     pub issues: Vec<ExportedIssue>,
 }
 
-fn export_issue(db: &Database, issue: &Issue) -> Result<ExportedIssue> {
-    let labels = db.get_labels(issue.id)?;
-    let comments = db.get_comments(issue.id)?;
+/// Build a pre-computed map of issue display_id -> UUID for consistent cross-references.
+/// Issues without a stored UUID get a freshly generated one.
+fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>> {
+    let mut map = HashMap::new();
+    for issue in issues {
+        let (uuid_str, _) = db.get_issue_export_metadata(issue.id)?;
+        let uuid = match uuid_str {
+            Some(s) => Uuid::parse_str(&s).unwrap_or_else(|_| Uuid::new_v4()),
+            None => Uuid::new_v4(),
+        };
+        map.insert(issue.id, uuid);
+    }
+    Ok(map)
+}
 
-    Ok(ExportedIssue {
-        id: issue.id,
+/// Look up a UUID from the map, falling back to a DB query or a fresh UUID.
+fn resolve_uuid(db: &Database, uuid_map: &HashMap<i64, Uuid>, id: i64) -> Uuid {
+    if let Some(&uuid) = uuid_map.get(&id) {
+        return uuid;
+    }
+    // Issue not in the exported set — try the DB
+    db.get_issue_uuid_by_id(id)
+        .ok()
+        .and_then(|s| Uuid::parse_str(&s).ok())
+        .unwrap_or_else(Uuid::new_v4)
+}
+
+fn build_issue_file(
+    db: &Database,
+    issue: &Issue,
+    uuid_map: &HashMap<i64, Uuid>,
+) -> Result<IssueFile> {
+    let uuid = *uuid_map
+        .get(&issue.id)
+        .ok_or_else(|| anyhow::anyhow!("issue {} missing from uuid_map", issue.id))?;
+
+    let (_, created_by) = db.get_issue_export_metadata(issue.id)?;
+
+    let parent_uuid = issue.parent_id.map(|pid| resolve_uuid(db, uuid_map, pid));
+
+    let labels = db.get_labels(issue.id)?;
+
+    let comments_raw = db.get_comments_with_author(issue.id)?;
+    let comments: Vec<CommentEntry> = comments_raw
+        .into_iter()
+        .map(|(id, author, content, created_at)| CommentEntry {
+            id,
+            author: author.unwrap_or_else(|| "unknown".to_string()),
+            content,
+            created_at,
+        })
+        .collect();
+
+    let blocker_ids = db.get_blockers(issue.id)?;
+    let blockers: Vec<Uuid> = blocker_ids
+        .iter()
+        .map(|&bid| resolve_uuid(db, uuid_map, bid))
+        .collect();
+
+    let related_ids = db.get_related_issue_ids(issue.id)?;
+    let related: Vec<Uuid> = related_ids
+        .iter()
+        .map(|&rid| resolve_uuid(db, uuid_map, rid))
+        .collect();
+
+    let milestone_uuid = db
+        .get_milestone_uuid_for_issue(issue.id)?
+        .and_then(|s| Uuid::parse_str(&s).ok());
+
+    let time_entries_raw = db.get_time_entries_for_issue(issue.id)?;
+    let time_entries: Vec<TimeEntry> = time_entries_raw
+        .into_iter()
+        .map(|(id, started_at, ended_at, duration_seconds)| TimeEntry {
+            id,
+            started_at,
+            ended_at,
+            duration_seconds,
+        })
+        .collect();
+
+    Ok(IssueFile {
+        uuid,
+        display_id: Some(issue.id),
         title: issue.title.clone(),
         description: issue.description.clone(),
         status: issue.status.clone(),
         priority: issue.priority.clone(),
-        parent_id: issue.parent_id,
+        parent_uuid,
+        created_by: created_by.unwrap_or_else(|| "unknown".to_string()),
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        closed_at: issue.closed_at,
         labels,
-        comments: comments
-            .into_iter()
-            .map(|c| ExportedComment {
-                content: c.content,
-                created_at: c.created_at.to_rfc3339(),
-            })
-            .collect(),
-        created_at: issue.created_at.to_rfc3339(),
-        updated_at: issue.updated_at.to_rfc3339(),
-        closed_at: issue.closed_at.map(|dt| dt.to_rfc3339()),
+        comments,
+        blockers,
+        related,
+        milestone_uuid,
+        time_entries,
     })
 }
 
 pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
     let issues = db.list_issues(Some("all"), None, None)?;
+    let uuid_map = build_uuid_map(db, &issues)?;
 
-    let exported: Vec<ExportedIssue> = issues
+    let issue_files: Vec<IssueFile> = issues
         .iter()
-        .map(|i| export_issue(db, i))
+        .map(|i| build_issue_file(db, i, &uuid_map))
         .collect::<Result<Vec<_>>>()?;
 
-    let data = ExportData {
-        version: 1,
-        exported_at: chrono::Utc::now().to_rfc3339(),
-        issues: exported,
-    };
-
-    let json = serde_json::to_string_pretty(&data)?;
+    let json = serde_json::to_string_pretty(&issue_files)?;
 
     match output_path {
         Some(path) => {
             fs::write(path, json).context("Failed to write export file")?;
-            eprintln!("Exported {} issues to {}", data.issues.len(), path);
+            eprintln!("Exported {} issues to {}", issue_files.len(), path);
         }
         None => {
             let mut stdout = io::stdout().lock();
@@ -193,6 +270,7 @@ fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::issue_file::IssueFile;
     use proptest::prelude::*;
     use tempfile::tempdir;
 
@@ -205,47 +283,57 @@ mod tests {
 
     #[test]
     fn test_export_issue_basic() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
         let id = db.create_issue("Test issue", None, "medium").unwrap();
-        let issue = db.get_issue(id).unwrap().unwrap();
-        let exported = export_issue(&db, &issue).unwrap();
-        assert_eq!(exported.id, id);
-        assert_eq!(exported.title, "Test issue");
-        assert_eq!(exported.priority, "medium");
-        assert_eq!(exported.status, "open");
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].title, "Test issue");
+        assert_eq!(issues[0].priority, "medium");
+        assert_eq!(issues[0].status, "open");
+        assert_eq!(issues[0].display_id, Some(id));
     }
 
     #[test]
     fn test_export_issue_with_labels() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
         let id = db.create_issue("Test issue", None, "medium").unwrap();
         db.add_label(id, "bug").unwrap();
         db.add_label(id, "urgent").unwrap();
-        let issue = db.get_issue(id).unwrap().unwrap();
-        let exported = export_issue(&db, &issue).unwrap();
-        assert_eq!(exported.labels.len(), 2);
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues[0].labels.len(), 2);
     }
 
     #[test]
     fn test_export_issue_with_comments() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
         let id = db.create_issue("Test issue", None, "medium").unwrap();
         db.add_comment(id, "First comment").unwrap();
         db.add_comment(id, "Second comment").unwrap();
-        let issue = db.get_issue(id).unwrap().unwrap();
-        let exported = export_issue(&db, &issue).unwrap();
-        assert_eq!(exported.comments.len(), 2);
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues[0].comments.len(), 2);
+        assert_eq!(issues[0].comments[0].content, "First comment");
     }
 
     #[test]
     fn test_export_closed_issue() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
         let id = db.create_issue("Test issue", None, "medium").unwrap();
         db.close_issue(id).unwrap();
-        let issue = db.get_issue(id).unwrap().unwrap();
-        let exported = export_issue(&db, &issue).unwrap();
-        assert_eq!(exported.status, "closed");
-        assert!(exported.closed_at.is_some());
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues[0].status, "closed");
+        assert!(issues[0].closed_at.is_some());
     }
 
     #[test]
@@ -258,9 +346,8 @@ mod tests {
         let result = run_json(&db, Some(output_path.to_str().unwrap()));
         assert!(result.is_ok());
         let content = fs::read_to_string(&output_path).unwrap();
-        let data: ExportData = serde_json::from_str(&content).unwrap();
-        assert_eq!(data.version, 1);
-        assert_eq!(data.issues.len(), 2);
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues.len(), 2);
     }
 
     #[test]
@@ -270,8 +357,8 @@ mod tests {
         let result = run_json(&db, Some(output_path.to_str().unwrap()));
         assert!(result.is_ok());
         let content = fs::read_to_string(&output_path).unwrap();
-        let data: ExportData = serde_json::from_str(&content).unwrap();
-        assert_eq!(data.issues.len(), 0);
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues.len(), 0);
     }
 
     #[test]
@@ -308,36 +395,59 @@ mod tests {
         let output_path = dir.path().join("export.json");
         run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
         let content = fs::read_to_string(&output_path).unwrap();
-        let data: ExportData = serde_json::from_str(&content).unwrap();
-        assert_eq!(data.issues[0].title, "Test 🐛");
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues[0].title, "Test 🐛");
     }
 
     #[test]
-    fn test_export_data_roundtrip() {
-        let data = ExportData {
-            version: 1,
-            exported_at: "2024-01-01T00:00:00Z".to_string(),
-            issues: vec![ExportedIssue {
-                id: 1,
-                title: "Test".to_string(),
-                description: Some("Desc".to_string()),
-                status: "open".to_string(),
-                priority: "medium".to_string(),
-                parent_id: None,
-                labels: vec!["bug".to_string()],
-                comments: vec![ExportedComment {
-                    content: "Comment".to_string(),
-                    created_at: "2024-01-01T00:00:00Z".to_string(),
-                }],
-                created_at: "2024-01-01T00:00:00Z".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
-                closed_at: None,
-            }],
-        };
-        let json = serde_json::to_string(&data).unwrap();
-        let parsed: ExportData = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.version, data.version);
-        assert_eq!(parsed.issues.len(), 1);
+    fn test_export_issue_file_roundtrip() {
+        let (db, dir) = setup_test_db();
+        let id = db.create_issue("Test", Some("Desc"), "medium").unwrap();
+        db.add_label(id, "bug").unwrap();
+        db.add_comment(id, "Comment").unwrap();
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].labels, vec!["bug".to_string()]);
+        assert_eq!(issues[0].comments.len(), 1);
+        // Verify it can be re-serialized
+        let re_json = serde_json::to_string_pretty(&issues).unwrap();
+        let re_parsed: Vec<IssueFile> = serde_json::from_str(&re_json).unwrap();
+        assert_eq!(re_parsed[0].uuid, issues[0].uuid);
+    }
+
+    #[test]
+    fn test_export_with_blockers() {
+        let (db, dir) = setup_test_db();
+        let id1 = db.create_issue("Blocker", None, "high").unwrap();
+        let id2 = db.create_issue("Blocked", None, "medium").unwrap();
+        db.add_dependency(id2, id1).unwrap();
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        let blocked = issues.iter().find(|i| i.title == "Blocked").unwrap();
+        let blocker = issues.iter().find(|i| i.title == "Blocker").unwrap();
+        assert_eq!(blocked.blockers.len(), 1);
+        assert_eq!(blocked.blockers[0], blocker.uuid);
+    }
+
+    #[test]
+    fn test_export_with_parent() {
+        let (db, dir) = setup_test_db();
+        let parent_id = db.create_issue("Parent", None, "high").unwrap();
+        db.create_subissue(parent_id, "Child", None, "medium")
+            .unwrap();
+        let output_path = dir.path().join("export.json");
+        run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
+        let content = fs::read_to_string(&output_path).unwrap();
+        let issues: Vec<IssueFile> = serde_json::from_str(&content).unwrap();
+        let parent = issues.iter().find(|i| i.title == "Parent").unwrap();
+        let child = issues.iter().find(|i| i.title == "Child").unwrap();
+        assert!(child.parent_uuid.is_some());
+        assert_eq!(child.parent_uuid.unwrap(), parent.uuid);
     }
 
     proptest! {
@@ -357,7 +467,7 @@ mod tests {
             let output_path = dir.path().join("export.json");
             run_json(&db, Some(output_path.to_str().unwrap())).unwrap();
             let content = fs::read_to_string(&output_path).unwrap();
-            let result: Result<ExportData, _> = serde_json::from_str(&content);
+            let result: Result<Vec<IssueFile>, _> = serde_json::from_str(&content);
             prop_assert!(result.is_ok());
         }
     }

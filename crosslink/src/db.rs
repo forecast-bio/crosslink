@@ -7,6 +7,12 @@ use crate::models::{Comment, Issue, Session};
 
 pub const SCHEMA_VERSION: i32 = 10;
 
+/// Row from `get_comments_with_author`: (id, author, content, created_at).
+pub type CommentAuthorRow = (i64, Option<String>, String, DateTime<Utc>);
+
+/// Row from `get_time_entries_for_issue`: (id, started_at, ended_at, duration_seconds).
+pub type TimeEntryRow = (i64, DateTime<Utc>, Option<DateTime<Utc>>, Option<i64>);
+
 pub struct Database {
     conn: Connection,
 }
@@ -595,6 +601,86 @@ impl Database {
             .query_map([issue_id], |row| row.get(0))?
             .collect::<std::result::Result<Vec<i64>, _>>()?;
         Ok(blocking)
+    }
+
+    /// Get the uuid and created_by metadata for an issue (columns added in migration v10).
+    pub fn get_issue_export_metadata(
+        &self,
+        issue_id: i64,
+    ) -> Result<(Option<String>, Option<String>)> {
+        self.conn
+            .query_row(
+                "SELECT uuid, created_by FROM issues WHERE id = ?1",
+                params![issue_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
+            )
+            .context("Failed to get issue export metadata")
+    }
+
+    /// Get comments with author field for an issue (author added in migration v10).
+    pub fn get_comments_with_author(&self, issue_id: i64) -> Result<Vec<CommentAuthorRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, content, created_at FROM comments WHERE issue_id = ?1 ORDER BY created_at",
+        )?;
+        let comments = stmt
+            .query_map([issue_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    parse_datetime(row.get::<_, String>(3)?),
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(comments)
+    }
+
+    /// Get time entries for an issue.
+    pub fn get_time_entries_for_issue(&self, issue_id: i64) -> Result<Vec<TimeEntryRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, started_at, ended_at, duration_seconds FROM time_entries WHERE issue_id = ?1 ORDER BY id",
+        )?;
+        let entries = stmt
+            .query_map([issue_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    parse_datetime(row.get::<_, String>(1)?),
+                    row.get::<_, Option<String>>(2)?.map(parse_datetime),
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(entries)
+    }
+
+    /// Get the milestone UUID for an issue, if one is assigned and has a UUID.
+    pub fn get_milestone_uuid_for_issue(&self, issue_id: i64) -> Result<Option<String>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT m.uuid FROM milestones m JOIN milestone_issues mi ON m.id = mi.milestone_id WHERE mi.issue_id = ?1 LIMIT 1",
+                [issue_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten();
+        Ok(result)
+    }
+
+    /// Get related issue IDs (both directions of the relation).
+    pub fn get_related_issue_ids(&self, issue_id: i64) -> Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT issue_id_2 FROM relations WHERE issue_id_1 = ?1 UNION SELECT issue_id_1 FROM relations WHERE issue_id_2 = ?1",
+        )?;
+        let ids = stmt
+            .query_map([issue_id], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<i64>, _>>()?;
+        Ok(ids)
     }
 
     pub fn list_blocked_issues(&self) -> Result<Vec<Issue>> {
