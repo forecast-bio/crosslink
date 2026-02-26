@@ -957,7 +957,10 @@ mod tests {
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(&content);
-        assert!(parsed.is_ok(), "Settings JSON should be valid after templating");
+        assert!(
+            parsed.is_ok(),
+            "Settings JSON should be valid after templating"
+        );
     }
 
     #[test]
