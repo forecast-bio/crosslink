@@ -48,6 +48,7 @@ jobs:
   # Security Audit
   # ===========================================
   security:
+    needs: lint
     name: Security Audit
     runs-on: ubuntu-latest
     defaults:
@@ -69,6 +70,7 @@ jobs:
   # Tests - Cross Platform
   # ===========================================
   test:
+    needs: lint
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -117,6 +119,7 @@ jobs:
   # Property-Based Tests (extended)
   # ===========================================
   proptest:
+    needs: test
     name: Property Tests
     runs-on: ubuntu-latest
     defaults:
@@ -148,6 +151,7 @@ jobs:
   # Fuzzing (Linux only, nightly)
   # ===========================================
   fuzz:
+    needs: test
     name: Fuzz Tests
     runs-on: ubuntu-latest
     defaults:
@@ -190,6 +194,7 @@ jobs:
   # Build Release Binaries
   # ===========================================
   build-release:
+    needs: test
     name: Build Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     defaults:
