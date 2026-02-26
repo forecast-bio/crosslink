@@ -37,8 +37,38 @@ DEFAULT_ALLOWED_BASH = [
 ]
 
 
+def _merge_with_extend(base, override):
+    """Merge *override* into *base* with array-extend support.
+
+    Keys in *override* that start with ``+`` are treated as array-extend
+    directives: their values are appended to the corresponding base array
+    (with the ``+`` stripped from the key name).  For example::
+
+        base:     {"allowed_bash_prefixes": ["ls", "pwd"]}
+        override: {"+allowed_bash_prefixes": ["my-tool"]}
+        result:   {"allowed_bash_prefixes": ["ls", "pwd", "my-tool"]}
+
+    If the base has no matching key, the override value is used as-is.
+    If the ``+``-prefixed value is not a list, it replaces like a normal key.
+    Keys without a ``+`` prefix replace the base value (backward compatible).
+    """
+    for key, value in override.items():
+        if key.startswith("+"):
+            real_key = key[1:]
+            if isinstance(value, list) and isinstance(base.get(real_key), list):
+                base[real_key] = base[real_key] + value
+            else:
+                base[real_key] = value
+        else:
+            base[key] = value
+    return base
+
+
 def _load_config_merged(crosslink_dir):
-    """Load hook-config.json, then shallow-merge hook-config.local.json on top.
+    """Load hook-config.json, then merge hook-config.local.json on top.
+
+    Supports the ``+key`` convention for extending arrays rather than
+    replacing them.  See ``_merge_with_extend`` for details.
 
     Returns the merged dict, or {} if neither file exists.
     """
@@ -59,7 +89,7 @@ def _load_config_merged(crosslink_dir):
         try:
             with open(local_path, "r", encoding="utf-8") as f:
                 local = json.load(f)
-            config.update(local)  # shallow merge: local keys win
+            _merge_with_extend(config, local)
         except (json.JSONDecodeError, OSError):
             pass
 
