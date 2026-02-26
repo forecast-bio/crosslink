@@ -20,6 +20,56 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
+/// Stats from rewriting local issue references after promotion.
+#[derive(Debug, Default)]
+pub struct RewriteStats {
+    pub comments_updated: usize,
+    pub descriptions_updated: usize,
+    pub sessions_updated: usize,
+}
+
+impl RewriteStats {
+    pub fn total(&self) -> usize {
+        self.comments_updated + self.descriptions_updated + self.sessions_updated
+    }
+}
+
+/// Replace `Lx` tokens in text with their promoted `#N` equivalents.
+///
+/// Only replaces at word boundaries to avoid false positives (e.g. "FILE1" is not rewritten).
+/// Returns `Some(new_text)` if any replacements were made, `None` otherwise.
+fn replace_local_refs(text: &str, replacements: &[(String, String)]) -> Option<String> {
+    let mut result = text.to_string();
+    let mut changed = false;
+    for (old, new) in replacements {
+        let mut i = 0;
+        while let Some(pos) = result[i..].find(old.as_str()) {
+            let abs_pos = i + pos;
+            let end_pos = abs_pos + old.len();
+
+            // Check word boundary before: must be start of string or non-alphanumeric
+            let before_ok = abs_pos == 0 || !result.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+
+            // Check word boundary after: must be end of string or non-alphanumeric
+            let after_ok =
+                end_pos >= result.len() || !result.as_bytes()[end_pos].is_ascii_alphanumeric();
+
+            if before_ok && after_ok {
+                result = format!("{}{}{}", &result[..abs_pos], new, &result[end_pos..]);
+                changed = true;
+                i = abs_pos + new.len();
+            } else {
+                i = end_pos;
+            }
+        }
+    }
+    if changed {
+        Some(result)
+    } else {
+        None
+    }
+}
+
 /// Content to write in a single atomic commit-push operation.
 struct WriteSet {
     /// Files to write: (relative path in cache, serialized content).
@@ -77,6 +127,10 @@ impl SharedWriter {
             agent,
             cache_dir,
         }))
+    }
+
+    pub fn agent_id(&self) -> &str {
+        &self.agent.agent_id
     }
 
     /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
@@ -600,6 +654,123 @@ impl SharedWriter {
         Ok(mapping)
     }
 
+    /// Rewrite `Lx` references in comments, descriptions, and session notes
+    /// after offline issues have been promoted to real display IDs.
+    ///
+    /// Returns stats on how many text fields were updated.
+    pub fn rewrite_local_references(
+        &self,
+        db: &Database,
+        mapping: &[(i64, i64, String)],
+    ) -> Result<RewriteStats> {
+        if mapping.is_empty() {
+            return Ok(RewriteStats::default());
+        }
+
+        // Build replacement map: "L1" → "#5", "L2" → "#6"
+        let replacements: Vec<(String, String)> = mapping
+            .iter()
+            .filter(|(neg_id, _, _)| *neg_id != 0)
+            .map(|(neg_id, new_id, _)| {
+                (
+                    format!("L{}", neg_id.unsigned_abs()),
+                    format!("#{}", new_id),
+                )
+            })
+            .collect();
+
+        if replacements.is_empty() {
+            return Ok(RewriteStats::default());
+        }
+
+        let mut stats = RewriteStats::default();
+
+        // 1. Rewrite comments and descriptions in JSON files + SQLite
+        let mut json_changed = false;
+        for (_, new_id, _) in mapping {
+            // Update comments in SQLite
+            let comments = db.get_comments(*new_id)?;
+            for comment in &comments {
+                if let Some(new_content) = replace_local_refs(&comment.content, &replacements) {
+                    db.update_comment_content(comment.id, &new_content)?;
+                    stats.comments_updated += 1;
+                }
+            }
+
+            // Update description in SQLite
+            if let Ok(Some(issue)) = db.get_issue(*new_id) {
+                if let Some(ref desc) = issue.description {
+                    if let Some(new_desc) = replace_local_refs(desc, &replacements) {
+                        db.update_issue(*new_id, None, Some(&new_desc), None)?;
+                        stats.descriptions_updated += 1;
+                    }
+                }
+            }
+        }
+
+        // Update JSON files on coordination branch
+        for (_, new_id, _) in mapping {
+            let issue_file = match self.load_issue_by_display_id(*new_id) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+
+            let mut changed = false;
+            let mut updated_issue = issue_file.clone();
+
+            // Rewrite comments in JSON
+            for comment in &mut updated_issue.comments {
+                if let Some(new_content) = replace_local_refs(&comment.content, &replacements) {
+                    comment.content = new_content;
+                    changed = true;
+                }
+            }
+
+            // Rewrite description in JSON
+            if let Some(ref desc) = updated_issue.description {
+                if let Some(new_desc) = replace_local_refs(desc, &replacements) {
+                    updated_issue.description = Some(new_desc);
+                    changed = true;
+                }
+            }
+
+            if changed {
+                let json = serde_json::to_string_pretty(&updated_issue)?;
+                let path = self.issue_path(&updated_issue.uuid);
+                std::fs::write(&path, json)?;
+                json_changed = true;
+            }
+        }
+
+        // Commit JSON changes if any
+        if json_changed {
+            let _ = self.git_in_cache(&["add", "issues/"]);
+            let _ = self.git_in_cache(&[
+                "commit",
+                "-m",
+                &format!(
+                    "{}: rewrite local references after promotion",
+                    self.agent.agent_id
+                ),
+            ]);
+            // Best-effort push
+            let _ = self.git_in_cache(&["push", "origin", "crosslink/locks"]);
+        }
+
+        // 2. Rewrite session notes in SQLite
+        let sessions = db.get_all_sessions_with_notes()?;
+        for session in &sessions {
+            if let Some(ref notes) = session.handoff_notes {
+                if let Some(new_notes) = replace_local_refs(notes, &replacements) {
+                    db.update_session_notes(session.id, &new_notes)?;
+                    stats.sessions_updated += 1;
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+
     // ───────────────────── Private helpers ─────────────────────
 
     /// Find all issue files in the cache with `display_id: null` created by this agent.
@@ -962,6 +1133,68 @@ mod tests {
         assert_eq!(ids, vec![1, 2, 3]);
         let reloaded = read_counters(&path).unwrap();
         assert_eq!(reloaded.next_display_id, 4);
+    }
+
+    #[test]
+    fn test_replace_local_refs_basic() {
+        let replacements = vec![
+            ("L1".to_string(), "#5".to_string()),
+            ("L2".to_string(), "#6".to_string()),
+        ];
+        let result = replace_local_refs("See L1 and L2 for details", &replacements);
+        assert_eq!(result, Some("See #5 and #6 for details".to_string()));
+    }
+
+    #[test]
+    fn test_replace_local_refs_no_match() {
+        let replacements = vec![("L1".to_string(), "#5".to_string())];
+        let result = replace_local_refs("No local refs here", &replacements);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_replace_local_refs_non_matching_id() {
+        let replacements = vec![("L1".to_string(), "#5".to_string())];
+        let result = replace_local_refs("See L99 for info", &replacements);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_replace_local_refs_word_boundary() {
+        let replacements = vec![("L1".to_string(), "#5".to_string())];
+        // "FILE1" should NOT be rewritten (L1 is preceded by alphanumeric)
+        let result = replace_local_refs("Check FILE1 now", &replacements);
+        assert!(result.is_none());
+
+        // "L1." should be rewritten (punctuation after is ok)
+        let result = replace_local_refs("Fixed L1.", &replacements);
+        assert_eq!(result, Some("Fixed #5.".to_string()));
+
+        // "L1," in a list
+        let result = replace_local_refs(
+            "L1, L2 are done",
+            &[
+                ("L1".to_string(), "#5".to_string()),
+                ("L2".to_string(), "#6".to_string()),
+            ],
+        );
+        assert_eq!(result, Some("#5, #6 are done".to_string()));
+    }
+
+    #[test]
+    fn test_replace_local_refs_start_end() {
+        let replacements = vec![("L1".to_string(), "#5".to_string())];
+        // At start of string
+        let result = replace_local_refs("L1 is done", &replacements);
+        assert_eq!(result, Some("#5 is done".to_string()));
+
+        // At end of string
+        let result = replace_local_refs("Working on L1", &replacements);
+        assert_eq!(result, Some("Working on #5".to_string()));
+
+        // Entire string
+        let result = replace_local_refs("L1", &replacements);
+        assert_eq!(result, Some("#5".to_string()));
     }
 
     /// Helper for tests: scan issues dir for a display_id (mirrors SharedWriter logic).

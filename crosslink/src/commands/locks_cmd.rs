@@ -1,4 +1,6 @@
 use anyhow::Result;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::db::Database;
@@ -7,6 +9,50 @@ use crate::identity::AgentConfig;
 use crate::shared_writer::SharedWriter;
 use crate::sync::{GpgVerification, SyncManager};
 use crate::utils::{format_issue_id, truncate};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PromotionLogEntry {
+    timestamp: String,
+    old_local_id: i64,
+    old_display: String,
+    new_display_id: i64,
+    title: String,
+    agent_id: String,
+}
+
+fn append_promotion_log(
+    crosslink_dir: &Path,
+    promoted: &[(i64, i64, String)],
+    agent_id: &str,
+) -> Result<()> {
+    let log_path = crosslink_dir.join("promotion-log.json");
+    let mut entries: Vec<PromotionLogEntry> = if log_path.exists() {
+        let content = std::fs::read_to_string(&log_path)?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let now = Utc::now().to_rfc3339();
+    for (neg_id, new_id, title) in promoted {
+        entries.push(PromotionLogEntry {
+            timestamp: now.clone(),
+            old_local_id: *neg_id,
+            old_display: if *neg_id != 0 {
+                format!("L{}", neg_id.unsigned_abs())
+            } else {
+                "unknown".to_string()
+            },
+            new_display_id: *new_id,
+            title: title.clone(),
+            agent_id: agent_id.to_string(),
+        });
+    }
+
+    let json = serde_json::to_string_pretty(&entries)?;
+    std::fs::write(&log_path, json)?;
+    Ok(())
+}
 
 /// `crosslink locks list` — show current lock state
 pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()> {
@@ -215,6 +261,23 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                     println!("  -> #{}: {}", new_id, title);
                 }
             }
+
+            // Rewrite Lx references in comments, descriptions, session notes
+            let rewrite_stats = writer.rewrite_local_references(db, &promoted)?;
+            if rewrite_stats.total() > 0 {
+                println!(
+                    "Updated {} reference(s) (comments: {}, descriptions: {}, sessions: {})",
+                    rewrite_stats.total(),
+                    rewrite_stats.comments_updated,
+                    rewrite_stats.descriptions_updated,
+                    rewrite_stats.sessions_updated,
+                );
+            }
+
+            // Append to promotion log
+            let agent_id = writer.agent_id();
+            append_promotion_log(crosslink_dir, &promoted, agent_id)?;
+
             println!();
         }
     }
@@ -278,8 +341,52 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    // Integration tests for locks_cmd require a git repo with a remote,
-    // so they are covered in the CLI integration test suite rather than
-    // unit tests here. The underlying sync.rs and locks.rs have their
-    // own comprehensive unit tests.
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_append_promotion_log_creates_file() {
+        let dir = tempdir().unwrap();
+        let promoted = vec![(-1i64, 5i64, "Fix auth".to_string())];
+        append_promotion_log(dir.path(), &promoted, "agent-1").unwrap();
+
+        let log_path = dir.path().join("promotion-log.json");
+        assert!(log_path.exists());
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        let entries: Vec<PromotionLogEntry> = serde_json::from_str(&content).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].old_local_id, -1);
+        assert_eq!(entries[0].old_display, "L1");
+        assert_eq!(entries[0].new_display_id, 5);
+        assert_eq!(entries[0].title, "Fix auth");
+        assert_eq!(entries[0].agent_id, "agent-1");
+    }
+
+    #[test]
+    fn test_append_promotion_log_appends() {
+        let dir = tempdir().unwrap();
+        let batch1 = vec![(-1i64, 5i64, "First".to_string())];
+        append_promotion_log(dir.path(), &batch1, "agent-1").unwrap();
+
+        let batch2 = vec![(-2i64, 6i64, "Second".to_string())];
+        append_promotion_log(dir.path(), &batch2, "agent-1").unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join("promotion-log.json")).unwrap();
+        let entries: Vec<PromotionLogEntry> = serde_json::from_str(&content).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].new_display_id, 5);
+        assert_eq!(entries[1].new_display_id, 6);
+    }
+
+    #[test]
+    fn test_append_promotion_log_zero_neg_id() {
+        let dir = tempdir().unwrap();
+        let promoted = vec![(0i64, 5i64, "Unknown origin".to_string())];
+        append_promotion_log(dir.path(), &promoted, "agent-1").unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join("promotion-log.json")).unwrap();
+        let entries: Vec<PromotionLogEntry> = serde_json::from_str(&content).unwrap();
+        assert_eq!(entries[0].old_display, "unknown");
+    }
 }

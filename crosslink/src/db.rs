@@ -516,6 +516,14 @@ impl Database {
         Ok(comments)
     }
 
+    pub fn update_comment_content(&self, comment_id: i64, content: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "UPDATE comments SET content = ?1 WHERE id = ?2",
+            params![content, comment_id],
+        )?;
+        Ok(rows > 0)
+    }
+
     // Dependencies
     pub fn add_dependency(&self, blocked_id: i64, blocker_id: i64) -> Result<bool> {
         // Prevent self-blocking
@@ -711,6 +719,34 @@ impl Database {
             params![action, session_id],
         )?;
         Ok(rows > 0)
+    }
+
+    pub fn update_session_notes(&self, session_id: i64, notes: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "UPDATE sessions SET handoff_notes = ?1 WHERE id = ?2",
+            params![notes, session_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn get_all_sessions_with_notes(&self) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE handoff_notes IS NOT NULL ORDER BY id",
+        )?;
+        let sessions = stmt
+            .query_map([], |row| {
+                Ok(Session {
+                    id: row.get(0)?,
+                    started_at: parse_datetime(row.get::<_, String>(1)?),
+                    ended_at: row.get::<_, Option<String>>(2)?.map(parse_datetime),
+                    active_issue_id: row.get(3)?,
+                    handoff_notes: row.get(4)?,
+                    last_action: row.get(5)?,
+                    agent_id: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(sessions)
     }
 
     // Time tracking
@@ -1637,6 +1673,71 @@ mod tests {
         assert_eq!(last.id, id);
         assert!(last.ended_at.is_some());
         assert_eq!(last.handoff_notes, Some("Handoff notes".to_string()));
+    }
+
+    #[test]
+    fn test_update_comment_content() {
+        let (db, _dir) = setup_test_db();
+        let issue_id = db.create_issue("Test", None, "medium").unwrap();
+        let comment_id = db.add_comment(issue_id, "See L1 for details").unwrap();
+
+        let updated = db
+            .update_comment_content(comment_id, "See #5 for details")
+            .unwrap();
+        assert!(updated);
+
+        let comments = db.get_comments(issue_id).unwrap();
+        assert_eq!(comments[0].content, "See #5 for details");
+    }
+
+    #[test]
+    fn test_update_comment_content_nonexistent() {
+        let (db, _dir) = setup_test_db();
+        let updated = db.update_comment_content(99999, "new content").unwrap();
+        assert!(!updated);
+    }
+
+    #[test]
+    fn test_update_session_notes() {
+        let (db, _dir) = setup_test_db();
+        let session_id = db.start_session().unwrap();
+        db.end_session(session_id, Some("Working on L1")).unwrap();
+
+        let updated = db
+            .update_session_notes(session_id, "Working on #5")
+            .unwrap();
+        assert!(updated);
+
+        let session = db.get_last_session().unwrap().unwrap();
+        assert_eq!(session.handoff_notes, Some("Working on #5".to_string()));
+    }
+
+    #[test]
+    fn test_get_all_sessions_with_notes() {
+        let (db, _dir) = setup_test_db();
+
+        // Session without notes
+        let s1 = db.start_session().unwrap();
+        db.end_session(s1, None).unwrap();
+
+        // Session with notes
+        let s2 = db.start_session().unwrap();
+        db.end_session(s2, Some("Handoff for L1")).unwrap();
+
+        // Another with notes
+        let s3 = db.start_session().unwrap();
+        db.end_session(s3, Some("Continuing L2 work")).unwrap();
+
+        let sessions = db.get_all_sessions_with_notes().unwrap();
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(
+            sessions[0].handoff_notes,
+            Some("Handoff for L1".to_string())
+        );
+        assert_eq!(
+            sessions[1].handoff_notes,
+            Some("Continuing L2 work".to_string())
+        );
     }
 
     #[test]
