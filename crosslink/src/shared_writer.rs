@@ -8,6 +8,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -15,10 +16,19 @@ use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
 use crate::issue_file::{
-    read_counters, read_issue_file, write_counters, write_issue_file, CommentEntry, Counters,
-    IssueFile,
+    read_counters, read_issue_file, write_counters, CommentEntry, Counters, IssueFile,
 };
 use crate::sync::SyncManager;
+
+/// Content to write in a single atomic commit-push operation.
+struct WriteSet {
+    /// Files to write: (relative path in cache, serialized content).
+    files: Vec<(String, Vec<u8>)>,
+    /// Updated counters, if any.
+    counters: Option<Counters>,
+    /// If true, stage removals (`git rm`) instead of additions (`git add`).
+    use_git_rm: bool,
+}
 
 /// Maximum number of push retries on conflict before giving up.
 const MAX_RETRIES: usize = 3;
@@ -72,39 +82,47 @@ impl SharedWriter {
     ) -> Result<i64> {
         let uuid = Uuid::new_v4();
         let now = Utc::now();
+        let title_owned = title.to_string();
+        let desc_owned = description.map(|s| s.to_string());
+        let priority_owned = priority.to_string();
+        let agent_id = self.agent.agent_id.clone();
+        let display_id = Cell::new(0i64);
 
-        let (display_id, counters) = self.claim_display_id(1)?;
-
-        let issue = IssueFile {
-            uuid,
-            display_id: Some(display_id),
-            title: title.to_string(),
-            description: description.map(|s| s.to_string()),
-            status: "open".to_string(),
-            priority: priority.to_string(),
-            parent_uuid: None,
-            created_by: self.agent.agent_id.clone(),
-            created_at: now,
-            updated_at: now,
-            closed_at: None,
-            labels: vec![],
-            comments: vec![],
-            blockers: vec![],
-            related: vec![],
-            milestone_uuid: None,
-            time_entries: vec![],
-        };
-
-        self.write_and_push(
-            &[(&issue, true)],
-            Some(&counters),
-            &format!("create issue #{}: {}", display_id, title),
+        self.write_commit_push(
+            |writer| {
+                let (id, counters) = writer.claim_display_id(1)?;
+                display_id.set(id);
+                let issue = IssueFile {
+                    uuid,
+                    display_id: Some(id),
+                    title: title_owned.clone(),
+                    description: desc_owned.clone(),
+                    status: "open".to_string(),
+                    priority: priority_owned.clone(),
+                    parent_uuid: None,
+                    created_by: agent_id.clone(),
+                    created_at: now,
+                    updated_at: now,
+                    closed_at: None,
+                    labels: vec![],
+                    comments: vec![],
+                    blockers: vec![],
+                    related: vec![],
+                    milestone_uuid: None,
+                    time_entries: vec![],
+                };
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", uuid), json)],
+                    counters: Some(counters),
+                    use_git_rm: false,
+                })
+            },
+            &format!("create issue: {}", title),
         )?;
 
-        // Update local SQLite
         hydrate_to_sqlite(&self.cache_dir, db)?;
-
-        Ok(display_id)
+        Ok(display_id.get())
     }
 
     /// Create a subissue under a parent.
@@ -121,37 +139,47 @@ impl SharedWriter {
         let parent_uuid = self.resolve_uuid(parent_id)?;
         let uuid = Uuid::new_v4();
         let now = Utc::now();
+        let title_owned = title.to_string();
+        let desc_owned = description.map(|s| s.to_string());
+        let priority_owned = priority.to_string();
+        let agent_id = self.agent.agent_id.clone();
+        let display_id = Cell::new(0i64);
 
-        let (display_id, counters) = self.claim_display_id(1)?;
-
-        let issue = IssueFile {
-            uuid,
-            display_id: Some(display_id),
-            title: title.to_string(),
-            description: description.map(|s| s.to_string()),
-            status: "open".to_string(),
-            priority: priority.to_string(),
-            parent_uuid: Some(parent_uuid),
-            created_by: self.agent.agent_id.clone(),
-            created_at: now,
-            updated_at: now,
-            closed_at: None,
-            labels: vec![],
-            comments: vec![],
-            blockers: vec![],
-            related: vec![],
-            milestone_uuid: None,
-            time_entries: vec![],
-        };
-
-        self.write_and_push(
-            &[(&issue, true)],
-            Some(&counters),
-            &format!("create subissue #{} under #{}", display_id, parent_id),
+        self.write_commit_push(
+            |writer| {
+                let (id, counters) = writer.claim_display_id(1)?;
+                display_id.set(id);
+                let issue = IssueFile {
+                    uuid,
+                    display_id: Some(id),
+                    title: title_owned.clone(),
+                    description: desc_owned.clone(),
+                    status: "open".to_string(),
+                    priority: priority_owned.clone(),
+                    parent_uuid: Some(parent_uuid),
+                    created_by: agent_id.clone(),
+                    created_at: now,
+                    updated_at: now,
+                    closed_at: None,
+                    labels: vec![],
+                    comments: vec![],
+                    blockers: vec![],
+                    related: vec![],
+                    milestone_uuid: None,
+                    time_entries: vec![],
+                };
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", uuid), json)],
+                    counters: Some(counters),
+                    use_git_rm: false,
+                })
+            },
+            &format!("create subissue under #{}: {}", parent_id, title),
         )?;
 
         hydrate_to_sqlite(&self.cache_dir, db)?;
-        Ok(display_id)
+        Ok(display_id.get())
     }
 
     /// Update an issue's title, description, status, or priority.
@@ -164,25 +192,34 @@ impl SharedWriter {
         status: Option<&str>,
         priority: Option<&str>,
     ) -> Result<()> {
-        let mut issue = self.load_issue_by_display_id(display_id)?;
+        let title_owned = title.map(|s| s.to_string());
+        let desc_owned = description.map(|d| d.map(|s| s.to_string()));
+        let status_owned = status.map(|s| s.to_string());
+        let priority_owned = priority.map(|s| s.to_string());
 
-        if let Some(t) = title {
-            issue.title = t.to_string();
-        }
-        if let Some(d) = description {
-            issue.description = d.map(|s| s.to_string());
-        }
-        if let Some(s) = status {
-            issue.status = s.to_string();
-        }
-        if let Some(p) = priority {
-            issue.priority = p.to_string();
-        }
-        issue.updated_at = Utc::now();
-
-        self.write_and_push(
-            &[(&issue, false)],
-            None,
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(display_id)?;
+                if let Some(ref t) = title_owned {
+                    issue.title = t.clone();
+                }
+                if let Some(ref d) = desc_owned {
+                    issue.description = d.clone();
+                }
+                if let Some(ref s) = status_owned {
+                    issue.status = s.clone();
+                }
+                if let Some(ref p) = priority_owned {
+                    issue.priority = p.clone();
+                }
+                issue.updated_at = Utc::now();
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
             &format!("update issue #{}", display_id),
         )?;
 
@@ -192,15 +229,20 @@ impl SharedWriter {
 
     /// Close an issue (set status to "closed" and record closed_at).
     pub fn close_issue(&self, db: &Database, display_id: i64) -> Result<()> {
-        let mut issue = self.load_issue_by_display_id(display_id)?;
-        let now = Utc::now();
-        issue.status = "closed".to_string();
-        issue.closed_at = Some(now);
-        issue.updated_at = now;
-
-        self.write_and_push(
-            &[(&issue, false)],
-            None,
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(display_id)?;
+                let now = Utc::now();
+                issue.status = "closed".to_string();
+                issue.closed_at = Some(now);
+                issue.updated_at = now;
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
             &format!("close issue #{}", display_id),
         )?;
 
@@ -210,14 +252,19 @@ impl SharedWriter {
 
     /// Reopen an issue (set status to "open", clear closed_at).
     pub fn reopen_issue(&self, db: &Database, display_id: i64) -> Result<()> {
-        let mut issue = self.load_issue_by_display_id(display_id)?;
-        issue.status = "open".to_string();
-        issue.closed_at = None;
-        issue.updated_at = Utc::now();
-
-        self.write_and_push(
-            &[(&issue, false)],
-            None,
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(display_id)?;
+                issue.status = "open".to_string();
+                issue.closed_at = None;
+                issue.updated_at = Utc::now();
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
             &format!("reopen issue #{}", display_id),
         )?;
 
@@ -228,13 +275,25 @@ impl SharedWriter {
     /// Delete an issue JSON file from the coordination branch.
     pub fn delete_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let issue = self.load_issue_by_display_id(display_id)?;
-        let path = self.issue_path(&issue.uuid);
-        if path.exists() {
-            std::fs::remove_file(&path)?;
-        }
+        let uuid = issue.uuid;
+        let rel_path = format!("issues/{}.json", uuid);
 
-        let filename = format!("issues/{}.json", issue.uuid);
-        self.commit_and_push(&[&filename], true, &format!("delete issue #{}", display_id))?;
+        self.write_commit_push(
+            |writer| {
+                // Remove the file from disk (may already be gone on retry)
+                let path = writer.issue_path(&uuid);
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                }
+                // Include the path so the staging loop can `git rm` it
+                Ok(WriteSet {
+                    files: vec![(rel_path.clone(), vec![])],
+                    counters: None,
+                    use_git_rm: true,
+                })
+            },
+            &format!("delete issue #{}", display_id),
+        )?;
 
         hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
@@ -244,64 +303,87 @@ impl SharedWriter {
     ///
     /// Returns the comment ID.
     pub fn add_comment(&self, db: &Database, display_id: i64, content: &str) -> Result<i64> {
-        let mut issue = self.load_issue_by_display_id(display_id)?;
-        let mut counters = self.read_counters()?;
+        let content_owned = content.to_string();
+        let agent_id = self.agent.agent_id.clone();
+        let comment_id = Cell::new(0i64);
 
-        let comment_id = counters.next_comment_id;
-        counters.next_comment_id += 1;
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(display_id)?;
+                let mut counters = writer.read_counters()?;
+                let id = counters.next_comment_id;
+                counters.next_comment_id += 1;
+                comment_id.set(id);
 
-        issue.comments.push(CommentEntry {
-            id: comment_id,
-            author: self.agent.agent_id.clone(),
-            content: content.to_string(),
-            created_at: Utc::now(),
-        });
-        issue.updated_at = Utc::now();
+                issue.comments.push(CommentEntry {
+                    id,
+                    author: agent_id.clone(),
+                    content: content_owned.clone(),
+                    created_at: Utc::now(),
+                });
+                issue.updated_at = Utc::now();
 
-        self.write_and_push(
-            &[(&issue, false)],
-            Some(&counters),
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: Some(counters),
+                    use_git_rm: false,
+                })
+            },
             &format!("comment on issue #{}", display_id),
         )?;
 
         hydrate_to_sqlite(&self.cache_dir, db)?;
-        Ok(comment_id)
+        Ok(comment_id.get())
     }
 
     /// Add a label to an issue.
     pub fn add_label(&self, db: &Database, display_id: i64, label: &str) -> Result<()> {
-        let mut issue = self.load_issue_by_display_id(display_id)?;
-        if !issue.labels.contains(&label.to_string()) {
-            issue.labels.push(label.to_string());
-            issue.updated_at = Utc::now();
+        let label_owned = label.to_string();
 
-            self.write_and_push(
-                &[(&issue, false)],
-                None,
-                &format!("label issue #{} with {}", display_id, label),
-            )?;
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(display_id)?;
+                if !issue.labels.contains(&label_owned) {
+                    issue.labels.push(label_owned.clone());
+                    issue.updated_at = Utc::now();
+                }
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("label issue #{} with {}", display_id, label),
+        )?;
 
-            hydrate_to_sqlite(&self.cache_dir, db)?;
-        }
+        hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
     }
 
     /// Remove a label from an issue.
     pub fn remove_label(&self, db: &Database, display_id: i64, label: &str) -> Result<()> {
-        let mut issue = self.load_issue_by_display_id(display_id)?;
-        let label_str = label.to_string();
-        if let Some(pos) = issue.labels.iter().position(|l| l == &label_str) {
-            issue.labels.remove(pos);
-            issue.updated_at = Utc::now();
+        let label_owned = label.to_string();
 
-            self.write_and_push(
-                &[(&issue, false)],
-                None,
-                &format!("unlabel {} from issue #{}", label, display_id),
-            )?;
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(display_id)?;
+                if let Some(pos) = issue.labels.iter().position(|l| l == &label_owned) {
+                    issue.labels.remove(pos);
+                    issue.updated_at = Utc::now();
+                }
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("unlabel {} from issue #{}", label, display_id),
+        )?;
 
-            hydrate_to_sqlite(&self.cache_dir, db)?;
-        }
+        hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
     }
 
@@ -310,80 +392,100 @@ impl SharedWriter {
     /// Only modifies the blocked issue's file (single-direction storage).
     pub fn add_blocker(&self, db: &Database, blocked_id: i64, blocker_id: i64) -> Result<()> {
         let blocker_uuid = self.resolve_uuid(blocker_id)?;
-        let mut issue = self.load_issue_by_display_id(blocked_id)?;
 
-        if !issue.blockers.contains(&blocker_uuid) {
-            issue.blockers.push(blocker_uuid);
-            issue.updated_at = Utc::now();
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(blocked_id)?;
+                if !issue.blockers.contains(&blocker_uuid) {
+                    issue.blockers.push(blocker_uuid);
+                    issue.updated_at = Utc::now();
+                }
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("block issue #{} on #{}", blocked_id, blocker_id),
+        )?;
 
-            self.write_and_push(
-                &[(&issue, false)],
-                None,
-                &format!("block issue #{} on #{}", blocked_id, blocker_id),
-            )?;
-
-            hydrate_to_sqlite(&self.cache_dir, db)?;
-        }
+        hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
     }
 
     /// Remove a blocker dependency.
     pub fn remove_blocker(&self, db: &Database, blocked_id: i64, blocker_id: i64) -> Result<()> {
         let blocker_uuid = self.resolve_uuid(blocker_id)?;
-        let mut issue = self.load_issue_by_display_id(blocked_id)?;
 
-        if let Some(pos) = issue.blockers.iter().position(|u| u == &blocker_uuid) {
-            issue.blockers.remove(pos);
-            issue.updated_at = Utc::now();
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(blocked_id)?;
+                if let Some(pos) = issue.blockers.iter().position(|u| u == &blocker_uuid) {
+                    issue.blockers.remove(pos);
+                    issue.updated_at = Utc::now();
+                }
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("unblock issue #{} from #{}", blocked_id, blocker_id),
+        )?;
 
-            self.write_and_push(
-                &[(&issue, false)],
-                None,
-                &format!("unblock issue #{} from #{}", blocked_id, blocker_id),
-            )?;
-
-            hydrate_to_sqlite(&self.cache_dir, db)?;
-        }
+        hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
     }
 
     /// Add a relation between two issues (single-direction storage).
     pub fn add_relation(&self, db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
         let related_uuid = self.resolve_uuid(related_id)?;
-        let mut issue = self.load_issue_by_display_id(issue_id)?;
 
-        if !issue.related.contains(&related_uuid) {
-            issue.related.push(related_uuid);
-            issue.updated_at = Utc::now();
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(issue_id)?;
+                if !issue.related.contains(&related_uuid) {
+                    issue.related.push(related_uuid);
+                    issue.updated_at = Utc::now();
+                }
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("relate issue #{} to #{}", issue_id, related_id),
+        )?;
 
-            self.write_and_push(
-                &[(&issue, false)],
-                None,
-                &format!("relate issue #{} to #{}", issue_id, related_id),
-            )?;
-
-            hydrate_to_sqlite(&self.cache_dir, db)?;
-        }
+        hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
     }
 
     /// Remove a relation between two issues.
     pub fn remove_relation(&self, db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
         let related_uuid = self.resolve_uuid(related_id)?;
-        let mut issue = self.load_issue_by_display_id(issue_id)?;
 
-        if let Some(pos) = issue.related.iter().position(|u| u == &related_uuid) {
-            issue.related.remove(pos);
-            issue.updated_at = Utc::now();
+        self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_display_id(issue_id)?;
+                if let Some(pos) = issue.related.iter().position(|u| u == &related_uuid) {
+                    issue.related.remove(pos);
+                    issue.updated_at = Utc::now();
+                }
+                let json = serde_json::to_vec_pretty(&issue)?;
+                Ok(WriteSet {
+                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("unrelate issue #{} from #{}", issue_id, related_id),
+        )?;
 
-            self.write_and_push(
-                &[(&issue, false)],
-                None,
-                &format!("unrelate issue #{} from #{}", issue_id, related_id),
-            )?;
-
-            hydrate_to_sqlite(&self.cache_dir, db)?;
-        }
+        hydrate_to_sqlite(&self.cache_dir, db)?;
         Ok(())
     }
 
@@ -444,47 +546,46 @@ impl SharedWriter {
         Ok(issue.uuid)
     }
 
-    /// Write issue files and counters, then commit and push with retry.
+    /// Generate content, commit, and push with retry.
     ///
-    /// `issues` is a slice of `(issue, is_new)` pairs. `is_new` is only
-    /// used for the commit message.
-    fn write_and_push(
-        &self,
-        issues: &[(&IssueFile, bool)],
-        counters: Option<&Counters>,
-        message: &str,
-    ) -> Result<()> {
-        // Write files
-        for (issue, _is_new) in issues {
-            let path = self.issue_path(&issue.uuid);
-            write_issue_file(&path, issue)?;
-        }
-        if let Some(c) = counters {
-            self.write_counters_to_cache(c)?;
-        }
-
-        // Collect paths to stage
-        let mut paths: Vec<String> = issues
-            .iter()
-            .map(|(issue, _)| format!("issues/{}.json", issue.uuid))
-            .collect();
-        if counters.is_some() {
-            paths.push("meta/counters.json".to_string());
-        }
-
-        let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
-        self.commit_and_push(&path_refs, false, message)
-    }
-
-    /// Stage files, commit, and push with rebase-retry.
-    ///
-    /// If `use_git_rm` is true, stages removals instead of additions.
-    fn commit_and_push(&self, paths: &[&str], use_git_rm: bool, message: &str) -> Result<()> {
+    /// The `prepare` closure is called on **every** attempt, so it must
+    /// re-read any mutable state (counters, issue files) from the cache
+    /// which may have changed after a rebase pull.  This prevents stale
+    /// display-ID collisions when two agents race.
+    fn write_commit_push<F>(&self, mut prepare: F, message: &str) -> Result<()>
+    where
+        F: FnMut(&Self) -> Result<WriteSet>,
+    {
         for attempt in 0..MAX_RETRIES {
-            // Stage files
-            for path in paths {
-                if use_git_rm {
-                    let _ = self.git_in_cache(&["rm", "--cached", "--ignore-unmatch", path]);
+            // (Re-)generate content — reads fresh counters/files after rebase
+            let write_set = prepare(self)?;
+
+            // Write files to cache (skip for deletions — files already removed)
+            if !write_set.use_git_rm {
+                for (rel_path, content) in &write_set.files {
+                    let full = self.cache_dir.join(rel_path);
+                    if let Some(parent) = full.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&full, content)?;
+                }
+            }
+            if let Some(ref c) = write_set.counters {
+                self.write_counters_to_cache(c)?;
+            }
+
+            // Collect relative paths for staging
+            let mut paths: Vec<String> =
+                write_set.files.iter().map(|(p, _)| p.clone()).collect();
+            if write_set.counters.is_some() {
+                paths.push("meta/counters.json".to_string());
+            }
+
+            // Stage
+            for path in &paths {
+                if write_set.use_git_rm {
+                    let _ =
+                        self.git_in_cache(&["rm", "--cached", "--ignore-unmatch", path]);
                 } else {
                     self.git_in_cache(&["add", path])?;
                 }
@@ -500,14 +601,17 @@ impl SharedWriter {
             let commit_result = self.git_in_cache(&["commit", "-m", &commit_msg]);
             if let Err(e) = &commit_result {
                 let err_str = e.to_string();
-                if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
+                if err_str.contains("nothing to commit")
+                    || err_str.contains("no changes added")
+                {
                     return Ok(());
                 }
                 commit_result?;
             }
 
             // Push
-            let push_result = self.git_in_cache(&["push", "origin", "crosslink/locks"]);
+            let push_result =
+                self.git_in_cache(&["push", "origin", "crosslink/locks"]);
             match push_result {
                 Ok(_) => return Ok(()),
                 Err(e) => {
@@ -518,16 +622,21 @@ impl SharedWriter {
                     {
                         return Ok(());
                     }
-                    // Conflict — rebase and retry
-                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
+                    // Conflict — reset our commit, pull latest, then retry
+                    // (the closure will re-read fresh state on the next iteration)
+                    if err_str.contains("rejected")
+                        || err_str.contains("non-fast-forward")
+                    {
                         if attempt < MAX_RETRIES - 1 {
-                            self.git_in_cache(&["pull", "--rebase", "origin", "crosslink/locks"])?;
-                            // Re-read counter if it was part of this operation
-                            // (caller will re-claim on next attempt via full retry)
+                            let _ = self.git_in_cache(&["reset", "HEAD~1"]);
+                            self.git_in_cache(&[
+                                "pull", "--rebase", "origin", "crosslink/locks",
+                            ])?;
                             continue;
                         }
                         bail!(
-                            "Push failed after {} retries. Another agent may be rapidly writing.",
+                            "Push failed after {} retries. \
+                             Another agent may be rapidly writing.",
                             MAX_RETRIES
                         );
                     }
