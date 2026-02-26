@@ -255,7 +255,7 @@ pub fn run(path: &Path, force: bool, python_prefix: Option<&str>) -> Result<()> 
     if !crosslink_gitignore.exists() || force {
         fs::write(
             &crosslink_gitignore,
-            "# Multi-agent collaboration (machine-local)\nagent.json\n.locks-cache/\n\n# Machine-local hook overrides\nhook-config.local.json\n",
+            "# Multi-agent collaboration (machine-local)\nagent.json\n.hub-cache/\n\n# Machine-local hook overrides\nhook-config.local.json\n",
         )
         .context("Failed to write .crosslink/.gitignore")?;
     }
@@ -794,7 +794,7 @@ mod tests {
 
         let content = fs::read_to_string(dir.path().join(".crosslink/.gitignore")).unwrap();
         assert!(content.contains("agent.json"));
-        assert!(content.contains(".locks-cache/"));
+        assert!(content.contains(".hub-cache/"));
         assert!(content.contains("hook-config.local.json"));
     }
 

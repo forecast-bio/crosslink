@@ -31,7 +31,7 @@ A simple, lean issue tracker CLI designed for AI-assisted development. Track tas
 - **Issue archiving**: Archive old closed issues to keep the active list clean
 - **Claude Code hooks**: Behavioral guardrails that inject best practices into AI sessions
 - **Stale session detection**: Auto-ends sessions idle >4 hours on next startup
-- **Multi-agent coordination**: Distributed issue locking via a `crosslink/locks` git branch
+- **Multi-agent coordination**: Distributed issue locking via a `crosslink/hub` git branch
 - **Agent identity**: Machine-local agent registration for lock ownership tracking
 - **Lock-aware workflows**: `next`, `session work`, and `create --work` respect lock state
 - **Daemon heartbeat**: Background agent heartbeat for stale lock detection
@@ -228,7 +228,7 @@ Register agents and coordinate work across multiple AI sessions or machines via 
 | `crosslink locks check <id>` | Check if an issue is available or locked by another agent |
 | `crosslink sync` | Fetch lock state from coordination branch and verify GPG signatures |
 
-Lock state is stored on a `crosslink/locks` branch and synchronized via git. Agent identity files are machine-local and gitignored.
+Lock state is stored on a `crosslink/hub` branch and synchronized via git. Agent identity files are machine-local and gitignored.
 
 ### Daemon (Optional)
 

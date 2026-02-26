@@ -362,6 +362,9 @@ enum Commands {
     /// Import shared issues from coordination branch into local SQLite
     MigrateFromShared,
 
+    /// Rename coordination branch from crosslink/locks to crosslink/hub
+    MigrateRenameBranch,
+
     /// Review crosslink policy configuration
     Review {
         #[command(subcommand)]
@@ -1081,6 +1084,10 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             commands::migrate::from_shared(&crosslink_dir, &db)
+        }
+        Commands::MigrateRenameBranch => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::migrate::rename_branch(&crosslink_dir)
         }
         Commands::Integrity { action } => {
             let crosslink_dir = find_crosslink_dir()?;

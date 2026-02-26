@@ -1,6 +1,6 @@
 //! JSON schema for issue files on the coordination branch.
 //!
-//! Each issue is stored as `issues/{uuid}.json` on the `crosslink/locks` branch.
+//! Each issue is stored as `issues/{uuid}.json` on the `crosslink/hub` branch.
 //! This module defines the serde types for reading and writing those files,
 //! plus the shared `counters.json` and `milestones.json` schemas.
 

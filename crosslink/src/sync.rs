@@ -6,11 +6,17 @@ use std::process::Command;
 use crate::identity::AgentConfig;
 use crate::locks::{Heartbeat, Keyring, LocksFile};
 
-/// Directory name under .crosslink for the locks cache worktree.
-const LOCKS_CACHE_DIR: &str = ".locks-cache";
+/// Directory name under .crosslink for the hub cache worktree.
+pub(crate) const HUB_CACHE_DIR: &str = ".hub-cache";
 
 /// The coordination branch name.
-const LOCKS_BRANCH: &str = "crosslink/locks";
+pub(crate) const HUB_BRANCH: &str = "crosslink/hub";
+
+/// Old directory name (for migration from crosslink/locks).
+const OLD_CACHE_DIR: &str = ".locks-cache";
+
+/// Old branch name (for migration from crosslink/locks).
+const OLD_BRANCH: &str = "crosslink/locks";
 
 /// Result of GPG signature verification.
 #[derive(Debug)]
@@ -28,15 +34,15 @@ pub enum GpgVerification {
     NoCommits,
 }
 
-/// Manages synchronization with the `crosslink/locks` coordination branch.
+/// Manages synchronization with the `crosslink/hub` coordination branch.
 ///
-/// Uses a git worktree at `.crosslink/.locks-cache/` to avoid disturbing
+/// Uses a git worktree at `.crosslink/.hub-cache/` to avoid disturbing
 /// the user's working tree.
 pub struct SyncManager {
     /// Path to the .crosslink directory.
     #[allow(dead_code)]
     crosslink_dir: PathBuf,
-    /// Path to .crosslink/.locks-cache (worktree of crosslink/locks branch).
+    /// Path to .crosslink/.hub-cache (worktree of crosslink/hub branch).
     cache_dir: PathBuf,
     /// The repo root (parent of .crosslink).
     repo_root: PathBuf,
@@ -45,7 +51,7 @@ pub struct SyncManager {
 impl SyncManager {
     /// Create a new SyncManager for the given .crosslink directory.
     pub fn new(crosslink_dir: &Path) -> Result<Self> {
-        let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
         let repo_root = crosslink_dir
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root from .crosslink dir"))?
@@ -57,42 +63,123 @@ impl SyncManager {
         })
     }
 
-    /// Initialize the locks cache directory.
+    /// Auto-migrate from the old `crosslink/locks` branch to `crosslink/hub`.
     ///
-    /// If the `crosslink/locks` branch exists on the remote, fetches it and
+    /// Detects whether the old branch or cache directory exists and performs a
+    /// one-time rename. Called automatically by `init_cache()`.
+    /// Returns `Ok(true)` if migration was performed, `Ok(false)` if not needed.
+    pub(crate) fn migrate_from_locks_branch(&self) -> Result<bool> {
+        let old_cache = self.crosslink_dir.join(OLD_CACHE_DIR);
+        let has_old_local_cache = old_cache.exists();
+
+        let has_old_remote = self
+            .git_in_repo(&["ls-remote", "--heads", "origin", OLD_BRANCH])
+            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+            .unwrap_or(false);
+
+        if !has_old_local_cache && !has_old_remote {
+            return Ok(false); // Nothing to migrate
+        }
+
+        eprintln!("Migrating coordination branch: crosslink/locks -> crosslink/hub...");
+
+        // 1. Remove old worktree if it exists
+        if has_old_local_cache {
+            let _ = self.git_in_repo(&[
+                "worktree",
+                "remove",
+                "--force",
+                &old_cache.to_string_lossy(),
+            ]);
+            // Fallback: if worktree remove fails, just delete the directory
+            if old_cache.exists() {
+                let _ = std::fs::remove_dir_all(&old_cache);
+                // Clean up stale worktree reference
+                let _ = self.git_in_repo(&["worktree", "prune"]);
+            }
+        }
+
+        // 2. Rename local branch (if it exists and new doesn't)
+        let has_old_local_branch = self
+            .git_in_repo(&["rev-parse", "--verify", OLD_BRANCH])
+            .is_ok();
+        let has_new_local = self
+            .git_in_repo(&["rev-parse", "--verify", HUB_BRANCH])
+            .is_ok();
+
+        if has_old_local_branch && !has_new_local {
+            self.git_in_repo(&["branch", "-m", OLD_BRANCH, HUB_BRANCH])?;
+        } else if !has_old_local_branch && has_old_remote && !has_new_local {
+            // Fetch old remote and create new local branch from it
+            self.git_in_repo(&["fetch", "origin", OLD_BRANCH])?;
+            self.git_in_repo(&["branch", HUB_BRANCH, &format!("origin/{}", OLD_BRANCH)])?;
+        }
+
+        // 3. Push new branch to remote (best-effort)
+        let has_new_remote = self
+            .git_in_repo(&["ls-remote", "--heads", "origin", HUB_BRANCH])
+            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+            .unwrap_or(false);
+        if !has_new_remote {
+            let _ = self.git_in_repo(&["push", "-u", "origin", HUB_BRANCH]);
+        }
+
+        // 4. Delete old remote branch (best-effort)
+        if has_old_remote {
+            let _ = self.git_in_repo(&["push", "origin", "--delete", OLD_BRANCH]);
+        }
+
+        // 5. Delete old local branch if still present
+        if self
+            .git_in_repo(&["rev-parse", "--verify", OLD_BRANCH])
+            .is_ok()
+        {
+            let _ = self.git_in_repo(&["branch", "-D", OLD_BRANCH]);
+        }
+
+        eprintln!("Migration complete: coordination branch is now crosslink/hub");
+        Ok(true)
+    }
+
+    /// Initialize the hub cache directory.
+    ///
+    /// If the `crosslink/hub` branch exists on the remote, fetches it and
     /// creates a worktree. If not, creates an orphan branch with an empty
     /// locks.json.
     pub fn init_cache(&self) -> Result<()> {
+        // Auto-migrate from old crosslink/locks branch if needed
+        self.migrate_from_locks_branch()?;
+
         if self.cache_dir.exists() {
             return Ok(());
         }
 
         // Check if remote branch exists
         let has_remote = self
-            .git_in_repo(&["ls-remote", "--heads", "origin", LOCKS_BRANCH])
+            .git_in_repo(&["ls-remote", "--heads", "origin", HUB_BRANCH])
             .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
             .unwrap_or(false);
 
         if has_remote {
             // Fetch the remote branch
-            self.git_in_repo(&["fetch", "origin", LOCKS_BRANCH])?;
+            self.git_in_repo(&["fetch", "origin", HUB_BRANCH])?;
 
             // Check if a local branch already exists
             let has_local = self
-                .git_in_repo(&["rev-parse", "--verify", LOCKS_BRANCH])
+                .git_in_repo(&["rev-parse", "--verify", HUB_BRANCH])
                 .is_ok();
 
             if has_local {
-                self.git_in_repo(&["worktree", "add", &self.cache_path_str(), LOCKS_BRANCH])?;
+                self.git_in_repo(&["worktree", "add", &self.cache_path_str(), HUB_BRANCH])?;
             } else {
                 // Create local branch tracking remote
                 self.git_in_repo(&[
                     "worktree",
                     "add",
                     "-b",
-                    LOCKS_BRANCH,
+                    HUB_BRANCH,
                     &self.cache_path_str(),
-                    &format!("origin/{}", LOCKS_BRANCH),
+                    &format!("origin/{}", HUB_BRANCH),
                 ])?;
             }
         } else {
@@ -102,7 +189,7 @@ impl SyncManager {
                 "add",
                 "--orphan",
                 "-b",
-                LOCKS_BRANCH,
+                HUB_BRANCH,
                 &self.cache_path_str(),
             ])?;
 
@@ -117,7 +204,7 @@ impl SyncManager {
             // Commit the initial state so the branch has at least one commit.
             // Without this, `git log` and other commands fail on the empty orphan.
             self.git_in_cache(&["add", "locks.json"])?;
-            self.git_in_cache(&["commit", "-m", "Initialize crosslink/locks branch"])?;
+            self.git_in_cache(&["commit", "-m", "Initialize crosslink/hub branch"])?;
         }
 
         Ok(())
@@ -126,7 +213,7 @@ impl SyncManager {
     /// Fetch the latest state from remote and reset the cache to match.
     pub fn fetch(&self) -> Result<()> {
         // Try fetching from remote. If no remote is configured, this is a no-op.
-        let fetch_result = self.git_in_cache(&["fetch", "origin", LOCKS_BRANCH]);
+        let fetch_result = self.git_in_cache(&["fetch", "origin", HUB_BRANCH]);
         if let Err(e) = &fetch_result {
             let err_str = e.to_string();
             // If there's no remote or no network, don't fail — just use local state
@@ -144,7 +231,7 @@ impl SyncManager {
 
         // Check for unpushed local commits (e.g. offline-created issues).
         // If any exist, rebase instead of reset --hard to preserve them.
-        let remote_ref = format!("origin/{}", LOCKS_BRANCH);
+        let remote_ref = format!("origin/{}", HUB_BRANCH);
         let log_result = self.git_in_cache(&["log", &format!("{}..HEAD", remote_ref), "--oneline"]);
         if let Ok(output) = &log_result {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -269,7 +356,7 @@ impl SyncManager {
         }
 
         // Push (best-effort — may fail if offline or conflicts)
-        let push_result = self.git_in_cache(&["push", "origin", LOCKS_BRANCH]);
+        let push_result = self.git_in_cache(&["push", "origin", HUB_BRANCH]);
         if let Err(e) = &push_result {
             let err_str = e.to_string();
             if err_str.contains("Could not resolve host")
@@ -280,8 +367,8 @@ impl SyncManager {
             }
             // If push is rejected (conflict), try pull+push once
             if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                let _ = self.git_in_cache(&["pull", "--rebase", "origin", LOCKS_BRANCH]);
-                let _ = self.git_in_cache(&["push", "origin", LOCKS_BRANCH]);
+                let _ = self.git_in_cache(&["pull", "--rebase", "origin", HUB_BRANCH]);
+                let _ = self.git_in_cache(&["push", "origin", HUB_BRANCH]);
             }
         }
 
@@ -423,7 +510,7 @@ impl SyncManager {
 
         // Push with retry
         for attempt in 0..3 {
-            let push_result = self.git_in_cache(&["push", "origin", LOCKS_BRANCH]);
+            let push_result = self.git_in_cache(&["push", "origin", HUB_BRANCH]);
             match push_result {
                 Ok(_) => return Ok(()),
                 Err(e) => {
@@ -435,8 +522,7 @@ impl SyncManager {
                     }
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < 2 {
-                            let _ =
-                                self.git_in_cache(&["pull", "--rebase", "origin", LOCKS_BRANCH]);
+                            let _ = self.git_in_cache(&["pull", "--rebase", "origin", HUB_BRANCH]);
                             continue;
                         }
                         bail!("Push failed after 3 retries for locks.json");
@@ -538,7 +624,7 @@ mod tests {
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
         let manager = SyncManager::new(&crosslink_dir).unwrap();
-        assert_eq!(manager.cache_dir, crosslink_dir.join(LOCKS_CACHE_DIR));
+        assert_eq!(manager.cache_dir, crosslink_dir.join(HUB_CACHE_DIR));
         assert_eq!(manager.repo_root, dir.path());
     }
 
@@ -582,7 +668,7 @@ mod tests {
     fn test_read_heartbeats_with_files() {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
-        let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
         let hb_dir = cache_dir.join("heartbeats");
         std::fs::create_dir_all(&hb_dir).unwrap();
 
@@ -606,7 +692,7 @@ mod tests {
     fn test_find_stale_locks_empty() {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
-        let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
         std::fs::create_dir_all(&cache_dir).unwrap();
 
         // Write empty locks.json
@@ -622,7 +708,7 @@ mod tests {
     fn test_find_stale_locks_with_stale() {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
-        let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
         let hb_dir = cache_dir.join("heartbeats");
         std::fs::create_dir_all(&hb_dir).unwrap();
 
@@ -657,7 +743,7 @@ mod tests {
     fn test_find_stale_locks_with_fresh_heartbeat() {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
-        let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
         let hb_dir = cache_dir.join("heartbeats");
         std::fs::create_dir_all(&hb_dir).unwrap();
 

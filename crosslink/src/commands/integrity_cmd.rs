@@ -11,7 +11,7 @@ use crate::issue_file::{
 use crate::sync::SyncManager;
 use crate::IntegrityCommands;
 
-const LOCKS_CACHE_DIR: &str = ".locks-cache";
+use crate::sync::HUB_CACHE_DIR;
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -103,7 +103,7 @@ fn check_schema(db: &Database, _repair: bool) -> Result<CheckResult> {
 }
 
 fn check_counters(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<CheckResult> {
-    let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     if !cache_dir.exists() {
         return Ok(CheckResult {
             name: "counters".to_string(),
@@ -164,7 +164,7 @@ fn check_counters(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<C
 }
 
 fn check_hydration(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<CheckResult> {
-    let cache_dir = crosslink_dir.join(LOCKS_CACHE_DIR);
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     if !cache_dir.exists() {
         return Ok(CheckResult {
             name: "hydration".to_string(),
@@ -404,7 +404,7 @@ mod tests {
         let crosslink_dir = dir.path();
 
         // Create cache dir and counters file
-        let meta_dir = crosslink_dir.join(LOCKS_CACHE_DIR).join("meta");
+        let meta_dir = crosslink_dir.join(HUB_CACHE_DIR).join("meta");
         std::fs::create_dir_all(&meta_dir).unwrap();
         let counters = Counters {
             next_display_id: 1,
@@ -426,7 +426,7 @@ mod tests {
         db.create_issue("Test issue", None, "medium").unwrap();
 
         // Set counters too low
-        let meta_dir = crosslink_dir.join(LOCKS_CACHE_DIR).join("meta");
+        let meta_dir = crosslink_dir.join(HUB_CACHE_DIR).join("meta");
         std::fs::create_dir_all(&meta_dir).unwrap();
         let counters = Counters {
             next_display_id: 1, // should be 2

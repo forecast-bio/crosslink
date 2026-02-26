@@ -190,7 +190,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     git_in_dir(&cache_dir, &["commit", "-m", &commit_msg])?;
 
     // Best-effort push
-    match git_in_dir(&cache_dir, &["push", "origin", "crosslink/locks"]) {
+    match git_in_dir(&cache_dir, &["push", "origin", crate::sync::HUB_BRANCH]) {
         Ok(_) => println!("Pushed to remote."),
         Err(e) => {
             let err = e.to_string();
@@ -250,6 +250,35 @@ pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
         stats.issues, stats.comments, stats.dependencies, stats.relations, stats.milestones
     );
 
+    Ok(())
+}
+
+/// `crosslink migrate-rename-branch` — rename crosslink/locks to crosslink/hub.
+///
+/// Runs the auto-migration and updates the `.crosslink/.gitignore` if needed.
+pub fn rename_branch(crosslink_dir: &Path) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    let migrated = sync.migrate_from_locks_branch()?;
+    if migrated {
+        println!("Migrated crosslink/locks -> crosslink/hub");
+
+        // Update .gitignore
+        let gitignore_path = crosslink_dir.join(".gitignore");
+        if gitignore_path.exists() {
+            let content = std::fs::read_to_string(&gitignore_path)?;
+            let updated = content.replace(".locks-cache/", ".hub-cache/");
+            if content != updated {
+                std::fs::write(&gitignore_path, updated)?;
+                println!("Updated .crosslink/.gitignore");
+            }
+        }
+
+        // Initialize the new cache worktree
+        sync.init_cache()?;
+        println!("Cache initialized at .crosslink/.hub-cache/");
+    } else {
+        println!("No migration needed (already using crosslink/hub).");
+    }
     Ok(())
 }
 

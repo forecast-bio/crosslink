@@ -848,7 +848,7 @@ impl SharedWriter {
                 ),
             ]);
             // Best-effort push
-            let _ = self.git_in_cache(&["push", "origin", "crosslink/locks"]);
+            let _ = self.git_in_cache(&["push", "origin", crate::sync::HUB_BRANCH]);
         }
 
         // 2. Rewrite session notes in SQLite
@@ -1085,7 +1085,7 @@ impl SharedWriter {
             }
 
             // Push
-            let push_result = self.git_in_cache(&["push", "origin", "crosslink/locks"]);
+            let push_result = self.git_in_cache(&["push", "origin", crate::sync::HUB_BRANCH]);
             match push_result {
                 Ok(_) => return Ok(PushOutcome::Pushed),
                 Err(e) => {
@@ -1101,7 +1101,12 @@ impl SharedWriter {
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < MAX_RETRIES - 1 {
                             let _ = self.git_in_cache(&["reset", "HEAD~1"]);
-                            self.git_in_cache(&["pull", "--rebase", "origin", "crosslink/locks"])?;
+                            self.git_in_cache(&[
+                                "pull",
+                                "--rebase",
+                                "origin",
+                                crate::sync::HUB_BRANCH,
+                            ])?;
                             continue;
                         }
                         // All retries exhausted — keep as local-only

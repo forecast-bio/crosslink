@@ -54,9 +54,9 @@ echo "--- Migrate-to-shared complete ---"
 
 echo ""
 echo "=== 4. Verify coordination branch has JSON files ==="
-git fetch origin crosslink/locks 2>&1 || echo "Note: fetch warning (expected)"
-# Check via the locks-cache
-ls -la .crosslink/.locks-cache/issues/ 2>/dev/null || echo "Cache dir listing failed"
+git fetch origin crosslink/hub 2>&1 || echo "Note: fetch warning (expected)"
+# Check via the hub-cache
+ls -la .crosslink/.hub-cache/issues/ 2>/dev/null || echo "Cache dir listing failed"
 echo "--- Coordination branch check complete ---"
 
 echo ""
