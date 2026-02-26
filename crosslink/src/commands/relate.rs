@@ -1,12 +1,21 @@
 use anyhow::Result;
 
 use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 
-pub fn add(db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
+pub fn add(
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    issue_id: i64,
+    related_id: i64,
+) -> Result<()> {
     db.require_issue(issue_id)?;
     db.require_issue(related_id)?;
 
-    if db.add_relation(issue_id, related_id)? {
+    if let Some(w) = writer {
+        w.add_relation(db, issue_id, related_id)?;
+        println!("Linked #{} ↔ #{}", issue_id, related_id);
+    } else if db.add_relation(issue_id, related_id)? {
         println!("Linked #{} ↔ #{}", issue_id, related_id);
     } else {
         println!(
@@ -18,8 +27,16 @@ pub fn add(db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn remove(db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
-    if db.remove_relation(issue_id, related_id)? {
+pub fn remove(
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    issue_id: i64,
+    related_id: i64,
+) -> Result<()> {
+    if let Some(w) = writer {
+        w.remove_relation(db, issue_id, related_id)?;
+        println!("Unlinked #{} ↔ #{}", issue_id, related_id);
+    } else if db.remove_relation(issue_id, related_id)? {
         println!("Unlinked #{} ↔ #{}", issue_id, related_id);
     } else {
         println!(
@@ -72,7 +89,7 @@ mod tests {
         let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        let result = add(&db, id1, id2);
+        let result = add(&db, None, id1, id2);
         assert!(result.is_ok());
 
         let related = db.get_related_issues(id1).unwrap();
@@ -86,7 +103,7 @@ mod tests {
         let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        add(&db, id1, id2).unwrap();
+        add(&db, None, id1, id2).unwrap();
 
         let related1 = db.get_related_issues(id1).unwrap();
         let related2 = db.get_related_issues(id2).unwrap();
@@ -99,7 +116,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let id = db.create_issue("Issue 1", None, "medium").unwrap();
 
-        let result = add(&db, id, 99999);
+        let result = add(&db, None, id, 99999);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -110,8 +127,8 @@ mod tests {
         let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        add(&db, id1, id2).unwrap();
-        let result = add(&db, id1, id2);
+        add(&db, None, id1, id2).unwrap();
+        let result = add(&db, None, id1, id2);
         assert!(result.is_ok());
 
         let related = db.get_related_issues(id1).unwrap();
@@ -124,8 +141,8 @@ mod tests {
         let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        add(&db, id1, id2).unwrap();
-        let result = remove(&db, id1, id2);
+        add(&db, None, id1, id2).unwrap();
+        let result = remove(&db, None, id1, id2);
         assert!(result.is_ok());
 
         let related = db.get_related_issues(id1).unwrap();
@@ -138,7 +155,7 @@ mod tests {
         let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
         let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
 
-        let result = remove(&db, id1, id2);
+        let result = remove(&db, None, id1, id2);
         assert!(result.is_ok());
     }
 
@@ -149,8 +166,8 @@ mod tests {
         let id2 = db.create_issue("Issue 2", None, "medium").unwrap();
         let id3 = db.create_issue("Issue 3", None, "medium").unwrap();
 
-        add(&db, id1, id2).unwrap();
-        add(&db, id1, id3).unwrap();
+        add(&db, None, id1, id2).unwrap();
+        add(&db, None, id1, id3).unwrap();
 
         let result = list(&db, id1);
         assert!(result.is_ok());
@@ -183,11 +200,11 @@ mod tests {
                 let id1 = ids[a as usize % ids.len()];
                 let id2 = ids[b as usize % ids.len()];
 
-                add(&db, id1, id2).unwrap();
+                add(&db, None, id1, id2).unwrap();
                 let related = db.get_related_issues(id1).unwrap();
                 prop_assert!(!related.is_empty());
 
-                remove(&db, id1, id2).unwrap();
+                remove(&db, None, id1, id2).unwrap();
                 let related = db.get_related_issues(id1).unwrap();
                 prop_assert!(related.is_empty());
             }

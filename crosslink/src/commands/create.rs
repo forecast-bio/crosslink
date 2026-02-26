@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 
 use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 
 const VALID_PRIORITIES: [&str; 4] = ["low", "medium", "high", "critical"];
 
@@ -82,6 +83,7 @@ pub struct CreateOpts<'a> {
 
 pub fn run(
     db: &Database,
+    writer: Option<&SharedWriter>,
     title: &str,
     description: Option<&str>,
     priority: &str,
@@ -129,16 +131,28 @@ pub fn run(
         );
     }
 
-    let id = db.create_issue(title, final_description.as_deref(), &final_priority)?;
+    let id = if let Some(w) = writer {
+        w.create_issue(db, title, final_description.as_deref(), &final_priority)?
+    } else {
+        db.create_issue(title, final_description.as_deref(), &final_priority)?
+    };
 
     // Auto-add label from template
     if let Some(lbl) = template_label {
-        db.add_label(id, lbl)?;
+        if let Some(w) = writer {
+            w.add_label(db, id, lbl)?;
+        } else {
+            db.add_label(id, lbl)?;
+        }
     }
 
     // Add user-specified labels
     for lbl in opts.labels {
-        db.add_label(id, lbl)?;
+        if let Some(w) = writer {
+            w.add_label(db, id, lbl)?;
+        } else {
+            db.add_label(id, lbl)?;
+        }
     }
 
     if opts.quiet {
@@ -171,6 +185,7 @@ pub fn run(
 
 pub fn run_subissue(
     db: &Database,
+    writer: Option<&SharedWriter>,
     parent_id: i64,
     title: &str,
     description: Option<&str>,
@@ -191,11 +206,19 @@ pub fn run_subissue(
         bail!("Parent issue #{} not found", parent_id);
     }
 
-    let id = db.create_subissue(parent_id, title, description, priority)?;
+    let id = if let Some(w) = writer {
+        w.create_subissue(db, parent_id, title, description, priority)?
+    } else {
+        db.create_subissue(parent_id, title, description, priority)?
+    };
 
     // Add user-specified labels
     for lbl in opts.labels {
-        db.add_label(id, lbl)?;
+        if let Some(w) = writer {
+            w.add_label(db, id, lbl)?;
+        } else {
+            db.add_label(id, lbl)?;
+        }
     }
 
     if opts.quiet {

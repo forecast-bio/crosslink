@@ -111,6 +111,8 @@ impl SyncManager {
             locks.save(&self.cache_dir.join("locks.json"))?;
             std::fs::create_dir_all(self.cache_dir.join("heartbeats"))?;
             std::fs::create_dir_all(self.cache_dir.join("trust"))?;
+            std::fs::create_dir_all(self.cache_dir.join("issues"))?;
+            std::fs::create_dir_all(self.cache_dir.join("meta"))?;
         }
 
         Ok(())
@@ -127,6 +129,7 @@ impl SyncManager {
                 || err_str.contains("Could not read from remote")
                 || err_str.contains("does not appear to be a git repository")
                 || err_str.contains("No such remote")
+                || err_str.contains("couldn't find remote ref")
             {
                 return Ok(());
             }
@@ -298,6 +301,125 @@ impl SyncManager {
             }
         }
         Ok(stale)
+    }
+
+    /// Claim a lock on an issue for the given agent.
+    ///
+    /// Writes the lock to `locks.json`, commits, and pushes with retry.
+    /// Returns `Ok(true)` if newly claimed, `Ok(false)` if already held by self.
+    /// Fails if locked by another agent (unless `force` is true for steal).
+    pub fn claim_lock(
+        &self,
+        agent: &AgentConfig,
+        issue_id: i64,
+        branch: Option<&str>,
+        force: bool,
+    ) -> Result<bool> {
+        let mut locks = self.read_locks()?;
+
+        // Check existing lock
+        if let Some(existing) = locks.get_lock(issue_id) {
+            if existing.agent_id == agent.agent_id {
+                return Ok(false); // Already held by self
+            }
+            if !force {
+                bail!(
+                    "Issue #{} is locked by '{}' (claimed {}). \
+                     Use 'crosslink locks steal {}' if the lock is stale.",
+                    issue_id,
+                    existing.agent_id,
+                    existing.claimed_at.format("%Y-%m-%d %H:%M"),
+                    issue_id
+                );
+            }
+            // force=true: steal the lock
+        }
+
+        let lock = crate::locks::Lock {
+            agent_id: agent.agent_id.clone(),
+            branch: branch.map(|s| s.to_string()),
+            claimed_at: Utc::now(),
+            signed_by: agent.agent_id.clone(), // placeholder, GPG signing is optional
+        };
+
+        locks.locks.insert(issue_id.to_string(), lock);
+        locks.save(&self.cache_dir.join("locks.json"))?;
+
+        self.commit_and_push_locks(&format!("{}: claim lock on #{}", agent.agent_id, issue_id))?;
+
+        Ok(true)
+    }
+
+    /// Release a lock on an issue.
+    ///
+    /// Returns `Ok(true)` if released, `Ok(false)` if not locked.
+    /// Fails if locked by a different agent (unless `force` is true).
+    pub fn release_lock(&self, agent: &AgentConfig, issue_id: i64, force: bool) -> Result<bool> {
+        let mut locks = self.read_locks()?;
+
+        match locks.get_lock(issue_id) {
+            None => return Ok(false),
+            Some(existing) => {
+                if existing.agent_id != agent.agent_id && !force {
+                    bail!(
+                        "Issue #{} is locked by '{}', not by you ('{}').",
+                        issue_id,
+                        existing.agent_id,
+                        agent.agent_id
+                    );
+                }
+            }
+        }
+
+        locks.locks.remove(&issue_id.to_string());
+        locks.save(&self.cache_dir.join("locks.json"))?;
+
+        self.commit_and_push_locks(&format!(
+            "{}: release lock on #{}",
+            agent.agent_id, issue_id
+        ))?;
+
+        Ok(true)
+    }
+
+    /// Stage locks.json, commit, and push with rebase-retry.
+    fn commit_and_push_locks(&self, message: &str) -> Result<()> {
+        self.git_in_cache(&["add", "locks.json"])?;
+
+        let commit_result = self.git_in_cache(&["commit", "-m", message]);
+        if let Err(e) = &commit_result {
+            let err_str = e.to_string();
+            if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
+                return Ok(());
+            }
+            commit_result?;
+        }
+
+        // Push with retry
+        for attempt in 0..3 {
+            let push_result = self.git_in_cache(&["push", "origin", LOCKS_BRANCH]);
+            match push_result {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("Could not resolve host")
+                        || err_str.contains("Could not read from remote")
+                    {
+                        return Ok(()); // Offline — commit is local
+                    }
+                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
+                        if attempt < 2 {
+                            let _ =
+                                self.git_in_cache(&["pull", "--rebase", "origin", LOCKS_BRANCH]);
+                            continue;
+                        }
+                        bail!("Push failed after 3 retries for locks.json");
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Check if the cache directory is initialized.

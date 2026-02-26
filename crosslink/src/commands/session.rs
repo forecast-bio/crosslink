@@ -44,11 +44,26 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-pub fn end(db: &Database, notes: Option<&str>) -> Result<()> {
+pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) -> Result<()> {
     let session = match db.get_current_session()? {
         Some(s) => s,
         None => bail!("No active session"),
     };
+
+    // Auto-release lock on the active issue in multi-agent mode
+    if let Some(issue_id) = session.active_issue_id {
+        if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
+            if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+                if sync.is_initialized() {
+                    match sync.release_lock(&agent, issue_id, false) {
+                        Ok(true) => println!("Released lock on issue #{}", issue_id),
+                        Ok(false) => {} // Wasn't locked
+                        Err(e) => eprintln!("Warning: Could not release lock: {}", e),
+                    }
+                }
+            }
+        }
+    }
 
     db.end_session(session.id, notes)?;
     println!("Session #{} ended.", session.id);
@@ -107,6 +122,19 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
 
     // Check lock status before allowing work
     crate::lock_check::enforce_lock(crosslink_dir, issue_id)?;
+
+    // Auto-claim lock in multi-agent mode
+    if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
+        if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+            if sync.is_initialized() {
+                match sync.claim_lock(&agent, issue_id, None, false) {
+                    Ok(true) => println!("Auto-claimed lock on issue #{}", issue_id),
+                    Ok(false) => {} // Already held
+                    Err(e) => eprintln!("Warning: Could not auto-claim lock: {}", e),
+                }
+            }
+        }
+    }
 
     db.set_session_issue(session.id, issue_id)?;
     println!("Now working on: #{} {}", issue.id, issue.title);
@@ -196,7 +224,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
 
         start(&db, _dir.path()).unwrap();
-        let result = end(&db, None);
+        let result = end(&db, None, _dir.path());
         assert!(result.is_ok());
 
         let session = db.get_current_session().unwrap();
@@ -208,7 +236,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
 
         start(&db, _dir.path()).unwrap();
-        let result = end(&db, Some("Completed auth feature"));
+        let result = end(&db, Some("Completed auth feature"), _dir.path());
         assert!(result.is_ok());
 
         let last = db.get_last_session().unwrap().unwrap();
@@ -222,7 +250,7 @@ mod tests {
     fn test_end_no_active_session() {
         let (db, _dir) = setup_test_db();
 
-        let result = end(&db, None);
+        let result = end(&db, None, _dir.path());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -335,7 +363,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
 
         start(&db, _dir.path()).unwrap();
-        end(&db, None).unwrap();
+        end(&db, None, _dir.path()).unwrap();
 
         let result = last_handoff(&db);
         assert!(result.is_ok());
@@ -347,7 +375,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
 
         start(&db, _dir.path()).unwrap();
-        end(&db, Some("Important handoff notes")).unwrap();
+        end(&db, Some("Important handoff notes"), _dir.path()).unwrap();
 
         let result = last_handoff(&db);
         assert!(result.is_ok());
@@ -377,7 +405,7 @@ mod tests {
         status(&db).unwrap();
 
         // End with notes
-        end(&db, Some("Made progress on feature")).unwrap();
+        end(&db, Some("Made progress on feature"), dir.path()).unwrap();
         assert!(db.get_current_session().unwrap().is_none());
 
         // Start new session
@@ -399,7 +427,7 @@ mod tests {
             for _ in 0..iterations {
                 start(&db, _dir.path()).unwrap();
                 prop_assert!(db.get_current_session().unwrap().is_some());
-                end(&db, None).unwrap();
+                end(&db, None, _dir.path()).unwrap();
                 prop_assert!(db.get_current_session().unwrap().is_none());
             }
         }
@@ -409,7 +437,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
 
             start(&db, _dir.path()).unwrap();
-            end(&db, Some(&notes)).unwrap();
+            end(&db, Some(&notes), _dir.path()).unwrap();
 
             let last = db.get_last_session().unwrap().unwrap();
             prop_assert_eq!(last.handoff_notes, Some(notes));

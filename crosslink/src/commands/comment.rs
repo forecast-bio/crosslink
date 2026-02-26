@@ -1,10 +1,20 @@
 use anyhow::Result;
 
 use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 
-pub fn run(db: &Database, issue_id: i64, content: &str) -> Result<()> {
+pub fn run(
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    issue_id: i64,
+    content: &str,
+) -> Result<()> {
     db.require_issue(issue_id)?;
-    db.add_comment(issue_id, content)?;
+    if let Some(w) = writer {
+        w.add_comment(db, issue_id, content)?;
+    } else {
+        db.add_comment(issue_id, content)?;
+    }
     println!("Added comment to issue #{}", issue_id);
     Ok(())
 }
@@ -29,7 +39,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        let result = run(&db, issue_id, "This is a comment");
+        let result = run(&db, None, issue_id, "This is a comment");
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -41,7 +51,7 @@ mod tests {
     fn test_add_comment_to_nonexistent_issue() {
         let (db, _dir) = setup_test_db();
 
-        let result = run(&db, 99999, "Comment on nothing");
+        let result = run(&db, None, 99999, "Comment on nothing");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -51,9 +61,9 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        run(&db, issue_id, "First comment").unwrap();
-        run(&db, issue_id, "Second comment").unwrap();
-        run(&db, issue_id, "Third comment").unwrap();
+        run(&db, None, issue_id, "First comment").unwrap();
+        run(&db, None, issue_id, "Second comment").unwrap();
+        run(&db, None, issue_id, "Third comment").unwrap();
 
         let comments = db.get_comments(issue_id).unwrap();
         assert_eq!(comments.len(), 3);
@@ -67,7 +77,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        let result = run(&db, issue_id, "");
+        let result = run(&db, None, issue_id, "");
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -81,7 +91,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let unicode_content = "こんにちは 🎉 مرحبا αβγδ ← → ↑ ↓";
-        let result = run(&db, issue_id, unicode_content);
+        let result = run(&db, None, issue_id, unicode_content);
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -94,7 +104,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let long_content = "a".repeat(100000);
-        let result = run(&db, issue_id, &long_content);
+        let result = run(&db, None, issue_id, &long_content);
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -107,7 +117,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let multiline = "Line 1\nLine 2\nLine 3\n\nLine 5";
-        let result = run(&db, issue_id, multiline);
+        let result = run(&db, None, issue_id, multiline);
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -120,7 +130,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let special = "Quotes: \"test\" 'test' `test` | Symbols: @#$%^&*() | SQL: '; DROP TABLE;--";
-        let result = run(&db, issue_id, special);
+        let result = run(&db, None, issue_id, special);
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -133,7 +143,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let malicious = "'); DELETE FROM comments; --";
-        run(&db, issue_id, malicious).unwrap();
+        run(&db, None, issue_id, malicious).unwrap();
 
         // Verify comment was stored literally, not executed
         let comments = db.get_comments(issue_id).unwrap();
@@ -152,7 +162,7 @@ mod tests {
         db.close_issue(issue_id).unwrap();
 
         // Should still be able to comment on closed issues
-        let result = run(&db, issue_id, "Comment on closed issue");
+        let result = run(&db, None, issue_id, "Comment on closed issue");
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -165,7 +175,7 @@ mod tests {
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
         let with_null = "before\0after";
-        let result = run(&db, issue_id, with_null);
+        let result = run(&db, None, issue_id, with_null);
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
@@ -180,7 +190,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-            let result = run(&db, issue_id, &content);
+            let result = run(&db, None, issue_id, &content);
             prop_assert!(result.is_ok());
 
             let comments = db.get_comments(issue_id).unwrap();
@@ -192,7 +202,7 @@ mod tests {
         fn prop_nonexistent_issue_fails(issue_id in 1000i64..10000) {
             let (db, _dir) = setup_test_db();
             // Don't create any issues
-            let result = run(&db, issue_id, "Comment");
+            let result = run(&db, None, issue_id, "Comment");
             prop_assert!(result.is_err());
         }
 
@@ -202,7 +212,7 @@ mod tests {
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
             for i in 0..count {
-                run(&db, issue_id, &format!("Comment {}", i)).unwrap();
+                run(&db, None, issue_id, &format!("Comment {}", i)).unwrap();
             }
 
             let comments = db.get_comments(issue_id).unwrap();
@@ -223,7 +233,7 @@ mod tests {
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
             let content = format!("{}{}{}", prefix, emoji, suffix);
-            run(&db, issue_id, &content).unwrap();
+            run(&db, None, issue_id, &content).unwrap();
 
             let comments = db.get_comments(issue_id).unwrap();
             prop_assert_eq!(&comments[0].content, &content);
