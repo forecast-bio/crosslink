@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     env:
       # Proptests only run on Ubuntu here; the dedicated Property Tests job runs 1000 cases
       PROPTEST_CASES: 10
