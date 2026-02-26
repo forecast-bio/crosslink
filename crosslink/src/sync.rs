@@ -129,6 +129,7 @@ impl SyncManager {
                 || err_str.contains("Could not read from remote")
                 || err_str.contains("does not appear to be a git repository")
                 || err_str.contains("No such remote")
+                || err_str.contains("couldn't find remote ref")
             {
                 return Ok(());
             }
@@ -344,9 +345,7 @@ impl SyncManager {
         locks.locks.insert(issue_id.to_string(), lock);
         locks.save(&self.cache_dir.join("locks.json"))?;
 
-        self.commit_and_push_locks(
-            &format!("{}: claim lock on #{}", agent.agent_id, issue_id),
-        )?;
+        self.commit_and_push_locks(&format!("{}: claim lock on #{}", agent.agent_id, issue_id))?;
 
         Ok(true)
     }
@@ -355,12 +354,7 @@ impl SyncManager {
     ///
     /// Returns `Ok(true)` if released, `Ok(false)` if not locked.
     /// Fails if locked by a different agent (unless `force` is true).
-    pub fn release_lock(
-        &self,
-        agent: &AgentConfig,
-        issue_id: i64,
-        force: bool,
-    ) -> Result<bool> {
+    pub fn release_lock(&self, agent: &AgentConfig, issue_id: i64, force: bool) -> Result<bool> {
         let mut locks = self.read_locks()?;
 
         match locks.get_lock(issue_id) {
@@ -380,9 +374,10 @@ impl SyncManager {
         locks.locks.remove(&issue_id.to_string());
         locks.save(&self.cache_dir.join("locks.json"))?;
 
-        self.commit_and_push_locks(
-            &format!("{}: release lock on #{}", agent.agent_id, issue_id),
-        )?;
+        self.commit_and_push_locks(&format!(
+            "{}: release lock on #{}",
+            agent.agent_id, issue_id
+        ))?;
 
         Ok(true)
     }
@@ -414,9 +409,8 @@ impl SyncManager {
                     }
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < 2 {
-                            let _ = self.git_in_cache(&[
-                                "pull", "--rebase", "origin", LOCKS_BRANCH,
-                            ]);
+                            let _ =
+                                self.git_in_cache(&["pull", "--rebase", "origin", LOCKS_BRANCH]);
                             continue;
                         }
                         bail!("Push failed after 3 retries for locks.json");
