@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(test *), Bash(mkdir *), Bash(grep *), Skill
+allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(test *), Bash(mkdir *), Bash(grep *), Bash(echo *), Bash(crosslink *), Skill
 description: Create a feature branch and move it to a new git worktree
 ---
 
@@ -32,18 +32,28 @@ The user provides a human-readable feature description (e.g. "add batch retry lo
 - Switch back to the previous branch (the one we were on before `/feature` created the new branch): `git checkout -`
 - Create the worktree pointing at the feature branch: `git worktree add <worktree-path> feature/<slug>`
 
-### 4. Symlink shared databases (if applicable)
+### 4. Initialize crosslink in the worktree
 
-Check if the project uses any local databases or state files that should be shared across worktrees (e.g. `.crosslink/issues.db`). For each one found in the base repo:
+After creating the worktree, initialize crosslink so the child agent has proper hooks, skills, and access to shared state:
 
 ```bash
-# Only if the file exists in the base repo
-ln -s <repo-root>/<db-file> <worktree-path>/<db-file>
+# In the worktree directory:
+cd <worktree-path>
+
+# Set up crosslink hooks and skills in the worktree
+crosslink init --force
+
+# Initialize agent identity for this worktree
+# Format: <parent-agent>--<feature-slug>
+crosslink agent init <parent-agent>--<feature-slug>
+
+# Sync latest issues from the coordination branch
+crosslink sync
 ```
 
-Known database files to check: `.crosslink/issues.db`
+The agent ID should be derived from the parent agent name and the feature slug. For example, if the parent agent is `m1` and the feature slug is `add-retry`, the agent ID would be `m1--add-retry`.
 
-If none of these files exist in the base repo, skip this step.
+To get the parent agent name, check `crosslink agent status --json` in the parent repo, or default to the machine hostname.
 
 ### 5. Report to user
 

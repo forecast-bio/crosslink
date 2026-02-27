@@ -50,12 +50,23 @@ pub struct SyncManager {
 
 impl SyncManager {
     /// Create a new SyncManager for the given .crosslink directory.
+    ///
+    /// When running inside a git worktree, automatically detects the main
+    /// repository root and uses its `.crosslink/.hub-cache/` so that the
+    /// shared coordination branch worktree is never duplicated.
     pub fn new(crosslink_dir: &Path) -> Result<Self> {
-        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-        let repo_root = crosslink_dir
+        let local_repo_root = crosslink_dir
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root from .crosslink dir"))?
             .to_path_buf();
+
+        // If we're inside a git worktree, resolve the main repo root so the
+        // hub cache lives in one shared location rather than per-worktree.
+        let repo_root =
+            resolve_main_repo_root(&local_repo_root).unwrap_or_else(|| local_repo_root.clone());
+
+        let cache_dir = repo_root.join(".crosslink").join(HUB_CACHE_DIR);
+
         Ok(SyncManager {
             crosslink_dir: crosslink_dir.to_path_buf(),
             cache_dir,
@@ -577,6 +588,63 @@ impl SyncManager {
     }
 }
 
+/// Resolve the main repository root when running inside a git worktree.
+///
+/// Compares `git rev-parse --git-common-dir` with `--git-dir`. If they
+/// differ, we're in a worktree and the main repo root is the parent of
+/// `git-common-dir`. Returns `None` if not in a git repo or if git
+/// commands fail (e.g. in unit tests with plain temp directories).
+fn resolve_main_repo_root(repo_root: &Path) -> Option<PathBuf> {
+    let repo_str = repo_root.to_string_lossy();
+
+    let common_output = Command::new("git")
+        .args(["-C", &repo_str, "rev-parse", "--git-common-dir"])
+        .output()
+        .ok()?;
+
+    let git_dir_output = Command::new("git")
+        .args(["-C", &repo_str, "rev-parse", "--git-dir"])
+        .output()
+        .ok()?;
+
+    if !common_output.status.success() || !git_dir_output.status.success() {
+        return None;
+    }
+
+    let common_raw = String::from_utf8_lossy(&common_output.stdout)
+        .trim()
+        .to_string();
+    let git_dir_raw = String::from_utf8_lossy(&git_dir_output.stdout)
+        .trim()
+        .to_string();
+
+    // Resolve to absolute paths for reliable comparison
+    let common_path = if Path::new(&common_raw).is_absolute() {
+        PathBuf::from(&common_raw)
+    } else {
+        repo_root.join(&common_raw)
+    };
+
+    let git_dir_path = if Path::new(&git_dir_raw).is_absolute() {
+        PathBuf::from(&git_dir_raw)
+    } else {
+        repo_root.join(&git_dir_raw)
+    };
+
+    // Canonicalize to handle symlinks and ".." components
+    let common_canonical = common_path.canonicalize().unwrap_or(common_path);
+    let git_dir_canonical = git_dir_path.canonicalize().unwrap_or(git_dir_path);
+
+    if common_canonical != git_dir_canonical {
+        // We're in a worktree — git-common-dir points to the main .git directory.
+        // Its parent is the main repo root.
+        common_canonical.parent().map(|p| p.to_path_buf())
+    } else {
+        // Not in a worktree — use the given repo root as-is.
+        Some(repo_root.to_path_buf())
+    }
+}
+
 /// Parse GPG fingerprint from `git verify-commit --raw` output.
 ///
 /// Looks for lines like: `[GNUPG:] VALIDSIG <fingerprint> ...`
@@ -780,5 +848,139 @@ mod tests {
         let manager = SyncManager::new(&crosslink_dir).unwrap();
         let stale = manager.find_stale_locks().unwrap();
         assert!(stale.is_empty());
+    }
+
+    /// Helper: create a git repo with an initial commit.
+    fn init_git_repo(path: &Path) {
+        let p = path.to_string_lossy();
+        Command::new("git").args(["init", &p]).output().unwrap();
+        // Set user config so commits work on CI (no global git config).
+        Command::new("git")
+            .args(["-C", &p, "config", "user.email", "test@test.com"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["-C", &p, "config", "user.name", "Test"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["-C", &p, "commit", "--allow-empty", "-m", "init"])
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_resolve_main_repo_root_not_a_repo() {
+        let dir = tempdir().unwrap();
+        // Plain directory, no git repo — should return None
+        let result = resolve_main_repo_root(dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_main_repo_root_normal_repo() {
+        let dir = tempdir().unwrap();
+        init_git_repo(dir.path());
+
+        let result = resolve_main_repo_root(dir.path());
+        assert!(result.is_some());
+        // Canonicalize both sides for reliable comparison on macOS (/private/var/...)
+        assert_eq!(
+            result.unwrap().canonicalize().unwrap(),
+            dir.path().canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_resolve_main_repo_root_in_worktree() {
+        let dir = tempdir().unwrap();
+        let main_root = dir.path().join("main");
+        std::fs::create_dir_all(&main_root).unwrap();
+        init_git_repo(&main_root);
+
+        // Create a branch and worktree
+        Command::new("git")
+            .args([
+                "-C",
+                &main_root.to_string_lossy(),
+                "branch",
+                "feature/wt-test",
+            ])
+            .output()
+            .unwrap();
+
+        let wt_path = main_root.join(".worktrees").join("wt-test");
+        std::fs::create_dir_all(wt_path.parent().unwrap()).unwrap();
+        Command::new("git")
+            .args([
+                "-C",
+                &main_root.to_string_lossy(),
+                "worktree",
+                "add",
+                &wt_path.to_string_lossy(),
+                "feature/wt-test",
+            ])
+            .output()
+            .unwrap();
+
+        let result = resolve_main_repo_root(&wt_path);
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap().canonicalize().unwrap(),
+            main_root.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sync_manager_in_worktree_uses_main_hub_cache() {
+        let dir = tempdir().unwrap();
+        let main_root = dir.path().join("main");
+        std::fs::create_dir_all(&main_root).unwrap();
+        init_git_repo(&main_root);
+
+        let main_crosslink = main_root.join(".crosslink");
+        std::fs::create_dir_all(&main_crosslink).unwrap();
+
+        // Create worktree
+        Command::new("git")
+            .args([
+                "-C",
+                &main_root.to_string_lossy(),
+                "branch",
+                "feature/hub-test",
+            ])
+            .output()
+            .unwrap();
+        let wt_path = main_root.join(".worktrees").join("hub-test");
+        std::fs::create_dir_all(wt_path.parent().unwrap()).unwrap();
+        Command::new("git")
+            .args([
+                "-C",
+                &main_root.to_string_lossy(),
+                "worktree",
+                "add",
+                &wt_path.to_string_lossy(),
+                "feature/hub-test",
+            ])
+            .output()
+            .unwrap();
+
+        let wt_crosslink = wt_path.join(".crosslink");
+        std::fs::create_dir_all(&wt_crosslink).unwrap();
+
+        let manager = SyncManager::new(&wt_crosslink).unwrap();
+
+        // cache_dir should point to the main repo's hub cache, not the worktree's
+        // Canonicalize the parent (.crosslink) since .hub-cache doesn't exist yet.
+        let expected_parent = main_crosslink.canonicalize().unwrap();
+        let actual_parent = manager.cache_dir.parent().unwrap().canonicalize().unwrap();
+        assert_eq!(actual_parent, expected_parent);
+        assert_eq!(manager.cache_dir.file_name().unwrap(), HUB_CACHE_DIR);
+
+        // repo_root should be the main repo, not the worktree
+        assert_eq!(
+            manager.repo_root.canonicalize().unwrap(),
+            main_root.canonicalize().unwrap()
+        );
     }
 }
