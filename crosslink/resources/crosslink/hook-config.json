@@ -1,6 +1,7 @@
 {
   "tracking_mode": "strict",
   "intervention_tracking": true,
+  "cpitd_auto_install": true,
   "blocked_git_commands": [
     "git push", "git merge", "git rebase", "git cherry-pick",
     "git reset", "git checkout .", "git restore .", "git clean",

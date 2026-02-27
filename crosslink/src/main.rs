@@ -45,6 +45,9 @@ enum Commands {
         /// Override auto-detected Python prefix for hook commands (e.g. "uv run python3")
         #[arg(long)]
         python_prefix: Option<String>,
+        /// Skip automatic cpitd installation
+        #[arg(long)]
+        skip_cpitd: bool,
     },
 
     /// Create a new issue
@@ -697,9 +700,10 @@ fn main() -> Result<()> {
         Commands::Init {
             force,
             python_prefix,
+            skip_cpitd,
         } => {
             let cwd = env::current_dir()?;
-            commands::init::run(&cwd, force, python_prefix.as_deref())
+            commands::init::run(&cwd, force, python_prefix.as_deref(), skip_cpitd)
         }
 
         Commands::Create {

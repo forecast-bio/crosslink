@@ -52,6 +52,56 @@ fn read_pyproject(project_root: &Path) -> Option<String> {
     fs::read_to_string(project_root.join("pyproject.toml")).ok()
 }
 
+/// Check if cpitd is already available on PATH.
+fn cpitd_is_installed() -> bool {
+    std::process::Command::new("cpitd")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Install cpitd using the detected Python toolchain.
+/// Returns Ok(true) if installed, Ok(false) if already present, Err on failure.
+fn install_cpitd(python_prefix: &str) -> Result<bool> {
+    if cpitd_is_installed() {
+        return Ok(false);
+    }
+
+    if python_prefix.starts_with("uv ") {
+        return run_install_command("uv", &["pip", "install", "cpitd"]);
+    }
+    if python_prefix.starts_with("poetry ") {
+        return run_install_command("poetry", &["add", "--group", "dev", "cpitd"]);
+    }
+    if python_prefix.starts_with(".venv/") {
+        let pip = python_prefix
+            .replace("python3", "pip")
+            .replace("python", "pip");
+        return run_install_command(&pip, &["install", "cpitd"]);
+    }
+    if python_prefix.starts_with("pipenv ") {
+        return run_install_command("pipenv", &["install", "--dev", "cpitd"]);
+    }
+
+    // Fallback: system python
+    run_install_command("python3", &["-m", "pip", "install", "cpitd"])
+}
+
+fn run_install_command(program: &str, args: &[&str]) -> Result<bool> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .with_context(|| format!("Failed to run {} {}", program, args.join(" ")))?;
+
+    if output.status.success() {
+        Ok(true)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("cpitd install failed: {}", stderr.trim());
+    }
+}
+
 /// The placeholder used in the settings.json template for the Python invocation prefix.
 const PYTHON_PREFIX_PLACEHOLDER: &str = "__PYTHON_PREFIX__";
 
@@ -219,7 +269,7 @@ fn write_mcp_json_merged(mcp_path: &Path) -> Result<Vec<String>> {
     Ok(warnings)
 }
 
-pub fn run(path: &Path, force: bool, python_prefix: Option<&str>) -> Result<()> {
+pub fn run(path: &Path, force: bool, python_prefix: Option<&str>, skip_cpitd: bool) -> Result<()> {
     let crosslink_dir = path.join(".crosslink");
     let claude_dir = path.join(".claude");
     let hooks_dir = claude_dir.join("hooks");
@@ -278,14 +328,14 @@ pub fn run(path: &Path, force: bool, python_prefix: Option<&str>) -> Result<()> 
         }
     }
 
+    // Detect or use provided Python prefix (needed for settings.json and cpitd install)
+    let prefix = python_prefix
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| detect_python_prefix(path));
+
     // Create .claude directory and hooks (or update if force)
     if !claude_exists || force {
         fs::create_dir_all(&hooks_dir).context("Failed to create .claude/hooks directory")?;
-
-        // Detect or use provided Python prefix, then template settings.json
-        let prefix = python_prefix
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| detect_python_prefix(path));
         let settings_content = SETTINGS_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, &prefix);
         fs::write(claude_dir.join("settings.json"), settings_content)
             .context("Failed to write settings.json")?;
@@ -345,6 +395,18 @@ pub fn run(path: &Path, force: bool, python_prefix: Option<&str>) -> Result<()> 
         }
     }
 
+    // Auto-install cpitd unless skipped
+    if !skip_cpitd {
+        match install_cpitd(&prefix) {
+            Ok(true) => println!("Installed cpitd (code clone detection)"),
+            Ok(false) => {} // already installed, silent
+            Err(e) => {
+                println!("Warning: Could not auto-install cpitd: {}", e);
+                println!("  You can install it manually: pip install cpitd");
+            }
+        }
+    }
+
     println!("Crosslink initialized successfully!");
     println!("\nNext steps:");
     println!("  crosslink session start     # Start a session");
@@ -361,7 +423,7 @@ mod tests {
     #[test]
     fn test_run_fresh_init() {
         let dir = tempdir().unwrap();
-        let result = run(dir.path(), false, None);
+        let result = run(dir.path(), false, None, true);
         assert!(result.is_ok());
 
         // Verify directories created
@@ -377,7 +439,7 @@ mod tests {
     #[test]
     fn test_run_creates_hook_files() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Verify hook files
         assert!(dir.path().join(".claude/settings.json").exists());
@@ -397,7 +459,7 @@ mod tests {
     #[test]
     fn test_run_creates_rule_files() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         let rules_dir = dir.path().join(".crosslink/rules");
         assert!(rules_dir.join("global.md").exists());
@@ -416,10 +478,10 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // First init
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Second init without force - should succeed but not recreate
-        let result = run(dir.path(), false, None);
+        let result = run(dir.path(), false, None, true);
         assert!(result.is_ok());
     }
 
@@ -428,14 +490,14 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // First init
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Modify a hook file
         let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
         fs::write(&hook_path, "# modified").unwrap();
 
         // Force update
-        run(dir.path(), true, None).unwrap();
+        run(dir.path(), true, None, true).unwrap();
 
         // Verify file was restored
         let content = fs::read_to_string(&hook_path).unwrap();
@@ -457,7 +519,7 @@ mod tests {
     #[test]
     fn test_force_init_preserves_existing_mcp_servers() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Add a custom MCP server entry alongside the embedded ones
         let mcp_path = dir.path().join(".mcp.json");
@@ -470,7 +532,7 @@ mod tests {
         fs::write(&mcp_path, serde_json::to_string_pretty(&content).unwrap()).unwrap();
 
         // Force update
-        run(dir.path(), true, None).unwrap();
+        run(dir.path(), true, None, true).unwrap();
 
         // Verify all embedded keys and the custom key are present
         let result: serde_json::Value =
@@ -497,7 +559,7 @@ mod tests {
     #[test]
     fn test_force_init_returns_warnings_for_overwritten_keys() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // The first init created .mcp.json with the embedded keys.
         // A second force init should warn about overwriting each one.
@@ -552,14 +614,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_malformed_mcp_json() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Write invalid JSON to .mcp.json
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "not json {{{").unwrap();
 
         // Force init should fail, not silently overwrite
-        let result = run(dir.path(), true, None);
+        let result = run(dir.path(), true, None, true);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -576,14 +638,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_non_object_mcp_json() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Write a JSON array to .mcp.json
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "[1, 2, 3]").unwrap();
 
         // Force init should fail, not silently overwrite
-        let result = run(dir.path(), true, None);
+        let result = run(dir.path(), true, None, true);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -600,14 +662,14 @@ mod tests {
     #[test]
     fn test_force_init_handles_empty_mcp_json_file() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Write empty file
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "").unwrap();
 
         // Should fail — empty file is not valid JSON
-        let result = run(dir.path(), true, None);
+        let result = run(dir.path(), true, None, true);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -620,14 +682,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_non_object_mcp_servers_value() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Write valid JSON where mcpServers is a string instead of object
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, r#"{"mcpServers": "banana"}"#).unwrap();
 
         // Should fail, not silently replace
-        let result = run(dir.path(), true, None);
+        let result = run(dir.path(), true, None, true);
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -644,14 +706,14 @@ mod tests {
     #[test]
     fn test_init_merges_into_mcp_json_without_mcp_servers_key() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Write a valid object with no mcpServers key
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, r#"{"someOtherKey": true}"#).unwrap();
 
         // Force init should add mcpServers, preserving the other key
-        run(dir.path(), true, None).unwrap();
+        run(dir.path(), true, None, true).unwrap();
 
         let content = fs::read_to_string(&mcp_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -666,7 +728,7 @@ mod tests {
         // Create only .crosslink directory
         fs::create_dir_all(dir.path().join(".crosslink")).unwrap();
 
-        let result = run(dir.path(), false, None);
+        let result = run(dir.path(), false, None, true);
         assert!(result.is_ok());
 
         // .claude should now exist
@@ -680,7 +742,7 @@ mod tests {
         // Create only .claude directory
         fs::create_dir_all(dir.path().join(".claude")).unwrap();
 
-        let result = run(dir.path(), false, None);
+        let result = run(dir.path(), false, None, true);
         assert!(result.is_ok());
 
         // .crosslink should now exist
@@ -690,7 +752,7 @@ mod tests {
     #[test]
     fn test_run_database_usable() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Open the created database and verify it works
         let db_path = dir.path().join(".crosslink/issues.db");
@@ -704,7 +766,7 @@ mod tests {
     #[test]
     fn test_run_rule_files_not_empty() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         let rules_dir = dir.path().join(".crosslink/rules");
 
@@ -719,14 +781,14 @@ mod tests {
     #[test]
     fn test_run_force_updates_rules() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         // Modify a rule file
         let rule_path = dir.path().join(".crosslink/rules/global.md");
         fs::write(&rule_path, "# modified rule").unwrap();
 
         // Force update
-        run(dir.path(), true, None).unwrap();
+        run(dir.path(), true, None, true).unwrap();
 
         // Verify file was restored
         let content = fs::read_to_string(&rule_path).unwrap();
@@ -739,7 +801,7 @@ mod tests {
 
         // Multiple force runs should all succeed
         for _ in 0..3 {
-            let result = run(dir.path(), true, None);
+            let result = run(dir.path(), true, None, true);
             assert!(result.is_ok());
         }
 
@@ -794,7 +856,7 @@ mod tests {
     #[test]
     fn test_gitignore_includes_local_config() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".crosslink/.gitignore")).unwrap();
         assert!(content.contains("agent.json"));
@@ -909,7 +971,7 @@ mod tests {
     #[test]
     fn test_settings_json_default_uses_python3() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
@@ -926,7 +988,7 @@ mod tests {
     fn test_settings_json_uv_project() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
@@ -940,7 +1002,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
         // CLI override should beat auto-detection
-        run(dir.path(), false, Some("custom-python")).unwrap();
+        run(dir.path(), false, Some("custom-python"), true).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
@@ -957,7 +1019,7 @@ mod tests {
     fn test_settings_json_produces_valid_json() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(&content);
@@ -971,13 +1033,13 @@ mod tests {
     fn test_force_re_detects_toolchain() {
         let dir = tempdir().unwrap();
         // First init: no markers → python3
-        run(dir.path(), false, None).unwrap();
+        run(dir.path(), false, None, true).unwrap();
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(content.contains("\"python3 \\\"$(git"));
 
         // Add uv.lock, force re-init → should now use uv
         fs::write(dir.path().join("uv.lock"), "").unwrap();
-        run(dir.path(), true, None).unwrap();
+        run(dir.path(), true, None, true).unwrap();
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
             content.contains("uv run python3"),

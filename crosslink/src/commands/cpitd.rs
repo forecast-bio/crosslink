@@ -56,7 +56,7 @@ fn suggest_install() -> Result<()> {
          cpitd (Copy Paste Is The Devil) is a language-agnostic code clone\n\
          detector that integrates with crosslink to track duplicated code\n\
          as issues.\n\n\
-         Install it with:\n\n\
+         Run `crosslink init --force` to auto-install, or install manually:\n\n\
          \x20 pip install cpitd\n\n\
          Or visit: https://github.com/scythia-marrow/cpitd"
     )
