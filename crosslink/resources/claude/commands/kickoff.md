@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(tmux *), Bash(claude *), Bash(cat *), Bash(mkdir *), Bash(which *), Bash(test *), Bash(head *), Bash(grep *), Skill
+allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(tmux *), Bash(cat *), Bash(mkdir *), Bash(which *), Bash(test *), Bash(head *), Bash(grep *), Bash(echo *), Read, Write, Skill
 description: Create a worktree and launch a background claude agent in tmux to implement a feature
 ---
 
