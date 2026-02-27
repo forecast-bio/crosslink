@@ -1,6 +1,13 @@
 {
   "version": 1,
-  "locks": {},
+  "locks": {
+    "3": {
+      "agent_id": "m1--f2",
+      "branch": null,
+      "claimed_at": "2026-02-27T04:39:20.207768Z",
+      "signed_by": "m1--f2"
+    }
+  },
   "settings": {
     "stale_lock_timeout_minutes": 60
   }
