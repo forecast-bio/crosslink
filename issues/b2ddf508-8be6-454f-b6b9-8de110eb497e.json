@@ -2,11 +2,12 @@
   "uuid": "b2ddf508-8be6-454f-b6b9-8de110eb497e",
   "display_id": 7,
   "title": "Create GH issues for driver intervention epic",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-27T14:44:22.499166Z",
-  "updated_at": "2026-02-27T14:44:24.330907Z",
+  "updated_at": "2026-02-27T14:52:21.064724Z",
+  "closed_at": "2026-02-27T14:52:21.064724Z",
   "labels": [
     "chore"
   ]
