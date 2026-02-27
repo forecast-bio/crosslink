@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(tmux *), Bash(claude *), Bash(cat *), Bash(mkdir *), Bash(which *), Bash(test *), Bash(head *), Bash(grep *), Skill
+allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(tmux *), Bash(cat *), Bash(mkdir *), Bash(which *), Bash(test *), Bash(head *), Bash(grep *), Bash(echo *), Read, Write, Skill
 description: Create a worktree and launch a background claude agent in tmux to implement a feature
 ---
 
@@ -10,6 +10,7 @@ description: Create a worktree and launch a background claude agent in tmux to i
 - Existing worktrees: !`git worktree list`
 - Working tree status: !`git status --short`
 - tmux available: !`which tmux`
+- gh available: !`which gh`
 - CLAUDE.md head: !`head -3 CLAUDE.md`
 - Project root files: !`ls -1`
 
@@ -17,10 +18,23 @@ description: Create a worktree and launch a background claude agent in tmux to i
 
 The user provides a feature description (e.g. "add batch retry logic") and optionally additional context, file references, or constraints. You will create an isolated worktree, then launch a background `claude` process in a tmux session to implement the feature autonomously.
 
+### Arguments
+
+The user may pass these flags after the feature description:
+
+- `--verify <level>`: Controls post-implementation verification depth.
+  - `local` (default): Local tests + self-review checklist only.
+  - `ci`: Push branch, open draft PR, wait for CI to pass, fix failures.
+  - `thorough`: Everything in `ci` plus a structured adversarial self-review using the `/ad` skill.
+- All other text is the feature description.
+
+**Parsing**: Split ARGUMENTS on whitespace. If `--verify` is found, consume the next token as the level (`local`, `ci`, or `thorough`). Everything else (before or after the flag) is the feature description. If `--verify` is not present, default to `local`.
+
 ### 1. Validate prerequisites
 
 - Confirm `tmux` is installed (`which tmux`). If not, abort with a message telling the user to install it.
 - Confirm `claude` CLI is installed (`which claude`). If not, abort.
+- If `--verify ci` or `--verify thorough`, confirm `gh` is installed (`which gh`). If not, abort with a message telling the user to install GitHub CLI.
 
 ### 2. Create the worktree via /featree
 
@@ -44,6 +58,7 @@ Build a detailed prompt for the child agent. The prompt must be self-contained â
 - The feature description from the user
 - Any specific files, modules, or code areas the user mentioned
 - Any constraints or requirements the user specified
+- The `--verify` level that was selected (so the prompt can reference it)
 - Instructions to:
   1. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
   2. Explore relevant code before making changes
@@ -56,7 +71,65 @@ Build a detailed prompt for the child agent. The prompt must be self-contained â
   9. Use `/commit` to commit the work when implementation is complete
   10. Review the diff of all changes and fix any issues found
   11. Use `/commit` again after any fixes
-  12. When completely finished, write the word `DONE` to a file called `.kickoff-status` in the worktree root
+
+**Then, conditionally include the following sections based on `--verify` level:**
+
+#### If `--verify ci` or `--verify thorough`:
+
+Add these steps after the diff review:
+
+12. **Push and open draft PR**:
+   - Push the feature branch: `git push -u origin <branch>`
+   - Open a draft PR: `gh pr create --draft --title "<feature title>" --body "Automated PR from kickoff agent"`
+   - Record the PR URL for later reference.
+
+13. **Wait for CI to pass**:
+   - Poll CI status: `gh run list --branch <branch> --limit 1 --json status,conclusion,databaseId` every 30 seconds.
+   - If the run's `status` is `completed` and `conclusion` is `success`, CI has passed. Proceed.
+   - If the run's `status` is `completed` and `conclusion` is `failure`:
+     - Read the failure logs: `gh run view <run-id> --log-failed`
+     - Analyze the failures and fix the issues in the code.
+     - Run the local test suite again to verify fixes.
+     - Use `/commit` to commit the fixes.
+     - Push again: `git push`
+     - Wait for the new CI run to complete (repeat this loop).
+   - If no CI runs appear after 2 minutes, note this in the status and proceed (the repo may not have CI configured).
+   - Maximum 5 CI fix-and-retry cycles. If still failing after 5 attempts, write `CI_FAILED` to `.kickoff-status` and stop.
+
+#### If `--verify thorough` only:
+
+Add this step after CI passes:
+
+14. **Structured adversarial self-review**:
+    - Before marking done, perform a thorough self-review of all changes.
+    - Review checklist (go through each item and fix any issues found):
+      - [ ] All tests pass locally
+      - [ ] CI is green
+      - [ ] No unintended file changes in the diff (`git diff main...HEAD --stat`)
+      - [ ] No debug/temporary code left behind (search for `dbg!`, `console.log` used for debugging, `println!` debugging, `TODO`, `FIXME`, `HACK`)
+      - [ ] No commented-out code blocks
+      - [ ] Commit messages are clean and descriptive
+      - [ ] Changes match the original feature description from `KICKOFF.md`
+      - [ ] No new warnings introduced (check compiler/linter output)
+      - [ ] Error handling is complete (no unwrap() on fallible operations in non-test code, no unhandled promise rejections)
+      - [ ] Public API changes have appropriate documentation
+    - If the `/ad` skill is available, invoke it for a deeper adversarial review.
+    - Use `/commit` after any fixes from the review.
+    - Push again if fixes were made: `git push`
+
+#### For all `--verify` levels (final steps):
+
+Add the self-review checklist as the final step before writing DONE (even for `--verify local`, but as a lighter check):
+
+**Self-review checklist** (verify each before marking done):
+- All tests pass locally
+- No unintended file changes in the diff
+- No debug/temporary code left behind
+- Commit messages are clean and descriptive
+- Changes match the original feature description from `KICKOFF.md`
+
+Then:
+- When completely finished, write the word `DONE` to a file called `.kickoff-status` in the worktree root
 
 Write the prompt to `KICKOFF.md` in the worktree root. Ensure it's excluded from git by adding to the main repo's `.git/info/exclude`:
 
@@ -83,16 +156,30 @@ Then send the claude command into the session:
 - Do NOT use `--dangerously-skip-permissions`. Use `--allowedTools` for auto-approval after user grants trust.
 - Use `--` before the positional prompt argument to terminate option parsing.
 
-```bash
-tmux send-keys -t <session-name> "env -u CLAUDECODE claude --model opus --allowedTools 'Read,Write,Edit,Glob,Grep,Skill,Task,WebSearch,WebFetch,Bash(git *),Bash(ls *),Bash(mkdir *),Bash(test *),Bash(which *),Bash(touch *),Bash(cat *),Bash(head *),Bash(tail *),Bash(wc *),Bash(diff *),Bash(echo *),Bash(crosslink *),<project-specific-tools>' -- \"\$(cat KICKOFF.md)\"" Enter
+Build the `--allowedTools` string based on the `--verify` level:
+
+**Base tools** (always included):
+```
+Read,Write,Edit,Glob,Grep,Skill,Task,WebSearch,WebFetch,Bash(git *),Bash(ls *),Bash(mkdir *),Bash(test *),Bash(which *),Bash(touch *),Bash(cat *),Bash(head *),Bash(tail *),Bash(wc *),Bash(diff *),Bash(echo *),Bash(crosslink *)
 ```
 
-**Project-specific tool additions** based on detected conventions:
+**CI tools** (added when `--verify ci` or `--verify thorough`):
+```
+Bash(gh *),Bash(sleep *)
+```
+
+**Project-specific tools** (based on detected conventions):
 - Python/uv: `Bash(uv *)`
 - Node: `Bash(npm *),Bash(npx *)`
 - Rust: `Bash(cargo *)`
 - Just: `Bash(just *)`
 - Make: `Bash(make *)`
+
+Concatenate all applicable tool groups into the comma-separated `--allowedTools` value.
+
+```bash
+tmux send-keys -t <session-name> "env -u CLAUDECODE claude --model opus --allowedTools '<all-tools>' -- \"\$(cat KICKOFF.md)\"" Enter
+```
 
 ### 7. Report to user
 
@@ -102,6 +189,7 @@ Feature agent launched.
   Worktree: <path>
   Branch:   feature/<slug>
   Session:  <tmux-session-name>
+  Verify:   <local|ci|thorough>
 
   Approve trust:   tmux attach -t <tmux-session-name>
   Check status:    /check <tmux-session-name>
@@ -109,10 +197,15 @@ Feature agent launched.
   The agent is waiting for trust approval. Attach to the session and approve the prompt to begin.
 ```
 
+If `--verify ci` or `--verify thorough`, also include:
+```
+  CI verification is enabled. The agent will push to origin and open a draft PR after local tests pass.
+```
+
 ## Constraints
 
 - Never force-push or delete branches.
-- Do not push the branch to a remote.
+- Do not push the branch to a remote from the kickoff skill itself. (The child agent handles pushing when `--verify ci` or `--verify thorough`.)
 - The child agent prompt must be fully self-contained.
 - Leave `KICKOFF.md` in the worktree for reference (git-excluded).
 - If a tmux session with the same name already exists, append a short random suffix.

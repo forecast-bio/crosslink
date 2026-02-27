@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.2-alpha.1] - 2026-02-27
+
+### Fixed
+- SyncManager now detects when running inside a git worktree and reuses the main repo's hub cache instead of trying to create a duplicate `crosslink/hub` worktree (#41)
+- Set git user config in test helper for CI compatibility
+
+### Changed
+- Kickoff skill (`/kickoff`) now supports `--verify` flag with three levels: `local` (default), `ci`, and `thorough` for post-implementation verification (#39)
+- Updated `/kickoff` and `/featree` skill permissions to cover all tools used during execution (added `Write`, `Read`, `Bash(echo *)`, `Bash(crosslink *)`) (#42)
+- Featree skill now uses `crosslink init --force` and `crosslink sync` instead of manual database symlinking for worktree initialization (#42)
+
+### Removed
+- Stale `.chainlink/` directory (legacy issue tracker artifacts)
+- Tracked `crosslink/.crosslink/issues.db` (should be local-only)
+
+## [0.1.1-alpha.1] - 2026-02-26
+
 ### Multi-Agent Collaboration
 
 Distributed issue locking and agent coordination, ported from crosslink-enterprise.
@@ -67,6 +84,20 @@ context-compression resilience.
 - Database schema v7→v8 migration (adds `last_action` column to sessions, auto-applied on first use)
 
 ### Added
+- Add `crosslink integrity` subcommand with `--check` and `--repair` modes (#31)
+- Add `--check` flag to `review diff` for CI policy drift detection (#28)
+- Add kickoff workflow skills (`/feature`, `/featree`, `/kickoff`, `/check`) to `crosslink init` (#26)
+- Add `+key` array-extend semantics in `hook-config.local.json` (#25)
+- Add offline issue ID promotion flow with `crosslink promote` (#24)
+- Add promotion notifications with reference tracking (#27)
+- Add auto-detection of Python toolchain in `crosslink init` and template hook commands (#36)
+- Update `crosslink export` to emit per-issue `IssueFile` JSON format (#32)
+- Redesign milestones to per-file storage for conflict-free multi-agent writes (#35)
+- Deduplicate config-loading logic into shared `crosslink_config.py` module (#29)
+- Add `crosslink review diff` slash command for guided policy review (#7)
+- Add `hook-config.local.json` support for machine-local overrides (#5)
+- Add multi-agent shared issue coordination via `crosslink/hub` branch (#6)
+- Add auto-detection of Python toolchain in crosslink init (#21)
 - Update READMEs with hook configuration documentation (#119)
 - Split tracking instructions into per-mode markdown files (#118)
 - Make issue tracking strictness configurable (#117)
@@ -93,6 +124,10 @@ context-compression resilience.
 - Fix daemon log file corruption from duplicate file handles (#97)
 
 ### Changed
+- Rename coordination branch from `crosslink/locks` to `crosslink/hub` (#37)
+- Optimize CI with tiered job dependencies to save minutes on early failures (#33)
+- Rebrand chainlink to crosslink (#4)
+- Fix display ID collision in rebase-retry logic (#21)
 - Block git mutation commands via hook (#113)
 - Fix wrong assertion directions and tautological property tests (#96)
 - Fix overly loose CLI integration test assertions (#95)

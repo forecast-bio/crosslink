@@ -42,6 +42,9 @@ enum Commands {
         /// Force update hooks even if already initialized
         #[arg(short, long)]
         force: bool,
+        /// Override auto-detected Python prefix for hook commands (e.g. "uv run python3")
+        #[arg(long)]
+        python_prefix: Option<String>,
     },
 
     /// Create a new issue
@@ -676,9 +679,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { force } => {
+        Commands::Init {
+            force,
+            python_prefix,
+        } => {
             let cwd = env::current_dir()?;
-            commands::init::run(&cwd, force)
+            commands::init::run(&cwd, force, python_prefix.as_deref())
         }
 
         Commands::Create {

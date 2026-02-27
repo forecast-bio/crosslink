@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.1-alpha.1] - 2026-02-26
+
 ### Added
 - Update injected prompting rules to enforce typed comment discipline (#7)
 

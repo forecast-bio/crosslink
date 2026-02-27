@@ -5,37 +5,114 @@ use std::path::Path;
 
 use super::export::{ExportData, ExportedIssue};
 use crate::db::Database;
+use crate::issue_file::IssueFile;
 use crate::utils::format_issue_id;
 
 pub fn run_json(db: &Database, input_path: &Path) -> Result<()> {
     let content = fs::read_to_string(input_path).context("Failed to read import file")?;
 
-    let data: ExportData = serde_json::from_str(&content).context("Failed to parse JSON")?;
+    // Try new IssueFile array format first, then fall back to legacy ExportData envelope.
+    if let Ok(issue_files) = serde_json::from_str::<Vec<IssueFile>>(&content) {
+        return import_issue_files(db, &issue_files, input_path);
+    }
 
+    let data: ExportData = serde_json::from_str(&content).context("Failed to parse JSON")?;
+    import_legacy(db, &data, input_path)
+}
+
+fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) -> Result<()> {
     println!(
-        "Importing {} issues from {}",
+        "Importing {} issues from {} (IssueFile format)",
+        issues.len(),
+        input_path.display()
+    );
+
+    let count = db.transaction(|| {
+        // Map uuid -> new display_id for parent/blocker resolution
+        let mut uuid_to_new_id: HashMap<uuid::Uuid, i64> = HashMap::new();
+
+        // First pass: create all issues without parent relationships
+        for issue in issues {
+            let new_id =
+                db.create_issue(&issue.title, issue.description.as_deref(), &issue.priority)?;
+
+            // Add labels
+            for label in &issue.labels {
+                db.add_label(new_id, label)?;
+            }
+
+            // Add comments
+            for comment in &issue.comments {
+                db.add_comment(new_id, &comment.content, "note")?;
+            }
+
+            // Close if needed
+            if issue.status == "closed" {
+                db.close_issue(new_id)?;
+            }
+
+            uuid_to_new_id.insert(issue.uuid, new_id);
+
+            println!(
+                "  Imported: {} -> {} {}",
+                issue
+                    .display_id
+                    .map(|id| format!("#{}", id))
+                    .unwrap_or_else(|| issue.uuid.to_string()),
+                format_issue_id(new_id),
+                issue.title
+            );
+        }
+
+        // Second pass: update parent relationships
+        for issue in issues {
+            if let Some(parent_uuid) = issue.parent_uuid {
+                if let (Some(&new_id), Some(&new_parent_id)) = (
+                    uuid_to_new_id.get(&issue.uuid),
+                    uuid_to_new_id.get(&parent_uuid),
+                ) {
+                    db.update_parent(new_id, Some(new_parent_id))?;
+                }
+            }
+        }
+
+        // Third pass: restore blocker dependencies
+        for issue in issues {
+            if let Some(&new_blocked_id) = uuid_to_new_id.get(&issue.uuid) {
+                for blocker_uuid in &issue.blockers {
+                    if let Some(&new_blocker_id) = uuid_to_new_id.get(blocker_uuid) {
+                        let _ = db.add_dependency(new_blocked_id, new_blocker_id);
+                    }
+                }
+            }
+        }
+
+        Ok(issues.len())
+    })?;
+
+    println!("Successfully imported {} issues", count);
+    Ok(())
+}
+
+fn import_legacy(db: &Database, data: &ExportData, input_path: &Path) -> Result<()> {
+    println!(
+        "Importing {} issues from {} (legacy format)",
         data.issues.len(),
         input_path.display()
     );
 
-    // Wrap entire import in a transaction for atomicity
-    // If any part fails, all changes are rolled back
     let count = db.transaction(|| {
-        // Map old IDs to new IDs for parent relationships
         let mut id_map: HashMap<i64, i64> = HashMap::new();
 
-        // First pass: create all issues without parent relationships
         for issue in &data.issues {
             let new_id = import_issue(db, issue, None)?;
             id_map.insert(issue.id, new_id);
         }
 
-        // Second pass: update parent relationships
         for issue in &data.issues {
             if let Some(old_parent_id) = issue.parent_id {
                 if let Some(&new_parent_id) = id_map.get(&old_parent_id) {
                     if let Some(&new_id) = id_map.get(&issue.id) {
-                        // Update parent_id for this issue
                         db.update_parent(new_id, Some(new_parent_id))?;
                     }
                 }
@@ -89,6 +166,7 @@ fn import_issue(db: &Database, issue: &ExportedIssue, parent_id: Option<i64>) ->
 mod tests {
     use super::super::export::{ExportData, ExportedIssue};
     use super::*;
+    use chrono::Utc;
     use proptest::prelude::*;
     use tempfile::tempdir;
 
@@ -200,6 +278,39 @@ mod tests {
         fs::write(&import_path, json).unwrap();
         let result = run_json(&db, &import_path);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_import_issue_file_format() {
+        let (db, dir) = setup_test_db();
+        let issue = IssueFile {
+            uuid: uuid::Uuid::new_v4(),
+            display_id: Some(1),
+            title: "New format issue".to_string(),
+            description: Some("Imported from IssueFile".to_string()),
+            status: "open".to_string(),
+            priority: "high".to_string(),
+            parent_uuid: None,
+            created_by: "test".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            closed_at: None,
+            labels: vec!["feature".to_string()],
+            comments: vec![],
+            blockers: vec![],
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        };
+        let json = serde_json::to_string_pretty(&vec![issue]).unwrap();
+        let import_path = dir.path().join("import.json");
+        fs::write(&import_path, &json).unwrap();
+        run_json(&db, &import_path).unwrap();
+        let issues = db.list_issues(Some("all"), None, None).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].title, "New format issue");
+        let labels = db.get_labels(issues[0].id).unwrap();
+        assert!(labels.contains(&"feature".to_string()));
     }
 
     proptest! {
