@@ -1,17 +1,23 @@
 {
   "version": 1,
   "locks": {
-    "3": {
-      "agent_id": "m1--f2",
-      "branch": null,
-      "claimed_at": "2026-02-27T05:11:00.552760Z",
-      "signed_by": "m1--f2"
-    },
     "4": {
       "agent_id": "m1",
       "branch": null,
       "claimed_at": "2026-02-27T05:41:54.203130Z",
       "signed_by": "m1"
+    },
+    "5": {
+      "agent_id": "m1",
+      "branch": null,
+      "claimed_at": "2026-02-27T05:58:47.332192Z",
+      "signed_by": "m1"
+    },
+    "3": {
+      "agent_id": "m1--f2",
+      "branch": null,
+      "claimed_at": "2026-02-27T05:11:00.552760Z",
+      "signed_by": "m1--f2"
     }
   },
   "settings": {
