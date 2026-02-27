@@ -12,6 +12,12 @@
       "branch": null,
       "claimed_at": "2026-02-27T05:11:00.552760Z",
       "signed_by": "m1--f2"
+    },
+    "9": {
+      "agent_id": "m1",
+      "branch": null,
+      "claimed_at": "2026-02-27T15:09:04.477095Z",
+      "signed_by": "m1"
     }
   },
   "settings": {
