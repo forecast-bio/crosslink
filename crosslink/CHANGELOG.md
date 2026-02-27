@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.1-alpha.1] - 2026-02-26
+
 ### Added
 
 - **Multi-agent shared issue coordination** — issues can now be shared across agents via a git coordination branch (`crosslink/locks`)

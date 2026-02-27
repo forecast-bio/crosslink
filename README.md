@@ -1,8 +1,8 @@
 # Crosslink
 
-[![Crates.io](https://img.shields.io/crates/v/crosslink-tracker?style=flat-square)](https://crates.io/crates/crosslink-tracker)
-[![Downloads](https://img.shields.io/crates/d/crosslink-tracker?style=flat-square)](https://crates.io/crates/crosslink-tracker)
-[![License: MIT](https://img.shields.io/crates/l/crosslink-tracker?style=flat-square)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/crosslink?style=flat-square)](https://crates.io/crates/crosslink)
+[![Downloads](https://img.shields.io/crates/d/crosslink?style=flat-square)](https://crates.io/crates/crosslink)
+[![License: MIT](https://img.shields.io/crates/l/crosslink?style=flat-square)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/Code-AI_Generated-blue?style=flat-square&logo=probot&logoColor=white)
 
 A simple, lean issue tracker CLI designed for AI-assisted development. Track tasks across sessions with context preservation.
@@ -43,7 +43,7 @@ A simple, lean issue tracker CLI designed for AI-assisted development. Track tas
 
 ```bash
 # Install from crates.io
-cargo install crosslink-tracker
+cargo install crosslink
 ```
 
 The binary is named `crosslink` and will be available in your PATH after install.
