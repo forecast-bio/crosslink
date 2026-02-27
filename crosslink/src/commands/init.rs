@@ -61,13 +61,31 @@ fn cpitd_is_installed() -> bool {
         .unwrap_or(false)
 }
 
+const CPITD_REPO_URL: &str = "https://github.com/scythia-marrow/cpitd.git";
+
 /// Install cpitd using the detected Python toolchain.
 /// Returns Ok(true) if installed, Ok(false) if already present, Err on failure.
+///
+/// Tries `pip install cpitd` first (PyPI). If that fails, falls back to
+/// cloning the git repo into a temp directory and installing from source.
 fn install_cpitd(python_prefix: &str) -> Result<bool> {
     if cpitd_is_installed() {
         return Ok(false);
     }
 
+    // First attempt: install from PyPI
+    let pypi_result = install_cpitd_from_pypi(python_prefix);
+    if let Ok(true) = pypi_result {
+        return Ok(true);
+    }
+
+    // Second attempt: clone repo and install from source
+    println!("  PyPI install failed, trying install from source...");
+    install_cpitd_from_source(python_prefix)
+}
+
+/// Try installing cpitd from PyPI via pip/uv/poetry.
+fn install_cpitd_from_pypi(python_prefix: &str) -> Result<bool> {
     if python_prefix.starts_with("uv ") {
         return run_install_command("uv", &["pip", "install", "cpitd"]);
     }
@@ -86,6 +104,55 @@ fn install_cpitd(python_prefix: &str) -> Result<bool> {
 
     // Fallback: system python
     run_install_command("python3", &["-m", "pip", "install", "cpitd"])
+}
+
+/// Clone the cpitd repo to a temp directory and install from source.
+fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
+    let tmp_dir = std::env::temp_dir().join("crosslink-cpitd-install");
+
+    // Clean up any previous failed attempt
+    if tmp_dir.exists() {
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    // Clone the repo
+    let clone_output = std::process::Command::new("git")
+        .args(["clone", "--depth", "1", CPITD_REPO_URL])
+        .arg(&tmp_dir)
+        .output()
+        .context("Failed to run git clone for cpitd")?;
+
+    if !clone_output.status.success() {
+        let stderr = String::from_utf8_lossy(&clone_output.stderr);
+        // Clean up on failure
+        let _ = fs::remove_dir_all(&tmp_dir);
+        anyhow::bail!("git clone failed: {}", stderr.trim());
+    }
+
+    let tmp_dir_str = tmp_dir.to_string_lossy();
+
+    // Install from the cloned directory
+    let result = if python_prefix.starts_with("uv ") {
+        run_install_command("uv", &["pip", "install", &tmp_dir_str])
+    } else if python_prefix.starts_with("poetry ") {
+        // Poetry can't install from arbitrary paths into dev deps easily,
+        // fall back to pip inside the poetry env
+        run_install_command("poetry", &["run", "pip", "install", &tmp_dir_str])
+    } else if python_prefix.starts_with(".venv/") {
+        let pip = python_prefix
+            .replace("python3", "pip")
+            .replace("python", "pip");
+        run_install_command(&pip, &["install", &tmp_dir_str])
+    } else if python_prefix.starts_with("pipenv ") {
+        run_install_command("pipenv", &["run", "pip", "install", &tmp_dir_str])
+    } else {
+        run_install_command("python3", &["-m", "pip", "install", &tmp_dir_str])
+    };
+
+    // Clean up cloned repo
+    let _ = fs::remove_dir_all(&tmp_dir);
+
+    result
 }
 
 fn run_install_command(program: &str, args: &[&str]) -> Result<bool> {
