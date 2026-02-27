@@ -1,0 +1,3 @@
+# Crosslink trusted signers
+# Format: <principal> <key-type> <base64-key> [comment]
+m1@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd06glrYyNCzFpehaFA6sM08QcOgLRPRZ+MfG/Qqjhp crosslink-agent:m1@noether-4.local
