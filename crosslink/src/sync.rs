@@ -335,12 +335,11 @@ impl SyncManager {
     /// Verify the last N commits on the hub branch.
     ///
     /// Returns a list of `(commit_hash, verification_result)`.
-    pub fn verify_recent_commits(&self, count: usize) -> Result<Vec<(String, SignatureVerification)>> {
-        let output = self.git_in_cache(&[
-            "log",
-            &format!("-{}", count),
-            "--format=%H",
-        ])?;
+    pub fn verify_recent_commits(
+        &self,
+        count: usize,
+    ) -> Result<Vec<(String, SignatureVerification)>> {
+        let output = self.git_in_cache(&["log", &format!("-{}", count), "--format=%H"])?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let commits: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
 
@@ -362,7 +361,10 @@ impl SyncManager {
                     fingerprint,
                     principal,
                 }
-            } else if stderr.contains("NODATA") || stderr.contains("no signature") || stderr.is_empty() {
+            } else if stderr.contains("NODATA")
+                || stderr.contains("no signature")
+                || stderr.is_empty()
+            {
                 SignatureVerification::Unsigned {
                     commit: commit.to_string(),
                 }

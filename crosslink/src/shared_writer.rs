@@ -397,8 +397,7 @@ impl SharedWriter {
                 counters.next_comment_id += 1;
                 comment_id.set(id);
 
-                let (signed_by, signature) =
-                    writer.sign_comment(&content_owned, &agent_id, id);
+                let (signed_by, signature) = writer.sign_comment(&content_owned, &agent_id, id);
                 issue.comments.push(CommentEntry {
                     id,
                     author: agent_id.clone(),
@@ -449,8 +448,7 @@ impl SharedWriter {
                 counters.next_comment_id += 1;
                 comment_id.set(id);
 
-                let (signed_by, signature) =
-                    writer.sign_comment(&content_owned, &agent_id, id);
+                let (signed_by, signature) = writer.sign_comment(&content_owned, &agent_id, id);
                 issue.comments.push(CommentEntry {
                     id,
                     author: agent_id.clone(),

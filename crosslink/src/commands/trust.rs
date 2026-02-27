@@ -15,7 +15,10 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     let cache = sync.cache_path();
 
     // Read the agent's published public key
-    let pubkey_path = cache.join("trust").join("keys").join(format!("{}.pub", agent_id));
+    let pubkey_path = cache
+        .join("trust")
+        .join("keys")
+        .join(format!("{}.pub", agent_id));
     if !pubkey_path.exists() {
         bail!(
             "No published key for agent '{}'. The agent must run `crosslink agent init` first.",
@@ -172,7 +175,10 @@ pub fn check(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
         .exists();
 
     println!("Agent: {}", agent_id);
-    println!("  Key published: {}", if has_published_key { "yes" } else { "no" });
+    println!(
+        "  Key published: {}",
+        if has_published_key { "yes" } else { "no" }
+    );
     println!(
         "  Approved: {}",
         if signers.is_trusted(&principal) {

@@ -413,8 +413,8 @@ pub fn sign_content(private_key_path: &Path, content: &[u8], namespace: &str) ->
     }
 
     // Read the signature file
-    let sig_content = std::fs::read_to_string(&sig_path)
-        .context("Failed to read signature file")?;
+    let sig_content =
+        std::fs::read_to_string(&sig_path).context("Failed to read signature file")?;
 
     // Extract just the base64 content between the PEM markers
     let sig = sig_content

@@ -391,7 +391,10 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 println!("Signing audit: {}", msg);
             }
         } else if !results.is_empty() {
-            println!("Signing audit: all {} recent commit(s) are signed.", results.len());
+            println!(
+                "Signing audit: all {} recent commit(s) are signed.",
+                results.len()
+            );
         }
 
         // Per-entry signature verification
