@@ -96,6 +96,8 @@ fn build_issue_file(
                     kind,
                     trigger_type,
                     intervention_context,
+                    signed_by: None,
+                    signature: None,
                 }
             },
         )

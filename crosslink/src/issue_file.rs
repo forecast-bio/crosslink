@@ -57,6 +57,12 @@ pub struct CommentEntry {
     pub trigger_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intervention_context: Option<String>,
+    /// SSH fingerprint of the signer (e.g. "SHA256:..."), if signed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_by: Option<String>,
+    /// Base64-encoded SSH signature over the canonical comment content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 fn default_comment_kind() -> String {
@@ -287,6 +293,8 @@ mod tests {
                 kind: "note".to_string(),
                 trigger_type: None,
                 intervention_context: None,
+                signed_by: None,
+                signature: None,
             }],
             blockers: vec![Uuid::new_v4()],
             related: vec![],

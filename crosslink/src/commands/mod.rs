@@ -25,4 +25,5 @@ pub mod status;
 pub mod tested;
 pub mod timer;
 pub mod tree;
+pub mod trust;
 pub mod update;

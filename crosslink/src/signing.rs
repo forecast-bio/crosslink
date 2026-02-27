@@ -224,7 +224,6 @@ fn run_git_config(repo_dir: &Path, key: &str, value: &str) -> Result<()> {
 // ── Allowed signers ─────────────────────────────────────────────────
 
 /// An entry in the `trust/allowed_signers` file (git's native format).
-#[allow(dead_code)] // Used in upcoming trust management PR
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AllowedSignerEntry {
     /// Principal identifier (e.g. "agent-id@crosslink" or "driver@example.com").
@@ -234,13 +233,11 @@ pub struct AllowedSignerEntry {
 }
 
 /// Manages the `trust/allowed_signers` file.
-#[allow(dead_code)] // Used in upcoming trust management PR
 #[derive(Debug, Clone, Default)]
 pub struct AllowedSigners {
     pub entries: Vec<AllowedSignerEntry>,
 }
 
-#[allow(dead_code)] // Used in upcoming trust management PR
 impl AllowedSigners {
     /// Load from a file. Returns empty if the file doesn't exist.
     pub fn load(path: &Path) -> Result<Self> {
@@ -369,7 +366,136 @@ pub fn parse_verify_output(stderr: &str) -> Option<(Option<String>, String)> {
     None
 }
 
+// ── Per-entry signing ────────────────────────────────────────────────
+
+/// Canonicalize fields into a deterministic byte string for signing.
+///
+/// Fields are sorted by key, joined as `key=value\n`.
+pub fn canonicalize_for_signing(fields: &[(&str, &str)]) -> Vec<u8> {
+    let mut sorted: Vec<(&str, &str)> = fields.to_vec();
+    sorted.sort_by_key(|(k, _)| *k);
+    let mut out = Vec::new();
+    for (k, v) in sorted {
+        out.extend_from_slice(k.as_bytes());
+        out.push(b'=');
+        out.extend_from_slice(v.as_bytes());
+        out.push(b'\n');
+    }
+    out
+}
+
+/// Sign content using SSH private key (`ssh-keygen -Y sign`).
+///
+/// Returns the base64-encoded signature (the content between the PEM markers).
+pub fn sign_content(private_key_path: &Path, content: &[u8], namespace: &str) -> Result<String> {
+    let tmp = make_temp_dir("crosslink-sign")?;
+    let content_path = tmp.join("content");
+    let sig_path = tmp.join("content.sig");
+
+    std::fs::write(&content_path, content)?;
+
+    let output = Command::new("ssh-keygen")
+        .args([
+            "-Y",
+            "sign",
+            "-f",
+            &private_key_path.to_string_lossy(),
+            "-n",
+            namespace,
+        ])
+        .arg(&content_path)
+        .output()
+        .context("Failed to run ssh-keygen -Y sign")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("ssh-keygen sign failed: {}", stderr.trim());
+    }
+
+    // Read the signature file
+    let sig_content = std::fs::read_to_string(&sig_path)
+        .context("Failed to read signature file")?;
+
+    // Extract just the base64 content between the PEM markers
+    let sig = sig_content
+        .lines()
+        .filter(|l| !l.starts_with("-----"))
+        .collect::<Vec<_>>()
+        .join("");
+
+    Ok(sig)
+}
+
+/// Verify content against an SSH signature using `ssh-keygen -Y verify`.
+///
+/// Returns `true` if the signature is valid and the principal is trusted.
+pub fn verify_content(
+    allowed_signers_path: &Path,
+    principal: &str,
+    namespace: &str,
+    content: &[u8],
+    signature_b64: &str,
+) -> Result<bool> {
+    let tmp = make_temp_dir("crosslink-verify")?;
+    let content_path = tmp.join("content");
+    let sig_path = tmp.join("content.sig");
+
+    std::fs::write(&content_path, content)?;
+
+    // Reconstruct PEM-wrapped signature
+    let pem_sig = format!(
+        "-----BEGIN SSH SIGNATURE-----\n{}\n-----END SSH SIGNATURE-----\n",
+        signature_b64
+    );
+    std::fs::write(&sig_path, pem_sig)?;
+
+    // ssh-keygen -Y verify reads the data to verify from stdin
+    let mut child = Command::new("ssh-keygen")
+        .args([
+            "-Y",
+            "verify",
+            "-f",
+            &allowed_signers_path.to_string_lossy(),
+            "-I",
+            principal,
+            "-n",
+            namespace,
+            "-s",
+        ])
+        .arg(&sig_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to run ssh-keygen -Y verify")?;
+
+    if let Some(ref mut stdin) = child.stdin {
+        use std::io::Write;
+        let _ = stdin.write_all(content);
+    }
+    // Drop stdin to close it so ssh-keygen can proceed
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output()?;
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    Ok(output.status.success())
+}
+
 // ── Platform helpers ────────────────────────────────────────────────
+
+/// Create a temporary directory with a descriptive prefix.
+fn make_temp_dir(prefix: &str) -> Result<PathBuf> {
+    let id = std::process::id();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("{}-{}-{}", prefix, id, ts));
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create temp dir {}", dir.display()))?;
+    Ok(dir)
+}
 
 /// Get the user's home directory (cross-platform).
 fn dirs_next() -> Option<PathBuf> {

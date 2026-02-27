@@ -240,6 +240,9 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     sync.init_cache()?;
     sync.fetch()?;
 
+    // Configure SSH signing in the cache worktree (if agent has a key)
+    let _ = sync.configure_signing(crosslink_dir);
+
     // Hydrate local SQLite from JSON issue files on the coordination branch
     let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
     if stats.issues > 0 {
@@ -301,12 +304,33 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
             }
             if let Some(fp) = fingerprint {
                 println!("  Fingerprint: {}", fp);
-                // Check against keyring if available
-                if let Ok(Some(keyring)) = sync.read_keyring() {
-                    if keyring.is_trusted(fp) {
-                        println!("  Key is in trusted keyring.");
+                // Check against allowed_signers (preferred) or legacy keyring
+                let trusted = if let Ok(signers) = sync.read_allowed_signers() {
+                    if !signers.entries.is_empty() {
+                        let is_trusted = principal
+                            .as_ref()
+                            .map(|p| signers.is_trusted(p))
+                            .unwrap_or(false);
+                        if is_trusted {
+                            println!("  Signer is trusted (allowed_signers).");
+                        } else {
+                            println!("  WARNING: Signer not in allowed_signers!");
+                        }
+                        true // we checked
                     } else {
-                        println!("  WARNING: Signer not in trusted keyring!");
+                        false
+                    }
+                } else {
+                    false
+                };
+                // Fall back to legacy keyring
+                if !trusted {
+                    if let Ok(Some(keyring)) = sync.read_keyring() {
+                        if keyring.is_trusted(fp) {
+                            println!("  Key is in trusted keyring.");
+                        } else {
+                            println!("  WARNING: Signer not in trusted keyring!");
+                        }
                     }
                 }
             }
@@ -340,7 +364,80 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         }
     }
 
+    // Signing enforcement check
+    let enforcement = read_signing_enforcement(crosslink_dir);
+    if enforcement != "disabled" {
+        let results = sync.verify_recent_commits(5)?;
+        let unsigned: Vec<_> = results
+            .iter()
+            .filter(|(_, v)| matches!(v, GpgVerification::Unsigned { .. }))
+            .collect();
+        let invalid: Vec<_> = results
+            .iter()
+            .filter(|(_, v)| matches!(v, GpgVerification::Invalid { .. }))
+            .collect();
+
+        if !unsigned.is_empty() || !invalid.is_empty() {
+            let msg = format!(
+                "{} unsigned, {} invalid signature(s) in last {} commit(s)",
+                unsigned.len(),
+                invalid.len(),
+                results.len()
+            );
+            if enforcement == "enforced" {
+                anyhow::bail!("Signing enforcement FAILED: {}", msg);
+            } else {
+                // audit mode
+                println!("Signing audit: {}", msg);
+            }
+        } else if !results.is_empty() {
+            println!("Signing audit: all {} recent commit(s) are signed.", results.len());
+        }
+
+        // Per-entry signature verification
+        let (verified, failed, entry_unsigned) = sync.verify_entry_signatures()?;
+        let total_entries = verified + failed + entry_unsigned;
+        if total_entries > 0 {
+            if failed > 0 {
+                let msg = format!(
+                    "{} verified, {} FAILED, {} unsigned entry signature(s)",
+                    verified, failed, entry_unsigned
+                );
+                if enforcement == "enforced" {
+                    anyhow::bail!("Entry signing enforcement FAILED: {}", msg);
+                } else {
+                    println!("Entry signing audit: {}", msg);
+                }
+            } else if verified > 0 {
+                println!(
+                    "Entry signing audit: {} verified, {} unsigned entry signature(s).",
+                    verified, entry_unsigned
+                );
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Read the `signing_enforcement` setting from hook-config.json.
+///
+/// Returns `"disabled"`, `"audit"`, or `"enforced"`. Defaults to `"disabled"`.
+fn read_signing_enforcement(crosslink_dir: &Path) -> String {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(_) => return "disabled".to_string(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return "disabled".to_string(),
+    };
+    parsed
+        .get("signing_enforcement")
+        .and_then(|v| v.as_str())
+        .unwrap_or("disabled")
+        .to_string()
 }
 
 #[cfg(test)]

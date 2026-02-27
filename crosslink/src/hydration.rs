@@ -358,6 +358,8 @@ mod tests {
             kind: "note".to_string(),
             trigger_type: None,
             intervention_context: None,
+            signed_by: None,
+            signature: None,
         }];
         write_issues_to_cache(cache.path(), &[issue]);
 

@@ -34,6 +34,21 @@ pub fn init(
                 std::fs::write(&path, json)?;
 
                 println!("  SSH key: {}", keypair.fingerprint);
+
+                // Publish public key to hub for driver approval
+                if let Err(e) = super::trust::publish_agent_key(
+                    crosslink_dir,
+                    agent_id,
+                    &keypair.public_key,
+                ) {
+                    println!("  Note: Could not publish key to hub: {}", e);
+                    println!("  The driver can manually copy your public key.");
+                }
+
+                // Configure signing on the hub cache worktree
+                if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+                    let _ = sync.configure_signing(crosslink_dir);
+                }
             }
             Err(e) => {
                 println!("  Warning: Could not generate SSH key: {}", e);

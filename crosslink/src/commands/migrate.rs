@@ -105,6 +105,8 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
                     kind: "note".to_string(),
                     trigger_type: None,
                     intervention_context: None,
+                    signed_by: None,
+                    signature: None,
                 }
             })
             .collect();
@@ -400,6 +402,8 @@ mod tests {
                     kind: "note".to_string(),
                     trigger_type: None,
                     intervention_context: None,
+                    signed_by: None,
+                    signature: None,
                 })
                 .collect(),
             blockers: blocker_uuids,
