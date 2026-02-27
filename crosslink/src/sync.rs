@@ -852,19 +852,19 @@ mod tests {
 
     /// Helper: create a git repo with an initial commit.
     fn init_git_repo(path: &Path) {
+        let p = path.to_string_lossy();
+        Command::new("git").args(["init", &p]).output().unwrap();
+        // Set user config so commits work on CI (no global git config).
         Command::new("git")
-            .args(["init", &path.to_string_lossy()])
+            .args(["-C", &p, "config", "user.email", "test@test.com"])
             .output()
             .unwrap();
         Command::new("git")
-            .args([
-                "-C",
-                &path.to_string_lossy(),
-                "commit",
-                "--allow-empty",
-                "-m",
-                "init",
-            ])
+            .args(["-C", &p, "config", "user.name", "Test"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["-C", &p, "commit", "--allow-empty", "-m", "init"])
             .output()
             .unwrap();
     }
