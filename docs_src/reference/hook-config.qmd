@@ -1,0 +1,87 @@
+---
+title: "Hook Configuration"
+---
+
+Hook behavior is controlled by `.crosslink/hook-config.json`. This file is created by `crosslink init` and can be edited to customize enforcement.
+
+## Configuration File
+
+```json
+{
+  "tracking_mode": "strict",
+  "blocked_git_commands": [
+    "git push", "git commit", "git merge", "git rebase",
+    "git cherry-pick", "git tag", "git stash", "git checkout -b",
+    "git switch -c", "git branch -d", "git branch -D",
+    "git reset", "git revert", "git am", "git format-patch"
+  ],
+  "allowed_bash_prefixes": [
+    "crosslink ",
+    "git status", "git diff", "git log", "git branch", "git show",
+    "cargo test", "cargo build", "cargo check", "cargo clippy",
+    "cargo fmt", "cargo run",
+    "npm test", "npm run", "npx ",
+    "tsc", "node ", "python ",
+    "cp ", "mkdir ", "gh ", "cd ",
+    "ls", "dir", "pwd", "echo"
+  ]
+}
+```
+
+## Fields
+
+### `tracking_mode`
+
+Controls how aggressively crosslink enforces issue creation before code changes. See [Tracking Modes](../guides/tracking-modes.qmd) for details.
+
+| Value | Behavior |
+|-------|----------|
+| `"strict"` | Blocks code changes without an active issue |
+| `"normal"` | Reminds but allows proceeding |
+| `"relaxed"` | No enforcement, only git mutation blocks |
+
+### `blocked_git_commands`
+
+Git commands that are **always blocked**, regardless of tracking mode. These are mutation commands that should only be run by a human.
+
+The hook checks if the bash command starts with any of these prefixes. To allow a blocked command, remove it from the list.
+
+### `allowed_bash_prefixes`
+
+Bash commands that bypass the issue-required check. These are typically read-only or infrastructure commands that don't require issue tracking.
+
+The hook splits chained commands (using `&&`, `;`, `|`) and checks that **every** component matches an allowed prefix. A command like `crosslink list && rm -rf /` would be blocked because `rm -rf /` doesn't match any allowed prefix.
+
+## How the Hook Processes Commands
+
+1. **Git mutation check** — If command matches any `blocked_git_commands` prefix, block it (all modes)
+2. **Allowed prefix check** — If command matches `allowed_bash_prefixes`, allow it (all modes)
+3. **Tracking mode check** — Apply mode-specific behavior:
+   - Strict: block if no active issue
+   - Normal: warn if no active issue
+   - Relaxed: allow
+
+## Customizing for Your Stack
+
+Add your project's build and test commands to `allowed_bash_prefixes`:
+
+```json
+{
+  "allowed_bash_prefixes": [
+    "crosslink ",
+    "make ", "cmake ",
+    "go test", "go build", "go vet",
+    "dotnet test", "dotnet build",
+    "mvn ", "gradle ",
+    "docker ", "docker-compose "
+  ]
+}
+```
+
+## Resetting to Defaults
+
+```bash
+crosslink init --force
+```
+
+This resets `hook-config.json` and all rules to their default values.

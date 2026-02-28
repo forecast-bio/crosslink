@@ -1,0 +1,35 @@
+/*-- scss:defaults --*/
+
+$font-family-sans-serif: Helvetica, Arial, sans-serif;
+$font-family-monospace: "IBM Plex Mono", "Fira Code", monospace;
+$headings-font-weight: 700;
+
+/*-- scss:rules --*/
+
+/* Navbar brand styling */
+.navbar-brand {
+  font-family: "Times New Roman", Times, serif !important;
+  font-style: italic;
+  font-size: 1.5rem;
+  color: #F95838 !important;
+}
+
+/* Code block styling */
+pre.sourceCode {
+  border-left: 3px solid #F95838;
+  background-color: #1a1a2e;
+  color: #f8f8f2;
+}
+
+code {
+  color: #F95838;
+}
+
+/* Link styling */
+a {
+  color: #00A6DB;
+}
+
+a:hover {
+  color: #F95838;
+}

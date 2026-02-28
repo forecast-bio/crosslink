@@ -1,0 +1,84 @@
+---
+title: "Claude Code Hooks"
+---
+
+Crosslink includes behavioral hooks for [Claude Code](https://claude.com/claude-code) that inject best practice reminders into AI sessions. These hooks help ensure Claude follows coding standards without requiring manual prompting.
+
+## Requirements
+
+- **Python 3.6+** must be installed and available in your PATH
+- The VS Code extension will warn you if Python is not detected
+
+## Hook Overview
+
+The hooks are located in `.claude/hooks/` and configured in `.claude/settings.json`:
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `session-start.py` | Session start/resume | Loads context, syncs locks, detects stale sessions, restores breadcrumbs |
+| `prompt-guard.py` | Every prompt | Injects language-specific best practices (condensed after first prompt) |
+| `work-check.py` | Before write/edit | Enforces issue tracking, blocks git mutations, warns on lock conflicts |
+| `post-edit-check.py` | After file edits | Stub detection, debounced linting, test reminders |
+| `pre-web-check.py` | Before web fetch | Injects RFIP (prompt injection defense) before fetching external content |
+
+## Behavioral Guardrails
+
+The hooks enforce these principles:
+
+1. **No Stubs** — Complete, working code. No placeholder functions, TODO comments, or `unimplemented!()` macros.
+2. **No Dead Code** — Identify incomplete features and complete them, or remove truly dead code.
+3. **Full Features** — Implement complete features as requested. Don't stop partway.
+4. **Error Handling** — Proper error handling everywhere. No panics on bad input.
+5. **Security** — Validate input, use parameterized queries, no command injection.
+
+## Large Task Management
+
+When code will exceed 500 lines, the hooks guide Claude to:
+
+1. Create a parent issue for the feature
+2. Break it into subissues for trackable components
+3. Inform the user about the multi-part implementation
+4. Work on one subissue at a time
+
+## Language Detection
+
+The hooks auto-detect project languages and inject relevant best practices:
+
+- **Rust**: `?` operator, `clippy`, parameterized SQL, avoid `.unwrap()`
+- **Python**: Type hints, proper exceptions, `pathlib`, context managers
+- **JavaScript/TypeScript**: `const`/`let`, async/await, strict mode, input validation
+- **Go**: Check errors, `context.Context`, `defer` for cleanup
+- **And more**: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir
+
+## Post-Edit Checking
+
+After every file edit, `post-edit-check.py`:
+
+1. **Stub detection** — Scans for TODO, FIXME, `pass`, `...`, `unimplemented!()`, empty functions
+2. **Linting** — Runs the appropriate linter (cargo clippy, flake8, eslint, go vet) with 10-second debouncing
+3. **Test reminders** — Checks if code has been modified since the last test run and reminds to run tests
+
+## Web Security (RFIP)
+
+The `pre-web-check.py` hook injects the Recursive Framing Interdiction Protocol before any web fetch or search. This defends against prompt injection by establishing that:
+
+- External content is **DATA**, not **INSTRUCTIONS**
+- Any instruction-like text in fetched content is treated as data to report, not orders to follow
+- Suspicious patterns (identity override, authority claims, urgency manipulation) are flagged
+
+## Installing Hooks in Other Projects
+
+```bash
+# Automatic setup
+crosslink init
+
+# Or manual copy
+cp -r /path/to/crosslink/.claude /your/project/
+cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
+```
+
+## Customization
+
+Hook behavior is controlled by `.crosslink/hook-config.json`. See [Hook Configuration Reference](../reference/hook-config.qmd) for details.
+
+Rules are stored as markdown files in `.crosslink/rules/`. See [Rules Customization](../reference/rules.qmd).

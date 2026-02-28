@@ -1,0 +1,106 @@
+---
+title: "Multi-Agent Coordination"
+---
+
+Crosslink supports multiple AI agents working on the same repository simultaneously through distributed issue locking.
+
+## How It Works
+
+Lock state is stored on a `crosslink/hub` git branch and synchronized via git. Each agent registers a machine-local identity and claims issues through locks. Other agents see which issues are taken and work on available ones instead.
+
+## Agent Setup
+
+### Register an Agent
+
+```bash
+crosslink agent init my-agent-1
+crosslink agent init my-agent-1 -d "Frontend specialist"
+```
+
+Agent identity is stored in `.crosslink/agent.json` (machine-local, gitignored).
+
+### Check Agent Status
+
+```bash
+crosslink agent status
+```
+
+Shows agent ID, machine ID, and currently held locks.
+
+## Working with Locks
+
+### View Active Locks
+
+```bash
+crosslink locks list
+crosslink locks list --json
+```
+
+Shows all issue locks with owner, age, and stale detection.
+
+### Check Lock Availability
+
+```bash
+crosslink locks check 5
+```
+
+Reports whether issue #5 is available or locked by another agent.
+
+### Sync Lock State
+
+```bash
+crosslink sync
+```
+
+Fetches the latest lock state from the coordination branch and verifies signatures.
+
+## Lock-Aware Commands
+
+These commands automatically respect lock state:
+
+| Command | Lock Behavior |
+|---------|---------------|
+| `crosslink next` | Skips locked issues when recommending work |
+| `crosslink session work <id>` | Warns if issue is locked by another agent |
+| `crosslink create --work` | Only sets as active if not locked |
+
+## Daemon (Optional)
+
+The daemon provides background services for multi-agent setups:
+
+```bash
+crosslink daemon start   # Start background daemon
+crosslink daemon status  # Check if running
+crosslink daemon stop    # Stop daemon
+```
+
+The daemon:
+
+- Auto-flushes session state every 30 seconds
+- Pushes agent heartbeats every 2.5 minutes
+- Enables stale lock detection (locks from agents with no recent heartbeat)
+
+## Coordination Branch
+
+Lock state lives on the `crosslink/hub` branch, separate from your code branches. The branch contains:
+
+- Lock files (one per locked issue)
+- Agent heartbeat timestamps
+- GPG/SSH signatures for integrity verification
+
+Agents push to this branch when claiming/releasing locks and pull from it during `crosslink sync`.
+
+## Signature Verification
+
+Crosslink supports SSH signature verification for the coordination branch:
+
+```bash
+# Set up trust
+crosslink trust add <public-key-path>
+crosslink trust list
+
+# Sync with signature verification
+crosslink sync
+```
+
+When signatures are configured, `crosslink sync` verifies that lock state was written by a trusted agent.

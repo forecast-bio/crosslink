@@ -1,0 +1,98 @@
+/* Hero section */
+.hero-section {
+  text-align: center;
+  padding: 3rem 1rem;
+  margin-bottom: 2rem;
+}
+
+.hero-section h1 {
+  font-size: 2.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.hero-section .subtitle {
+  font-size: 1.3rem;
+  color: #6c757d;
+  margin-bottom: 2rem;
+}
+
+.hero-section .cta-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hero-section .cta-buttons a {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  transition: transform 0.2s;
+}
+
+.hero-section .cta-buttons a:hover {
+  transform: translateY(-2px);
+}
+
+.btn-primary {
+  background-color: #F95838;
+  color: white !important;
+}
+
+.btn-secondary {
+  background-color: #00A6DB;
+  color: white !important;
+}
+
+/* Feature cards */
+.feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  border-top: 3px solid #F95838;
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  color: #1a1a2e;
+}
+
+.feature-card p {
+  color: #6c757d;
+  margin-bottom: 0;
+}
+
+/* Dark highlight for code examples */
+.dark-highlight {
+  background-color: #1a1a2e;
+  color: #f8f8f2;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border-left: 4px solid #F95838;
+}
+
+/* h2 styling */
+h2 {
+  font-family: "Times New Roman", Times, serif;
+  font-style: italic;
+  font-size: 1.8rem;
+  color: #1a1a2e;
+  border-bottom: 2px solid #F95838;
+  padding-bottom: 0.3rem;
+  margin-top: 2rem;
+}
+
+/* Footer */
+.nav-footer {
+  border-top: 2px solid #F95838;
+}

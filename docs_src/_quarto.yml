@@ -1,0 +1,58 @@
+project:
+  type: website
+  output-dir: ../docs
+
+website:
+  title: "crosslink"
+  navbar:
+    background: "#F9F4F5"
+    left:
+      - text: Getting Started
+        menu:
+          - getting-started/quickstart.qmd
+          - getting-started/installation.qmd
+      - text: Guides
+        menu:
+          - guides/session-workflow.qmd
+          - guides/multi-agent.qmd
+          - guides/hooks.qmd
+          - guides/tracking-modes.qmd
+      - text: Reference
+        menu:
+          - reference/commands.qmd
+          - reference/hook-config.qmd
+          - reference/rules.qmd
+    right:
+      - icon: github
+        href: https://github.com/forecast-bio/crosslink
+
+  sidebar:
+    - title: "Getting Started"
+      style: docked
+      contents:
+        - getting-started/quickstart.qmd
+        - getting-started/installation.qmd
+    - title: "Guides"
+      contents:
+        - guides/session-workflow.qmd
+        - guides/multi-agent.qmd
+        - guides/hooks.qmd
+        - guides/tracking-modes.qmd
+    - title: "Reference"
+      contents:
+        - reference/commands.qmd
+        - reference/hook-config.qmd
+        - reference/rules.qmd
+
+  page-footer:
+    center: "Built with [Quarto](https://quarto.org) | [MIT License](https://github.com/forecast-bio/crosslink/blob/main/LICENSE)"
+
+format:
+  html:
+    theme:
+      - pandoc
+      - brand
+      - theme-light.scss
+    css: styles.css
+    toc: true
+    toc-depth: 3

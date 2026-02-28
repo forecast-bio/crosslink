@@ -68,7 +68,7 @@ fn has_custom_marker(deployed_path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// `crosslink review diff` — compare deployed policy files against embedded defaults.
+/// `crosslink workflow diff` — compare deployed policy files against embedded defaults.
 ///
 /// When `check` is true, operates in CI mode: exits 0 if all drifted files are
 /// marked with `# crosslink:custom`, exits 1 with a summary otherwise.
@@ -190,7 +190,7 @@ pub fn diff(
                 CUSTOM_MARKER
             );
             println!(
-                "Run 'crosslink review diff' for details, or add '{}' to acknowledge.",
+                "Run 'crosslink workflow diff' for details, or add '{}' to acknowledge.",
                 CUSTOM_MARKER
             );
             std::process::exit(1);
@@ -200,7 +200,7 @@ pub fn diff(
     Ok(())
 }
 
-/// `crosslink review trail <id>` — show chronological comment trail for an issue.
+/// `crosslink workflow trail <id>` — show chronological comment trail for an issue.
 pub fn trail(db: &Database, id: i64, kind_filter: Option<&str>, json: bool) -> Result<()> {
     db.require_issue(id)?;
 
@@ -283,7 +283,19 @@ mod tests {
     fn test_diff_defaults_match() {
         // Init a fresh crosslink dir, then diff — everything should match
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
+        crate::commands::init::run(
+            dir.path(),
+            &crate::commands::init::InitOpts {
+                force: false,
+                python_prefix: None,
+                skip_cpitd: true,
+                skip_signing: true,
+                signing_key: None,
+                reconfigure: false,
+                defaults: true,
+            },
+        )
+        .unwrap();
 
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
@@ -295,7 +307,19 @@ mod tests {
     #[test]
     fn test_diff_customized_file() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
+        crate::commands::init::run(
+            dir.path(),
+            &crate::commands::init::InitOpts {
+                force: false,
+                python_prefix: None,
+                skip_cpitd: true,
+                skip_signing: true,
+                signing_key: None,
+                reconfigure: false,
+                defaults: true,
+            },
+        )
+        .unwrap();
 
         // Modify a rule file
         let rule_path = dir.path().join(".crosslink/rules/global.md");
@@ -315,7 +339,19 @@ mod tests {
     #[test]
     fn test_diff_section_filter() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
+        crate::commands::init::run(
+            dir.path(),
+            &crate::commands::init::InitOpts {
+                force: false,
+                python_prefix: None,
+                skip_cpitd: true,
+                skip_signing: true,
+                signing_key: None,
+                reconfigure: false,
+                defaults: true,
+            },
+        )
+        .unwrap();
 
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
@@ -329,17 +365,41 @@ mod tests {
     #[test]
     fn test_init_creates_commands_dir() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
+        crate::commands::init::run(
+            dir.path(),
+            &crate::commands::init::InitOpts {
+                force: false,
+                python_prefix: None,
+                skip_cpitd: true,
+                skip_signing: true,
+                signing_key: None,
+                reconfigure: false,
+                defaults: true,
+            },
+        )
+        .unwrap();
 
-        assert!(dir.path().join(".claude/commands/review.md").exists());
-        let content = fs::read_to_string(dir.path().join(".claude/commands/review.md")).unwrap();
+        assert!(dir.path().join(".claude/commands/workflow.md").exists());
+        let content = fs::read_to_string(dir.path().join(".claude/commands/workflow.md")).unwrap();
         assert!(content.contains("policy review"));
     }
 
     #[test]
     fn test_check_passes_when_defaults_match() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
+        crate::commands::init::run(
+            dir.path(),
+            &crate::commands::init::InitOpts {
+                force: false,
+                python_prefix: None,
+                skip_cpitd: true,
+                skip_signing: true,
+                signing_key: None,
+                reconfigure: false,
+                defaults: true,
+            },
+        )
+        .unwrap();
 
         let crosslink_dir = dir.path().join(".crosslink");
         let claude_dir = dir.path().join(".claude");
@@ -351,7 +411,19 @@ mod tests {
     #[test]
     fn test_check_passes_with_custom_marker() {
         let dir = tempdir().unwrap();
-        crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
+        crate::commands::init::run(
+            dir.path(),
+            &crate::commands::init::InitOpts {
+                force: false,
+                python_prefix: None,
+                skip_cpitd: true,
+                skip_signing: true,
+                signing_key: None,
+                reconfigure: false,
+                defaults: true,
+            },
+        )
+        .unwrap();
 
         // Modify a rule file but add the custom marker
         let rule_path = dir.path().join(".crosslink/rules/global.md");

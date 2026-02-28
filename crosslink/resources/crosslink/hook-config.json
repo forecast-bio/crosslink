@@ -2,6 +2,8 @@
   "tracking_mode": "strict",
   "intervention_tracking": true,
   "cpitd_auto_install": true,
+  "comment_discipline": "encouraged",
+  "kickoff_verification": "local",
   "signing_enforcement": "audit",
   "blocked_git_commands": [
     "git push", "git merge", "git rebase", "git cherry-pick",

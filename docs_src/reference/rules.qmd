@@ -1,0 +1,111 @@
+---
+title: "Rules Customization"
+---
+
+Crosslink uses markdown files in `.crosslink/rules/` to define behavioral rules that are injected into AI sessions. You can customize these files to match your project's conventions.
+
+## Rule Files
+
+| File | Purpose | Injected By |
+|------|---------|-------------|
+| `global.md` | Security, correctness, and style rules | `prompt-guard.py` (every prompt) |
+| `project.md` | Your project-specific rules | `prompt-guard.py` (every prompt) |
+| `tracking-strict.md` | Strict mode enforcement wording | `work-check.py` |
+| `tracking-normal.md` | Normal mode enforcement wording | `work-check.py` |
+| `tracking-relaxed.md` | Relaxed mode enforcement wording | `work-check.py` |
+| `web.md` | RFIP (prompt injection defense) | `pre-web-check.py` |
+| `rust.md`, `python.md`, etc. | Language-specific best practices | `prompt-guard.py` (auto-detected) |
+
+## How Rules Are Loaded
+
+1. **`prompt-guard.py`** detects project languages by scanning for source files
+2. It loads `global.md`, `project.md`, and any relevant language rule files
+3. On the first prompt, full rules are injected; on subsequent prompts, a condensed version is used
+4. **`work-check.py`** loads the tracking mode file matching `hook-config.json`'s `tracking_mode`
+5. **`pre-web-check.py`** loads `web.md` before any web fetch
+
+## Customizing `global.md`
+
+This file contains the core behavioral rules. Key sections:
+
+- **Security** — OWASP prevention, input validation, parameterized queries
+- **Correctness** — No stubs, no dead code, complete implementations
+- **Style** — Consistent formatting, meaningful names, appropriate comments
+
+Edit to match your team's standards.
+
+## Customizing `project.md`
+
+This is your project-specific rules file. It starts empty. Use it for:
+
+- Architecture conventions ("always use repository pattern for data access")
+- Naming conventions ("prefix all API handlers with `handle_`")
+- Testing requirements ("every public function must have a unit test")
+- Dependency preferences ("use `reqwest` for HTTP, not `hyper` directly")
+
+Example:
+
+```markdown
+## Project Conventions
+
+### Architecture
+- Use the repository pattern for all database access
+- All API endpoints go in `src/api/`
+- Business logic belongs in `src/domain/`, never in API handlers
+
+### Testing
+- Every public function must have at least one unit test
+- Integration tests go in `tests/` and use the `test_db` fixture
+- Mock external APIs, never hit real endpoints in tests
+
+### Dependencies
+- HTTP client: reqwest
+- Serialization: serde + serde_json
+- Error handling: anyhow for applications, thiserror for libraries
+```
+
+## Language Rules
+
+Language-specific rule files are auto-detected based on source files in the project. Each file contains best practices for that language.
+
+Available language rules:
+
+| File | Language |
+|------|----------|
+| `rust.md` | Rust |
+| `python.md` | Python |
+| `javascript.md` | JavaScript |
+| `typescript.md` | TypeScript |
+| `go.md` | Go |
+| `java.md` | Java |
+| `c.md` | C |
+| `cpp.md` | C++ |
+| `csharp.md` | C# |
+| `ruby.md` | Ruby |
+| `php.md` | PHP |
+| `swift.md` | Swift |
+| `kotlin.md` | Kotlin |
+| `scala.md` | Scala |
+| `zig.md` | Zig |
+| `odin.md` | Odin |
+| `elixir.md` | Elixir |
+
+You can edit these files to add project-specific language conventions, or remove files for languages not used in your project to reduce noise.
+
+## Tracking Mode Rules
+
+Each tracking mode has its own markdown file that defines the enforcement wording. You can customize the tone and instructions per mode:
+
+- `tracking-strict.md` — Forceful, mandatory language
+- `tracking-normal.md` — Gentle reminders
+- `tracking-relaxed.md` — Minimal, informational
+
+## Resetting Rules
+
+To reset all rules to defaults:
+
+```bash
+crosslink init --force
+```
+
+This regenerates all rule files from the built-in templates.

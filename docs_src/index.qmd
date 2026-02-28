@@ -1,0 +1,88 @@
+---
+pagetitle: "crosslink — The Missing Memory Layer for AI-Assisted Development"
+toc: false
+sidebar: false
+---
+
+::: {.hero-section}
+
+# crosslink
+
+::: {.subtitle}
+The missing memory layer for AI-assisted development
+:::
+
+::: {.cta-buttons}
+[Get Started](getting-started/quickstart.qmd){.btn-primary}
+[View on GitHub](https://github.com/forecast-bio/crosslink){.btn-secondary}
+:::
+
+:::
+
+---
+
+::: {.feature-cards}
+
+::: {.feature-card}
+### Session Memory
+Preserve context across AI conversations. Handoff notes, breadcrumbs, and session state survive context compression and restarts.
+:::
+
+::: {.feature-card}
+### Local-First Tracking
+All data in a single SQLite file (`.crosslink/issues.db`). No cloud, no sync complexity, no network requests. Works offline.
+:::
+
+::: {.feature-card}
+### Multi-Agent Coordination
+Distributed issue locking via a `crosslink/hub` git branch. Multiple AI agents can work on the same repo without conflicts.
+:::
+
+::: {.feature-card}
+### Behavioral Hooks
+Claude Code hooks inject best practices automatically — no stubs, proper error handling, issue tracking enforcement, and language-specific guidelines.
+:::
+
+::: {.feature-card}
+### Smart Workflow
+`crosslink quick` creates, labels, and starts work in one command. `crosslink next` recommends what to work on. `crosslink tree` visualizes issue hierarchy.
+:::
+
+::: {.feature-card}
+### Works Everywhere
+Native CLI + VS Code extension. Integrates with Claude Code, Aider, Cursor, Continue.dev, or any AI agent via the context provider.
+:::
+
+:::
+
+## Quick Example
+
+```bash
+# Initialize in any project
+crosslink init
+
+# Start a session — see what the last AI left you
+crosslink session start
+
+# Create and start working on an issue in one step
+crosslink quick "Fix auth token refresh" -p high -l bug
+
+# Record breadcrumbs as you work (survives context compression)
+crosslink session action "Found root cause in refresh_token()"
+
+# End with handoff notes for the next session
+crosslink session end --notes "Fixed token refresh. Dark mode is next."
+```
+
+## Install
+
+```bash
+# From crates.io
+cargo install crosslink
+
+# Or build from source
+git clone https://github.com/forecast-bio/crosslink.git
+cd crosslink/crosslink && cargo install --path .
+```
+
+Also available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).

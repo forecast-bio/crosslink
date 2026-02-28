@@ -1,0 +1,29 @@
+meta:
+  name: Forecast
+  link: https://forecast.bio
+
+color:
+  palette:
+    white: "#FFFFFF"
+    neutral-pink: "#F9F4F5"
+    red: "#F95838"
+    blue: "#00A6DB"
+    green: "#007C35"
+    dark: "#1a1a2e"
+    gray: "#6c757d"
+  foreground: dark
+  background: neutral-pink
+  primary: red
+  secondary: blue
+  success: green
+
+typography:
+  base:
+    family: Helvetica, Arial, sans-serif
+  headings:
+    family: Helvetica, Arial, sans-serif
+    weight: 700
+  monospace:
+    family: "IBM Plex Mono", "Fira Code", monospace
+  monospace-inline:
+    family: "IBM Plex Mono", "Fira Code", monospace

@@ -170,6 +170,23 @@ pub fn run(
         // Check lock status before allowing work on this issue
         if let Some(dir) = opts.crosslink_dir {
             crate::lock_check::enforce_lock(dir, id)?;
+
+            // Auto-claim lock in multi-agent mode (same as session work)
+            if let Ok(Some(agent)) = crate::identity::AgentConfig::load(dir) {
+                if let Ok(sync) = crate::sync::SyncManager::new(dir) {
+                    if sync.is_initialized() {
+                        match sync.claim_lock(&agent, id, None, false) {
+                            Ok(true) => {
+                                if !opts.quiet {
+                                    println!("Auto-claimed lock on issue {}", format_issue_id(id));
+                                }
+                            }
+                            Ok(false) => {} // Already held by us
+                            Err(e) => eprintln!("Warning: Could not auto-claim lock: {}", e),
+                        }
+                    }
+                }
+            }
         }
         if let Ok(Some(session)) = db.get_current_session() {
             db.set_session_issue(session.id, id)?;
@@ -237,6 +254,23 @@ pub fn run_subissue(
         // Check lock status before allowing work on this issue
         if let Some(dir) = opts.crosslink_dir {
             crate::lock_check::enforce_lock(dir, id)?;
+
+            // Auto-claim lock in multi-agent mode (same as session work)
+            if let Ok(Some(agent)) = crate::identity::AgentConfig::load(dir) {
+                if let Ok(sync) = crate::sync::SyncManager::new(dir) {
+                    if sync.is_initialized() {
+                        match sync.claim_lock(&agent, id, None, false) {
+                            Ok(true) => {
+                                if !opts.quiet {
+                                    println!("Auto-claimed lock on issue {}", format_issue_id(id));
+                                }
+                            }
+                            Ok(false) => {} // Already held by us
+                            Err(e) => eprintln!("Warning: Could not auto-claim lock: {}", e),
+                        }
+                    }
+                }
+            }
         }
         if let Ok(Some(session)) = db.get_current_session() {
             db.set_session_issue(session.id, id)?;

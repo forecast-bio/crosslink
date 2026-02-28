@@ -1,0 +1,89 @@
+---
+title: "Session Workflow"
+---
+
+Sessions are crosslink's core mechanism for preserving context across AI conversations. They track what you're working on, record breadcrumbs, and pass handoff notes to the next session.
+
+## The Session Lifecycle
+
+```
+session start → session work <id> → session action "..." → session end --notes "..."
+     ↑                                                              ↓
+     └──────────────── next session reads handoff notes ────────────┘
+```
+
+### Starting a Session
+
+```bash
+crosslink session start
+```
+
+On startup, crosslink:
+
+1. Shows handoff notes from the previous session
+2. Checks for stale sessions (idle >4 hours) and auto-ends them
+3. Displays open and ready issues
+
+### Setting Your Focus
+
+```bash
+crosslink session work 3
+```
+
+Marks issue #3 as your current focus. This is shown in session status and used by hooks to track which issue is active.
+
+### Recording Breadcrumbs
+
+```bash
+crosslink session action "Found root cause in refresh_token()"
+```
+
+Breadcrumbs survive context compression. When the AI's context window fills up and resets, the session-start hook restores the last recorded action so the AI knows where it left off.
+
+### Ending a Session
+
+```bash
+crosslink session end --notes "Fixed auth bug #3. Token refresh now handles 401 responses. Dark mode (#2) is next priority."
+```
+
+Handoff notes are the most important part of the workflow. Write them as if briefing a colleague who's taking over your work.
+
+### Checking Status
+
+```bash
+crosslink session status
+```
+
+Shows: session number, duration, current focus issue, last recorded action.
+
+### Retrieving Previous Handoff
+
+```bash
+crosslink session last-handoff
+```
+
+Read the handoff notes from the most recent ended session.
+
+## Stale Session Detection
+
+Sessions idle for more than 4 hours are automatically ended on the next `session start`. The auto-end message notes that handoff notes may be incomplete.
+
+This prevents "ghost sessions" that accumulate when an AI session is abandoned without a clean end.
+
+## Context Compression Recovery
+
+When Claude Code's context window fills up, it compresses earlier messages. The `session-start.py` hook fires on resume and:
+
+1. Detects the active session is still running (resume vs. fresh start)
+2. Adds an auto-comment on the active issue noting the compression event
+3. Injects the last recorded `session action` as a breadcrumb
+4. Displays current session state
+
+**Best practice:** Run `crosslink session action "..."` before doing anything that might trigger context compression (large file reads, many tool calls).
+
+## Workflow Tips
+
+- **One session per conversation.** Don't manually start multiple sessions in one chat.
+- **Write handoff notes for your future self.** Be specific about what's done, what's in progress, and what's next.
+- **Use `session action` liberally.** It's your insurance against context loss.
+- **Use `crosslink quick`** to create + label + start working in one step.

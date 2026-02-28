@@ -1,0 +1,161 @@
+---
+title: "CLI Reference"
+---
+
+Complete command reference for the crosslink CLI.
+
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | JSON output (on supported commands) |
+| `--quiet` / `-q` | Minimal output (just IDs), useful for scripting |
+
+## Issue Management
+
+| Command | Description |
+|---------|-------------|
+| `crosslink create <title>` | Create a new issue |
+| `crosslink create <title> -p high` | Create with priority (`low`/`medium`/`high`/`critical`) |
+| `crosslink create <title> -d "desc"` | Create with description |
+| `crosslink create <title> --template bug` | Create from template (`bug`/`feature`/`refactor`/`research`/`audit`/`continuation`/`investigation`) |
+| `crosslink create <title> --work -l bug` | Create, label, and start working on it |
+| `crosslink quick <title> [-p high] [-l label]` | Shorthand: create + label + set as active work item |
+| `crosslink subissue <parent_id> <title>` | Create a subissue under a parent |
+| `crosslink subissue <parent_id> <title> -p high` | Subissue with priority |
+| `crosslink list` | List open issues |
+| `crosslink list -s all` | List all issues (open + closed) |
+| `crosslink list -s closed` | List closed issues |
+| `crosslink list -l bug` | Filter by label |
+| `crosslink list -p high` | Filter by priority |
+| `crosslink show <id>` | Show issue details |
+| `crosslink show <id> --json` | Show issue details as JSON |
+| `crosslink update <id> --title "New"` | Update title |
+| `crosslink update <id> -d "desc"` | Update description |
+| `crosslink update <id> -p critical` | Update priority |
+| `crosslink close <id>` | Close an issue |
+| `crosslink close <id> --no-changelog` | Close without changelog entry |
+| `crosslink close-all` | Close all open issues |
+| `crosslink close-all -l bug` | Close all with a specific label |
+| `crosslink close-all -p low` | Close all with a specific priority |
+| `crosslink close-all --no-changelog` | Close all without changelog entries |
+| `crosslink reopen <id>` | Reopen a closed issue |
+| `crosslink delete <id>` | Delete an issue (with confirmation) |
+| `crosslink delete <id> -f` | Delete without confirmation |
+
+## Comments & Labels
+
+| Command | Description |
+|---------|-------------|
+| `crosslink comment <id> "text"` | Add a comment to an issue |
+| `crosslink label <id> <label>` | Add a label |
+| `crosslink unlabel <id> <label>` | Remove a label |
+
+## Dependencies
+
+| Command | Description |
+|---------|-------------|
+| `crosslink block <id> <blocker_id>` | Mark issue as blocked by another |
+| `crosslink unblock <id> <blocker_id>` | Remove blocking relationship |
+| `crosslink blocked` | List all blocked issues |
+| `crosslink ready` | List issues ready to work on (no blockers) |
+
+## Related Issues
+
+| Command | Description |
+|---------|-------------|
+| `crosslink relate <id1> <id2>` | Link two related issues |
+| `crosslink unrelate <id1> <id2>` | Remove relationship |
+
+## Milestones
+
+| Command | Description |
+|---------|-------------|
+| `crosslink milestone create <name>` | Create a milestone |
+| `crosslink milestone create <name> -d "desc"` | Create with description |
+| `crosslink milestone list` | List all milestones |
+| `crosslink milestone show <id>` | Show milestone details and progress |
+| `crosslink milestone add <milestone_id> <issue_id>` | Add issue to milestone |
+| `crosslink milestone remove <milestone_id> <issue_id>` | Remove issue from milestone |
+| `crosslink milestone close <id>` | Close a milestone |
+| `crosslink milestone reopen <id>` | Reopen a milestone |
+
+## Archiving
+
+| Command | Description |
+|---------|-------------|
+| `crosslink archive <id>` | Archive a closed issue |
+| `crosslink unarchive <id>` | Restore an archived issue |
+| `crosslink archived` | List all archived issues |
+| `crosslink archive-older <days>` | Archive issues closed more than N days ago |
+
+## Export / Import
+
+| Command | Description |
+|---------|-------------|
+| `crosslink export` | Export all issues to JSON (stdout) |
+| `crosslink export -o backup.json` | Export to a file |
+| `crosslink import backup.json` | Import issues from JSON |
+| `crosslink import backup.json --merge` | Merge with existing issues |
+
+## Smart Navigation
+
+| Command | Description |
+|---------|-------------|
+| `crosslink next` | Recommend the next issue to work on |
+| `crosslink tree` | Show issue hierarchy tree |
+| `crosslink tree -s open` | Tree view filtered to open issues |
+
+## Time Tracking
+
+| Command | Description |
+|---------|-------------|
+| `crosslink start <id>` | Start a timer for an issue |
+| `crosslink stop` | Stop the current timer |
+| `crosslink timer` | Show current timer status |
+
+## Session Management
+
+| Command | Description |
+|---------|-------------|
+| `crosslink session start` | Start a session (shows previous handoff) |
+| `crosslink session work <id>` | Set current focus issue |
+| `crosslink session action "..."` | Record a breadcrumb (survives context compression) |
+| `crosslink session status` | Show current session info |
+| `crosslink session end` | End current session |
+| `crosslink session end --notes "..."` | End with handoff notes |
+| `crosslink session last-handoff` | Retrieve previous session's handoff notes |
+
+## Multi-Agent Coordination
+
+| Command | Description |
+|---------|-------------|
+| `crosslink agent init <id>` | Register this machine as an agent |
+| `crosslink agent init <id> -d "desc"` | Register with description |
+| `crosslink agent status` | Show agent identity and held locks |
+| `crosslink locks list` | Show all active issue locks |
+| `crosslink locks list --json` | Locks as JSON |
+| `crosslink locks check <id>` | Check if issue is available or locked |
+| `crosslink sync` | Fetch lock state from coordination branch |
+
+## Trust & Signing
+
+| Command | Description |
+|---------|-------------|
+| `crosslink trust add <key-path>` | Add a trusted public key |
+| `crosslink trust list` | List trusted keys |
+
+## Daemon
+
+| Command | Description |
+|---------|-------------|
+| `crosslink daemon start` | Start background daemon |
+| `crosslink daemon status` | Check daemon status |
+| `crosslink daemon stop` | Stop daemon |
+
+## Project Setup
+
+| Command | Description |
+|---------|-------------|
+| `crosslink init` | Initialize crosslink in current project |
+| `crosslink init --force` | Re-initialize, resetting rules to defaults |

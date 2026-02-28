@@ -55,6 +55,12 @@ enum Commands {
         /// Path to SSH key for commit signing (auto-detected if omitted)
         #[arg(long)]
         signing_key: Option<String>,
+        /// Re-run TUI walkthrough even if config exists
+        #[arg(long)]
+        reconfigure: bool,
+        /// Skip TUI and use opinionated defaults
+        #[arg(long)]
+        defaults: bool,
     },
 
     /// Create a new issue
@@ -399,10 +405,10 @@ enum Commands {
     /// Rename coordination branch from crosslink/locks to crosslink/hub
     MigrateRenameBranch,
 
-    /// Review crosslink policy configuration
-    Review {
+    /// Manage crosslink workflow configuration
+    Workflow {
         #[command(subcommand)]
-        command: ReviewCommands,
+        command: WorkflowCommands,
     },
 
     /// Manage house style syncing
@@ -627,7 +633,7 @@ enum LocksCommands {
 }
 
 #[derive(Subcommand)]
-enum ReviewCommands {
+enum WorkflowCommands {
     /// Compare deployed policy files against embedded defaults
     Diff {
         /// Filter by section: tracking, rules, languages, hooks
@@ -772,16 +778,20 @@ fn main() -> Result<()> {
             skip_cpitd,
             skip_signing,
             signing_key,
+            reconfigure,
+            defaults,
         } => {
             let cwd = env::current_dir()?;
-            commands::init::run(
-                &cwd,
+            let opts = commands::init::InitOpts {
                 force,
-                python_prefix.as_deref(),
+                python_prefix: python_prefix.as_deref(),
                 skip_cpitd,
                 skip_signing,
-                signing_key.as_deref(),
-            )
+                signing_key: signing_key.as_deref(),
+                reconfigure,
+                defaults,
+            };
+            commands::init::run(&cwd, &opts)
         }
 
         Commands::Create {
@@ -1262,19 +1272,19 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Review { command } => {
+        Commands::Workflow { command } => {
             let crosslink_dir = find_crosslink_dir()?;
             let claude_dir = crosslink_dir
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine project root"))?
                 .join(".claude");
             match command {
-                ReviewCommands::Diff { section, check } => {
-                    commands::review::diff(&crosslink_dir, &claude_dir, section.as_deref(), check)
+                WorkflowCommands::Diff { section, check } => {
+                    commands::workflow::diff(&crosslink_dir, &claude_dir, section.as_deref(), check)
                 }
-                ReviewCommands::Trail { id, kind, json } => {
+                WorkflowCommands::Trail { id, kind, json } => {
                     let db = get_db()?;
-                    commands::review::trail(&db, id, kind.as_deref(), json)
+                    commands::workflow::trail(&db, id, kind.as_deref(), json)
                 }
             }
         }

@@ -1,0 +1,53 @@
+---
+title: "Installation"
+---
+
+## From crates.io
+
+```bash
+cargo install crosslink
+```
+
+The `crosslink` binary will be available in your PATH after install.
+
+## Build from Source
+
+```bash
+git clone https://github.com/forecast-bio/crosslink.git
+cd crosslink/crosslink
+cargo install --path .
+```
+
+Or build without installing:
+
+```bash
+cargo build --release
+# Binary at target/release/crosslink
+```
+
+## VS Code Extension
+
+Search **"Crosslink Issue Tracker"** in VS Code Extensions, or visit the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).
+
+The extension bundles the CLI binary and provides:
+
+- Command Palette access to all crosslink commands
+- Status bar indicator for daemon status
+- Auto-starts daemon when a `.crosslink` project is detected
+- Cross-platform: Windows, Linux, macOS
+
+## Requirements
+
+- **Rust toolchain** (for `cargo install`) — [install rustup](https://rustup.rs/)
+- **Python 3.6+** — required for Claude Code hooks
+- **Git** — required for multi-agent coordination features
+
+## Initialize a Project
+
+After installing, run in any project directory:
+
+```bash
+crosslink init
+```
+
+This sets up the `.crosslink/` directory, Claude Code hooks, and default rules. See [Quick Start](quickstart.qmd) for next steps.

@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use dialoguer::Select;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::db::Database;
@@ -282,7 +284,7 @@ const SAFE_FETCH_SERVER_PY: &str = include_str!("../../resources/claude/mcp/safe
 const MCP_JSON: &str = include_str!("../../resources/mcp.json");
 
 // Embed slash commands
-const REVIEW_CMD_MD: &str = include_str!("../../resources/claude/commands/review.md");
+const WORKFLOW_CMD_MD: &str = include_str!("../../resources/claude/commands/workflow.md");
 const FEATURE_CMD_MD: &str = include_str!("../../resources/claude/commands/feature.md");
 const FEATREE_CMD_MD: &str = include_str!("../../resources/claude/commands/featree.md");
 const KICKOFF_CMD_MD: &str = include_str!("../../resources/claude/commands/kickoff.md");
@@ -427,14 +429,191 @@ fn write_mcp_json_merged(mcp_path: &Path) -> Result<Vec<String>> {
     Ok(warnings)
 }
 
-pub fn run(
-    path: &Path,
-    force: bool,
-    python_prefix: Option<&str>,
-    skip_cpitd: bool,
-    skip_signing: bool,
-    signing_key: Option<&str>,
-) -> Result<()> {
+/// TUI walkthrough choices for `crosslink init`.
+struct TuiChoices {
+    tracking_mode: String,
+    intervention_tracking: bool,
+    comment_discipline: String,
+    kickoff_verification: String,
+}
+
+impl Default for TuiChoices {
+    fn default() -> Self {
+        Self {
+            tracking_mode: "strict".to_string(),
+            intervention_tracking: true,
+            comment_discipline: "encouraged".to_string(),
+            kickoff_verification: "local".to_string(),
+        }
+    }
+}
+
+/// Run the interactive TUI walkthrough, returning user choices.
+/// Falls back to defaults if stdin is not a TTY.
+fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoices> {
+    if !std::io::stdin().is_terminal() {
+        println!("Non-interactive environment detected, using defaults.");
+        return Ok(TuiChoices::default());
+    }
+
+    println!("\n  Welcome to Crosslink! Let's configure your project.\n");
+
+    // Resolve current/default selections from existing config
+    let current_tracking = existing
+        .and_then(|v| v.get("tracking_mode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("strict");
+    let current_intervention = existing
+        .and_then(|v| v.get("intervention_tracking"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let current_comment = existing
+        .and_then(|v| v.get("comment_discipline"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("encouraged");
+    let current_kickoff = existing
+        .and_then(|v| v.get("kickoff_verification"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("local");
+
+    // 1. Issue tracking enforcement
+    let tracking_items = &[
+        "Strict (block tool calls without active issue)",
+        "Normal (remind but don't block)",
+        "Relaxed (no enforcement)",
+    ];
+    let tracking_default = match current_tracking {
+        "normal" => 1,
+        "relaxed" => 2,
+        _ => 0,
+    };
+    let tracking_idx = Select::new()
+        .with_prompt("Issue tracking enforcement")
+        .items(tracking_items)
+        .default(tracking_default)
+        .interact_opt()
+        .context("TUI prompt failed")?
+        .unwrap_or(tracking_default);
+    let tracking_mode = match tracking_idx {
+        1 => "normal",
+        2 => "relaxed",
+        _ => "strict",
+    }
+    .to_string();
+
+    // 2. Driver intervention tracking
+    let intervention_items = &["Enabled (log when the human operator steps in)", "Disabled"];
+    let intervention_default = if current_intervention { 0 } else { 1 };
+    let intervention_idx = Select::new()
+        .with_prompt("Driver intervention tracking")
+        .items(intervention_items)
+        .default(intervention_default)
+        .interact_opt()
+        .context("TUI prompt failed")?
+        .unwrap_or(intervention_default);
+    let intervention_tracking = intervention_idx == 0;
+
+    // 3. Comment discipline
+    let comment_items = &[
+        "Encouraged (remind agents to document decisions)",
+        "Required (block after N minutes without comments)",
+        "Off",
+    ];
+    let comment_default = match current_comment {
+        "required" => 1,
+        "off" => 2,
+        _ => 0,
+    };
+    let comment_idx = Select::new()
+        .with_prompt("Comment discipline")
+        .items(comment_items)
+        .default(comment_default)
+        .interact_opt()
+        .context("TUI prompt failed")?
+        .unwrap_or(comment_default);
+    let comment_discipline = match comment_idx {
+        1 => "required",
+        2 => "off",
+        _ => "encouraged",
+    }
+    .to_string();
+
+    // 4. Kickoff verification depth
+    let kickoff_items = &[
+        "Local only (tests + self-review)",
+        "CI (push and wait for CI)",
+        "Thorough (CI + adversarial review)",
+    ];
+    let kickoff_default = match current_kickoff {
+        "ci" => 1,
+        "thorough" => 2,
+        _ => 0,
+    };
+    let kickoff_idx = Select::new()
+        .with_prompt("Kickoff verification depth")
+        .items(kickoff_items)
+        .default(kickoff_default)
+        .interact_opt()
+        .context("TUI prompt failed")?
+        .unwrap_or(kickoff_default);
+    let kickoff_verification = match kickoff_idx {
+        1 => "ci",
+        2 => "thorough",
+        _ => "local",
+    }
+    .to_string();
+
+    Ok(TuiChoices {
+        tracking_mode,
+        intervention_tracking,
+        comment_discipline,
+        kickoff_verification,
+    })
+}
+
+/// Apply TUI choices onto a config JSON value, preserving fields not covered by the TUI.
+fn apply_tui_choices(config: &mut serde_json::Value, choices: &TuiChoices) -> Result<()> {
+    let obj = config
+        .as_object_mut()
+        .context("hook-config.json is not a JSON object")?;
+    obj.insert(
+        "tracking_mode".into(),
+        serde_json::Value::String(choices.tracking_mode.clone()),
+    );
+    obj.insert(
+        "intervention_tracking".into(),
+        serde_json::Value::Bool(choices.intervention_tracking),
+    );
+    obj.insert(
+        "comment_discipline".into(),
+        serde_json::Value::String(choices.comment_discipline.clone()),
+    );
+    obj.insert(
+        "kickoff_verification".into(),
+        serde_json::Value::String(choices.kickoff_verification.clone()),
+    );
+    Ok(())
+}
+
+/// Options for `crosslink init`.
+pub struct InitOpts<'a> {
+    pub force: bool,
+    pub python_prefix: Option<&'a str>,
+    pub skip_cpitd: bool,
+    pub skip_signing: bool,
+    pub signing_key: Option<&'a str>,
+    pub reconfigure: bool,
+    pub defaults: bool,
+}
+
+pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
+    let force = opts.force;
+    let python_prefix = opts.python_prefix;
+    let skip_cpitd = opts.skip_cpitd;
+    let skip_signing = opts.skip_signing;
+    let signing_key = opts.signing_key;
+    let reconfigure = opts.reconfigure;
+    let defaults = opts.defaults;
     let crosslink_dir = path.join(".crosslink");
     let claude_dir = path.join(".claude");
     let hooks_dir = claude_dir.join("hooks");
@@ -443,9 +622,10 @@ pub fn run(
     let crosslink_exists = crosslink_dir.exists();
     let claude_exists = claude_dir.exists();
 
-    if crosslink_exists && claude_exists && !force {
+    if crosslink_exists && claude_exists && !force && !reconfigure {
         println!("Already initialized at {}", path.display());
         println!("Use --force to update hooks to latest version.");
+        println!("Use --reconfigure to re-run the setup walkthrough.");
         return Ok(());
     }
 
@@ -460,10 +640,41 @@ pub fn run(
         println!("Created {}", crosslink_dir.display());
     }
 
-    // Write hook config (create or update)
+    // Write hook config — with TUI walkthrough when appropriate
     let config_path = crosslink_dir.join("hook-config.json");
-    if !config_path.exists() || force {
-        fs::write(&config_path, HOOK_CONFIG_JSON).context("Failed to write hook-config.json")?;
+    let config_exists = config_path.exists();
+    let should_run_tui = !defaults && (!config_exists || force || reconfigure);
+
+    if should_run_tui || !config_exists || force {
+        if should_run_tui {
+            // Start from existing config (for --reconfigure) or embedded default
+            let mut config: serde_json::Value = if config_exists && reconfigure {
+                let raw = fs::read_to_string(&config_path)
+                    .context("Failed to read existing hook-config.json")?;
+                serde_json::from_str(&raw).context("hook-config.json contains invalid JSON")?
+            } else {
+                serde_json::from_str(HOOK_CONFIG_JSON)
+                    .context("Embedded hook-config.json is invalid")?
+            };
+
+            let existing_ref = if config_exists {
+                Some(&config as &serde_json::Value)
+            } else {
+                None
+            };
+            let choices = run_tui_walkthrough(existing_ref)?;
+            apply_tui_choices(&mut config, &choices)?;
+            println!();
+
+            let output = serde_json::to_string_pretty(&config)
+                .context("Failed to serialize hook-config.json")?;
+            fs::write(&config_path, format!("{}\n", output))
+                .context("Failed to write hook-config.json")?;
+        } else {
+            // --defaults or non-interactive: write embedded config verbatim
+            fs::write(&config_path, HOOK_CONFIG_JSON)
+                .context("Failed to write hook-config.json")?;
+        }
     }
 
     // Write .crosslink/.gitignore for multi-agent files
@@ -533,8 +744,8 @@ pub fn run(
         // Write slash commands
         let commands_dir = claude_dir.join("commands");
         fs::create_dir_all(&commands_dir).context("Failed to create .claude/commands directory")?;
-        fs::write(commands_dir.join("review.md"), REVIEW_CMD_MD)
-            .context("Failed to write review.md")?;
+        fs::write(commands_dir.join("workflow.md"), WORKFLOW_CMD_MD)
+            .context("Failed to write workflow.md")?;
         fs::write(commands_dir.join("feature.md"), FEATURE_CMD_MD)
             .context("Failed to write feature.md")?;
         fs::write(commands_dir.join("featree.md"), FEATREE_CMD_MD)
@@ -590,10 +801,23 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// Build default test opts (skips cpitd/signing, uses --defaults to skip TUI).
+    fn test_opts(force: bool) -> InitOpts<'static> {
+        InitOpts {
+            force,
+            python_prefix: None,
+            skip_cpitd: true,
+            skip_signing: true,
+            signing_key: None,
+            reconfigure: false,
+            defaults: true,
+        }
+    }
+
     #[test]
     fn test_run_fresh_init() {
         let dir = tempdir().unwrap();
-        let result = run(dir.path(), false, None, true, true, None);
+        let result = run(dir.path(), &test_opts(false));
         assert!(result.is_ok());
 
         // Verify directories created
@@ -609,7 +833,7 @@ mod tests {
     #[test]
     fn test_run_creates_hook_files() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Verify hook files
         assert!(dir.path().join(".claude/settings.json").exists());
@@ -629,7 +853,7 @@ mod tests {
     #[test]
     fn test_run_creates_rule_files() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         let rules_dir = dir.path().join(".crosslink/rules");
         assert!(rules_dir.join("global.md").exists());
@@ -648,10 +872,10 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // First init
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Second init without force - should succeed but not recreate
-        let result = run(dir.path(), false, None, true, true, None);
+        let result = run(dir.path(), &test_opts(false));
         assert!(result.is_ok());
     }
 
@@ -660,14 +884,14 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // First init
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Modify a hook file
         let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
         fs::write(&hook_path, "# modified").unwrap();
 
         // Force update
-        run(dir.path(), true, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(true)).unwrap();
 
         // Verify file was restored
         let content = fs::read_to_string(&hook_path).unwrap();
@@ -689,7 +913,7 @@ mod tests {
     #[test]
     fn test_force_init_preserves_existing_mcp_servers() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Add a custom MCP server entry alongside the embedded ones
         let mcp_path = dir.path().join(".mcp.json");
@@ -702,7 +926,7 @@ mod tests {
         fs::write(&mcp_path, serde_json::to_string_pretty(&content).unwrap()).unwrap();
 
         // Force update
-        run(dir.path(), true, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(true)).unwrap();
 
         // Verify all embedded keys and the custom key are present
         let result: serde_json::Value =
@@ -729,7 +953,7 @@ mod tests {
     #[test]
     fn test_force_init_returns_warnings_for_overwritten_keys() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // The first init created .mcp.json with the embedded keys.
         // A second force init should warn about overwriting each one.
@@ -784,14 +1008,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_malformed_mcp_json() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Write invalid JSON to .mcp.json
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "not json {{{").unwrap();
 
         // Force init should fail, not silently overwrite
-        let result = run(dir.path(), true, None, true, true, None);
+        let result = run(dir.path(), &test_opts(true));
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -808,14 +1032,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_non_object_mcp_json() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Write a JSON array to .mcp.json
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "[1, 2, 3]").unwrap();
 
         // Force init should fail, not silently overwrite
-        let result = run(dir.path(), true, None, true, true, None);
+        let result = run(dir.path(), &test_opts(true));
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -832,14 +1056,14 @@ mod tests {
     #[test]
     fn test_force_init_handles_empty_mcp_json_file() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Write empty file
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, "").unwrap();
 
         // Should fail — empty file is not valid JSON
-        let result = run(dir.path(), true, None, true, true, None);
+        let result = run(dir.path(), &test_opts(true));
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -852,14 +1076,14 @@ mod tests {
     #[test]
     fn test_force_init_fails_on_non_object_mcp_servers_value() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Write valid JSON where mcpServers is a string instead of object
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, r#"{"mcpServers": "banana"}"#).unwrap();
 
         // Should fail, not silently replace
-        let result = run(dir.path(), true, None, true, true, None);
+        let result = run(dir.path(), &test_opts(true));
         assert!(result.is_err());
         let err = format!("{:#}", result.unwrap_err());
         assert!(
@@ -876,14 +1100,14 @@ mod tests {
     #[test]
     fn test_init_merges_into_mcp_json_without_mcp_servers_key() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Write a valid object with no mcpServers key
         let mcp_path = dir.path().join(".mcp.json");
         fs::write(&mcp_path, r#"{"someOtherKey": true}"#).unwrap();
 
         // Force init should add mcpServers, preserving the other key
-        run(dir.path(), true, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(true)).unwrap();
 
         let content = fs::read_to_string(&mcp_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -898,7 +1122,7 @@ mod tests {
         // Create only .crosslink directory
         fs::create_dir_all(dir.path().join(".crosslink")).unwrap();
 
-        let result = run(dir.path(), false, None, true, true, None);
+        let result = run(dir.path(), &test_opts(false));
         assert!(result.is_ok());
 
         // .claude should now exist
@@ -912,7 +1136,7 @@ mod tests {
         // Create only .claude directory
         fs::create_dir_all(dir.path().join(".claude")).unwrap();
 
-        let result = run(dir.path(), false, None, true, true, None);
+        let result = run(dir.path(), &test_opts(false));
         assert!(result.is_ok());
 
         // .crosslink should now exist
@@ -922,7 +1146,7 @@ mod tests {
     #[test]
     fn test_run_database_usable() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Open the created database and verify it works
         let db_path = dir.path().join(".crosslink/issues.db");
@@ -936,7 +1160,7 @@ mod tests {
     #[test]
     fn test_run_rule_files_not_empty() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         let rules_dir = dir.path().join(".crosslink/rules");
 
@@ -951,14 +1175,14 @@ mod tests {
     #[test]
     fn test_run_force_updates_rules() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         // Modify a rule file
         let rule_path = dir.path().join(".crosslink/rules/global.md");
         fs::write(&rule_path, "# modified rule").unwrap();
 
         // Force update
-        run(dir.path(), true, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(true)).unwrap();
 
         // Verify file was restored
         let content = fs::read_to_string(&rule_path).unwrap();
@@ -971,7 +1195,7 @@ mod tests {
 
         // Multiple force runs should all succeed
         for _ in 0..3 {
-            let result = run(dir.path(), true, None, true, true, None);
+            let result = run(dir.path(), &test_opts(true));
             assert!(result.is_ok());
         }
 
@@ -992,7 +1216,7 @@ mod tests {
         assert!(!CROSSLINK_CONFIG_PY.is_empty());
         assert!(!SAFE_FETCH_SERVER_PY.is_empty());
         assert!(!MCP_JSON.is_empty());
-        assert!(!REVIEW_CMD_MD.is_empty());
+        assert!(!WORKFLOW_CMD_MD.is_empty());
         assert!(!FEATURE_CMD_MD.is_empty());
         assert!(!FEATREE_CMD_MD.is_empty());
         assert!(!KICKOFF_CMD_MD.is_empty());
@@ -1026,7 +1250,7 @@ mod tests {
     #[test]
     fn test_gitignore_includes_local_config() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".crosslink/.gitignore")).unwrap();
         assert!(content.contains("agent.json"));
@@ -1141,7 +1365,7 @@ mod tests {
     #[test]
     fn test_settings_json_default_uses_python3() {
         let dir = tempdir().unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
@@ -1158,7 +1382,7 @@ mod tests {
     fn test_settings_json_uv_project() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
@@ -1172,7 +1396,14 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
         // CLI override should beat auto-detection
-        run(dir.path(), false, Some("custom-python"), true, true, None).unwrap();
+        run(
+            dir.path(),
+            &InitOpts {
+                python_prefix: Some("custom-python"),
+                ..test_opts(false)
+            },
+        )
+        .unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
@@ -1189,7 +1420,7 @@ mod tests {
     fn test_settings_json_produces_valid_json() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(&content);
@@ -1203,13 +1434,13 @@ mod tests {
     fn test_force_re_detects_toolchain() {
         let dir = tempdir().unwrap();
         // First init: no markers → python3
-        run(dir.path(), false, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(content.contains("\"python3 \\\"$(git"));
 
         // Add uv.lock, force re-init → should now use uv
         fs::write(dir.path().join("uv.lock"), "").unwrap();
-        run(dir.path(), true, None, true, true, None).unwrap();
+        run(dir.path(), &test_opts(true)).unwrap();
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
             content.contains("uv run python3"),
