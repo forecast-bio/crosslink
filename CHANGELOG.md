@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Add consolidated `crosslink config` command for repo-level configuration — show, get, set, list, reset, diff subcommands with typed validation (#13)
+
 ## [0.1.2-alpha.1] - 2026-02-27
 
 ### Fixed

@@ -99,8 +99,8 @@ fn write_config(crosslink_dir: &Path, config: &serde_json::Value) -> Result<()> 
     fs::write(&path, format!("{pretty}\n")).context("Failed to write hook-config.json")
 }
 
-fn read_defaults() -> serde_json::Value {
-    serde_json::from_str(init::HOOK_CONFIG_JSON).expect("embedded hook-config.json is valid JSON")
+fn read_defaults() -> Result<serde_json::Value> {
+    serde_json::from_str(init::HOOK_CONFIG_JSON).context("embedded hook-config.json is invalid")
 }
 
 fn format_value(v: &serde_json::Value) -> String {
@@ -150,7 +150,7 @@ pub fn run(command: ConfigCommands, crosslink_dir: &Path) -> Result<()> {
 
 fn show(crosslink_dir: &Path) -> Result<()> {
     let config = read_config(crosslink_dir)?;
-    let defaults = read_defaults();
+    let defaults = read_defaults()?;
 
     for entry in REGISTRY {
         let current = config.get(entry.key);
@@ -305,7 +305,7 @@ fn set(
 // ---------------------------------------------------------------------------
 
 fn list() -> Result<()> {
-    let defaults = read_defaults();
+    let defaults = read_defaults()?;
 
     println!("{:<28} {:<10} DESCRIPTION", "KEY", "TYPE");
     let sep = "-".repeat(78);
@@ -336,7 +336,7 @@ fn list() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn reset(crosslink_dir: &Path, key: Option<&str>) -> Result<()> {
-    let defaults = read_defaults();
+    let defaults = read_defaults()?;
 
     if let Some(key) = key {
         if find_registry_key(key).is_none() {
@@ -364,7 +364,7 @@ fn reset(crosslink_dir: &Path, key: Option<&str>) -> Result<()> {
 
 fn diff(crosslink_dir: &Path) -> Result<()> {
     let config = read_config(crosslink_dir)?;
-    let defaults = read_defaults();
+    let defaults = read_defaults()?;
     let mut any_diff = false;
 
     for entry in REGISTRY {
