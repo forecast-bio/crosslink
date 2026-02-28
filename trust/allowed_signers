@@ -3,3 +3,4 @@
 m1@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd06glrYyNCzFpehaFA6sM08QcOgLRPRZ+MfG/Qqjhp crosslink-agent:m1@noether-4.local
 m1--f1@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICCsmqrmJLYFmxDjKjDIooxNlqiaiiUtzCxWz107yykg crosslink-agent:m1--f1@noether-4.local
 m1--f4@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFhDjf0xU/G+FLByLGrLBVX0koSoTMlKeaMqJeC6QlxX crosslink-agent:m1--f4@noether-4.local
+m1--f3@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5fk26iHWQ0Y3cMXaELoI7fPfdacg4YT1G/4sXFiGO/ crosslink-agent:m1--f3@noether-4.local
