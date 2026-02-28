@@ -68,7 +68,7 @@ fn has_custom_marker(deployed_path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// `crosslink review diff` — compare deployed policy files against embedded defaults.
+/// `crosslink workflow diff` — compare deployed policy files against embedded defaults.
 ///
 /// When `check` is true, operates in CI mode: exits 0 if all drifted files are
 /// marked with `# crosslink:custom`, exits 1 with a summary otherwise.
@@ -190,7 +190,7 @@ pub fn diff(
                 CUSTOM_MARKER
             );
             println!(
-                "Run 'crosslink review diff' for details, or add '{}' to acknowledge.",
+                "Run 'crosslink workflow diff' for details, or add '{}' to acknowledge.",
                 CUSTOM_MARKER
             );
             std::process::exit(1);
@@ -200,7 +200,7 @@ pub fn diff(
     Ok(())
 }
 
-/// `crosslink review trail <id>` — show chronological comment trail for an issue.
+/// `crosslink workflow trail <id>` — show chronological comment trail for an issue.
 pub fn trail(db: &Database, id: i64, kind_filter: Option<&str>, json: bool) -> Result<()> {
     db.require_issue(id)?;
 
@@ -331,8 +331,8 @@ mod tests {
         let dir = tempdir().unwrap();
         crate::commands::init::run(dir.path(), false, None, true, true, None).unwrap();
 
-        assert!(dir.path().join(".claude/commands/review.md").exists());
-        let content = fs::read_to_string(dir.path().join(".claude/commands/review.md")).unwrap();
+        assert!(dir.path().join(".claude/commands/workflow.md").exists());
+        let content = fs::read_to_string(dir.path().join(".claude/commands/workflow.md")).unwrap();
         assert!(content.contains("policy review"));
     }
 

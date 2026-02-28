@@ -399,10 +399,10 @@ enum Commands {
     /// Rename coordination branch from crosslink/locks to crosslink/hub
     MigrateRenameBranch,
 
-    /// Review crosslink policy configuration
-    Review {
+    /// Manage crosslink workflow configuration
+    Workflow {
         #[command(subcommand)]
-        command: ReviewCommands,
+        command: WorkflowCommands,
     },
 
     /// Data integrity checks and repair
@@ -621,7 +621,7 @@ enum LocksCommands {
 }
 
 #[derive(Subcommand)]
-enum ReviewCommands {
+enum WorkflowCommands {
     /// Compare deployed policy files against embedded defaults
     Diff {
         /// Filter by section: tracking, rules, languages, hooks
@@ -1217,19 +1217,19 @@ fn main() -> Result<()> {
             commands::integrity_cmd::run(action.as_ref(), &crosslink_dir, &db)
         }
 
-        Commands::Review { command } => {
+        Commands::Workflow { command } => {
             let crosslink_dir = find_crosslink_dir()?;
             let claude_dir = crosslink_dir
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("Cannot determine project root"))?
                 .join(".claude");
             match command {
-                ReviewCommands::Diff { section, check } => {
-                    commands::review::diff(&crosslink_dir, &claude_dir, section.as_deref(), check)
+                WorkflowCommands::Diff { section, check } => {
+                    commands::workflow::diff(&crosslink_dir, &claude_dir, section.as_deref(), check)
                 }
-                ReviewCommands::Trail { id, kind, json } => {
+                WorkflowCommands::Trail { id, kind, json } => {
                     let db = get_db()?;
-                    commands::review::trail(&db, id, kind.as_deref(), json)
+                    commands::workflow::trail(&db, id, kind.as_deref(), json)
                 }
             }
         }

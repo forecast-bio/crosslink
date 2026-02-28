@@ -282,7 +282,7 @@ const SAFE_FETCH_SERVER_PY: &str = include_str!("../../resources/claude/mcp/safe
 const MCP_JSON: &str = include_str!("../../resources/mcp.json");
 
 // Embed slash commands
-const REVIEW_CMD_MD: &str = include_str!("../../resources/claude/commands/review.md");
+const WORKFLOW_CMD_MD: &str = include_str!("../../resources/claude/commands/workflow.md");
 const FEATURE_CMD_MD: &str = include_str!("../../resources/claude/commands/feature.md");
 const FEATREE_CMD_MD: &str = include_str!("../../resources/claude/commands/featree.md");
 const KICKOFF_CMD_MD: &str = include_str!("../../resources/claude/commands/kickoff.md");
@@ -533,8 +533,8 @@ pub fn run(
         // Write slash commands
         let commands_dir = claude_dir.join("commands");
         fs::create_dir_all(&commands_dir).context("Failed to create .claude/commands directory")?;
-        fs::write(commands_dir.join("review.md"), REVIEW_CMD_MD)
-            .context("Failed to write review.md")?;
+        fs::write(commands_dir.join("workflow.md"), WORKFLOW_CMD_MD)
+            .context("Failed to write workflow.md")?;
         fs::write(commands_dir.join("feature.md"), FEATURE_CMD_MD)
             .context("Failed to write feature.md")?;
         fs::write(commands_dir.join("featree.md"), FEATREE_CMD_MD)
@@ -992,7 +992,7 @@ mod tests {
         assert!(!CROSSLINK_CONFIG_PY.is_empty());
         assert!(!SAFE_FETCH_SERVER_PY.is_empty());
         assert!(!MCP_JSON.is_empty());
-        assert!(!REVIEW_CMD_MD.is_empty());
+        assert!(!WORKFLOW_CMD_MD.is_empty());
         assert!(!FEATURE_CMD_MD.is_empty());
         assert!(!FEATREE_CMD_MD.is_empty());
         assert!(!KICKOFF_CMD_MD.is_empty());

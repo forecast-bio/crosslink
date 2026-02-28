@@ -5,7 +5,7 @@ You are conducting a guided policy review of this project's crosslink configurat
 First, run these commands to understand the current configuration:
 
 ```bash
-crosslink review diff
+crosslink workflow diff
 ```
 
 Then read the key policy files:
@@ -50,7 +50,7 @@ Read each hook file in `.claude/hooks/`:
 - `post-edit-check.py` — validates edits
 - `pre-web-check.py` — validates web requests
 
-For any files that `crosslink review diff` flagged as customized, highlight the differences and ask if they're still needed.
+For any files that `crosslink workflow diff` flagged as customized, highlight the differences and ask if they're still needed.
 
 ## Step 6: Review Workflow Conventions
 
@@ -64,7 +64,7 @@ Ask the user:
 ## Step 7: Summary and Recommendations
 
 Summarize findings:
-1. List any files that have drifted from defaults (from `crosslink review diff`)
+1. List any files that have drifted from defaults (from `crosslink workflow diff`)
 2. Recommend specific changes based on the discussion
 3. Offer to apply approved changes using `crosslink init --force` (resets to defaults) or targeted edits
 
