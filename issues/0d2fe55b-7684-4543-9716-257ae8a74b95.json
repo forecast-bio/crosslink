@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "m1--f4",
   "created_at": "2026-02-28T05:40:27.911338Z",
-  "updated_at": "2026-02-28T05:40:27.911338Z"
+  "updated_at": "2026-02-28T05:40:29.672970Z",
+  "labels": [
+    "fix"
+  ]
 }
