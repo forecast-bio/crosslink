@@ -411,6 +411,12 @@ enum Commands {
         command: WorkflowCommands,
     },
 
+    /// Manage house style syncing
+    Style {
+        #[command(subcommand)]
+        command: StyleCommands,
+    },
+
     /// Data integrity checks and repair
     Integrity {
         #[command(subcommand)]
@@ -649,6 +655,30 @@ enum WorkflowCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum StyleCommands {
+    /// Set the house style source (a git repo URL + optional ref)
+    Set {
+        /// Git repository URL for the house style
+        url: String,
+        /// Branch or tag to track (default: main)
+        #[arg(long, name = "ref")]
+        ref_name: Option<String>,
+    },
+    /// Sync: pull latest from the house style source
+    Sync {
+        /// Show what would change without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Diff: show what's drifted from house style
+    Diff,
+    /// Show current house style configuration
+    Show,
+    /// Remove house style association
+    Unset,
 }
 
 #[derive(Subcommand)]
@@ -1225,6 +1255,19 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             commands::integrity_cmd::run(action.as_ref(), &crosslink_dir, &db)
+        }
+
+        Commands::Style { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            match command {
+                StyleCommands::Set { url, ref_name } => {
+                    commands::style::set(&crosslink_dir, &url, ref_name.as_deref())
+                }
+                StyleCommands::Sync { dry_run } => commands::style::sync(&crosslink_dir, dry_run),
+                StyleCommands::Diff => commands::style::diff(&crosslink_dir),
+                StyleCommands::Show => commands::style::show(&crosslink_dir),
+                StyleCommands::Unset => commands::style::unset(&crosslink_dir),
+            }
         }
 
         Commands::Workflow { command } => {

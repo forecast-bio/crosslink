@@ -21,6 +21,7 @@ pub mod search;
 pub mod session;
 pub mod show;
 pub mod status;
+pub mod style;
 pub mod tested;
 pub mod timer;
 pub mod tree;
