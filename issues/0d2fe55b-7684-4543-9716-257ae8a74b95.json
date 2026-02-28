@@ -2,12 +2,11 @@
   "uuid": "0d2fe55b-7684-4543-9716-257ae8a74b95",
   "display_id": 17,
   "title": "Fix crosslink quick command to claim lock on new issue",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "m1--f4",
   "created_at": "2026-02-28T05:40:27.911338Z",
-  "updated_at": "2026-02-28T20:25:58.949666Z",
-  "closed_at": "2026-02-28T20:25:58.949666Z",
+  "updated_at": "2026-02-28T20:32:12.893325Z",
   "labels": [
     "fix"
   ],
