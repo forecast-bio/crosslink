@@ -2,7 +2,10 @@
 name = "crosslink"
 version = "0.1.2-alpha.1"
 edition = "2021"
+rust-version = "1.87"
+authors = ["Forecast Bio <eng@forecast.bio>"]
 description = "A lean issue tracker CLI for AI-assisted development sessions"
+documentation = "https://docs.rs/crosslink"
 license = "MIT"
 repository = "https://github.com/forecast-bio/crosslink"
 homepage = "https://github.com/forecast-bio/crosslink"
