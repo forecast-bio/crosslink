@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T05:18:28.129253Z",
-  "updated_at": "2026-02-28T05:18:38.922403Z",
+  "updated_at": "2026-02-28T05:22:11.860736Z",
   "labels": [
     "enhancement"
   ],
@@ -19,6 +19,15 @@
       "kind": "plan",
       "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
       "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYe9/zF1f+bdTx8rfWV7GdU2I2lcBG9Ee9F/VvjkbSdhjmf+UpdWJIVha7VQnrANCjr06e1S9qaNSrf+uB5Q0AA=="
+    },
+    {
+      "id": 11,
+      "author": "m1",
+      "content": "Agent launched in tmux session feat-add-house-style-syncing. Worktree: .worktrees/add-house-style-syncing, branch: feature/add-house-style-syncing. Implements crosslink style set/sync/diff/show/unset commands with selective component adoption and custom marker preservation.",
+      "created_at": "2026-02-28T05:22:11.860736Z",
+      "kind": "result",
+      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnSNBSbGQkVbk0KHJsIGHTMm7wa//JtaCBrmwEJN52uAIdyf/nYg5A761kD7k37eHCxiKT8p+j0mbXd7q4XBCCw=="
     }
   ]
 }
