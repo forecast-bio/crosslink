@@ -4,6 +4,7 @@ mod db;
 mod hydration;
 mod identity;
 mod issue_file;
+mod knowledge;
 mod lock_check;
 mod locks;
 mod models;
@@ -417,6 +418,12 @@ enum Commands {
         command: StyleCommands,
     },
 
+    /// Manage shared knowledge pages
+    Knowledge {
+        #[command(subcommand)]
+        command: KnowledgeCommands,
+    },
+
     /// Data integrity checks and repair
     Integrity {
         #[command(subcommand)]
@@ -679,6 +686,65 @@ enum StyleCommands {
     Show,
     /// Remove house style association
     Unset,
+}
+
+#[derive(Subcommand)]
+enum KnowledgeCommands {
+    /// Create a new knowledge page
+    Add {
+        /// Page slug (filename without .md)
+        slug: String,
+        /// Page title
+        #[arg(short, long)]
+        title: Option<String>,
+        /// Tags for the page (repeatable)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Source URL (repeatable)
+        #[arg(long)]
+        source: Vec<String>,
+        /// Page content (body text after frontmatter)
+        #[arg(long)]
+        content: Option<String>,
+    },
+    /// Display a knowledge page
+    Show {
+        /// Page slug
+        slug: String,
+    },
+    /// List all knowledge pages
+    List {
+        /// Filter by tag
+        #[arg(long)]
+        tag: Option<String>,
+        /// Filter by contributor
+        #[arg(long)]
+        contributor: Option<String>,
+    },
+    /// Update an existing knowledge page
+    Edit {
+        /// Page slug
+        slug: String,
+        /// Append content to the page
+        #[arg(long)]
+        append: Option<String>,
+        /// Replace page content entirely
+        #[arg(long)]
+        content: Option<String>,
+        /// Add tags (repeatable)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Add source URL (repeatable)
+        #[arg(long)]
+        source: Vec<String>,
+    },
+    /// Remove a knowledge page
+    Remove {
+        /// Page slug
+        slug: String,
+    },
+    /// Manually sync from remote
+    Sync,
 }
 
 #[derive(Subcommand)]
@@ -1267,6 +1333,52 @@ fn main() -> Result<()> {
                 StyleCommands::Diff => commands::style::diff(&crosslink_dir),
                 StyleCommands::Show => commands::style::show(&crosslink_dir),
                 StyleCommands::Unset => commands::style::unset(&crosslink_dir),
+            }
+        }
+
+        Commands::Knowledge { command } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            match command {
+                KnowledgeCommands::Add {
+                    slug,
+                    title,
+                    tag,
+                    source,
+                    content,
+                } => commands::knowledge::add(
+                    &crosslink_dir,
+                    &slug,
+                    title.as_deref(),
+                    &tag,
+                    &source,
+                    content.as_deref(),
+                ),
+                KnowledgeCommands::Show { slug } => {
+                    commands::knowledge::show(&crosslink_dir, &slug, cli.json)
+                }
+                KnowledgeCommands::List { tag, contributor } => commands::knowledge::list(
+                    &crosslink_dir,
+                    tag.as_deref(),
+                    contributor.as_deref(),
+                ),
+                KnowledgeCommands::Edit {
+                    slug,
+                    append,
+                    content,
+                    tag,
+                    source,
+                } => commands::knowledge::edit(
+                    &crosslink_dir,
+                    &slug,
+                    append.as_deref(),
+                    content.as_deref(),
+                    &tag,
+                    &source,
+                ),
+                KnowledgeCommands::Remove { slug } => {
+                    commands::knowledge::remove(&crosslink_dir, &slug)
+                }
+                KnowledgeCommands::Sync => commands::knowledge::sync(&crosslink_dir),
             }
         }
 

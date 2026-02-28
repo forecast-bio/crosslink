@@ -293,6 +293,20 @@ impl KnowledgeManager {
         std::fs::write(&path, content).context("Failed to write page")
     }
 
+    /// Check if a page exists by slug.
+    pub fn page_exists(&self, slug: &str) -> bool {
+        self.cache_dir.join(format!("{}.md", slug)).exists()
+    }
+
+    /// Delete a page by slug.
+    pub fn delete_page(&self, slug: &str) -> Result<()> {
+        let path = self.cache_dir.join(format!("{}.md", slug));
+        if !path.exists() {
+            bail!("Page '{}' not found", slug);
+        }
+        std::fs::remove_file(&path).context("Failed to delete page")
+    }
+
     /// Get the path to the cache directory.
     pub fn cache_path(&self) -> &Path {
         &self.cache_dir
