@@ -502,10 +502,7 @@ fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoice
     .to_string();
 
     // 2. Driver intervention tracking
-    let intervention_items = &[
-        "Enabled (log when the human operator steps in)",
-        "Disabled",
-    ];
+    let intervention_items = &["Enabled (log when the human operator steps in)", "Disabled"];
     let intervention_default = if current_intervention { 0 } else { 1 };
     let intervention_idx = Select::new()
         .with_prompt("Driver intervention tracking")
@@ -1396,7 +1393,14 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("uv.lock"), "").unwrap();
         // CLI override should beat auto-detection
-        run(dir.path(), &InitOpts { python_prefix: Some("custom-python"), ..test_opts(false) }).unwrap();
+        run(
+            dir.path(),
+            &InitOpts {
+                python_prefix: Some("custom-python"),
+                ..test_opts(false)
+            },
+        )
+        .unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
         assert!(
