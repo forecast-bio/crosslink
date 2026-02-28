@@ -6,8 +6,19 @@
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T00:43:26.842633Z",
-  "updated_at": "2026-02-28T00:43:28.561304Z",
+  "updated_at": "2026-02-28T00:43:36.995435Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 8,
+      "author": "m1",
+      "content": "Kickoff for GH #56. Launching autonomous agent in worktree to implement TUI walkthrough for crosslink init.",
+      "created_at": "2026-02-28T00:43:36.995434Z",
+      "kind": "plan",
+      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPq9VU56NqkUOwl2OyRR1dzgEnmb+tAeXTX+MXv43kQ5hzMpr7qTad7XWKmOQjMvYZfdyTsRYzxEoxjvhYrEzAA=="
+    }
   ]
 }
