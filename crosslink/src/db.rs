@@ -774,6 +774,9 @@ impl Database {
     }
 
     // Sessions
+
+    /// Convenience wrapper for tests — starts a session with no agent_id.
+    #[cfg(test)]
     pub fn start_session(&self) -> Result<i64> {
         self.start_session_with_agent(None)
     }
@@ -796,6 +799,8 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Convenience wrapper for tests — gets current session without agent scoping.
+    #[cfg(test)]
     pub fn get_current_session(&self) -> Result<Option<Session>> {
         self.get_current_session_for_agent(None)
     }
@@ -817,6 +822,8 @@ impl Database {
         }
     }
 
+    /// Convenience wrapper for tests — gets last session without agent scoping.
+    #[cfg(test)]
     pub fn get_last_session(&self) -> Result<Option<Session>> {
         self.get_last_session_for_agent(None)
     }
