@@ -19,11 +19,11 @@ color:
 
 typography:
   base:
-    family: Helvetica, Arial, sans-serif
+    family: 'Helvetica, Arial, sans-serif'
   headings:
-    family: Helvetica, Arial, sans-serif
+    family: 'Helvetica, Arial, sans-serif'
     weight: 700
   monospace:
-    family: "IBM Plex Mono", "Fira Code", monospace
+    family: '"IBM Plex Mono", "Fira Code", monospace'
   monospace-inline:
-    family: "IBM Plex Mono", "Fira Code", monospace
+    family: '"IBM Plex Mono", "Fira Code", monospace'
