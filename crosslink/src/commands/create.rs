@@ -178,10 +178,7 @@ pub fn run(
                         match sync.claim_lock(&agent, id, None, false) {
                             Ok(true) => {
                                 if !opts.quiet {
-                                    println!(
-                                        "Auto-claimed lock on issue {}",
-                                        format_issue_id(id)
-                                    );
+                                    println!("Auto-claimed lock on issue {}", format_issue_id(id));
                                 }
                             }
                             Ok(false) => {} // Already held by us
@@ -265,10 +262,7 @@ pub fn run_subissue(
                         match sync.claim_lock(&agent, id, None, false) {
                             Ok(true) => {
                                 if !opts.quiet {
-                                    println!(
-                                        "Auto-claimed lock on issue {}",
-                                        format_issue_id(id)
-                                    );
+                                    println!("Auto-claimed lock on issue {}", format_issue_id(id));
                                 }
                             }
                             Ok(false) => {} // Already held by us
