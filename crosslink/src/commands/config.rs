@@ -95,14 +95,12 @@ fn read_config(crosslink_dir: &Path) -> Result<serde_json::Value> {
 
 fn write_config(crosslink_dir: &Path, config: &serde_json::Value) -> Result<()> {
     let path = crosslink_dir.join("hook-config.json");
-    let pretty =
-        serde_json::to_string_pretty(config).context("Failed to serialize config")?;
+    let pretty = serde_json::to_string_pretty(config).context("Failed to serialize config")?;
     fs::write(&path, format!("{pretty}\n")).context("Failed to write hook-config.json")
 }
 
 fn read_defaults() -> serde_json::Value {
-    serde_json::from_str(init::HOOK_CONFIG_JSON)
-        .expect("embedded hook-config.json is valid JSON")
+    serde_json::from_str(init::HOOK_CONFIG_JSON).expect("embedded hook-config.json is valid JSON")
 }
 
 fn format_value(v: &serde_json::Value) -> String {
@@ -133,7 +131,13 @@ pub fn run(command: ConfigCommands, crosslink_dir: &Path) -> Result<()> {
             value,
             add,
             remove,
-        } => set(crosslink_dir, &key, value.as_deref(), add.as_deref(), remove.as_deref()),
+        } => set(
+            crosslink_dir,
+            &key,
+            value.as_deref(),
+            add.as_deref(),
+            remove.as_deref(),
+        ),
         ConfigCommands::List => list(),
         ConfigCommands::Reset { key } => reset(crosslink_dir, key.as_deref()),
         ConfigCommands::Diff => diff(crosslink_dir),
@@ -151,12 +155,23 @@ fn show(crosslink_dir: &Path) -> Result<()> {
     for entry in REGISTRY {
         let current = config.get(entry.key);
         let default = defaults.get(entry.key);
-        let current_str = current.map(format_value).unwrap_or_else(|| "(unset)".into());
+        let current_str = current
+            .map(format_value)
+            .unwrap_or_else(|| "(unset)".into());
         let is_default = current == default;
-        let annotation = if is_default { "(default)" } else { "(modified)" };
+        let annotation = if is_default {
+            "(default)"
+        } else {
+            "(modified)"
+        };
 
         if matches!(entry.config_type, ConfigType::StringArray) {
-            println!("{} {} {}:", entry.key, annotation, type_label(entry.config_type));
+            println!(
+                "{} {} {}:",
+                entry.key,
+                annotation,
+                type_label(entry.config_type)
+            );
             if let Some(serde_json::Value::Array(arr)) = current {
                 for item in arr {
                     if let Some(s) = item.as_str() {
@@ -206,28 +221,31 @@ fn set(
     add: Option<&str>,
     remove: Option<&str>,
 ) -> Result<()> {
-    let entry = find_registry_key(key)
-        .ok_or_else(|| anyhow::anyhow!("Unknown config key: \"{key}\". Run `crosslink config list` to see available keys."))?;
+    let entry = find_registry_key(key).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unknown config key: \"{key}\". Run `crosslink config list` to see available keys."
+        )
+    })?;
 
     let mut config = read_config(crosslink_dir)?;
 
     match entry.config_type {
         ConfigType::Bool => {
-            let val = value.ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <true|false>"))?;
+            let val = value
+                .ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <true|false>"))?;
             match val {
                 "true" => config[key] = serde_json::Value::Bool(true),
                 "false" => config[key] = serde_json::Value::Bool(false),
-                _ => bail!("Invalid value for {key}: expected \"true\" or \"false\", got \"{val}\""),
+                _ => {
+                    bail!("Invalid value for {key}: expected \"true\" or \"false\", got \"{val}\"")
+                }
             }
             write_config(crosslink_dir, &config)?;
             println!("{key} = {val}");
         }
         ConfigType::Enum(valid) => {
             let val = value.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Usage: crosslink config set {key} <{}>",
-                    valid.join("|")
-                )
+                anyhow::anyhow!("Usage: crosslink config set {key} <{}>", valid.join("|"))
             })?;
             if !valid.contains(&val) {
                 bail!(
@@ -273,7 +291,9 @@ fn set(
                 write_config(crosslink_dir, &config)?;
                 println!("Set {key} to {val}");
             } else {
-                bail!("Usage: crosslink config set {key} \"val1,val2,...\" or --add/--remove \"val\"");
+                bail!(
+                    "Usage: crosslink config set {key} \"val1,val2,...\" or --add/--remove \"val\""
+                );
             }
         }
     }
@@ -320,7 +340,9 @@ fn reset(crosslink_dir: &Path, key: Option<&str>) -> Result<()> {
 
     if let Some(key) = key {
         if find_registry_key(key).is_none() {
-            bail!("Unknown config key: \"{key}\". Run `crosslink config list` to see available keys.");
+            bail!(
+                "Unknown config key: \"{key}\". Run `crosslink config list` to see available keys."
+            );
         }
         let default_val = defaults
             .get(key)
@@ -351,8 +373,12 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
 
         if current != default {
             any_diff = true;
-            let cur_str = current.map(format_value).unwrap_or_else(|| "(unset)".into());
-            let def_str = default.map(format_value).unwrap_or_else(|| "(unset)".into());
+            let cur_str = current
+                .map(format_value)
+                .unwrap_or_else(|| "(unset)".into());
+            let def_str = default
+                .map(format_value)
+                .unwrap_or_else(|| "(unset)".into());
 
             if matches!(entry.config_type, ConfigType::StringArray) {
                 println!("{} (modified):", entry.key);
