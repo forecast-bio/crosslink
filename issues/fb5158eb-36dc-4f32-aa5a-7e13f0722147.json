@@ -6,8 +6,19 @@
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T20:27:49.407671Z",
-  "updated_at": "2026-02-28T20:27:51.134241Z",
+  "updated_at": "2026-02-28T20:29:19.300004Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 21,
+      "author": "m1",
+      "content": "Created worktree from existing remote docs-revamp branch at .worktrees/docs-revamp, tracking origin/docs-revamp.",
+      "created_at": "2026-02-28T20:29:19.300003Z",
+      "kind": "result",
+      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvLpLSHK804T2JwzVev1f2jyfGgU66gotjiL74u6VmdP/GvFZzh49cZTl48aspzbaXQGKCeVvckNr8sfg/Q7QBQ=="
+    }
   ]
 }
