@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "m1--f4",
   "created_at": "2026-02-28T05:40:27.911338Z",
-  "updated_at": "2026-02-28T05:40:29.672970Z",
+  "updated_at": "2026-02-28T05:40:56.536530Z",
   "labels": [
     "fix"
+  ],
+  "comments": [
+    {
+      "id": 17,
+      "author": "m1--f4",
+      "content": "GH #60: crosslink quick creates issue and sets active work item but does NOT claim a lock. Need to add auto-claim lock logic (from session.rs lines 152-165) into create.rs in both run() and run_subissue() functions, after enforce_lock and before set_session_issue.",
+      "created_at": "2026-02-28T05:40:56.536529Z",
+      "kind": "note"
+    }
   ]
 }
