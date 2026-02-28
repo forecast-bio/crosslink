@@ -188,7 +188,13 @@ pub fn run(
                 }
             }
         }
-        if let Ok(Some(session)) = db.get_current_session() {
+        let agent_id = opts.crosslink_dir.and_then(|dir| {
+            crate::identity::AgentConfig::load(dir)
+                .ok()
+                .flatten()
+                .map(|a| a.agent_id)
+        });
+        if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
             db.set_session_issue(session.id, id)?;
             if !opts.quiet {
                 println!("Now working on: {} {}", format_issue_id(id), title);
@@ -272,7 +278,13 @@ pub fn run_subissue(
                 }
             }
         }
-        if let Ok(Some(session)) = db.get_current_session() {
+        let agent_id = opts.crosslink_dir.and_then(|dir| {
+            crate::identity::AgentConfig::load(dir)
+                .ok()
+                .flatten()
+                .map(|a| a.agent_id)
+        });
+        if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
             db.set_session_issue(session.id, id)?;
             if !opts.quiet {
                 println!("Now working on: {} {}", format_issue_id(id), title);

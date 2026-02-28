@@ -1148,10 +1148,14 @@ fn main() -> Result<()> {
                 SessionCommands::End { notes } => {
                     commands::session::end(&db, notes.as_deref(), &crosslink_dir)
                 }
-                SessionCommands::Status => commands::session::status(&db),
+                SessionCommands::Status => commands::session::status(&db, &crosslink_dir),
                 SessionCommands::Work { id } => commands::session::work(&db, id, &crosslink_dir),
-                SessionCommands::LastHandoff => commands::session::last_handoff(&db),
-                SessionCommands::Action { text } => commands::session::action(&db, &text),
+                SessionCommands::LastHandoff => {
+                    commands::session::last_handoff(&db, &crosslink_dir)
+                }
+                SessionCommands::Action { text } => {
+                    commands::session::action(&db, &text, &crosslink_dir)
+                }
             }
         }
 

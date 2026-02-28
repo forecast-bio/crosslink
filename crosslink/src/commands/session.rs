@@ -4,9 +4,19 @@ use chrono::Utc;
 use crate::db::Database;
 use crate::utils::format_issue_id;
 
+/// Load the current agent_id from .crosslink/agent.json (best-effort).
+fn load_agent_id(crosslink_dir: &std::path::Path) -> Option<String> {
+    crate::identity::AgentConfig::load(crosslink_dir)
+        .ok()
+        .flatten()
+        .map(|a| a.agent_id)
+}
+
 pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
-    // Check if there's already an active session
-    if let Some(current) = db.get_current_session()? {
+    let agent_id = load_agent_id(crosslink_dir);
+
+    // Check if there's already an active session for this agent
+    if let Some(current) = db.get_current_session_for_agent(agent_id.as_deref())? {
         println!(
             "Session #{} is already active (started {})",
             current.id,
@@ -15,8 +25,8 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         return Ok(());
     }
 
-    // Show previous session's handoff notes
-    if let Some(last) = db.get_last_session()? {
+    // Show previous session's handoff notes for this agent
+    if let Some(last) = db.get_last_session_for_agent(agent_id.as_deref())? {
         if let Some(ended) = last.ended_at {
             println!("Previous session ended: {}", ended.format("%Y-%m-%d %H:%M"));
         }
@@ -31,22 +41,14 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         }
     }
 
-    // Load agent identity (best-effort)
-    let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
-        .ok()
-        .flatten()
-        .map(|a| a.agent_id);
-
-    let id = match &agent_id {
-        Some(_) => db.start_session_with_agent(agent_id.as_deref())?,
-        None => db.start_session()?,
-    };
+    let id = db.start_session_with_agent(agent_id.as_deref())?;
     println!("Session #{} started.", id);
     Ok(())
 }
 
 pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) -> Result<()> {
-    let session = match db.get_current_session()? {
+    let agent_id = load_agent_id(crosslink_dir);
+    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
         Some(s) => s,
         None => bail!("No active session"),
     };
@@ -96,8 +98,9 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
     Ok(())
 }
 
-pub fn status(db: &Database) -> Result<()> {
-    let session = match db.get_current_session()? {
+pub fn status(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
+    let agent_id = load_agent_id(crosslink_dir);
+    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
         Some(s) => s,
         None => {
             println!("No active session. Use 'crosslink session start' to begin.");
@@ -136,7 +139,8 @@ pub fn status(db: &Database) -> Result<()> {
 }
 
 pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Result<()> {
-    let session = match db.get_current_session()? {
+    let agent_id = load_agent_id(crosslink_dir);
+    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
         Some(s) => s,
         None => bail!("No active session. Use 'crosslink session start' first."),
     };
@@ -173,8 +177,9 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
     Ok(())
 }
 
-pub fn action(db: &Database, text: &str) -> Result<()> {
-    let session = match db.get_current_session()? {
+pub fn action(db: &Database, text: &str, crosslink_dir: &std::path::Path) -> Result<()> {
+    let agent_id = load_agent_id(crosslink_dir);
+    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
         Some(s) => s,
         None => bail!("No active session. Use 'crosslink session start' first."),
     };
@@ -190,8 +195,9 @@ pub fn action(db: &Database, text: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn last_handoff(db: &Database) -> Result<()> {
-    match db.get_last_session()? {
+pub fn last_handoff(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
+    let agent_id = load_agent_id(crosslink_dir);
+    match db.get_last_session_for_agent(agent_id.as_deref())? {
         Some(session) => {
             if let Some(notes) = &session.handoff_notes {
                 if !notes.is_empty() {
@@ -296,7 +302,7 @@ mod tests {
     fn test_status_no_session() {
         let (db, _dir) = setup_test_db();
 
-        let result = status(&db);
+        let result = status(&db, _dir.path());
         assert!(result.is_ok());
     }
 
@@ -305,7 +311,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
 
         start(&db, _dir.path()).unwrap();
-        let result = status(&db);
+        let result = status(&db, _dir.path());
         assert!(result.is_ok());
     }
 
@@ -317,7 +323,7 @@ mod tests {
         start(&db, dir.path()).unwrap();
         work(&db, issue_id, dir.path()).unwrap();
 
-        let result = status(&db);
+        let result = status(&db, dir.path());
         assert!(result.is_ok());
     }
 
@@ -385,7 +391,7 @@ mod tests {
     fn test_last_handoff_no_sessions() {
         let (db, _dir) = setup_test_db();
 
-        let result = last_handoff(&db);
+        let result = last_handoff(&db, _dir.path());
         assert!(result.is_ok());
         // Should handle gracefully when no sessions exist
     }
@@ -397,7 +403,7 @@ mod tests {
         start(&db, _dir.path()).unwrap();
         end(&db, None, _dir.path()).unwrap();
 
-        let result = last_handoff(&db);
+        let result = last_handoff(&db, _dir.path());
         assert!(result.is_ok());
         // Should handle gracefully when last session has no notes
     }
@@ -409,7 +415,7 @@ mod tests {
         start(&db, _dir.path()).unwrap();
         end(&db, Some("Important handoff notes"), _dir.path()).unwrap();
 
-        let result = last_handoff(&db);
+        let result = last_handoff(&db, _dir.path());
         assert!(result.is_ok());
         // Notes should be retrievable
         let last = db.get_last_session().unwrap().unwrap();
@@ -434,7 +440,7 @@ mod tests {
         work(&db, issue_id, dir.path()).unwrap();
 
         // Check status
-        status(&db).unwrap();
+        status(&db, dir.path()).unwrap();
 
         // End with notes
         end(&db, Some("Made progress on feature"), dir.path()).unwrap();

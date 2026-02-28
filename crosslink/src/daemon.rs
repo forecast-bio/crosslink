@@ -172,7 +172,11 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
         // Auto-flush: read current session and write to session.json
         let mut active_issue_id: Option<i64> = None;
         if let Ok(db) = Database::open(&db_path) {
-            if let Ok(Some(session)) = db.get_current_session() {
+            let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
+                .ok()
+                .flatten()
+                .map(|a| a.agent_id);
+            if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
                 active_issue_id = session.active_issue_id;
                 let session_data = serde_json::json!({
                     "session_id": session.id,

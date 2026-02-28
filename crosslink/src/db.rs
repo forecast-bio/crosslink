@@ -774,6 +774,9 @@ impl Database {
     }
 
     // Sessions
+
+    /// Convenience wrapper for tests — starts a session with no agent_id.
+    #[cfg(test)]
     pub fn start_session(&self) -> Result<i64> {
         self.start_session_with_agent(None)
     }
@@ -796,48 +799,50 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Convenience wrapper for tests — gets current session without agent scoping.
+    #[cfg(test)]
     pub fn get_current_session(&self) -> Result<Option<Session>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1",
-        )?;
-
-        let session = stmt
-            .query_row([], |row| {
-                Ok(Session {
-                    id: row.get(0)?,
-                    started_at: parse_datetime(row.get::<_, String>(1)?),
-                    ended_at: row.get::<_, Option<String>>(2)?.map(parse_datetime),
-                    active_issue_id: row.get(3)?,
-                    handoff_notes: row.get(4)?,
-                    last_action: row.get(5)?,
-                    agent_id: row.get(6)?,
-                })
-            })
-            .ok();
-
-        Ok(session)
+        self.get_current_session_for_agent(None)
     }
 
+    /// Get the current active session scoped to the given agent_id.
+    /// If agent_id is Some, only returns sessions belonging to that agent.
+    /// If agent_id is None, returns any active session (backward compat).
+    pub fn get_current_session_for_agent(&self, agent_id: Option<&str>) -> Result<Option<Session>> {
+        if let Some(aid) = agent_id {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE ended_at IS NULL AND agent_id = ?1 ORDER BY id DESC LIMIT 1",
+            )?;
+            Ok(stmt.query_row(params![aid], session_from_row).ok())
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1",
+            )?;
+            Ok(stmt.query_row([], session_from_row).ok())
+        }
+    }
+
+    /// Convenience wrapper for tests — gets last session without agent scoping.
+    #[cfg(test)]
     pub fn get_last_session(&self) -> Result<Option<Session>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE ended_at IS NOT NULL ORDER BY id DESC LIMIT 1",
-        )?;
+        self.get_last_session_for_agent(None)
+    }
 
-        let session = stmt
-            .query_row([], |row| {
-                Ok(Session {
-                    id: row.get(0)?,
-                    started_at: parse_datetime(row.get::<_, String>(1)?),
-                    ended_at: row.get::<_, Option<String>>(2)?.map(parse_datetime),
-                    active_issue_id: row.get(3)?,
-                    handoff_notes: row.get(4)?,
-                    last_action: row.get(5)?,
-                    agent_id: row.get(6)?,
-                })
-            })
-            .ok();
-
-        Ok(session)
+    /// Get the most recent ended session scoped to the given agent_id.
+    /// If agent_id is Some, only returns sessions belonging to that agent.
+    /// If agent_id is None, returns any ended session (backward compat).
+    pub fn get_last_session_for_agent(&self, agent_id: Option<&str>) -> Result<Option<Session>> {
+        if let Some(aid) = agent_id {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE ended_at IS NOT NULL AND agent_id = ?1 ORDER BY id DESC LIMIT 1",
+            )?;
+            Ok(stmt.query_row(params![aid], session_from_row).ok())
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE ended_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+            )?;
+            Ok(stmt.query_row([], session_from_row).ok())
+        }
     }
 
     pub fn set_session_issue(&self, session_id: i64, issue_id: i64) -> Result<bool> {
@@ -869,17 +874,7 @@ impl Database {
             "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE handoff_notes IS NOT NULL ORDER BY id",
         )?;
         let sessions = stmt
-            .query_map([], |row| {
-                Ok(Session {
-                    id: row.get(0)?,
-                    started_at: parse_datetime(row.get::<_, String>(1)?),
-                    ended_at: row.get::<_, Option<String>>(2)?.map(parse_datetime),
-                    active_issue_id: row.get(3)?,
-                    handoff_notes: row.get(4)?,
-                    last_action: row.get(5)?,
-                    agent_id: row.get(6)?,
-                })
-            })?
+            .query_map([], session_from_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(sessions)
     }
@@ -1402,6 +1397,18 @@ fn parse_datetime(s: String) -> DateTime<Utc> {
 
 /// Maps a database row to an Issue struct.
 /// Expects columns in order: id, title, description, status, priority, parent_id, created_at, updated_at, closed_at
+fn session_from_row(row: &rusqlite::Row) -> rusqlite::Result<Session> {
+    Ok(Session {
+        id: row.get(0)?,
+        started_at: parse_datetime(row.get::<_, String>(1)?),
+        ended_at: row.get::<_, Option<String>>(2)?.map(parse_datetime),
+        active_issue_id: row.get(3)?,
+        handoff_notes: row.get(4)?,
+        last_action: row.get(5)?,
+        agent_id: row.get(6)?,
+    })
+}
+
 fn issue_from_row(row: &rusqlite::Row) -> rusqlite::Result<Issue> {
     Ok(Issue {
         id: row.get(0)?,
