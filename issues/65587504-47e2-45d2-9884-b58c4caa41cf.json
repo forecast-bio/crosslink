@@ -6,5 +6,8 @@
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T05:44:35.015215Z",
-  "updated_at": "2026-02-28T05:44:35.015215Z"
+  "updated_at": "2026-02-28T05:44:37.206897Z",
+  "labels": [
+    "enhancement"
+  ]
 }
