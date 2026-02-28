@@ -106,12 +106,7 @@ impl KnowledgeManager {
                 .is_ok();
 
             if has_local {
-                self.git_in_repo(&[
-                    "worktree",
-                    "add",
-                    &self.cache_path_str(),
-                    KNOWLEDGE_BRANCH,
-                ])?;
+                self.git_in_repo(&["worktree", "add", &self.cache_path_str(), KNOWLEDGE_BRANCH])?;
             } else {
                 // Create local branch tracking remote
                 self.git_in_repo(&[
@@ -179,8 +174,7 @@ impl KnowledgeManager {
 
         // Check for unpushed local commits. If any exist, rebase to preserve them.
         let remote_ref = format!("origin/{}", KNOWLEDGE_BRANCH);
-        let log_result =
-            self.git_in_cache(&["log", &format!("{}..HEAD", remote_ref), "--oneline"]);
+        let log_result = self.git_in_cache(&["log", &format!("{}..HEAD", remote_ref), "--oneline"]);
         if let Ok(output) = &log_result {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if !stdout.trim().is_empty() {
@@ -522,8 +516,7 @@ pub fn parse_frontmatter(content: &str) -> Option<PageFrontmatter> {
                 }
                 ParseState::InContributors => {
                     if is_list_item {
-                        contributors
-                            .push(unquote(trimmed.strip_prefix("- ").unwrap_or(trimmed)));
+                        contributors.push(unquote(trimmed.strip_prefix("- ").unwrap_or(trimmed)));
                     }
                 }
                 ParseState::InSources => {
@@ -642,10 +635,7 @@ pub fn serialize_frontmatter(fm: &PageFrontmatter) -> String {
     if fm.contributors.is_empty() {
         out.push_str("contributors: []\n");
     } else {
-        out.push_str(&format!(
-            "contributors: [{}]\n",
-            fm.contributors.join(", ")
-        ));
+        out.push_str(&format!("contributors: [{}]\n", fm.contributors.join(", ")));
     }
 
     out.push_str(&format!("created: {}\n", &fm.created));
@@ -831,10 +821,7 @@ Body text.
         assert_eq!(fm.sources.len(), 2);
         assert_eq!(fm.sources[0].url, "https://example.com");
         assert_eq!(fm.sources[0].title, "Example Site");
-        assert_eq!(
-            fm.sources[0].accessed_at,
-            Some("2026-01-10".to_string())
-        );
+        assert_eq!(fm.sources[0].accessed_at, Some("2026-01-10".to_string()));
         assert_eq!(fm.sources[1].url, "https://docs.rs");
         assert_eq!(fm.sources[1].title, "Rust Docs");
         assert_eq!(fm.sources[1].accessed_at, None);
@@ -1084,17 +1071,9 @@ updated: 2026-01-01
 
         // cache_dir should point to the main repo's knowledge cache, not the worktree's
         let expected_parent = main_crosslink.canonicalize().unwrap();
-        let actual_parent = manager
-            .cache_dir
-            .parent()
-            .unwrap()
-            .canonicalize()
-            .unwrap();
+        let actual_parent = manager.cache_dir.parent().unwrap().canonicalize().unwrap();
         assert_eq!(actual_parent, expected_parent);
-        assert_eq!(
-            manager.cache_dir.file_name().unwrap(),
-            KNOWLEDGE_CACHE_DIR
-        );
+        assert_eq!(manager.cache_dir.file_name().unwrap(), KNOWLEDGE_CACHE_DIR);
 
         // repo_root should be the main repo, not the worktree
         assert_eq!(
