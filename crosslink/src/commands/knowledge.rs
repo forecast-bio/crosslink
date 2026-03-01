@@ -699,7 +699,9 @@ pub fn search(
         return search_sources(&manager, domain, json);
     }
 
-    let query = query.unwrap();
+    let Some(query) = query else {
+        bail!("Provide a search query or --source domain");
+    };
     let matches = manager.search_content(query, context)?;
 
     if json {
