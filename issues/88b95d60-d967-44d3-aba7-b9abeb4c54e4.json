@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "m1--track-driver-signing-key",
   "created_at": "2026-03-01T16:03:51.708153370Z",
-  "updated_at": "2026-03-01T16:08:50.645131188Z",
+  "updated_at": "2026-03-01T16:18:09.718855647Z",
   "labels": [
     "feature"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: (1) Add resolve_driver_fingerprint() to identity.rs reading .crosslink/driver-key.pub, (2) v13 migration in db.rs adding driver_key_fingerprint column to comments, (3) Add field to Comment in models.rs and CommentEntry in issue_file.rs, (4) Update add_intervention_comment in db.rs and shared_writer.rs to accept/store fingerprint, (5) Update intervene.rs to resolve and pass driver fingerprint, (6) Add trust/approvals/<id>.json metadata files in trust.rs recording approver fingerprint, (7) Update get_comments queries to include new column",
       "created_at": "2026-03-01T16:08:50.645130401Z",
       "kind": "plan"
+    },
+    {
+      "id": 48,
+      "author": "m1--track-driver-signing-key",
+      "content": "Committed: feat: track driver signing key in interventions and trust approvals [CL-40] | Files: 10 files changed, 143 insertions(+), 19 deletions(-)",
+      "created_at": "2026-03-01T16:18:09.718855331Z",
+      "kind": "result"
     }
   ]
 }
