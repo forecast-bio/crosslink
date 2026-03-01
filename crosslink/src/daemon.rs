@@ -215,7 +215,10 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
             }
             Err(e) => {
                 consecutive_db_failures += 1;
-                eprintln!("Failed to open database: {} (failure #{})", e, consecutive_db_failures);
+                eprintln!(
+                    "Failed to open database: {} (failure #{})",
+                    e, consecutive_db_failures
+                );
                 if consecutive_db_failures == FAILURE_WARN_THRESHOLD {
                     eprintln!(
                         "WARNING: {} consecutive database failures. Daemon may not be functioning correctly.",
@@ -267,7 +270,10 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
                         }
                         Err(e) => {
                             consecutive_sync_failures += 1;
-                            eprintln!("Sync init failed: {} (failure #{})", e, consecutive_sync_failures);
+                            eprintln!(
+                                "Sync init failed: {} (failure #{})",
+                                e, consecutive_sync_failures
+                            );
                             if consecutive_sync_failures == FAILURE_WARN_THRESHOLD {
                                 eprintln!(
                                     "WARNING: {} consecutive sync failures. Daemon may not be functioning correctly.",

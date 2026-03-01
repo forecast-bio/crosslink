@@ -26,14 +26,17 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
     let tmp_path = parent.join(format!(
         ".{}.tmp",
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("file")
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("file")
     ));
     std::fs::write(&tmp_path, content)
         .with_context(|| format!("Failed to write temp file: {}", tmp_path.display()))?;
-    std::fs::rename(&tmp_path, path)
-        .with_context(|| format!("Failed to rename {} to {}", tmp_path.display(), path.display()))?;
+    std::fs::rename(&tmp_path, path).with_context(|| {
+        format!(
+            "Failed to rename {} to {}",
+            tmp_path.display(),
+            path.display()
+        )
+    })?;
     Ok(())
 }
 

@@ -288,9 +288,7 @@ impl AllowedSigners {
             if trimmed.starts_with('#') {
                 // Check if this is a metadata comment (not the file header)
                 let comment_text = trimmed.trim_start_matches('#').trim();
-                if comment_text.starts_with("approved ")
-                    || comment_text.starts_with("revoked ")
-                {
+                if comment_text.starts_with("approved ") || comment_text.starts_with("revoked ") {
                     pending_metadata = Some(comment_text.to_string());
                 }
                 continue;
