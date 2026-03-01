@@ -113,9 +113,7 @@ impl Database {
     fn migrate(&self, sql: &str) {
         if let Err(e) = self.conn.execute(sql, []) {
             let msg = e.to_string();
-            if !msg.contains("duplicate column")
-                && !msg.contains("already exists")
-            {
+            if !msg.contains("duplicate column") && !msg.contains("already exists") {
                 eprintln!("warning: migration error ({}): {}", sql.trim(), msg);
             }
         }
@@ -125,9 +123,7 @@ impl Database {
     fn migrate_batch(&self, sql: &str) {
         if let Err(e) = self.conn.execute_batch(sql) {
             let msg = e.to_string();
-            if !msg.contains("duplicate column")
-                && !msg.contains("already exists")
-            {
+            if !msg.contains("duplicate column") && !msg.contains("already exists") {
                 eprintln!("warning: migration batch error: {}", msg);
             }
         }
@@ -290,9 +286,7 @@ impl Database {
             // Migration v10: Add uuid columns for shared issue coordination
             if version < 10 {
                 self.migrate("ALTER TABLE issues ADD COLUMN uuid TEXT");
-                self.migrate(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_uuid ON issues(uuid)",
-                );
+                self.migrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_uuid ON issues(uuid)");
                 self.migrate("ALTER TABLE issues ADD COLUMN created_by TEXT");
                 self.migrate("ALTER TABLE comments ADD COLUMN uuid TEXT");
                 self.migrate("ALTER TABLE comments ADD COLUMN author TEXT");
@@ -360,11 +354,17 @@ impl Database {
     ) -> Result<i64> {
         validate_priority(priority)?;
         if title.len() > MAX_TITLE_LEN {
-            anyhow::bail!("Title exceeds maximum length of {} characters", MAX_TITLE_LEN);
+            anyhow::bail!(
+                "Title exceeds maximum length of {} characters",
+                MAX_TITLE_LEN
+            );
         }
         if let Some(d) = description {
             if d.len() > MAX_DESCRIPTION_LEN {
-                anyhow::bail!("Description exceeds maximum length of {} bytes", MAX_DESCRIPTION_LEN);
+                anyhow::bail!(
+                    "Description exceeds maximum length of {} bytes",
+                    MAX_DESCRIPTION_LEN
+                );
             }
         }
         let now = Utc::now().to_rfc3339();
@@ -487,12 +487,18 @@ impl Database {
     ) -> Result<bool> {
         if let Some(t) = title {
             if t.len() > MAX_TITLE_LEN {
-                anyhow::bail!("Title exceeds maximum length of {} characters", MAX_TITLE_LEN);
+                anyhow::bail!(
+                    "Title exceeds maximum length of {} characters",
+                    MAX_TITLE_LEN
+                );
             }
         }
         if let Some(d) = description {
             if d.len() > MAX_DESCRIPTION_LEN {
-                anyhow::bail!("Description exceeds maximum length of {} bytes", MAX_DESCRIPTION_LEN);
+                anyhow::bail!(
+                    "Description exceeds maximum length of {} bytes",
+                    MAX_DESCRIPTION_LEN
+                );
             }
         }
         let now = Utc::now().to_rfc3339();
@@ -556,7 +562,10 @@ impl Database {
     // Labels
     pub fn add_label(&self, issue_id: i64, label: &str) -> Result<bool> {
         if label.len() > MAX_LABEL_LEN {
-            anyhow::bail!("Label exceeds maximum length of {} characters", MAX_LABEL_LEN);
+            anyhow::bail!(
+                "Label exceeds maximum length of {} characters",
+                MAX_LABEL_LEN
+            );
         }
         let result = self.conn.execute(
             "INSERT OR IGNORE INTO labels (issue_id, label) VALUES (?1, ?2)",
@@ -586,7 +595,10 @@ impl Database {
     // Comments
     pub fn add_comment(&self, issue_id: i64, content: &str, kind: &str) -> Result<i64> {
         if content.len() > MAX_COMMENT_LEN {
-            anyhow::bail!("Comment exceeds maximum length of {} bytes", MAX_COMMENT_LEN);
+            anyhow::bail!(
+                "Comment exceeds maximum length of {} bytes",
+                MAX_COMMENT_LEN
+            );
         }
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -1461,7 +1473,10 @@ fn parse_datetime(s: String) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(&s)
         .map(|dt| dt.with_timezone(&Utc))
         .unwrap_or_else(|e| {
-            eprintln!("warning: failed to parse datetime '{}': {}, using current time", s, e);
+            eprintln!(
+                "warning: failed to parse datetime '{}': {}, using current time",
+                s, e
+            );
             chrono::Utc::now()
         })
 }
@@ -2368,7 +2383,9 @@ mod tests {
         assert!(db.create_issue(&too_long_title, None, "medium").is_err());
 
         let too_long_desc = "b".repeat(MAX_DESCRIPTION_LEN + 1);
-        assert!(db.create_issue("ok", Some(&too_long_desc), "medium").is_err());
+        assert!(db
+            .create_issue("ok", Some(&too_long_desc), "medium")
+            .is_err());
     }
 
     #[test]

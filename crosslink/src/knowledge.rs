@@ -293,15 +293,24 @@ impl KnowledgeManager {
             bail!("Page slug cannot be empty");
         }
         if slug.contains('/') || slug.contains('\\') || slug.contains('\0') || slug.contains("..") {
-            bail!("Invalid page slug '{}': must not contain path separators or '..'", slug);
+            bail!(
+                "Invalid page slug '{}': must not contain path separators or '..'",
+                slug
+            );
         }
         let path = self.cache_dir.join(format!("{}.md", slug));
         // Defense in depth: verify the resolved path is within cache_dir
-        let canonical_cache = self.cache_dir.canonicalize().unwrap_or_else(|_| self.cache_dir.clone());
+        let canonical_cache = self
+            .cache_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.cache_dir.clone());
         let canonical_parent = path.parent().and_then(|p| p.canonicalize().ok());
         if let Some(parent) = canonical_parent {
             if !parent.starts_with(&canonical_cache) {
-                bail!("Invalid page slug '{}': resolves outside knowledge cache", slug);
+                bail!(
+                    "Invalid page slug '{}': resolves outside knowledge cache",
+                    slug
+                );
             }
         }
         Ok(path)
