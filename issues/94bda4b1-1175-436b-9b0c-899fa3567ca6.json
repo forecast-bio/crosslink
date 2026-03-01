@@ -6,8 +6,17 @@
   "priority": "high",
   "created_by": "m1--full-system-adversarial-review",
   "created_at": "2026-03-01T02:15:30.477027Z",
-  "updated_at": "2026-03-01T02:15:32.255667Z",
+  "updated_at": "2026-03-01T02:15:46.475292Z",
   "labels": [
     "security"
+  ],
+  "comments": [
+    {
+      "id": 42,
+      "author": "m1--full-system-adversarial-review",
+      "content": "Plan: Add explicit chmod 700 on keys_dir and chmod 600 on private key after ssh-keygen runs, using cfg(unix) guard. Also create a GitHub issue for the broader key isolation design goal.",
+      "created_at": "2026-03-01T02:15:46.475291Z",
+      "kind": "plan"
+    }
   ]
 }
