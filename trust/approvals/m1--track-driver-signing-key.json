@@ -1,0 +1,6 @@
+{
+  "agent_id": "m1--track-driver-signing-key",
+  "principal": "m1--track-driver-signing-key@crosslink",
+  "approved_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "approved_at": "2026-03-01T16:36:04.651867211+00:00"
+}
