@@ -105,6 +105,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
                     kind: "note".to_string(),
                     trigger_type: None,
                     intervention_context: None,
+                    driver_key_fingerprint: None,
                     signed_by: None,
                     signature: None,
                 }
@@ -402,6 +403,7 @@ mod tests {
                     kind: "note".to_string(),
                     trigger_type: None,
                     intervention_context: None,
+                    driver_key_fingerprint: None,
                     signed_by: None,
                     signature: None,
                 })

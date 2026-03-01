@@ -142,6 +142,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                     &comment.kind,
                     comment.trigger_type.as_deref(),
                     comment.intervention_context.as_deref(),
+                    comment.driver_key_fingerprint.as_deref(),
                 )?;
                 stats.comments += 1;
             }
@@ -358,6 +359,7 @@ mod tests {
             kind: "note".to_string(),
             trigger_type: None,
             intervention_context: None,
+            driver_key_fingerprint: None,
             signed_by: None,
             signature: None,
         }];

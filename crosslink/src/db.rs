@@ -5,15 +5,16 @@ use std::path::Path;
 
 use crate::models::{Comment, Issue, Session};
 
-pub const SCHEMA_VERSION: i32 = 12;
+pub const SCHEMA_VERSION: i32 = 13;
 
-/// Row from `get_comments_with_author`: (id, author, content, created_at, kind, trigger_type, intervention_context).
+/// Row from `get_comments_with_author`: (id, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint).
 pub type CommentAuthorRow = (
     i64,
     Option<String>,
     String,
     DateTime<Utc>,
     String,
+    Option<String>,
     Option<String>,
     Option<String>,
 );
@@ -284,6 +285,14 @@ impl Database {
                 );
             }
 
+            // Migration v13: Add driver_key_fingerprint to comments for audit trail
+            if version < 13 {
+                let _ = self.conn.execute(
+                    "ALTER TABLE comments ADD COLUMN driver_key_fingerprint TEXT",
+                    [],
+                );
+            }
+
             self.conn
                 .execute(&format!("PRAGMA user_version = {}", SCHEMA_VERSION), [])?;
         }
@@ -538,19 +547,20 @@ impl Database {
         content: &str,
         trigger_type: &str,
         intervention_context: Option<&str>,
+        driver_key_fingerprint: Option<&str>,
     ) -> Result<i64> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO comments (issue_id, content, created_at, kind, trigger_type, intervention_context)
-             VALUES (?1, ?2, ?3, 'intervention', ?4, ?5)",
-            params![issue_id, content, now, trigger_type, intervention_context],
+            "INSERT INTO comments (issue_id, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint)
+             VALUES (?1, ?2, ?3, 'intervention', ?4, ?5, ?6)",
+            params![issue_id, content, now, trigger_type, intervention_context, driver_key_fingerprint],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
     pub fn get_comments(&self, issue_id: i64) -> Result<Vec<Comment>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, issue_id, content, created_at, COALESCE(kind, 'note'), trigger_type, intervention_context FROM comments WHERE issue_id = ?1 ORDER BY created_at",
+            "SELECT id, issue_id, content, created_at, COALESCE(kind, 'note'), trigger_type, intervention_context, driver_key_fingerprint FROM comments WHERE issue_id = ?1 ORDER BY created_at",
         )?;
         let comments = stmt
             .query_map([issue_id], |row| {
@@ -562,6 +572,7 @@ impl Database {
                     kind: row.get(4)?,
                     trigger_type: row.get(5)?,
                     intervention_context: row.get(6)?,
+                    driver_key_fingerprint: row.get(7)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -671,7 +682,7 @@ impl Database {
     /// Get comments with author field for an issue (author added in migration v10).
     pub fn get_comments_with_author(&self, issue_id: i64) -> Result<Vec<CommentAuthorRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, content, created_at, COALESCE(kind, 'note'), trigger_type, intervention_context FROM comments WHERE issue_id = ?1 ORDER BY created_at",
+            "SELECT id, author, content, created_at, COALESCE(kind, 'note'), trigger_type, intervention_context, driver_key_fingerprint FROM comments WHERE issue_id = ?1 ORDER BY created_at",
         )?;
         let comments = stmt
             .query_map([issue_id], |row| {
@@ -683,6 +694,7 @@ impl Database {
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1311,11 +1323,12 @@ impl Database {
         kind: &str,
         trigger_type: Option<&str>,
         intervention_context: Option<&str>,
+        driver_key_fingerprint: Option<&str>,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO comments (id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context],
+            "INSERT INTO comments (id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint],
         )?;
         Ok(())
     }

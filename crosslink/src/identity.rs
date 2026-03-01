@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::signing;
+
 /// Machine-local agent identity. Lives at `.crosslink/agent.json`.
 /// This file is gitignored — each machine has its own.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,6 +93,17 @@ fn detect_hostname() -> String {
         }
     }
     "unknown".to_string()
+}
+
+/// Resolve the current driver's SSH key fingerprint from `.crosslink/driver-key.pub`.
+///
+/// Returns `None` if the driver key file doesn't exist or the fingerprint can't be computed.
+pub fn resolve_driver_fingerprint(crosslink_dir: &Path) -> Option<String> {
+    let driver_pub = crosslink_dir.join("driver-key.pub");
+    if !driver_pub.exists() {
+        return None;
+    }
+    signing::get_key_fingerprint(&driver_pub).ok()
 }
 
 #[cfg(test)]
@@ -217,6 +230,20 @@ mod tests {
     fn test_detect_hostname_returns_something() {
         let hostname = detect_hostname();
         assert!(!hostname.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_driver_fingerprint_missing_file() {
+        let dir = tempdir().unwrap();
+        assert!(resolve_driver_fingerprint(dir.path()).is_none());
+    }
+
+    #[test]
+    fn test_resolve_driver_fingerprint_invalid_content() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("driver-key.pub"), "not a key").unwrap();
+        // ssh-keygen will fail on invalid content
+        assert!(resolve_driver_fingerprint(dir.path()).is_none());
     }
 
     proptest! {

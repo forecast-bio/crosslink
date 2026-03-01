@@ -1,7 +1,28 @@
 use anyhow::{bail, Result};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::identity::resolve_driver_fingerprint;
 use crate::signing::{AllowedSignerEntry, AllowedSigners};
+
+/// Metadata for a trust approval decision, stored in `trust/approvals/<agent-id>.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrustApproval {
+    pub agent_id: String,
+    pub principal: String,
+    pub approved_by: Option<String>,
+    pub approved_at: String,
+}
+
+/// Metadata for a trust revocation, stored in `trust/approvals/<agent-id>.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrustRevocation {
+    pub agent_id: String,
+    pub principal: String,
+    pub revoked_by: Option<String>,
+    pub revoked_at: String,
+}
 
 /// `crosslink trust approve <agent-id>`
 ///
@@ -43,10 +64,30 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     });
     signers.save(&signers_path)?;
 
+    // Record approval metadata with driver identity
+    let driver_fp = resolve_driver_fingerprint(crosslink_dir);
+    let approval = TrustApproval {
+        agent_id: agent_id.to_string(),
+        principal: principal.clone(),
+        approved_by: driver_fp.clone(),
+        approved_at: Utc::now().to_rfc3339(),
+    };
+    let approvals_dir = cache.join("trust").join("approvals");
+    std::fs::create_dir_all(&approvals_dir)?;
+    let approval_path = approvals_dir.join(format!("{}.json", agent_id));
+    std::fs::write(&approval_path, serde_json::to_string_pretty(&approval)?)?;
+
     // Commit and push
     commit_trust_change(cache, &format!("trust: approve agent '{}'", agent_id))?;
 
-    println!("Approved agent '{}' (principal: {})", agent_id, principal);
+    if let Some(fp) = driver_fp {
+        println!(
+            "Approved agent '{}' (principal: {}, approved by: {})",
+            agent_id, principal, fp
+        );
+    } else {
+        println!("Approved agent '{}' (principal: {})", agent_id, principal);
+    }
     Ok(())
 }
 
@@ -68,6 +109,19 @@ pub fn revoke(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     }
 
     signers.save(&signers_path)?;
+
+    // Record revocation metadata with driver identity
+    let driver_fp = resolve_driver_fingerprint(crosslink_dir);
+    let revocation = TrustRevocation {
+        agent_id: agent_id.to_string(),
+        principal: principal.clone(),
+        revoked_by: driver_fp,
+        revoked_at: Utc::now().to_rfc3339(),
+    };
+    let approvals_dir = cache.join("trust").join("approvals");
+    std::fs::create_dir_all(&approvals_dir)?;
+    let approval_path = approvals_dir.join(format!("{}.json", agent_id));
+    std::fs::write(&approval_path, serde_json::to_string_pretty(&revocation)?)?;
 
     commit_trust_change(cache, &format!("trust: revoke agent '{}'", agent_id))?;
 

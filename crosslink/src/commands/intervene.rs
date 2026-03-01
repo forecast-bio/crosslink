@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use std::path::Path;
 
 use crate::db::Database;
+use crate::identity::resolve_driver_fingerprint;
 use crate::issue_file::validate_trigger_type;
 use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
@@ -46,17 +47,36 @@ pub fn run(
 
     db.require_issue(issue_id)?;
 
+    let driver_fp = resolve_driver_fingerprint(crosslink_dir);
+    let driver_fp_ref = driver_fp.as_deref();
+
     if let Some(w) = writer {
-        w.add_intervention_comment(db, issue_id, description, trigger_type, context)?;
+        w.add_intervention_comment(
+            db,
+            issue_id,
+            description,
+            trigger_type,
+            context,
+            driver_fp_ref,
+        )?;
     } else {
-        db.add_intervention_comment(issue_id, description, trigger_type, context)?;
+        db.add_intervention_comment(issue_id, description, trigger_type, context, driver_fp_ref)?;
     }
 
-    println!(
-        "Logged intervention on issue {} [{}]",
-        format_issue_id(issue_id),
-        trigger_type
-    );
+    if let Some(ref fp) = driver_fp {
+        println!(
+            "Logged intervention on issue {} [{}] (driver: {})",
+            format_issue_id(issue_id),
+            trigger_type,
+            fp
+        );
+    } else {
+        println!(
+            "Logged intervention on issue {} [{}]",
+            format_issue_id(issue_id),
+            trigger_type
+        );
+    }
     Ok(())
 }
 

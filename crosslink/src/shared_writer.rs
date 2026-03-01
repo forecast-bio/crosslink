@@ -406,6 +406,7 @@ impl SharedWriter {
                     kind: kind_owned.clone(),
                     trigger_type: None,
                     intervention_context: None,
+                    driver_key_fingerprint: None,
                     signed_by,
                     signature,
                 });
@@ -433,10 +434,12 @@ impl SharedWriter {
         content: &str,
         trigger_type: &str,
         intervention_context: Option<&str>,
+        driver_key_fingerprint: Option<&str>,
     ) -> Result<i64> {
         let content_owned = content.to_string();
         let trigger_owned = trigger_type.to_string();
         let context_owned = intervention_context.map(|s| s.to_string());
+        let driver_fp_owned = driver_key_fingerprint.map(|s| s.to_string());
         let agent_id = self.agent.agent_id.clone();
         let comment_id = Cell::new(0i64);
 
@@ -457,6 +460,7 @@ impl SharedWriter {
                     kind: "intervention".to_string(),
                     trigger_type: Some(trigger_owned.clone()),
                     intervention_context: context_owned.clone(),
+                    driver_key_fingerprint: driver_fp_owned.clone(),
                     signed_by,
                     signature,
                 });

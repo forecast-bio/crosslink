@@ -57,6 +57,8 @@ pub struct CommentEntry {
     pub trigger_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intervention_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver_key_fingerprint: Option<String>,
     /// SSH fingerprint of the signer (e.g. "SHA256:..."), if signed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_by: Option<String>,
@@ -293,6 +295,7 @@ mod tests {
                 kind: "note".to_string(),
                 trigger_type: None,
                 intervention_context: None,
+                driver_key_fingerprint: None,
                 signed_by: None,
                 signature: None,
             }],

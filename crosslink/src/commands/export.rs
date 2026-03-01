@@ -87,7 +87,16 @@ fn build_issue_file(
     let comments: Vec<CommentEntry> = comments_raw
         .into_iter()
         .map(
-            |(id, author, content, created_at, kind, trigger_type, intervention_context)| {
+            |(
+                id,
+                author,
+                content,
+                created_at,
+                kind,
+                trigger_type,
+                intervention_context,
+                driver_key_fingerprint,
+            )| {
                 CommentEntry {
                     id,
                     author: author.unwrap_or_else(|| "unknown".to_string()),
@@ -96,6 +105,7 @@ fn build_issue_file(
                     kind,
                     trigger_type,
                     intervention_context,
+                    driver_key_fingerprint,
                     signed_by: None,
                     signature: None,
                 }

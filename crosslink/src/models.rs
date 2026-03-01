@@ -26,6 +26,8 @@ pub struct Comment {
     pub trigger_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intervention_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver_key_fingerprint: Option<String>,
 }
 
 fn default_comment_kind() -> String {
@@ -162,6 +164,7 @@ mod tests {
             kind: "note".to_string(),
             trigger_type: None,
             intervention_context: None,
+            driver_key_fingerprint: None,
         };
 
         let json = serde_json::to_string(&comment).unwrap();
@@ -182,6 +185,7 @@ mod tests {
             kind: "note".to_string(),
             trigger_type: None,
             intervention_context: None,
+            driver_key_fingerprint: None,
         };
 
         let json = serde_json::to_string(&comment).unwrap();
@@ -318,6 +322,7 @@ mod tests {
                 kind: "note".to_string(),
                 trigger_type: None,
                 intervention_context: None,
+                driver_key_fingerprint: None,
             };
 
             let json = serde_json::to_string(&comment).unwrap();
