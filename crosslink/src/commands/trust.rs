@@ -40,6 +40,13 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     signers.add_entry(AllowedSignerEntry {
         principal: principal.clone(),
         public_key,
+        metadata_comment: Some(format!(
+            "approved by {} at {}",
+            std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .unwrap_or_else(|_| "unknown".to_string()),
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        )),
     });
     signers.save(&signers_path)?;
 

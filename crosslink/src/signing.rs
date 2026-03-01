@@ -240,6 +240,9 @@ pub struct AllowedSignerEntry {
     pub principal: String,
     /// Full public key line ("ssh-ed25519 AAAA... comment").
     pub public_key: String,
+    /// Optional metadata comment rendered above the entry (e.g. "approved by max at 2026-02-28").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_comment: Option<String>,
 }
 
 /// Manages the `trust/allowed_signers` file.
@@ -271,53 +274,72 @@ impl AllowedSigners {
 
     /// Parse the allowed_signers content.
     fn parse(content: &str) -> Self {
-        let entries = content
-            .lines()
-            .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
-            .filter_map(|line| {
-                // Format: <principal> <key-type> <base64> [comment]
-                let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                if parts.len() < 2 {
-                    eprintln!(
-                        "warning: skipping malformed allowed_signers line (no space): {}",
-                        line
-                    );
-                    return None;
-                }
+        let mut entries = Vec::new();
+        // Track metadata comments (lines starting with "# approved" or "# revoked")
+        // that immediately precede an entry
+        let mut pending_metadata: Option<String> = None;
 
-                let principal = parts[0];
-                let public_key = parts[1];
-
-                // Validate principal: non-empty, no control characters
-                if principal.is_empty()
-                    || principal.chars().any(|c| c.is_control())
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                pending_metadata = None;
+                continue;
+            }
+            if trimmed.starts_with('#') {
+                // Check if this is a metadata comment (not the file header)
+                let comment_text = trimmed.trim_start_matches('#').trim();
+                if comment_text.starts_with("approved ")
+                    || comment_text.starts_with("revoked ")
                 {
-                    eprintln!(
-                        "warning: skipping allowed_signers entry with invalid principal: {}",
-                        principal
-                    );
-                    return None;
+                    pending_metadata = Some(comment_text.to_string());
                 }
+                continue;
+            }
 
-                // Validate public key starts with a known SSH key type
-                if !Self::KNOWN_KEY_TYPES
-                    .iter()
-                    .any(|prefix| public_key.starts_with(prefix))
-                {
-                    eprintln!(
-                        "warning: skipping allowed_signers entry with unrecognized key type for principal '{}': {}",
-                        principal,
-                        public_key.split_whitespace().next().unwrap_or("<empty>")
-                    );
-                    return None;
-                }
+            // Format: <principal> <key-type> <base64> [comment]
+            let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+            if parts.len() < 2 {
+                eprintln!(
+                    "warning: skipping malformed allowed_signers line (no space): {}",
+                    line
+                );
+                pending_metadata = None;
+                continue;
+            }
 
-                Some(AllowedSignerEntry {
-                    principal: principal.to_string(),
-                    public_key: public_key.to_string(),
-                })
-            })
-            .collect();
+            let principal = parts[0];
+            let public_key = parts[1];
+
+            // Validate principal: non-empty, no control characters
+            if principal.is_empty() || principal.chars().any(|c| c.is_control()) {
+                eprintln!(
+                    "warning: skipping allowed_signers entry with invalid principal: {}",
+                    principal
+                );
+                pending_metadata = None;
+                continue;
+            }
+
+            // Validate public key starts with a known SSH key type
+            if !Self::KNOWN_KEY_TYPES
+                .iter()
+                .any(|prefix| public_key.starts_with(prefix))
+            {
+                eprintln!(
+                    "warning: skipping allowed_signers entry with unrecognized key type for principal '{}': {}",
+                    principal,
+                    public_key.split_whitespace().next().unwrap_or("<empty>")
+                );
+                pending_metadata = None;
+                continue;
+            }
+
+            entries.push(AllowedSignerEntry {
+                principal: principal.to_string(),
+                public_key: public_key.to_string(),
+                metadata_comment: pending_metadata.take(),
+            });
+        }
         Self { entries }
     }
 
@@ -335,6 +357,9 @@ impl AllowedSigners {
         let mut lines = vec!["# Crosslink trusted signers".to_string()];
         lines.push("# Format: <principal> <key-type> <base64-key> [comment]".to_string());
         for entry in &self.entries {
+            if let Some(ref comment) = entry.metadata_comment {
+                lines.push(format!("# {}", comment));
+            }
             lines.push(format!("{} {}", entry.principal, entry.public_key));
         }
         lines.push(String::new()); // trailing newline
@@ -679,10 +704,12 @@ mod tests {
         signers.add_entry(AllowedSignerEntry {
             principal: "driver@example.com".to_string(),
             public_key: "ssh-ed25519 AAAA1234 driver-key".to_string(),
+            metadata_comment: None,
         });
         signers.add_entry(AllowedSignerEntry {
             principal: "m1@crosslink".to_string(),
             public_key: "ssh-ed25519 BBBB5678 agent-m1".to_string(),
+            metadata_comment: None,
         });
 
         signers.save(&path).unwrap();
@@ -703,10 +730,12 @@ mod tests {
         assert!(signers.add_entry(AllowedSignerEntry {
             principal: "m1@crosslink".to_string(),
             public_key: "ssh-ed25519 AAAA".to_string(),
+            metadata_comment: None,
         }));
         assert!(!signers.add_entry(AllowedSignerEntry {
             principal: "m1@crosslink".to_string(),
             public_key: "ssh-ed25519 BBBB".to_string(),
+            metadata_comment: None,
         }));
         assert_eq!(signers.entries.len(), 1);
     }
@@ -717,6 +746,7 @@ mod tests {
         signers.add_entry(AllowedSignerEntry {
             principal: "m1@crosslink".to_string(),
             public_key: "ssh-ed25519 AAAA".to_string(),
+            metadata_comment: None,
         });
         assert!(signers.remove_by_principal("m1@crosslink"));
         assert!(!signers.remove_by_principal("m1@crosslink"));
@@ -729,6 +759,7 @@ mod tests {
         signers.add_entry(AllowedSignerEntry {
             principal: "m1@crosslink".to_string(),
             public_key: "ssh-ed25519 AAAA".to_string(),
+            metadata_comment: None,
         });
         assert!(signers.is_trusted("m1@crosslink"));
         assert!(!signers.is_trusted("unknown@crosslink"));
@@ -739,6 +770,27 @@ mod tests {
         let content = "# comment line\n\ndriver@example.com ssh-ed25519 AAAA key\n# another comment\nm1@crosslink ssh-ed25519 BBBB key2\n";
         let signers = AllowedSigners::parse(content);
         assert_eq!(signers.entries.len(), 2);
+    }
+
+    #[test]
+    fn test_allowed_signers_metadata_comment_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("allowed_signers");
+
+        let mut signers = AllowedSigners::default();
+        signers.add_entry(AllowedSignerEntry {
+            principal: "m1@crosslink".to_string(),
+            public_key: "ssh-ed25519 AAAA".to_string(),
+            metadata_comment: Some("approved by max at 2026-02-28 12:00:00 UTC".to_string()),
+        });
+        signers.save(&path).unwrap();
+
+        let loaded = AllowedSigners::load(&path).unwrap();
+        assert_eq!(loaded.entries.len(), 1);
+        assert_eq!(
+            loaded.entries[0].metadata_comment.as_deref(),
+            Some("approved by max at 2026-02-28 12:00:00 UTC")
+        );
     }
 
     #[test]
