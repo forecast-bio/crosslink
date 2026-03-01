@@ -1,0 +1,10 @@
+{
+  "uuid": "2e2fa05c-1f3c-4e27-ac4a-ebf41fde9579",
+  "display_id": 38,
+  "title": "Test hub signing verification",
+  "status": "open",
+  "priority": "low",
+  "created_by": "m1--fix-agent-init-signing-key-override",
+  "created_at": "2026-03-01T02:32:46.027754048Z",
+  "updated_at": "2026-03-01T02:32:46.027754048Z"
+}

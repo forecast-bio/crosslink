@@ -1,0 +1,29 @@
+{
+  "uuid": "f1ea5c01-598c-4a3c-abee-7abcca34f8f4",
+  "display_id": 37,
+  "title": "Kickoff agent for GH #105: fix agent init signing key",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "m1--fix-agent-init-signing-key-override",
+  "created_at": "2026-03-01T02:19:45.831393329Z",
+  "updated_at": "2026-03-01T02:25:19.710745783Z",
+  "labels": [
+    "kickoff"
+  ],
+  "comments": [
+    {
+      "id": 43,
+      "author": "m1--fix-agent-init-signing-key-override",
+      "content": "[auto] Session resumed after context compression.",
+      "created_at": "2026-03-01T02:20:42.399200930Z",
+      "kind": "note"
+    },
+    {
+      "id": 44,
+      "author": "m1--fix-agent-init-signing-key-override",
+      "content": "Committed fix: removed configure_git_ssh_signing() call from setup_driver_signing() in init.rs. Hub cache signing in sync.rs untouched. All 146 tests pass, no warnings.",
+      "created_at": "2026-03-01T02:25:19.710745393Z",
+      "kind": "note"
+    }
+  ]
+}

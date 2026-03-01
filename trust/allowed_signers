@@ -7,3 +7,4 @@ m1--f3@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5fk26iHWQ0Y3cMXaELoI7fPfd
 m1--f5@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZVnngBk4PmpJU28V8ukgNYlZoIcZkwneScjVl3ea8l crosslink-agent:m1--f5@noether-4.local
 m1--f6@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGEcAPbpqIsaEwrL+sx/g6b4mBAjkYgiZjD/hA7lDV5L crosslink-agent:m1--f6@noether-4.local
 m1--f7@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEi0QXkapfiKc8Tvlg8kkw4WEOXeXRgynzDyNsZOglcF crosslink-agent:m1--f7@noether-4.local
+m1--track-driver-signing-key@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMg2ggBl62fPaesT6Q/YTbZVk5HEMgk+l55TcJwvWyYI crosslink-agent:m1--track-driver-signing-key@dollspace
