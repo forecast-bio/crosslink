@@ -8,7 +8,18 @@ use crate::db::Database;
 use crate::issue_file::IssueFile;
 use crate::utils::format_issue_id;
 
+/// Maximum import file size (10 MB).
+const MAX_IMPORT_SIZE: u64 = 10 * 1024 * 1024;
+
 pub fn run_json(db: &Database, input_path: &Path) -> Result<()> {
+    let metadata = fs::metadata(input_path).context("Failed to read import file metadata")?;
+    if metadata.len() > MAX_IMPORT_SIZE {
+        anyhow::bail!(
+            "Import file is {} bytes, exceeding the {} byte limit",
+            metadata.len(),
+            MAX_IMPORT_SIZE
+        );
+    }
     let content = fs::read_to_string(input_path).context("Failed to read import file")?;
 
     // Try new IssueFile array format first, then fall back to legacy ExportData envelope.
