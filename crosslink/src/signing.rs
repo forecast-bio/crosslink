@@ -486,10 +486,41 @@ pub fn verify_content(
     // Drop stdin to close it so ssh-keygen can proceed
     drop(child.stdin.take());
 
+    // Wait with timeout to prevent hanging on malformed input
+    {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let timeout = Duration::from_secs(30);
+        loop {
+            match child.try_wait()? {
+                Some(_) => break,
+                None => {
+                    if start.elapsed() > timeout {
+                        let _ = child.kill();
+                        let _ = std::fs::remove_dir_all(&tmp);
+                        bail!("ssh-keygen verification timed out after 30 seconds");
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    }
+
     let output = child.wait_with_output()?;
     let _ = std::fs::remove_dir_all(&tmp);
 
-    Ok(output.status.success())
+    if !output.status.success() {
+        return Ok(false);
+    }
+
+    // Parse stderr to confirm "Good signature" message from ssh-keygen
+    // On success, ssh-keygen outputs: Good "namespace" signature for principal ...
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.contains("Good") {
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 // ── Platform helpers ────────────────────────────────────────────────
