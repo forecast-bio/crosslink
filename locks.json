@@ -18,6 +18,12 @@
       "branch": null,
       "claimed_at": "2026-03-01T01:02:09.143778Z",
       "signed_by": "SHA256:PkIqB0H8kE6u0DPdpjd7zv2xrLqGLiwFny3FFOKs8Eg"
+    },
+    "37": {
+      "agent_id": "m1--fix-agent-init-signing-key-override",
+      "branch": null,
+      "claimed_at": "2026-03-01T02:19:49.404944872Z",
+      "signed_by": "SHA256:fckL6AnunIQTSMPFbG1x3KVvMcEZ6VXg3JV5SFIDabc"
     }
   },
   "settings": {
