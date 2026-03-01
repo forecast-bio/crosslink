@@ -53,12 +53,10 @@ impl LocksFile {
         Ok(locks)
     }
 
-    /// Save to a file.
+    /// Save to a file using atomic write (temp + rename) to prevent corruption.
     pub fn save(&self, path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json)
-            .with_context(|| format!("Failed to write {}", path.display()))?;
-        Ok(())
+        crate::utils::atomic_write(path, json.as_bytes())
     }
 
     /// Check if a specific issue is locked.

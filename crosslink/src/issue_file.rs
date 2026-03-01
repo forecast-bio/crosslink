@@ -162,10 +162,10 @@ pub fn read_issue_file(path: &std::path::Path) -> anyhow::Result<IssueFile> {
 }
 
 /// Write an issue file to disk (pretty-printed JSON).
+/// Uses atomic write (temp file + rename) to prevent corruption from interrupted writes.
 pub fn write_issue_file(path: &std::path::Path, issue: &IssueFile) -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(issue)?;
-    std::fs::write(path, content)
-        .with_context(|| format!("Failed to write issue file: {}", path.display()))
+    crate::utils::atomic_write(path, content.as_bytes())
 }
 
 /// Read all issue files from a directory.

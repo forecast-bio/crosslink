@@ -19,6 +19,24 @@ pub fn truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
+/// Atomically write content to a file by writing to a temporary file first,
+/// then renaming. This prevents corrupted files from interrupted writes.
+pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let parent = path.parent().unwrap_or(std::path::Path::new("."));
+    let tmp_path = parent.join(format!(
+        ".{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+    ));
+    std::fs::write(&tmp_path, content)
+        .with_context(|| format!("Failed to write temp file: {}", tmp_path.display()))?;
+    std::fs::rename(&tmp_path, path)
+        .with_context(|| format!("Failed to rename {} to {}", tmp_path.display(), path.display()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
