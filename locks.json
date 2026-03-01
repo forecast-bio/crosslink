@@ -7,22 +7,16 @@
       "claimed_at": "2026-02-28T00:41:40.969768Z",
       "signed_by": "SHA256:bAMrcG5Xa52pfJK0HE7CFDCQs740MNjOKDUK7D7jsno"
     },
-    "33": {
+    "16": {
       "agent_id": "m1",
       "branch": null,
-      "claimed_at": "2026-03-01T00:55:25.000470Z",
+      "claimed_at": "2026-02-28T05:35:32.553665Z",
       "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
     },
     "18": {
       "agent_id": "m1",
       "branch": null,
       "claimed_at": "2026-02-28T05:45:31.697904Z",
-      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
-    },
-    "16": {
-      "agent_id": "m1",
-      "branch": null,
-      "claimed_at": "2026-02-28T05:35:32.553665Z",
       "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
     },
     "32": {
