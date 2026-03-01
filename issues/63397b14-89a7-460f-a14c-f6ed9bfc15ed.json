@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "m1--track-driver-signing-key",
   "created_at": "2026-03-01T16:03:40.761539760Z",
-  "updated_at": "2026-03-01T16:03:42.981335970Z",
+  "updated_at": "2026-03-01T16:05:12.083468309Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 45,
+      "author": "m1--track-driver-signing-key",
+      "content": "[auto] Session resumed after context compression.",
+      "created_at": "2026-03-01T16:05:12.083467897Z",
+      "kind": "note"
+    }
   ]
 }
