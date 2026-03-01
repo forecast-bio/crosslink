@@ -1,10 +1,10 @@
 {
   "version": 1,
   "locks": {
-    "35": {
+    "36": {
       "agent_id": "m1--full-system-adversarial-review",
       "branch": null,
-      "claimed_at": "2026-03-01T01:02:09.143778Z",
+      "claimed_at": "2026-03-01T02:15:37.412563Z",
       "signed_by": "SHA256:PkIqB0H8kE6u0DPdpjd7zv2xrLqGLiwFny3FFOKs8Eg"
     },
     "33": {
@@ -12,6 +12,12 @@
       "branch": null,
       "claimed_at": "2026-03-01T00:56:38.644261Z",
       "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
+    },
+    "35": {
+      "agent_id": "m1--full-system-adversarial-review",
+      "branch": null,
+      "claimed_at": "2026-03-01T01:02:09.143778Z",
+      "signed_by": "SHA256:PkIqB0H8kE6u0DPdpjd7zv2xrLqGLiwFny3FFOKs8Eg"
     }
   },
   "settings": {
