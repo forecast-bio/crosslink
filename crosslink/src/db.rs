@@ -10,7 +10,8 @@ pub const SCHEMA_VERSION: i32 = 12;
 /// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
 
-/// Valid values for issue status.
+/// Valid values for issue status (used for future validation).
+#[allow(dead_code)]
 pub const VALID_STATUSES: &[&str] = &["open", "closed", "archived"];
 
 /// Validate that a priority value is known, returning an error if not.
@@ -92,7 +93,9 @@ impl Database {
                 Ok(result)
             }
             Err(e) => {
-                let _ = self.conn.execute("ROLLBACK", []);
+                if let Err(rollback_err) = self.conn.execute("ROLLBACK", []) {
+                    eprintln!("warning: ROLLBACK failed: {}", rollback_err);
+                }
                 Err(e)
             }
         }
