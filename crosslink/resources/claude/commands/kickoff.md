@@ -59,19 +59,25 @@ Build a detailed prompt for the child agent. The prompt must be self-contained â
 - Any specific files, modules, or code areas the user mentioned
 - Any constraints or requirements the user specified
 - The `--verify` level that was selected (so the prompt can reference it)
+- **Worktree awareness** (include this context block in the prompt):
+  > You are running in a git worktree â€” an isolated working directory that shares git objects with the main repo. The `.crosslink/issues.db` is shared across all worktrees via the crosslink/hub branch. Other agents may be working concurrently in different worktrees. If you need to see the latest state from other agents, run `crosslink sync`.
+
 - Instructions to:
-  1. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
-  2. Explore relevant code before making changes
-  3. **Document your plan**: `crosslink comment <issue-id> "Plan: <your approach, key files, chosen strategy>" --kind plan`
-  4. Implement the feature fully (no stubs or placeholders)
-  5. **Document decisions as you go**: When choosing between approaches, run `crosslink comment <issue-id> "Decision: <chose X over Y because Z>" --kind decision`
-  6. **Document discoveries**: When finding something unexpected, run `crosslink comment <issue-id> "Found: <observation>" --kind observation`
-  6b. **Log interventions**: If a hook blocks you, a human rejects a tool use, or you receive a redirect, log it immediately: `crosslink intervene <issue-id> "Description" --trigger <type> --context "what you were attempting"`
-  7. **Run the project's test suite** to verify changes don't break anything (use the detected test command)
-  8. **Document results**: `crosslink comment <issue-id> "Result: <test summary, what was delivered>" --kind result`
-  9. Use `/commit` to commit the work when implementation is complete
-  10. Review the diff of all changes and fix any issues found
-  11. Use `/commit` again after any fixes
+  1. **Start your crosslink session**: Run `crosslink session start` then `crosslink session work <issue-id>` to register yourself and mark your focus
+  2. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
+  3. Explore relevant code before making changes
+  4. **Document your plan**: `crosslink comment <issue-id> "Plan: <your approach, key files, chosen strategy>" --kind plan`
+  5. Implement the feature fully (no stubs or placeholders). Before each major step, run `crosslink session action "Starting <description>..."` to leave breadcrumbs for context compression recovery
+  6. **Document decisions as you go**: When choosing between approaches, run `crosslink comment <issue-id> "Decision: <chose X over Y because Z>" --kind decision`
+  7. **Document discoveries**: When finding something unexpected, run `crosslink comment <issue-id> "Found: <observation>" --kind observation`
+  7b. **Log interventions**: If a hook blocks you, a human rejects a tool use, or you receive a redirect, log it immediately: `crosslink intervene <issue-id> "Description" --trigger <type> --context "what you were attempting"`
+  7c. **Handle blockers visibly**: If something blocks progress, document it with `crosslink comment <issue-id> "Blocker: <description>" --kind blocker` rather than silently failing. If you resolve it, document that too: `crosslink comment <issue-id> "Resolved: <how>" --kind resolution`
+  8. **Run the project's test suite** to verify changes don't break anything (use the detected test command)
+  9. **Document results**: `crosslink comment <issue-id> "Result: <test summary, what was delivered>" --kind result`
+  10. Use `/commit` to commit the work when implementation is complete
+  11. Review the diff of all changes and fix any issues found
+  12. Use `/commit` again after any fixes
+  13. **End your session**: Run `crosslink session end --notes "Completed: <summary of what was delivered, any caveats or follow-ups>"`
 
 **Then, conditionally include the following sections based on `--verify` level:**
 
@@ -79,12 +85,12 @@ Build a detailed prompt for the child agent. The prompt must be self-contained â
 
 Add these steps after the diff review:
 
-12. **Push and open draft PR**:
+14. **Push and open draft PR**:
    - Push the feature branch: `git push -u origin <branch>`
    - Open a draft PR: `gh pr create --draft --title "<feature title>" --body "Automated PR from kickoff agent"`
    - Record the PR URL for later reference.
 
-13. **Wait for CI to pass**:
+15. **Wait for CI to pass**:
    - Poll CI status: `gh run list --branch <branch> --limit 1 --json status,conclusion,databaseId` every 30 seconds.
    - If the run's `status` is `completed` and `conclusion` is `success`, CI has passed. Proceed.
    - If the run's `status` is `completed` and `conclusion` is `failure`:
@@ -101,7 +107,7 @@ Add these steps after the diff review:
 
 Add this step after CI passes:
 
-14. **Structured adversarial self-review**:
+16. **Structured adversarial self-review**:
     - Before marking done, perform a thorough self-review of all changes.
     - Review checklist (go through each item and fix any issues found):
       - [ ] All tests pass locally
