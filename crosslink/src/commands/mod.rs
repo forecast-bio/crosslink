@@ -11,6 +11,7 @@ pub mod import;
 pub mod init;
 pub mod integrity_cmd;
 pub mod intervene;
+pub mod knowledge;
 pub mod label;
 pub mod list;
 pub mod locks_cmd;
