@@ -234,21 +234,11 @@ fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>) -> Resul
                 Err(_) => println!("Driver signing key: {}", pubkey_path.display()),
             }
 
-            // Configure git to use SSH signing in this repo
-            let private_key_path = if pubkey_path.to_string_lossy().ends_with(".pub") {
-                let s = pubkey_path.to_string_lossy();
-                std::path::PathBuf::from(&s[..s.len() - 4])
-            } else {
-                pubkey_path.clone()
-            };
-
-            if private_key_path.exists() {
-                if let Err(e) =
-                    signing::configure_git_ssh_signing(project_root, &private_key_path, None)
-                {
-                    println!("Warning: Could not configure git signing: {}", e);
-                }
-            }
+            // NOTE: We intentionally do NOT call configure_git_ssh_signing()
+            // on the project worktree here. Crosslink should not override the
+            // user's git signing configuration. The hub cache worktree (used for
+            // lock claims, issue entries, etc.) has its own signing config set
+            // up separately in sync.rs.
         }
         Err(_) => {
             println!(
