@@ -1,24 +1,6 @@
 {
   "version": 1,
   "locks": {
-    "37": {
-      "agent_id": "m1--fix-agent-init-signing-key-override",
-      "branch": null,
-      "claimed_at": "2026-03-01T02:19:49.404944872Z",
-      "signed_by": "SHA256:fckL6AnunIQTSMPFbG1x3KVvMcEZ6VXg3JV5SFIDabc"
-    },
-    "36": {
-      "agent_id": "m1--full-system-adversarial-review",
-      "branch": null,
-      "claimed_at": "2026-03-01T02:15:37.412563Z",
-      "signed_by": "SHA256:PkIqB0H8kE6u0DPdpjd7zv2xrLqGLiwFny3FFOKs8Eg"
-    },
-    "33": {
-      "agent_id": "m1",
-      "branch": null,
-      "claimed_at": "2026-03-01T00:56:38.644261Z",
-      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
-    },
     "35": {
       "agent_id": "m1--full-system-adversarial-review",
       "branch": null,
@@ -30,6 +12,30 @@
       "branch": null,
       "claimed_at": "2026-03-01T16:03:45.657248229Z",
       "signed_by": "SHA256:UGxYNDwA1sXQMJ9gnzwD+IknoUVczvWxj7eL1n/P5hU"
+    },
+    "40": {
+      "agent_id": "m1--track-driver-signing-key",
+      "branch": null,
+      "claimed_at": "2026-03-01T16:05:22.516389450Z",
+      "signed_by": "SHA256:UGxYNDwA1sXQMJ9gnzwD+IknoUVczvWxj7eL1n/P5hU"
+    },
+    "36": {
+      "agent_id": "m1--full-system-adversarial-review",
+      "branch": null,
+      "claimed_at": "2026-03-01T02:15:37.412563Z",
+      "signed_by": "SHA256:PkIqB0H8kE6u0DPdpjd7zv2xrLqGLiwFny3FFOKs8Eg"
+    },
+    "37": {
+      "agent_id": "m1--fix-agent-init-signing-key-override",
+      "branch": null,
+      "claimed_at": "2026-03-01T02:19:49.404944872Z",
+      "signed_by": "SHA256:fckL6AnunIQTSMPFbG1x3KVvMcEZ6VXg3JV5SFIDabc"
+    },
+    "33": {
+      "agent_id": "m1",
+      "branch": null,
+      "claimed_at": "2026-03-01T00:56:38.644261Z",
+      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
     }
   },
   "settings": {
