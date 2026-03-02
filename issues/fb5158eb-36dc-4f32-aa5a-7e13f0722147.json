@@ -2,11 +2,12 @@
   "uuid": "fb5158eb-36dc-4f32-aa5a-7e13f0722147",
   "display_id": 20,
   "title": "Add GitHub Pages CD workflow for docs site",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T20:27:49.407671Z",
-  "updated_at": "2026-03-02T08:53:35.736117Z",
+  "updated_at": "2026-03-02T08:53:37.416414Z",
+  "closed_at": "2026-03-02T08:53:37.416414Z",
   "labels": [
     "enhancement"
   ],
