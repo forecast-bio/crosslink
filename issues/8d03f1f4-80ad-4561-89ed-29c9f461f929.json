@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T08:24:11.989949Z",
-  "updated_at": "2026-03-02T08:40:57.117198Z",
+  "updated_at": "2026-03-02T08:56:44.382306Z",
   "labels": [
     "feature"
   ],
@@ -26,6 +26,13 @@
       "kind": "intervention",
       "trigger_type": "tool_blocked",
       "intervention_context": "Attempting to edit knowledge.rs but work-check hook blocked because working issue was wrong"
+    },
+    {
+      "id": 123,
+      "author": "maxine-at-forecast--noether--accept-both-conflict",
+      "content": "Completed: accept-both conflict resolution for knowledge branch. Added has_conflict_markers(), resolve_accept_both(), SyncOutcome struct, handle_rebase_conflict() method. Modified sync() and push() to detect rebase conflicts and fall back to accept-both. Updated all command-layer callers. 8 new unit tests. All 926 tests pass, clippy clean, fmt clean. Committed as cf0f2bd.",
+      "created_at": "2026-03-02T08:56:44.382305Z",
+      "kind": "handoff"
     }
   ]
 }
