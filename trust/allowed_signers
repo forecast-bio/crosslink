@@ -12,3 +12,5 @@ m1--track-driver-signing-key@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMg2g
 maxine-at-forecast--noether@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILm8+Mn0tcEg78ZpUhkDSsEj2FKtJLc8KVSh5hUfTdMu crosslink-agent:maxine-at-forecast--noether@noether-4.local
 # approved by max at 2026-03-02 08:33:50 UTC
 maxine-at-forecast--noether--accept-both-conflict@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEL4hdcobW6MIzk61Wmqp+shRKAYe1vIfoIXvvOJyuFp crosslink-agent:maxine-at-forecast--noether--accept-both-conflict@noether-4.local
+# approved by max at 2026-03-02 08:41:05 UTC
+maxine-at-forecast--noether--ratatui-tui@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgS+4uje9hHAOg4BLoMqulQHsIQNEsqZC7s7HjvSIY7 crosslink-agent:maxine-at-forecast--noether--ratatui-tui@noether-4.local
