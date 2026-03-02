@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::models::{Comment, Issue, Session};
 
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 14;
 
 /// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
@@ -134,7 +134,7 @@ impl Database {
         let version: i32 = self
             .conn
             .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM pragma_user_version",
+                "SELECT COALESCE(MAX(user_version), 0) FROM pragma_user_version",
                 [],
                 |row| row.get(0),
             )
@@ -258,7 +258,8 @@ impl Database {
             if version < 7 {
                 self.migrate_batch(
                     r#"
-                    CREATE TABLE IF NOT EXISTS sessions_new (
+                    DROP TABLE IF EXISTS sessions_new;
+                    CREATE TABLE sessions_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         started_at TEXT NOT NULL,
                         ended_at TEXT,
@@ -266,7 +267,8 @@ impl Database {
                         handoff_notes TEXT,
                         FOREIGN KEY (active_issue_id) REFERENCES issues(id) ON DELETE SET NULL
                     );
-                    INSERT OR IGNORE INTO sessions_new SELECT * FROM sessions;
+                    INSERT OR IGNORE INTO sessions_new (id, started_at, ended_at, active_issue_id, handoff_notes)
+                        SELECT id, started_at, ended_at, active_issue_id, handoff_notes FROM sessions;
                     DROP TABLE IF EXISTS sessions;
                     ALTER TABLE sessions_new RENAME TO sessions;
                     "#,
@@ -313,6 +315,14 @@ impl Database {
                     "ALTER TABLE comments ADD COLUMN driver_key_fingerprint TEXT",
                     [],
                 );
+            }
+
+            // Migration v14: Drop leftover sessions_new table from a bug where
+            // user_version was always read as 0 (wrong column name in the query),
+            // causing the v7 migration to re-run on every open and leave behind
+            // a stale sessions_new table.
+            if version < 14 {
+                self.migrate("DROP TABLE IF EXISTS sessions_new");
             }
 
             self.conn
