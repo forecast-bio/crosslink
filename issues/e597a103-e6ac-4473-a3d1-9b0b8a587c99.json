@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T02:31:24.058852Z",
-  "updated_at": "2026-03-02T02:36:14.230937Z",
+  "updated_at": "2026-03-02T02:51:14.118030Z",
   "labels": [
     "feature"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: Add gitignore generation to crosslink init. Key changes: (1) Add a write_root_gitignore() function that manages a marked section in root .gitignore with entries for .crosslink/ machine-local state and .claude/ auto-generated files. Use section markers (# === Crosslink managed ===) for idempotent replacement on re-init. (2) Update the existing .crosslink/.gitignore generation to include all machine-local files (issues.db*, session.json, daemon.pid, .cache/). (3) Add 'DO track' comments explaining what IS committed. (4) Add tests for fresh creation, idempotent re-init, and preserving user entries.",
       "created_at": "2026-03-02T02:36:14.230937Z",
       "kind": "plan"
+    },
+    {
+      "id": 72,
+      "author": "maxine-at-forecast--noether--improve-gitignore",
+      "content": "Completed: Added write_root_gitignore() to init.rs with section-marker-based idempotent gitignore management. Covers .crosslink/ machine-local state and .claude/ auto-generated dirs. Updated .crosslink/.gitignore to include integrations/. 8 new tests. All tests pass, clippy clean. Committed as b3d736e.",
+      "created_at": "2026-03-02T02:51:14.118030Z",
+      "kind": "handoff"
     }
   ]
 }
