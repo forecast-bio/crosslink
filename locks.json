@@ -7,34 +7,10 @@
       "claimed_at": "2026-03-02T09:07:45.219573Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
-    "82": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:55:58.192058Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "76": {
-      "agent_id": "maxine-at-forecast--noether--accept-both-conflict",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:59:36.089593Z",
-      "signed_by": "SHA256:X3FrE/ASfRqEa8NSzG3np6H1fpvXAV0sNzWiHdYzkyU"
-    },
-    "78": {
+    "90": {
       "agent_id": "maxine-at-forecast--noether--ratatui-tui",
       "branch": null,
-      "claimed_at": "2026-03-02T08:44:57.019323Z",
-      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
-    },
-    "84": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
-      "branch": null,
-      "claimed_at": "2026-03-02T09:03:17.730902Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
-    },
-    "79": {
-      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:45:36.071973Z",
+      "claimed_at": "2026-03-02T09:17:37.191556Z",
       "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
     },
     "80": {
@@ -48,6 +24,36 @@
       "branch": null,
       "claimed_at": "2026-03-02T09:13:26.018085Z",
       "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
+    },
+    "76": {
+      "agent_id": "maxine-at-forecast--noether--accept-both-conflict",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:59:36.089593Z",
+      "signed_by": "SHA256:X3FrE/ASfRqEa8NSzG3np6H1fpvXAV0sNzWiHdYzkyU"
+    },
+    "79": {
+      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:45:36.071973Z",
+      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
+    },
+    "78": {
+      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:44:57.019323Z",
+      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
+    },
+    "84": {
+      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
+      "branch": null,
+      "claimed_at": "2026-03-02T09:03:17.730902Z",
+      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
+    },
+    "82": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:55:58.192058Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     }
   },
   "settings": {
