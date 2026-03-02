@@ -7,12 +7,6 @@
       "claimed_at": "2026-03-02T03:40:13.295604Z",
       "signed_by": "maxine-at-forecast--noether--tmux-perms"
     },
-    "59": {
-      "agent_id": "maxine-at-forecast--noether--tmux-perms",
-      "branch": null,
-      "claimed_at": "2026-03-02T03:19:02.880573Z",
-      "signed_by": "maxine-at-forecast--noether--tmux-perms"
-    },
     "56": {
       "agent_id": "maxine-at-forecast--noether",
       "branch": null,
@@ -30,6 +24,18 @@
       "branch": null,
       "claimed_at": "2026-03-02T03:16:35.008264Z",
       "signed_by": "maxine-at-forecast--noether--untrack-init-files"
+    },
+    "67": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-02T05:47:23.057115Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "59": {
+      "agent_id": "maxine-at-forecast--noether--tmux-perms",
+      "branch": null,
+      "claimed_at": "2026-03-02T03:19:02.880573Z",
+      "signed_by": "maxine-at-forecast--noether--tmux-perms"
     }
   },
   "settings": {
