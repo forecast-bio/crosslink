@@ -18,3 +18,5 @@ maxine-at-forecast--noether--ratatui-tui@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1N
 maxine-at-forecast--noether--knowledge-norms@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPJYzfPt/Nz+UBqqMEZr9RB65eqM446BOhkuF48qZar8 crosslink-agent:maxine-at-forecast--noether--knowledge-norms@noether-4.local
 # approved by max at 2026-03-02 08:59:00 UTC
 maxine-at-forecast--noether--tui-dashboard@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE8Ze2zGZEVfet50S2sZsmploEm+t5+tCws3+MvnYnKs crosslink-agent:maxine-at-forecast--noether--tui-dashboard@noether-4.local
+# approved by max at 2026-03-02 09:08:42 UTC
+maxine-at-forecast--noether--ci-cd-restructure@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP/wghwFwmfrBsWZQkBvgeiJD3DJv4T41Q3EDSKwZEFB crosslink-agent:maxine-at-forecast--noether--ci-cd-restructure@noether-4.local
