@@ -1,13 +1,6 @@
 {
   "version": 1,
-  "locks": {
-    "1": {
-      "agent_id": "noether--add-container-agent",
-      "branch": null,
-      "claimed_at": "2026-03-02T07:44:33.703184156Z",
-      "signed_by": "SHA256:GBk2ORqB8F92S7A12jxrwAKclfb0vVx15wwFl0untOw"
-    }
-  },
+  "locks": {},
   "settings": {
     "stale_lock_timeout_minutes": 60
   }
