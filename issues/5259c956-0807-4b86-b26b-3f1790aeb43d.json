@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T05:47:17.271043Z",
-  "updated_at": "2026-03-02T05:47:17.271043Z"
+  "updated_at": "2026-03-02T05:47:18.935356Z",
+  "labels": [
+    "release"
+  ]
 }
