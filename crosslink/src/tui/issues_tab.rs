@@ -7,11 +7,17 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
 };
+use std::path::PathBuf;
 
 use crate::db::Database;
 use crate::models::{Comment, Issue};
 
 use super::TabAction;
+
+/// Background color for highlighted/selected rows. Uses a dark gray from the
+/// 256-color palette that is distinct enough to show selection without
+/// overriding cell-level foreground colors.
+const HIGHLIGHT_BG: Color = Color::Indexed(236);
 
 /// Status filter options for the issue list.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,6 +103,8 @@ struct TreeNode {
 
 /// The Issues tab implementation.
 pub struct IssuesTab {
+    /// Path to the database file, used to reopen for operations.
+    db_path: PathBuf,
     issues: Vec<Issue>,
     /// Labels cached per issue id for display in list view.
     issue_labels: std::collections::HashMap<i64, Vec<String>>,
@@ -116,8 +124,9 @@ pub struct IssuesTab {
 }
 
 impl IssuesTab {
-    pub fn new(db: &Database) -> anyhow::Result<Self> {
+    pub fn new(db: &Database, db_path: &std::path::Path) -> anyhow::Result<Self> {
         let mut tab = IssuesTab {
+            db_path: db_path.to_path_buf(),
             issues: Vec::new(),
             issue_labels: std::collections::HashMap::new(),
             selected: 0,
@@ -135,6 +144,11 @@ impl IssuesTab {
         };
         tab.refresh(db)?;
         Ok(tab)
+    }
+
+    /// Open a fresh database connection from the stored path.
+    fn open_db(&self) -> anyhow::Result<Database> {
+        Database::open(&self.db_path)
     }
 
     /// Reload issues from the database with current filters applied.
@@ -528,11 +542,7 @@ impl IssuesTab {
                     ]))]);
 
                     if i == self.tree_selected {
-                        row.style(
-                            Style::default()
-                                .bg(Color::DarkGray)
-                                .add_modifier(Modifier::BOLD),
-                        )
+                        row.style(Style::default().bg(HIGHLIGHT_BG))
                     } else {
                         row
                     }
@@ -659,11 +669,7 @@ impl IssuesTab {
                     ]);
 
                     if i == self.selected {
-                        row.style(
-                            Style::default()
-                                .bg(Color::DarkGray)
-                                .add_modifier(Modifier::BOLD),
-                        )
+                        row.style(Style::default().bg(HIGHLIGHT_BG))
                     } else {
                         row
                     }
@@ -973,14 +979,12 @@ impl super::Tab for IssuesTab {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> TabAction {
-        // We don't have db access in the trait method; key handlers that need db
-        // are handled via the stored data. For refresh we'd need the db reference.
-        // Since the trait is db-agnostic, we handle this by making refresh a no-op
-        // when db is None.
+        let db = self.open_db().ok();
+        let db_ref = db.as_ref();
         match self.view_mode {
-            ViewMode::List => self.handle_list_key(key, None),
+            ViewMode::List => self.handle_list_key(key, db_ref),
             ViewMode::Detail => self.handle_detail_key(key),
-            ViewMode::Tree => self.handle_tree_key(key, None),
+            ViewMode::Tree => self.handle_tree_key(key, db_ref),
         }
     }
 
@@ -1049,15 +1053,15 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn setup_test_db() -> (Database, tempfile::TempDir) {
+    fn setup_test_db() -> (Database, PathBuf, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
-        (db, dir)
+        (db, db_path, dir)
     }
 
-    fn setup_populated_db() -> (Database, tempfile::TempDir) {
-        let (db, dir) = setup_test_db();
+    fn setup_populated_db() -> (Database, PathBuf, tempfile::TempDir) {
+        let (db, db_path, dir) = setup_test_db();
         let id1 = db
             .create_issue("High priority bug", Some("Fix ASAP"), "high")
             .unwrap();
@@ -1071,13 +1075,13 @@ mod tests {
         db.add_comment(id1, "Plan: fix the bug", "plan").unwrap();
         db.add_comment(id1, "Found the root cause", "observation")
             .unwrap();
-        (db, dir)
+        (db, db_path, dir)
     }
 
     #[test]
     fn test_issues_tab_new_empty() {
-        let (db, _dir) = setup_test_db();
-        let tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_test_db();
+        let tab = IssuesTab::new(&db, &db_path).unwrap();
         assert!(tab.issues.is_empty());
         assert_eq!(tab.selected, 0);
         assert_eq!(tab.open_count, 0);
@@ -1086,8 +1090,8 @@ mod tests {
 
     #[test]
     fn test_issues_tab_new_with_issues() {
-        let (db, _dir) = setup_populated_db();
-        let tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let tab = IssuesTab::new(&db, &db_path).unwrap();
         assert_eq!(tab.issues.len(), 3);
         assert_eq!(tab.open_count, 3);
         assert_eq!(tab.closed_count, 0);
@@ -1152,11 +1156,11 @@ mod tests {
 
     #[test]
     fn test_refresh_with_status_filter() {
-        let (db, _dir) = setup_populated_db();
+        let (db, db_path, _dir) = setup_populated_db();
         let id = db.create_issue("Closed one", None, "medium").unwrap();
         db.close_issue(id).unwrap();
 
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
         assert_eq!(tab.issues.len(), 3); // Only open
 
         tab.status_filter = StatusFilter::All;
@@ -1170,8 +1174,8 @@ mod tests {
 
     #[test]
     fn test_refresh_with_sort() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
         tab.sort_order = SortOrder::Priority;
         tab.refresh(&db).unwrap();
@@ -1185,8 +1189,8 @@ mod tests {
 
     #[test]
     fn test_refresh_with_search() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
         tab.search_query = "bug".to_string();
         tab.refresh(&db).unwrap();
@@ -1196,8 +1200,8 @@ mod tests {
 
     #[test]
     fn test_selection_navigation() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
         assert_eq!(tab.selected, 0);
 
         // Down
@@ -1226,8 +1230,8 @@ mod tests {
 
     #[test]
     fn test_vim_navigation() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
         assert_eq!(tab.selected, 0);
 
         tab.handle_list_key(make_key(KeyCode::Char('j')), None);
@@ -1239,8 +1243,8 @@ mod tests {
 
     #[test]
     fn test_detail_view_and_back() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
         // Enter detail
         tab.handle_list_key(make_key(KeyCode::Enter), Some(&db));
@@ -1259,8 +1263,8 @@ mod tests {
 
     #[test]
     fn test_detail_has_comments() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
         // Select the first issue (highest ID, which has comments)
         // Issues are sorted IdDesc by default, so first issue has id=3 (Low docs fix).
@@ -1280,8 +1284,8 @@ mod tests {
 
     #[test]
     fn test_search_mode() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
 
         // Enter search
         tab.handle_list_key(make_key(KeyCode::Char('/')), None);
@@ -1306,8 +1310,8 @@ mod tests {
 
     #[test]
     fn test_render_list_no_panic() {
-        let (db, _dir) = setup_populated_db();
-        let tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let tab = IssuesTab::new(&db, &db_path).unwrap();
         let backend = ratatui::backend::TestBackend::new(120, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1317,8 +1321,8 @@ mod tests {
 
     #[test]
     fn test_render_detail_no_panic() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
         tab.load_detail(&db).unwrap();
         let backend = ratatui::backend::TestBackend::new(120, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
@@ -1329,8 +1333,8 @@ mod tests {
 
     #[test]
     fn test_render_empty_list_no_panic() {
-        let (db, _dir) = setup_test_db();
-        let tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_test_db();
+        let tab = IssuesTab::new(&db, &db_path).unwrap();
         let backend = ratatui::backend::TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1340,8 +1344,8 @@ mod tests {
 
     #[test]
     fn test_selection_clamp_on_filter_change() {
-        let (db, _dir) = setup_populated_db();
-        let mut tab = IssuesTab::new(&db).unwrap();
+        let (db, db_path, _dir) = setup_populated_db();
+        let mut tab = IssuesTab::new(&db, &db_path).unwrap();
         tab.selected = 2; // Last issue
 
         // Close all issues, then filter to closed

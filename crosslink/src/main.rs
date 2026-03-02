@@ -1600,7 +1600,8 @@ fn main() -> Result<()> {
 
         Commands::Tui => {
             let db = get_db()?;
-            commands::tui::run(&db)
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::tui::run(&db, &crosslink_dir)
         }
     }
 }

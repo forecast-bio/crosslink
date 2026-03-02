@@ -1,3 +1,4 @@
+pub mod agents_tab;
 pub mod issues_tab;
 pub mod tabs;
 
@@ -14,6 +15,7 @@ use ratatui::{
     Frame,
 };
 use std::io;
+use std::path::Path;
 
 use crate::db::Database;
 
@@ -48,12 +50,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(db: &Database) -> anyhow::Result<Self> {
-        let issues_tab = issues_tab::IssuesTab::new(db)?;
-        let mut tabs: Vec<Box<dyn Tab>> = vec![Box::new(issues_tab)];
+    pub fn new(db: &Database, crosslink_dir: &Path) -> anyhow::Result<Self> {
+        let db_path = crosslink_dir.join("issues.db");
+        let issues_tab = issues_tab::IssuesTab::new(db, &db_path)?;
+        let agents_tab = agents_tab::AgentsTab::new(crosslink_dir);
+        let mut tabs: Vec<Box<dyn Tab>> = vec![Box::new(issues_tab), Box::new(agents_tab)];
 
         // Placeholder tabs for future phases
-        tabs.push(Box::new(tabs::PlaceholderTab::new("Agents", 2)));
         tabs.push(Box::new(tabs::PlaceholderTab::new("Knowledge", 3)));
         tabs.push(Box::new(tabs::PlaceholderTab::new("Milestones", 4)));
         tabs.push(Box::new(tabs::PlaceholderTab::new("Config", 5)));
@@ -242,6 +245,16 @@ impl App {
             Line::from("  Up/Down / j/k Scroll"),
             Line::from(""),
             Line::from(Span::styled(
+                "Agents Tab",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  Up/Down / j/k Navigate agents"),
+            Line::from("  Enter         View agent details"),
+            Line::from("  v             Cycle view (Agents/Locks/Trust)"),
+            Line::from("  r             Refresh data"),
+            Line::from("  Esc           Back to list"),
+            Line::from(""),
+            Line::from(Span::styled(
                 "Press ? or Esc to close",
                 Style::default().fg(Color::DarkGray),
             )),
@@ -271,7 +284,7 @@ impl App {
 }
 
 /// Run the TUI application. Sets up terminal, runs event loop, cleans up on exit.
-pub fn run(db: &Database) -> anyhow::Result<()> {
+pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
     // Install panic hook that restores terminal before printing panic
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -286,7 +299,7 @@ pub fn run(db: &Database) -> anyhow::Result<()> {
     let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let mut app = App::new(db)?;
+    let mut app = App::new(db, crosslink_dir)?;
 
     // Main loop
     loop {
@@ -359,12 +372,15 @@ mod tests {
 
     fn setup_test_app() -> (App, tempfile::TempDir) {
         let dir = tempdir().unwrap();
-        let db_path = dir.path().join("test.db");
+        // Simulate a .crosslink directory
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db_path = crosslink_dir.join("issues.db");
         let db = Database::open(&db_path).unwrap();
         db.create_issue("Test issue 1", Some("Description"), "high")
             .unwrap();
         db.create_issue("Test issue 2", None, "medium").unwrap();
-        let app = App::new(&db).unwrap();
+        let app = App::new(&db, &crosslink_dir).unwrap();
         (app, dir)
     }
 
