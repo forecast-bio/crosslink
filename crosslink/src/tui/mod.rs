@@ -1,6 +1,8 @@
 pub mod agents_tab;
+pub mod config_tab;
 pub mod issues_tab;
 pub mod knowledge_tab;
+pub mod milestones_tab;
 pub mod tabs;
 
 use crossterm::{
@@ -56,15 +58,15 @@ impl App {
         let issues_tab = issues_tab::IssuesTab::new(db, &db_path)?;
         let agents_tab = agents_tab::AgentsTab::new(crosslink_dir);
         let knowledge_tab = knowledge_tab::KnowledgeTab::new(crosslink_dir);
-        let mut tabs: Vec<Box<dyn Tab>> = vec![
+        let milestones_tab = milestones_tab::MilestonesTab::new(db, &db_path);
+        let config_tab = config_tab::ConfigTab::new(db, &db_path, crosslink_dir);
+        let tabs: Vec<Box<dyn Tab>> = vec![
             Box::new(issues_tab),
             Box::new(agents_tab),
             Box::new(knowledge_tab),
+            Box::new(milestones_tab),
+            Box::new(config_tab),
         ];
-
-        // Placeholder tabs for future phases
-        tabs.push(Box::new(tabs::PlaceholderTab::new("Milestones", 4)));
-        tabs.push(Box::new(tabs::PlaceholderTab::new("Config", 5)));
 
         // Activate the first tab
         let mut app = App {
@@ -269,6 +271,25 @@ impl App {
             Line::from("  t             Cycle tag filter"),
             Line::from("  r             Refresh"),
             Line::from("  Esc           Back to list"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Milestones Tab",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  Up/Down / j/k Navigate milestones"),
+            Line::from("  Enter         View milestone details"),
+            Line::from("  f             Cycle status filter"),
+            Line::from("  r             Refresh"),
+            Line::from("  Esc           Back to list"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Config Tab",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  Up/Down / j/k Scroll"),
+            Line::from("  e             Full event log"),
+            Line::from("  r             Refresh"),
+            Line::from("  Esc           Back to main"),
             Line::from(""),
             Line::from(Span::styled(
                 "Press ? or Esc to close",

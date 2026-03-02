@@ -10,6 +10,7 @@ use ratatui::{
 use super::TabAction;
 
 /// A placeholder tab for features not yet implemented.
+#[allow(dead_code)]
 pub struct PlaceholderTab {
     title: String,
     phase: u8,
