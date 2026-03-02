@@ -1,40 +1,22 @@
 {
   "version": 1,
   "locks": {
-    "52": {
-      "agent_id": "maxine-at-forecast--noether--init-blocked-lint",
-      "branch": null,
-      "claimed_at": "2026-03-02T02:30:02.417712Z",
-      "signed_by": "maxine-at-forecast--noether--init-blocked-lint"
-    },
-    "51": {
-      "agent_id": "maxine-at-forecast--noether--init-blocked-lint",
-      "branch": null,
-      "claimed_at": "2026-03-02T02:41:50.746983Z",
-      "signed_by": "maxine-at-forecast--noether--init-blocked-lint"
-    },
-    "1": {
-      "agent_id": "m1--full-system-adversarial-review",
-      "branch": null,
-      "claimed_at": "2026-03-01T23:00:31.323113Z",
-      "signed_by": "SHA256:PkIqB0H8kE6u0DPdpjd7zv2xrLqGLiwFny3FFOKs8Eg"
-    },
     "53": {
       "agent_id": "maxine-at-forecast--noether--improve-gitignore",
       "branch": null,
       "claimed_at": "2026-03-02T02:52:38.130586Z",
       "signed_by": "maxine-at-forecast--noether--improve-gitignore"
     },
-    "50": {
-      "agent_id": "maxine-at-forecast--noether--fix-sessions-migration",
+    "52": {
+      "agent_id": "maxine-at-forecast--noether--init-blocked-lint",
       "branch": null,
-      "claimed_at": "2026-03-02T02:23:16.495170Z",
-      "signed_by": "maxine-at-forecast--noether--fix-sessions-migration"
+      "claimed_at": "2026-03-02T02:30:02.417712Z",
+      "signed_by": "maxine-at-forecast--noether--init-blocked-lint"
     },
-    "42": {
+    "43": {
       "agent_id": "maxine-at-forecast--noether",
       "branch": null,
-      "claimed_at": "2026-03-02T02:00:06.662923Z",
+      "claimed_at": "2026-03-02T02:01:48.045471Z",
       "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     },
     "49": {
@@ -43,11 +25,23 @@
       "claimed_at": "2026-03-02T02:22:39.226215Z",
       "signed_by": "maxine-at-forecast--noether--fix-sessions-migration"
     },
-    "43": {
+    "42": {
       "agent_id": "maxine-at-forecast--noether",
       "branch": null,
-      "claimed_at": "2026-03-02T02:01:48.045471Z",
+      "claimed_at": "2026-03-02T02:00:06.662923Z",
       "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "51": {
+      "agent_id": "maxine-at-forecast--noether--init-blocked-lint",
+      "branch": null,
+      "claimed_at": "2026-03-02T02:41:50.746983Z",
+      "signed_by": "maxine-at-forecast--noether--init-blocked-lint"
+    },
+    "50": {
+      "agent_id": "maxine-at-forecast--noether--fix-sessions-migration",
+      "branch": null,
+      "claimed_at": "2026-03-02T02:23:16.495170Z",
+      "signed_by": "maxine-at-forecast--noether--fix-sessions-migration"
     }
   },
   "settings": {
