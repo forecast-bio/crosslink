@@ -1,17 +1,14 @@
 name: Publish to crates.io
 
+# Release pipeline: validates release PRs (dry-run) and publishes on tag push.
+# PRs to main come from release/* or hotfix/* branches (git flow).
+# Tag pushes trigger the actual crates.io publish after full CI validation.
 on:
   push:
     tags:
       - 'v*'
   pull_request:
     branches: [main]
-    paths:
-      - 'crosslink/Cargo.toml'
-      - 'crosslink/Cargo.lock'
-      - 'crosslink/src/**'
-      - 'crosslink/build.rs'
-      - 'crosslink/resources/**'
 
 env:
   CARGO_TERM_COLOR: always

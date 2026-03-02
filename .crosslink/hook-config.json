@@ -45,7 +45,7 @@
     "git commit"
   ],
   "intervention_tracking": true,
-  "kickoff_verification": "ci",
+  "kickoff_verification": "local",
   "signing_enforcement": "audit",
   "tracking_mode": "strict"
 }

@@ -1,0 +1,50 @@
+name: CI (Feature Branch)
+
+# Fast CI for feature branches — build + unit tests + integration tests only.
+# Agents push freely to feature/* branches; this provides quick feedback (<2 min)
+# without the full suite (security audit, proptest, fuzz, cross-platform matrix).
+# Full validation runs when the feature PR targets develop (via ci.yml).
+on:
+  push:
+    branches: ['feature/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fast-check:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-feature-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run unit tests
+        run: cargo test --bin crosslink --verbose -- --skip proptest
+
+      - name: Run integration tests
+        run: cargo test --test cli_integration --verbose
