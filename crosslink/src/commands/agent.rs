@@ -5,15 +5,28 @@ use crate::identity::AgentConfig;
 use crate::signing;
 use crate::utils::format_issue_id;
 
-/// `crosslink agent init <agent-id> [-d "description"] [--no-key]`
+/// `crosslink agent init <agent-id> [-d "description"] [--no-key] [--force]`
 pub fn init(
     crosslink_dir: &Path,
     agent_id: &str,
     description: Option<&str>,
     no_key: bool,
+    force: bool,
 ) -> Result<()> {
-    if AgentConfig::load(crosslink_dir)?.is_some() {
-        bail!("Agent already configured. Delete .crosslink/agent.json to reconfigure.");
+    match AgentConfig::load(crosslink_dir) {
+        Ok(Some(_)) if force => {
+            println!("Warning: Overwriting existing agent configuration (--force).");
+        }
+        Ok(Some(_)) => {
+            bail!("Agent already configured. Use --force to overwrite, or delete .crosslink/agent.json to reconfigure.");
+        }
+        Ok(None) => {} // No existing config, proceed normally
+        Err(e) => {
+            println!(
+                "Warning: Existing agent.json is malformed ({}). Overwriting with new config.",
+                e
+            );
+        }
     }
     let mut config = AgentConfig::init(crosslink_dir, agent_id, description)?;
 
@@ -126,7 +139,7 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", Some("Test agent"), true).unwrap();
+        init(&crosslink_dir, "worker-1", Some("Test agent"), true, false).unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -139,13 +152,61 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true).unwrap();
-        let result = init(&crosslink_dir, "worker-2", None, true);
+        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+        let result = init(&crosslink_dir, "worker-2", None, true, false);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("already configured"));
+    }
+
+    #[test]
+    fn test_init_force_overwrites_valid_config() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+        init(&crosslink_dir, "worker-2", Some("New agent"), true, true).unwrap();
+
+        let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
+        assert_eq!(config.agent_id, "worker-2");
+        assert_eq!(config.description, Some("New agent".to_string()));
+    }
+
+    #[test]
+    fn test_init_overwrites_malformed_json() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Write invalid JSON
+        std::fs::write(crosslink_dir.join("agent.json"), "not valid json").unwrap();
+
+        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+
+        let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
+        assert_eq!(config.agent_id, "worker-1");
+    }
+
+    #[test]
+    fn test_init_overwrites_invalid_agent_id() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Write valid JSON but with agent_id that fails validation (too short)
+        std::fs::write(
+            crosslink_dir.join("agent.json"),
+            r#"{"agent_id": "m1", "machine_id": "host"}"#,
+        )
+        .unwrap();
+
+        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+
+        let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
+        assert_eq!(config.agent_id, "worker-1");
     }
 
     #[test]
@@ -164,7 +225,7 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "my-agent", Some("My agent"), true).unwrap();
+        init(&crosslink_dir, "my-agent", Some("My agent"), true, false).unwrap();
         status(&crosslink_dir).unwrap();
     }
 }
