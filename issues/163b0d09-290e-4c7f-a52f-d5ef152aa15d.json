@@ -1,0 +1,10 @@
+{
+  "uuid": "163b0d09-290e-4c7f-a52f-d5ef152aa15d",
+  "display_id": 93,
+  "title": "Polish TUI height, add confirmation screen, smooth progress output",
+  "status": "open",
+  "priority": "high",
+  "created_by": "maxine-at-forecast--noether--ratatui-tui",
+  "created_at": "2026-03-02T09:52:36.130779Z",
+  "updated_at": "2026-03-02T09:52:36.130779Z"
+}
