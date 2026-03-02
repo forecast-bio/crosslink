@@ -2,11 +2,12 @@
   "uuid": "9c23d735-60cf-411c-9920-7c2c35dee1e7",
   "display_id": 23,
   "title": "Fix rustfmt formatting in knowledge.rs",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "m1--f6",
   "created_at": "2026-02-28T20:51:18.748236Z",
-  "updated_at": "2026-03-02T08:53:31.012496Z",
+  "updated_at": "2026-03-02T08:53:32.646133Z",
+  "closed_at": "2026-03-02T08:53:32.646133Z",
   "labels": [
     "fix"
   ],
