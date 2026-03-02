@@ -2,11 +2,12 @@
   "uuid": "65587504-47e2-45d2-9884-b58c4caa41cf",
   "display_id": 18,
   "title": "Kickoff agent for GH #62: KnowledgeManager for shared research",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T05:44:35.015215Z",
-  "updated_at": "2026-03-02T08:53:42.335004Z",
+  "updated_at": "2026-03-02T08:53:44.139615Z",
+  "closed_at": "2026-03-02T08:53:44.139615Z",
   "labels": [
     "enhancement"
   ],
