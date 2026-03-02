@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crosslink/Cargo.toml'
+      - 'crosslink/Cargo.lock'
+      - 'crosslink/src/**'
+      - 'crosslink/build.rs'
+      - 'crosslink/resources/**'
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,9 +21,27 @@ jobs:
     name: CI
     uses: ./.github/workflows/ci.yml
 
+  dry-run:
+    name: Publish Dry Run
+    needs: ci
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Package dry run
+        run: cargo publish --dry-run
+
   publish:
     name: Publish
     needs: ci
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: cargo
     defaults:
