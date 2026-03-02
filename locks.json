@@ -1,6 +1,12 @@
 {
   "version": 1,
   "locks": {
+    "41": {
+      "agent_id": "m1",
+      "branch": null,
+      "claimed_at": "2026-03-02T01:42:02.657498Z",
+      "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc"
+    },
     "1": {
       "agent_id": "m1--full-system-adversarial-review",
       "branch": null,
