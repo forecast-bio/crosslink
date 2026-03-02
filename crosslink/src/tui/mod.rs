@@ -232,6 +232,7 @@ impl App {
             Line::from("  r             Refresh data"),
             Line::from("  /             Search (type to filter)"),
             Line::from("  Esc           Clear search"),
+            Line::from("  t             Tree view"),
             Line::from(""),
             Line::from(Span::styled(
                 "Issue Detail",

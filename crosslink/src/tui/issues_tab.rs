@@ -72,6 +72,7 @@ impl SortOrder {
 enum ViewMode {
     List,
     Detail,
+    Tree,
 }
 
 /// Data for the detail view.
@@ -81,7 +82,18 @@ struct IssueDetail {
     comments: Vec<Comment>,
     blocked_by: Vec<i64>,
     blocking: Vec<i64>,
+    subissues: Vec<Issue>,
+    related: Vec<Issue>,
+    milestone: Option<crate::models::Milestone>,
 }
+
+/// A node in the tree view.
+struct TreeNode {
+    issue: Issue,
+    labels: Vec<String>,
+    depth: usize,
+}
+
 
 /// The Issues tab implementation.
 pub struct IssuesTab {
@@ -98,6 +110,9 @@ pub struct IssuesTab {
     detail_scroll: u16,
     open_count: usize,
     closed_count: usize,
+    /// Flattened tree nodes for tree view.
+    tree_nodes: Vec<TreeNode>,
+    tree_selected: usize,
 }
 
 impl IssuesTab {
@@ -115,6 +130,8 @@ impl IssuesTab {
             detail_scroll: 0,
             open_count: 0,
             closed_count: 0,
+            tree_nodes: Vec::new(),
+            tree_selected: 0,
         };
         tab.refresh(db)?;
         Ok(tab)
@@ -189,6 +206,9 @@ impl IssuesTab {
                 comments: db.get_comments(id)?,
                 blocked_by: db.get_blockers(id)?,
                 blocking: db.get_blocking(id)?,
+                subissues: db.get_subissues(id)?,
+                related: db.get_related_issues(id)?,
+                milestone: db.get_issue_milestone(id)?,
             };
             self.detail = Some(detail);
             self.detail_scroll = 0;
@@ -285,6 +305,13 @@ impl IssuesTab {
                 }
                 TabAction::Consumed
             }
+            KeyCode::Char('t') => {
+                if let Some(db) = db {
+                    let _ = self.build_tree(db);
+                    self.view_mode = ViewMode::Tree;
+                }
+                TabAction::Consumed
+            }
             _ => TabAction::NotHandled,
         }
     }
@@ -315,6 +342,225 @@ impl IssuesTab {
             }
             _ => TabAction::NotHandled,
         }
+    }
+
+    /// Build flattened tree from issue hierarchy.
+    fn build_tree(&mut self, db: &Database) -> anyhow::Result<()> {
+        let status_arg = match self.status_filter {
+            StatusFilter::Open => Some("open"),
+            StatusFilter::Closed => Some("closed"),
+            StatusFilter::All => Some("all"),
+        };
+        let all_issues = db.list_issues(status_arg, None, None)?;
+        let top_level: Vec<_> = all_issues
+            .into_iter()
+            .filter(|i| i.parent_id.is_none())
+            .collect();
+
+        self.tree_nodes.clear();
+        for issue in top_level {
+            self.build_tree_recursive(db, issue, 0)?;
+        }
+        if self.tree_nodes.is_empty() {
+            self.tree_selected = 0;
+        } else if self.tree_selected >= self.tree_nodes.len() {
+            self.tree_selected = self.tree_nodes.len() - 1;
+        }
+        Ok(())
+    }
+
+    fn build_tree_recursive(
+        &mut self,
+        db: &Database,
+        issue: Issue,
+        depth: usize,
+    ) -> anyhow::Result<()> {
+        let labels = db.get_labels(issue.id).unwrap_or_default();
+        let id = issue.id;
+        self.tree_nodes.push(TreeNode {
+            issue,
+            labels,
+            depth,
+        });
+        let children = db.get_subissues(id)?;
+        for child in children {
+            // Respect status filter
+            let dominated = match self.status_filter {
+                StatusFilter::All => false,
+                StatusFilter::Open => child.status != "open",
+                StatusFilter::Closed => child.status != "closed",
+            };
+            if !dominated {
+                self.build_tree_recursive(db, child, depth + 1)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle key events in tree view mode.
+    fn handle_tree_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
+        match key.code {
+            KeyCode::Esc => {
+                self.view_mode = ViewMode::List;
+                TabAction::Consumed
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.tree_nodes.is_empty() {
+                    self.tree_selected = (self.tree_selected + 1).min(self.tree_nodes.len() - 1);
+                }
+                TabAction::Consumed
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.tree_selected = self.tree_selected.saturating_sub(1);
+                TabAction::Consumed
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.tree_selected = 0;
+                TabAction::Consumed
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                if !self.tree_nodes.is_empty() {
+                    self.tree_selected = self.tree_nodes.len() - 1;
+                }
+                TabAction::Consumed
+            }
+            KeyCode::Enter => {
+                // Open detail for the selected tree node
+                if let Some(node) = self.tree_nodes.get(self.tree_selected) {
+                    if let Some(db) = db {
+                        let id = node.issue.id;
+                        if let Ok(Some(issue)) = db.get_issue(id) {
+                            let detail = IssueDetail {
+                                issue,
+                                labels: db.get_labels(id).unwrap_or_default(),
+                                comments: db.get_comments(id).unwrap_or_default(),
+                                blocked_by: db.get_blockers(id).unwrap_or_default(),
+                                blocking: db.get_blocking(id).unwrap_or_default(),
+                                subissues: db.get_subissues(id).unwrap_or_default(),
+                                related: db.get_related_issues(id).unwrap_or_default(),
+                                milestone: db.get_issue_milestone(id).ok().flatten(),
+                            };
+                            self.detail = Some(detail);
+                            self.detail_scroll = 0;
+                            self.view_mode = ViewMode::Detail;
+                        }
+                    }
+                }
+                TabAction::Consumed
+            }
+            KeyCode::Char('f') => {
+                self.status_filter = self.status_filter.next();
+                self.tree_selected = 0;
+                if let Some(db) = db {
+                    let _ = self.build_tree(db);
+                }
+                TabAction::Consumed
+            }
+            KeyCode::Char('r') => {
+                if let Some(db) = db {
+                    let _ = self.build_tree(db);
+                }
+                TabAction::Consumed
+            }
+            _ => TabAction::NotHandled,
+        }
+    }
+
+    fn render_tree(&self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Header
+                Constraint::Min(0),   // Tree
+                Constraint::Length(1), // Context keys
+            ])
+            .split(area);
+
+        // Header
+        let header = Line::from(vec![
+            Span::styled(
+                " Issue Tree",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!("    Filter: [{}]", self.status_filter.label())),
+        ]);
+        frame.render_widget(Paragraph::new(header), chunks[0]);
+
+        if self.tree_nodes.is_empty() {
+            let p = Paragraph::new("No issues found.")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(Block::default().borders(Borders::TOP));
+            frame.render_widget(p, chunks[1]);
+        } else {
+            let rows: Vec<Row> = self
+                .tree_nodes
+                .iter()
+                .enumerate()
+                .map(|(i, node)| {
+                    let indent = "  ".repeat(node.depth);
+                    let connector = if node.depth > 0 { "\u{251c}\u{2500} " } else { "" };
+
+                    let status_marker = if node.issue.status == "closed" {
+                        Span::styled("\u{2713} ", Style::default().fg(Color::DarkGray))
+                    } else {
+                        Span::styled("\u{25cf} ", priority_color(&node.issue.priority))
+                    };
+
+                    let id_str = format_issue_id(node.issue.id);
+                    let labels_str = if node.labels.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", node.labels.join(", "))
+                    };
+
+                    let title_style = if node.issue.status == "closed" {
+                        Style::default().fg(Color::DarkGray)
+                    } else {
+                        Style::default()
+                    };
+
+                    let row = Row::new(vec![ratatui::text::Text::from(Line::from(vec![
+                        Span::raw(format!("{}{}", indent, connector)),
+                        status_marker,
+                        Span::styled(format!("{} ", id_str), Style::default().fg(Color::DarkGray)),
+                        Span::styled(node.issue.title.clone(), title_style),
+                        Span::styled(labels_str, Style::default().fg(Color::Magenta)),
+                    ]))]);
+
+                    if i == self.tree_selected {
+                        row.style(
+                            Style::default()
+                                .bg(Color::DarkGray)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                    } else {
+                        row
+                    }
+                })
+                .collect();
+
+            let table = Table::new(rows, [Constraint::Min(0)])
+                .block(Block::default().borders(Borders::TOP));
+            frame.render_widget(table, chunks[1]);
+        }
+
+        // Context keys
+        let keys = Line::from(vec![
+            Span::styled("Esc", Style::default().fg(Color::Cyan)),
+            Span::raw(":Back  "),
+            Span::styled("\u{2191}\u{2193}", Style::default().fg(Color::Cyan)),
+            Span::raw(":Navigate  "),
+            Span::styled("Enter", Style::default().fg(Color::Cyan)),
+            Span::raw(":Details  "),
+            Span::styled("f", Style::default().fg(Color::Cyan)),
+            Span::raw(":Filter  "),
+            Span::styled("r", Style::default().fg(Color::Cyan)),
+            Span::raw(":Refresh"),
+        ]);
+        frame.render_widget(
+            Paragraph::new(keys).style(Style::default().fg(Color::DarkGray)),
+            chunks[2],
+        );
     }
 
     fn render_list(&self, frame: &mut Frame, area: Rect) {
@@ -462,7 +708,9 @@ impl IssuesTab {
                 Span::styled("/", Style::default().fg(Color::Cyan)),
                 Span::raw(":Search  "),
                 Span::styled("r", Style::default().fg(Color::Cyan)),
-                Span::raw(":Refresh"),
+                Span::raw(":Refresh  "),
+                Span::styled("t", Style::default().fg(Color::Cyan)),
+                Span::raw(":Tree"),
             ])
         };
         frame.render_widget(
@@ -509,6 +757,12 @@ impl IssuesTab {
             Span::styled(labels_str, Style::default().fg(Color::Magenta)),
         ]));
 
+        let milestone_str = detail
+            .milestone
+            .as_ref()
+            .map(|m| format!("#{} {}", m.id, m.name))
+            .unwrap_or_else(|| "(none)".to_string());
+
         lines.push(Line::from(vec![
             Span::styled(" Parent: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(
@@ -517,8 +771,12 @@ impl IssuesTab {
                     .map(format_issue_id)
                     .unwrap_or_else(|| "(none)".to_string()),
             ),
-            Span::raw("       "),
-            Span::styled("Created: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw("     "),
+            Span::styled("Milestone: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(milestone_str),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled(" Created: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(issue.created_at.format("%Y-%m-%d").to_string()),
             Span::raw("  "),
             Span::styled("Updated: ", Style::default().add_modifier(Modifier::BOLD)),
@@ -569,6 +827,68 @@ impl IssuesTab {
                 for line in desc.lines() {
                     lines.push(Line::from(format!("   {}", line)));
                 }
+            }
+        }
+
+        // Subissues
+        if !detail.subissues.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!(" Subissues ({}):", detail.subissues.len()),
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            for sub in &detail.subissues {
+                let status_marker = if sub.status == "closed" {
+                    Span::styled("  \u{2713} ", Style::default().fg(Color::DarkGray))
+                } else {
+                    Span::styled("  \u{25cf} ", priority_color(&sub.priority))
+                };
+                let title_style = if sub.status == "closed" {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                lines.push(Line::from(vec![
+                    status_marker,
+                    Span::styled(
+                        format!("{} ", format_issue_id(sub.id)),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(&sub.title, title_style),
+                    Span::styled(
+                        format!("  {}", sub.priority),
+                        priority_color(&sub.priority),
+                    ),
+                ]));
+            }
+        }
+
+        // Related issues
+        if !detail.related.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!(" Related ({}):", detail.related.len()),
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            for rel in &detail.related {
+                let status_marker = if rel.status == "closed" {
+                    Span::styled("  \u{2713} ", Style::default().fg(Color::DarkGray))
+                } else {
+                    Span::styled("  \u{25cb} ", Style::default().fg(Color::Cyan))
+                };
+                let title_style = if rel.status == "closed" {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                lines.push(Line::from(vec![
+                    status_marker,
+                    Span::styled(
+                        format!("{} ", format_issue_id(rel.id)),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(&rel.title, title_style),
+                ]));
             }
         }
 
@@ -648,6 +968,7 @@ impl super::Tab for IssuesTab {
         match self.view_mode {
             ViewMode::List => self.render_list(frame, area),
             ViewMode::Detail => self.render_detail(frame, area),
+            ViewMode::Tree => self.render_tree(frame, area),
         }
     }
 
@@ -659,6 +980,7 @@ impl super::Tab for IssuesTab {
         match self.view_mode {
             ViewMode::List => self.handle_list_key(key, None),
             ViewMode::Detail => self.handle_detail_key(key),
+            ViewMode::Tree => self.handle_tree_key(key, None),
         }
     }
 
