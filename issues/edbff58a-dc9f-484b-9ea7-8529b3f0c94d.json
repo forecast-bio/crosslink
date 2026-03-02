@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T23:39:27.709199Z",
-  "updated_at": "2026-03-02T23:39:29.918049Z",
+  "updated_at": "2026-03-02T23:51:54.787121Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 195,
+      "author": "maxine-at-forecast--noether--clock-skew",
+      "content": "Plan: The compaction infrastructure (GH #119) is already fully implemented in compaction.rs. The existing detect_clock_skew() compares event timestamps against Utc::now(), which is a basic sanity check. The new feature adds a more robust check using git commit timestamps as an independent witness - the git commit that introduced an event to the hub branch serves as a trusted timestamp oracle.\n\nApproach:\n1. Create new clock_skew.rs module with SkewViolation struct and git-based detection\n2. For each agent's events.log, use 'git log' to find commits that modified it\n3. For each commit, parse the diff to find added event lines\n4. Compare event timestamps against GIT_COMMITTER_DATE\n5. Flag violations where |event_timestamp - commit_timestamp| > 60s\n6. Write violations to checkpoint/skew_warnings.json (separate from state.json)\n7. Integrate into compact() function and log warnings in CLI output\n8. Add unit tests using temp git repos with controlled commit timestamps\n\nKey files to modify: lib.rs, compaction.rs, main.rs\nKey files to create: clock_skew.rs",
+      "created_at": "2026-03-02T23:51:54.787121Z",
+      "kind": "plan"
+    }
   ]
 }
