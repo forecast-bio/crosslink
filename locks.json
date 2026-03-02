@@ -1,22 +1,16 @@
 {
   "version": 1,
   "locks": {
-    "58": {
-      "agent_id": "maxine-at-forecast--noether--untrack-init-files",
-      "branch": null,
-      "claimed_at": "2026-03-02T03:16:35.008264Z",
-      "signed_by": "maxine-at-forecast--noether--untrack-init-files"
-    },
     "56": {
       "agent_id": "maxine-at-forecast--noether",
       "branch": null,
       "claimed_at": "2026-03-02T03:13:09.501369Z",
       "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     },
-    "57": {
+    "58": {
       "agent_id": "maxine-at-forecast--noether--untrack-init-files",
       "branch": null,
-      "claimed_at": "2026-03-02T03:30:18.226504Z",
+      "claimed_at": "2026-03-02T03:16:35.008264Z",
       "signed_by": "maxine-at-forecast--noether--untrack-init-files"
     },
     "59": {
