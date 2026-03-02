@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T10:25:18.293209Z",
-  "updated_at": "2026-03-02T10:25:20.433432Z",
+  "updated_at": "2026-03-02T10:41:33.624091Z",
   "labels": [
     "ops"
+  ],
+  "comments": [
+    {
+      "id": 175,
+      "author": "maxine-at-forecast--noether--ci-cd-restructure",
+      "content": "Set up git flow per GH #129. Created develop branch, set as default, configured 3 rulesets (main, develop, release/*). Removed approval requirement per user request. Deleted old redundant ruleset.",
+      "created_at": "2026-03-02T10:41:33.624090Z",
+      "kind": "handoff"
+    }
   ]
 }
