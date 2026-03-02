@@ -1,23 +1,17 @@
 {
   "version": 1,
   "locks": {
-    "100": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
-      "branch": null,
-      "claimed_at": "2026-03-02T15:18:33.859856Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
-    },
     "98": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
       "claimed_at": "2026-03-02T10:51:01.378539Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
-    "112": {
-      "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
+    "100": {
+      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
-      "claimed_at": "2026-03-02T23:35:48.957069Z",
-      "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
+      "claimed_at": "2026-03-02T15:18:33.859856Z",
+      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
     "106": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
