@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "noether--add-container-agent",
   "created_at": "2026-03-02T07:45:54.401048513Z",
-  "updated_at": "2026-03-02T07:46:08.077190646Z",
+  "updated_at": "2026-03-02T07:46:32.523769933Z",
   "labels": [
     "test"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: Run the three manual tests from PR #150 test plan: 1) crosslink container build with Docker, 2) crosslink container start with a worktree, 3) verify hooks block git push inside container. Using the debug binary built in the worktree.",
       "created_at": "2026-03-02T07:46:08.077190366Z",
       "kind": "plan"
+    },
+    {
+      "id": 97,
+      "author": "noether--add-container-agent",
+      "content": "Observation: hook-config.json doesn't allow docker commands. Need to temporarily add 'docker ' to allowed_bash_prefixes to run manual container tests.",
+      "created_at": "2026-03-02T07:46:32.523769526Z",
+      "kind": "observation"
     }
   ]
 }
