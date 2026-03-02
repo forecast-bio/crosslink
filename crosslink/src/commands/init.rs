@@ -87,20 +87,30 @@ const CPITD_REPO_URL: &str = "https://github.com/scythia-marrow/cpitd.git";
 ///
 /// Tries `pip install cpitd` first (PyPI). If that fails, falls back to
 /// cloning the git repo into a temp directory and installing from source.
-fn install_cpitd(python_prefix: &str) -> Result<bool> {
+/// Result of cpitd installation attempt.
+enum CpitdResult {
+    AlreadyInstalled,
+    InstalledFromPypi,
+    InstalledFromSource,
+}
+
+fn install_cpitd(python_prefix: &str) -> Result<CpitdResult> {
     if cpitd_is_installed() {
-        return Ok(false);
+        return Ok(CpitdResult::AlreadyInstalled);
     }
 
     // First attempt: install from PyPI
     let pypi_result = install_cpitd_from_pypi(python_prefix);
     if let Ok(true) = pypi_result {
-        return Ok(true);
+        return Ok(CpitdResult::InstalledFromPypi);
     }
 
     // Second attempt: clone repo and install from source
-    println!("  PyPI install failed, trying install from source...");
-    install_cpitd_from_source(python_prefix)
+    match install_cpitd_from_source(python_prefix) {
+        Ok(true) => Ok(CpitdResult::InstalledFromSource),
+        Ok(false) => Ok(CpitdResult::AlreadyInstalled),
+        Err(e) => Err(e),
+    }
 }
 
 /// Try installing cpitd from PyPI via pip/uv/poetry.
@@ -221,9 +231,8 @@ fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>, ui: &Ini
     let pubkey_path = match pubkey_path {
         Some(p) => p,
         None => {
-            ui.step_start("Configuring signing");
-            ui.step_ok(Some("skipped"));
-            ui.detail("No SSH key found. Generate one with: ssh-keygen -t ed25519");
+            ui.step_skip("Signing: no SSH key found");
+            ui.detail("Generate one with: ssh-keygen -t ed25519");
             ui.detail("Then re-run: crosslink init --force");
             return Ok(());
         }
@@ -258,7 +267,8 @@ fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>, ui: &Ini
             // up separately in sync.rs.
         }
         Err(_) => {
-            ui.step_ok(Some("skipped"));
+            // Finish the step_start line, then show warning below
+            println!();
             ui.warn(&format!(
                 "{} does not appear to be an SSH public key",
                 pubkey_path.display()
@@ -742,6 +752,7 @@ struct WalkthroughQuestion {
 struct WalkthroughApp {
     questions: Vec<WalkthroughQuestion>,
     current: usize,
+    confirming: bool,
     finished: bool,
     cancelled: bool,
 }
@@ -796,6 +807,7 @@ impl WalkthroughApp {
                 },
             ],
             current: 0,
+            confirming: false,
             finished: false,
             cancelled: false,
         }
@@ -816,15 +828,19 @@ impl WalkthroughApp {
     }
 
     fn confirm(&mut self) {
-        if self.current + 1 < self.questions.len() {
+        if self.confirming {
+            self.finished = true;
+        } else if self.current + 1 < self.questions.len() {
             self.current += 1;
         } else {
-            self.finished = true;
+            self.confirming = true;
         }
     }
 
     fn go_back(&mut self) {
-        if self.current > 0 {
+        if self.confirming {
+            self.confirming = false;
+        } else if self.current > 0 {
             self.current -= 1;
         }
     }
@@ -832,6 +848,11 @@ impl WalkthroughApp {
 
 fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
     let area = frame.area();
+
+    if app.confirming {
+        draw_confirmation(frame, app, area);
+        return;
+    }
 
     let outer = Block::default()
         .borders(Borders::ALL)
@@ -851,14 +872,23 @@ fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
+    // Build layout: progress, spacer, previous answers (if any), question, description, spacer, options, help
+    let has_previous = app.current > 0;
+    let previous_height = if has_previous {
+        app.current as u16 + 1 // +1 for spacer after previous answers
+    } else {
+        0
+    };
+
     let chunks = Layout::vertical([
-        Constraint::Length(1), // progress dots
-        Constraint::Length(1), // spacer
-        Constraint::Length(1), // question title
-        Constraint::Length(1), // description
-        Constraint::Length(1), // spacer
-        Constraint::Min(3),    // options list
-        Constraint::Length(1), // help bar
+        Constraint::Length(1),               // progress dots
+        Constraint::Length(1),               // spacer
+        Constraint::Length(previous_height), // previous answers + spacer
+        Constraint::Length(1),               // question title
+        Constraint::Length(1),               // description
+        Constraint::Length(1),               // spacer
+        Constraint::Min(3),                  // options list
+        Constraint::Length(1),               // help bar
     ])
     .split(inner);
 
@@ -881,6 +911,23 @@ fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
         .collect();
     frame.render_widget(Paragraph::new(Line::from(progress_spans)), chunks[0]);
 
+    // Previous selections
+    if has_previous {
+        let summary_lines: Vec<Line> = app.questions[..app.current]
+            .iter()
+            .map(|pq| {
+                let chosen = pq.options[pq.selected].0;
+                Line::from(vec![
+                    Span::styled("  ✓ ", Style::default().fg(Color::Green)),
+                    Span::styled(pq.title, Style::default().fg(Color::DarkGray)),
+                    Span::styled(": ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(chosen, Style::default().fg(Color::Green)),
+                ])
+            })
+            .collect();
+        frame.render_widget(Paragraph::new(summary_lines), chunks[2]);
+    }
+
     let q = &app.questions[app.current];
 
     // Question title
@@ -891,7 +938,7 @@ fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         ))),
-        chunks[2],
+        chunks[3],
     );
 
     // Description
@@ -900,7 +947,7 @@ fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
             q.description,
             Style::default().fg(Color::DarkGray),
         ))),
-        chunks[3],
+        chunks[4],
     );
 
     // Options list
@@ -930,33 +977,7 @@ fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
 
     let list = List::new(items);
     let mut state = ListState::default().with_selected(Some(q.selected));
-    frame.render_stateful_widget(list, chunks[5], &mut state);
-
-    // Previous selections summary (if room)
-    if app.current > 0 && area.width > 60 {
-        let summary_y = chunks[5].y + q.options.len() as u16 + 1;
-        if summary_y + app.current as u16 <= chunks[6].y {
-            let summary_area = Rect {
-                x: inner.x,
-                y: summary_y,
-                width: inner.width,
-                height: app.current as u16,
-            };
-            let summary_lines: Vec<Line> = app.questions[..app.current]
-                .iter()
-                .map(|pq| {
-                    let chosen = pq.options[pq.selected].0;
-                    Line::from(vec![
-                        Span::styled("  ✓ ", Style::default().fg(Color::Green)),
-                        Span::styled(pq.title, Style::default().fg(Color::DarkGray)),
-                        Span::styled(": ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(chosen, Style::default().fg(Color::Green)),
-                    ])
-                })
-                .collect();
-            frame.render_widget(Paragraph::new(summary_lines), summary_area);
-        }
-    }
+    frame.render_stateful_widget(list, chunks[6], &mut state);
 
     // Help bar
     let help_text = if app.current > 0 {
@@ -967,6 +988,85 @@ fn draw_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             help_text,
+            Style::default().fg(Color::DarkGray),
+        ))),
+        chunks[7],
+    );
+}
+
+fn draw_confirmation(frame: &mut Frame, app: &WalkthroughApp, area: Rect) {
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "crosslink",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" setup ", Style::default().fg(Color::DarkGray)),
+        ]))
+        .padding(Padding::new(2, 2, 1, 1));
+
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let num_questions = app.questions.len() as u16;
+    let chunks = Layout::vertical([
+        Constraint::Length(1),             // progress dots (all green)
+        Constraint::Length(1),             // spacer
+        Constraint::Length(1),             // "Review your choices" title
+        Constraint::Length(1),             // spacer
+        Constraint::Length(num_questions), // choices summary
+        Constraint::Min(1),                // spacer / fill
+        Constraint::Length(1),             // help bar
+    ])
+    .split(inner);
+
+    // All progress dots green
+    let progress_spans: Vec<Span> = (0..app.questions.len())
+        .map(|_| Span::styled(" ● ", Style::default().fg(Color::Green)))
+        .collect();
+    frame.render_widget(Paragraph::new(Line::from(progress_spans)), chunks[0]);
+
+    // Title
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Review your choices",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ))),
+        chunks[2],
+    );
+
+    // All choices
+    let summary_lines: Vec<Line> = app
+        .questions
+        .iter()
+        .map(|q| {
+            let chosen = q.options[q.selected].0;
+            Line::from(vec![
+                Span::styled("  ✓ ", Style::default().fg(Color::Green)),
+                Span::styled(q.title, Style::default().fg(Color::Gray)),
+                Span::styled(": ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    chosen,
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(summary_lines), chunks[4]);
+
+    // Help bar
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Enter apply  Backspace go back  Esc cancel",
             Style::default().fg(Color::DarkGray),
         ))),
         chunks[6],
@@ -1024,7 +1124,7 @@ fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoice
     );
 
     // Inline viewport — renders below the current cursor, not full-screen
-    const WALKTHROUGH_HEIGHT: u16 = 14;
+    const WALKTHROUGH_HEIGHT: u16 = 20;
     enable_raw_mode().context("Failed to enable raw mode")?;
     let stdout = io::stdout();
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
@@ -1046,8 +1146,8 @@ fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoice
                     continue;
                 }
                 match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => app.move_up(),
-                    KeyCode::Down | KeyCode::Char('j') => app.move_down(),
+                    KeyCode::Up | KeyCode::Char('k') if !app.confirming => app.move_up(),
+                    KeyCode::Down | KeyCode::Char('j') if !app.confirming => app.move_down(),
                     KeyCode::Enter | KeyCode::Char(' ') => {
                         app.confirm();
                         if app.finished {
@@ -1346,10 +1446,12 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
     if !skip_cpitd {
         ui.step_start("Checking cpitd");
         match install_cpitd(&prefix) {
-            Ok(true) => ui.step_ok(Some("installed")),
-            Ok(false) => ui.step_ok(Some("already installed")),
+            Ok(CpitdResult::InstalledFromPypi) => ui.step_ok(Some("installed")),
+            Ok(CpitdResult::InstalledFromSource) => ui.step_ok(Some("installed from source")),
+            Ok(CpitdResult::AlreadyInstalled) => ui.step_ok(Some("already installed")),
             Err(e) => {
-                ui.step_ok(Some("skipped"));
+                // Finish the step_start line, then show warning below
+                println!();
                 ui.warn(&format!("Could not auto-install cpitd: {}", e));
                 ui.detail("You can install it manually: pip install cpitd");
             }
