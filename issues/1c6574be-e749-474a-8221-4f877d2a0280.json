@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--accept-both-conflict",
   "created_at": "2026-03-02T08:40:30.380747Z",
-  "updated_at": "2026-03-02T08:40:32.212837Z",
+  "updated_at": "2026-03-02T08:48:29.699682Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 106,
+      "author": "maxine-at-forecast--noether--ratatui-tui",
+      "content": "Plan: Replace dialoguer-based init walkthrough with a full-screen ratatui TUI wizard, and add crossterm-based styled inline output for progress steps. Approach: (1) Add ratatui dep (crossterm comes as re-export via ratatui::crossterm). (2) Build a ratatui alternate-screen walkthrough app with arrow-key navigation for the 4 config questions — replacing dialoguer::Select. (3) Create an InitUI struct using crossterm styling for the step-by-step progress output (✓/✗/⚠ status indicators, colored headers, progress numbers). (4) Preserve non-TTY fallback (plain println). (5) Remove dialoguer dependency since init.rs is the only consumer.",
+      "created_at": "2026-03-02T08:48:29.699682Z",
+      "kind": "plan"
+    }
   ]
 }
