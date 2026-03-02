@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T09:09:32.087023Z",
-  "updated_at": "2026-03-02T09:12:13.139174Z",
+  "updated_at": "2026-03-02T09:16:27.400848Z",
   "labels": [
     "feature"
   ],
@@ -28,6 +28,15 @@
       "kind": "observation",
       "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
       "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPSFmOmIVJKfeAPv0280FFjTHvREMb1uI4xP14NH2Byd3IcwwBwL32BYXM0om64RJXUJZMbhH4oO4WnNc7v7yDA=="
+    },
+    {
+      "id": 157,
+      "author": "maxine-at-forecast--noether",
+      "content": "Delivered: Knowledge page 'signing-trust-design' written with full analysis of GH #106 (agent key isolation) and #107 (allowed_signers trust model). Key recommendations: (1) Container isolation is the right answer for #106, current permissions adequate for non-containerized, (2) Rename allowed_signers → known_signers for #107, (3) Add valid-after timestamps for lifecycle, (4) Don't build crypto-on-crypto integrity protection.",
+      "created_at": "2026-03-02T09:16:27.400848Z",
+      "kind": "result",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAhda7k4tBdUOaMmvZenYfVFJpvARJ4Fd3y7dTebzJHQTZUS532zdyjbmLD3jPQYU3ogHBlP7S1BdlvMIrb+XpDQ=="
     }
   ]
 }
