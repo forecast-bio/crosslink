@@ -2,11 +2,12 @@
   "uuid": "05a49a0c-0a74-49b2-8db8-ad2fcfd37e8a",
   "display_id": 34,
   "title": "Full-system adversarial review",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-03-01T00:57:11.923858Z",
-  "updated_at": "2026-03-02T08:58:34.883023Z",
+  "updated_at": "2026-03-02T08:58:37.114232Z",
+  "closed_at": "2026-03-02T08:58:37.114232Z",
   "labels": [
     "feature"
   ],
