@@ -2,11 +2,12 @@
   "uuid": "83f04af0-e87e-4bab-b5fa-d0970db8a599",
   "display_id": 46,
   "title": "Create GH issue for sessions_new migration warning",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T02:16:08.862983Z",
-  "updated_at": "2026-03-02T09:04:57.905623Z",
+  "updated_at": "2026-03-02T09:04:59.595794Z",
+  "closed_at": "2026-03-02T09:04:59.595794Z",
   "comments": [
     {
       "id": 145,
