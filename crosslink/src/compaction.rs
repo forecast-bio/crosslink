@@ -1022,14 +1022,14 @@ mod tests {
 
     #[test]
     fn test_lease_expiry() {
-        let mut state = CheckpointState::default();
-
-        // Set an expired lease
-        state.compaction_lease = Some(CompactionLease {
-            agent_id: "agent-1".to_string(),
-            acquired_at: Utc::now() - Duration::seconds(60),
-            expires_at: Utc::now() - Duration::seconds(30),
-        });
+        let mut state = CheckpointState {
+            compaction_lease: Some(CompactionLease {
+                agent_id: "agent-1".to_string(),
+                acquired_at: Utc::now() - Duration::seconds(60),
+                expires_at: Utc::now() - Duration::seconds(30),
+            }),
+            ..Default::default()
+        };
 
         // Different agent can take expired lease
         assert!(try_acquire_lease(&mut state, "agent-2"));
@@ -1257,12 +1257,14 @@ mod tests {
         setup_cache(cache_dir);
 
         // Set an active lease by another agent
-        let mut state = CheckpointState::default();
-        state.compaction_lease = Some(CompactionLease {
-            agent_id: "agent-2".to_string(),
-            acquired_at: Utc::now(),
-            expires_at: Utc::now() + Duration::seconds(30),
-        });
+        let state = CheckpointState {
+            compaction_lease: Some(CompactionLease {
+                agent_id: "agent-2".to_string(),
+                acquired_at: Utc::now(),
+                expires_at: Utc::now() + Duration::seconds(30),
+            }),
+            ..Default::default()
+        };
         write_checkpoint(cache_dir, &state).unwrap();
 
         // Try to compact as agent-1 without force

@@ -21,5 +21,6 @@
     "npm test", "npm run", "npx ",
     "tsc", "node ", "python ",
     "ls", "dir", "pwd", "echo"
-  ]
+  ],
+  "reminder_drift_threshold": 5
 }

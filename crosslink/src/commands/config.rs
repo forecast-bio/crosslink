@@ -54,6 +54,11 @@ static REGISTRY: &[ConfigKey] = &[
         description: "SSH signature verification level for coordination branch",
     },
     ConfigKey {
+        key: "reminder_drift_threshold",
+        config_type: ConfigType::Enum(&["0", "3", "5", "10", "15"]),
+        description: "Prompts without crosslink usage before re-injecting reminder (0 = always)",
+    },
+    ConfigKey {
         key: "blocked_git_commands",
         config_type: ConfigType::StringArray,
         description: "Git mutation commands blocked in all tracking modes",

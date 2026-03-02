@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crosslink_config import (
     find_crosslink_dir,
     load_config_merged,
+    reset_drift_counter,
     run_crosslink,
 )
 
@@ -185,6 +186,10 @@ def main():
 
     # Allow read-only / infrastructure Bash commands through
     if tool_name == 'Bash' and is_allowed_bash(input_data, allowed_bash):
+        # Reset drift counter when agent uses crosslink (proves active usage)
+        command = input_data.get("tool_input", {}).get("command", "").strip()
+        if command.startswith("crosslink "):
+            reset_drift_counter(crosslink_dir)
         sys.exit(0)
 
     # Relaxed mode: no issue-tracking enforcement

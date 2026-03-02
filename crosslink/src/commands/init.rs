@@ -307,6 +307,9 @@ const FEATREE_CMD_MD: &str = include_str!("../../resources/claude/commands/featr
 const KICKOFF_CMD_MD: &str = include_str!("../../resources/claude/commands/kickoff.md");
 const CHECK_CMD_MD: &str = include_str!("../../resources/claude/commands/check.md");
 const COMMIT_CMD_MD: &str = include_str!("../../resources/claude/commands/commit.md");
+const PREFLIGHT_CMD_MD: &str = include_str!("../../resources/claude/commands/preflight.md");
+const REVIEW_CMD_MD: &str = include_str!("../../resources/claude/commands/review.md");
+const AUDIT_CMD_MD: &str = include_str!("../../resources/claude/commands/audit.md");
 
 // Embed sanitization patterns
 const SANITIZE_PATTERNS: &str =
@@ -1431,6 +1434,12 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             .context("Failed to write check.md")?;
         fs::write(commands_dir.join("commit.md"), COMMIT_CMD_MD)
             .context("Failed to write commit.md")?;
+        fs::write(commands_dir.join("preflight.md"), PREFLIGHT_CMD_MD)
+            .context("Failed to write preflight.md")?;
+        fs::write(commands_dir.join("review.md"), REVIEW_CMD_MD)
+            .context("Failed to write review.md")?;
+        fs::write(commands_dir.join("audit.md"), AUDIT_CMD_MD)
+            .context("Failed to write audit.md")?;
 
         let warnings =
             write_mcp_json_merged(&path.join(".mcp.json")).context("Failed to write .mcp.json")?;
@@ -1880,6 +1889,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_embedded_constants_not_empty() {
         // Verify all embedded constants have content
         assert!(!SETTINGS_JSON.is_empty());
@@ -1897,6 +1907,9 @@ mod tests {
         assert!(!KICKOFF_CMD_MD.is_empty());
         assert!(!CHECK_CMD_MD.is_empty());
         assert!(!COMMIT_CMD_MD.is_empty());
+        assert!(!PREFLIGHT_CMD_MD.is_empty());
+        assert!(!REVIEW_CMD_MD.is_empty());
+        assert!(!AUDIT_CMD_MD.is_empty());
         assert!(!SANITIZE_PATTERNS.is_empty());
         assert!(!HOOK_CONFIG_JSON.is_empty());
         assert!(!RULE_TRACKING_STRICT.is_empty());
@@ -2111,7 +2124,7 @@ mod tests {
         // First init: no markers → python3
         run(dir.path(), &test_opts(false)).unwrap();
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
-        assert!(content.contains("\"python3 \\\"$(git"));
+        assert!(content.contains("python3 \\\"$HOOK\\\""));
 
         // Add uv.lock, force re-init → should now use uv
         fs::write(dir.path().join("uv.lock"), "").unwrap();

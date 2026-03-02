@@ -2486,7 +2486,7 @@ fn test_unicode_variety_in_titles() {
     let dir = tempdir().unwrap();
     init_crosslink(dir.path());
 
-    let unicode_titles = vec![
+    let unicode_titles = [
         "日本語タイトル",                 // Japanese
         "中文标题测试",                   // Chinese
         "Тест на русском языке",          // Russian

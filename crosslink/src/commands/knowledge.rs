@@ -365,6 +365,176 @@ fn truncate(s: &str, max: usize) -> String {
     crate::utils::truncate(s, max)
 }
 
+/// Run knowledge search: content search, source search, or both.
+pub fn search(
+    crosslink_dir: &Path,
+    query: Option<&str>,
+    context: usize,
+    source: Option<&str>,
+    json: bool,
+) -> Result<()> {
+    if query.is_none() && source.is_none() {
+        bail!("Provide a search query or --source domain");
+    }
+
+    let manager = KnowledgeManager::new(crosslink_dir)?;
+
+    if !manager.is_initialized() {
+        if json {
+            println!("[]");
+        } else {
+            println!("Knowledge cache not initialized. Run 'crosslink knowledge init' or add a page first.");
+        }
+        return Ok(());
+    }
+
+    if let Some(domain) = source {
+        return search_sources(&manager, domain, json);
+    }
+
+    let Some(query) = query else {
+        bail!("Provide a search query or --source domain");
+    };
+    let matches = manager.search_content(query, context)?;
+
+    if json {
+        print_content_json(&matches);
+        return Ok(());
+    }
+
+    if matches.is_empty() {
+        println!(
+            "No knowledge pages match \"{}\". Consider adding one.",
+            query
+        );
+        return Ok(());
+    }
+
+    for (i, m) in matches.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        println!("{}.md (line {}):", m.slug, m.line_number);
+        for (line_num, line) in &m.context_lines {
+            println!("  {:>4} | {}", line_num, line);
+        }
+    }
+
+    Ok(())
+}
+
+fn search_sources(manager: &KnowledgeManager, domain: &str, json: bool) -> Result<()> {
+    let matches = manager.search_sources(domain)?;
+
+    if json {
+        print_sources_json(&matches);
+        return Ok(());
+    }
+
+    if matches.is_empty() {
+        println!(
+            "No knowledge pages cite \"{}\". Consider adding one.",
+            domain
+        );
+        return Ok(());
+    }
+
+    for page in &matches {
+        let matching_sources: Vec<&crate::knowledge::Source> = page
+            .frontmatter
+            .sources
+            .iter()
+            .filter(|src| src.url.to_lowercase().contains(&domain.to_lowercase()))
+            .collect();
+
+        println!("{}.md — {}", page.slug, page.frontmatter.title);
+        for src in matching_sources {
+            print!("  {} ({})", src.url, src.title);
+            if let Some(ref accessed) = src.accessed_at {
+                print!(" [accessed: {}]", accessed);
+            }
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
+fn print_content_json(matches: &[crate::knowledge::SearchMatch]) {
+    let entries: Vec<String> = matches
+        .iter()
+        .map(|m| {
+            let lines: Vec<String> = m
+                .context_lines
+                .iter()
+                .map(|(num, text)| {
+                    format!("{{\"line\":{},\"text\":{}}}", num, serde_json_string(text))
+                })
+                .collect();
+            format!(
+                "{{\"slug\":{},\"line_number\":{},\"context\":[{}]}}",
+                serde_json_string(&m.slug),
+                m.line_number,
+                lines.join(",")
+            )
+        })
+        .collect();
+    println!("[{}]", entries.join(","));
+}
+
+fn print_sources_json(pages: &[crate::knowledge::PageInfo]) {
+    let entries: Vec<String> = pages
+        .iter()
+        .map(|page| {
+            let sources: Vec<String> = page
+                .frontmatter
+                .sources
+                .iter()
+                .map(|src| {
+                    let accessed = match &src.accessed_at {
+                        Some(a) => serde_json_string(a),
+                        None => "null".to_string(),
+                    };
+                    format!(
+                        "{{\"url\":{},\"title\":{},\"accessed_at\":{}}}",
+                        serde_json_string(&src.url),
+                        serde_json_string(&src.title),
+                        accessed
+                    )
+                })
+                .collect();
+            format!(
+                "{{\"slug\":{},\"title\":{},\"sources\":[{}]}}",
+                serde_json_string(&page.slug),
+                serde_json_string(&page.frontmatter.title),
+                sources.join(",")
+            )
+        })
+        .collect();
+    println!("[{}]", entries.join(","));
+}
+
+/// Minimal JSON string escaping without pulling in serde.
+fn serde_json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,7 +588,7 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
 
         let tags = vec!["rust".to_string(), "testing".to_string()];
-        let sources = vec!["https://example.com".to_string()];
+        let sources = ["https://example.com".to_string()];
 
         // Call add directly without git operations - write the page manually
         let now = Utc::now().format("%Y-%m-%d").to_string();
@@ -687,174 +857,4 @@ mod tests {
         km.delete_page("to-delete").unwrap();
         assert!(!km.page_exists("to-delete"));
     }
-}
-
-/// Run knowledge search: content search, source search, or both.
-pub fn search(
-    crosslink_dir: &Path,
-    query: Option<&str>,
-    context: usize,
-    source: Option<&str>,
-    json: bool,
-) -> Result<()> {
-    if query.is_none() && source.is_none() {
-        bail!("Provide a search query or --source domain");
-    }
-
-    let manager = KnowledgeManager::new(crosslink_dir)?;
-
-    if !manager.is_initialized() {
-        if json {
-            println!("[]");
-        } else {
-            println!("Knowledge cache not initialized. Run 'crosslink knowledge init' or add a page first.");
-        }
-        return Ok(());
-    }
-
-    if let Some(domain) = source {
-        return search_sources(&manager, domain, json);
-    }
-
-    let Some(query) = query else {
-        bail!("Provide a search query or --source domain");
-    };
-    let matches = manager.search_content(query, context)?;
-
-    if json {
-        print_content_json(&matches);
-        return Ok(());
-    }
-
-    if matches.is_empty() {
-        println!(
-            "No knowledge pages match \"{}\". Consider adding one.",
-            query
-        );
-        return Ok(());
-    }
-
-    for (i, m) in matches.iter().enumerate() {
-        if i > 0 {
-            println!();
-        }
-        println!("{}.md (line {}):", m.slug, m.line_number);
-        for (line_num, line) in &m.context_lines {
-            println!("  {:>4} | {}", line_num, line);
-        }
-    }
-
-    Ok(())
-}
-
-fn search_sources(manager: &KnowledgeManager, domain: &str, json: bool) -> Result<()> {
-    let matches = manager.search_sources(domain)?;
-
-    if json {
-        print_sources_json(&matches);
-        return Ok(());
-    }
-
-    if matches.is_empty() {
-        println!(
-            "No knowledge pages cite \"{}\". Consider adding one.",
-            domain
-        );
-        return Ok(());
-    }
-
-    for page in &matches {
-        let matching_sources: Vec<&crate::knowledge::Source> = page
-            .frontmatter
-            .sources
-            .iter()
-            .filter(|src| src.url.to_lowercase().contains(&domain.to_lowercase()))
-            .collect();
-
-        println!("{}.md — {}", page.slug, page.frontmatter.title);
-        for src in matching_sources {
-            print!("  {} ({})", src.url, src.title);
-            if let Some(ref accessed) = src.accessed_at {
-                print!(" [accessed: {}]", accessed);
-            }
-            println!();
-        }
-    }
-
-    Ok(())
-}
-
-fn print_content_json(matches: &[crate::knowledge::SearchMatch]) {
-    let entries: Vec<String> = matches
-        .iter()
-        .map(|m| {
-            let lines: Vec<String> = m
-                .context_lines
-                .iter()
-                .map(|(num, text)| {
-                    format!("{{\"line\":{},\"text\":{}}}", num, serde_json_string(text))
-                })
-                .collect();
-            format!(
-                "{{\"slug\":{},\"line_number\":{},\"context\":[{}]}}",
-                serde_json_string(&m.slug),
-                m.line_number,
-                lines.join(",")
-            )
-        })
-        .collect();
-    println!("[{}]", entries.join(","));
-}
-
-fn print_sources_json(pages: &[crate::knowledge::PageInfo]) {
-    let entries: Vec<String> = pages
-        .iter()
-        .map(|page| {
-            let sources: Vec<String> = page
-                .frontmatter
-                .sources
-                .iter()
-                .map(|src| {
-                    let accessed = match &src.accessed_at {
-                        Some(a) => serde_json_string(a),
-                        None => "null".to_string(),
-                    };
-                    format!(
-                        "{{\"url\":{},\"title\":{},\"accessed_at\":{}}}",
-                        serde_json_string(&src.url),
-                        serde_json_string(&src.title),
-                        accessed
-                    )
-                })
-                .collect();
-            format!(
-                "{{\"slug\":{},\"title\":{},\"sources\":[{}]}}",
-                serde_json_string(&page.slug),
-                serde_json_string(&page.frontmatter.title),
-                sources.join(",")
-            )
-        })
-        .collect();
-    println!("[{}]", entries.join(","));
-}
-
-/// Minimal JSON string escaping without pulling in serde.
-fn serde_json_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
 }

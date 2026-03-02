@@ -180,9 +180,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path();
 
-        let mut state = CheckpointState::default();
-        state.next_display_id = 42;
-        state.next_comment_id = 10;
+        let mut state = CheckpointState {
+            next_display_id: 42,
+            next_comment_id: 10,
+            ..Default::default()
+        };
 
         let uuid = Uuid::new_v4();
         state.display_id_map.insert(uuid, 1);

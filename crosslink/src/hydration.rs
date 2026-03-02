@@ -452,7 +452,7 @@ mod tests {
 
         // First hydration
         let issue = make_issue(1, "Original");
-        write_issues_to_cache(cache.path(), &[issue.clone()]);
+        write_issues_to_cache(cache.path(), std::slice::from_ref(&issue));
         hydrate_to_sqlite(cache.path(), &db).unwrap();
 
         // Second hydration with updated title
