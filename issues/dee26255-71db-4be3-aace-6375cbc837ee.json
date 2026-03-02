@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--tui-dashboard",
   "created_at": "2026-03-02T15:18:27.453423Z",
-  "updated_at": "2026-03-02T15:18:29.282787Z",
+  "updated_at": "2026-03-02T15:18:44.265523Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 178,
+      "author": "maxine-at-forecast--noether--tui-dashboard",
+      "content": "Plan: enhance render_markdown_lines() and the metadata header in the reader view with richer colors. Specific improvements: (1) YAML frontmatter metadata — colored labels, Magenta tags, Cyan sources, Green contributors. (2) Markdown body — Yellow for H1, Cyan for H2, numbered lists support, inline code backticks in DarkGray bg, horizontal rules as box-drawing chars, bold/italic detection for **text** and *text*. (3) Code blocks — add language label in Cyan at the opening fence.",
+      "created_at": "2026-03-02T15:18:44.265523Z",
+      "kind": "plan"
+    }
   ]
 }
