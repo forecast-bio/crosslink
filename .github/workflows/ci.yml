@@ -1,11 +1,18 @@
 name: CI
 
+# Triggers: develop branch validation only.
+# Feature branches use ci-feature.yml (fast path) instead.
+# PRs to main rely on branch protection requiring this check suite to pass
+# on the source branch before merge — no need for workflow_call.
 on:
   push:
-    branches: [main]
+    branches: [develop]
   pull_request:
-    branches: [main]
-  workflow_call:
+    branches: [develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -190,46 +197,3 @@ jobs:
       - name: Fuzz import (30 seconds)
         run: cargo +nightly fuzz run fuzz_import -- -max_total_time=30
         continue-on-error: true
-
-  # ===========================================
-  # Build Release Binaries
-  # ===========================================
-  build-release:
-    needs: test
-    name: Build Release (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: crosslink
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            artifact: crosslink-linux
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact: crosslink-macos
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: crosslink-win.exe
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install musl-tools (Linux only)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Build release
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: crosslink/target/${{ matrix.target }}/release/crosslink${{ matrix.os == 'windows-latest' && '.exe' || '' }}
