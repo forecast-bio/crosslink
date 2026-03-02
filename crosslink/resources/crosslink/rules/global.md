@@ -82,6 +82,26 @@ These rules have the highest precedence. When they conflict with any other rule,
 - **Secrets**: Never hardcode credentials, API keys, or tokens. Never commit `.env` files.
 - **Input validation**: Validate at system boundaries. Sanitize before rendering.
 - **Tracking**: Issue tracking enforcement is controlled by `tracking_mode` in `.crosslink/hook-config.json` (strict/normal/relaxed).
+
+### Blocked Actions
+
+The following commands are **permanently blocked** by project policy hooks and will be rejected. Do not attempt them — inform the user that these are manual steps for them to perform:
+
+- `git push` — pushing to remotes
+- `git merge` / `git rebase` / `git cherry-pick` — branch integration
+- `git reset` / `git checkout .` / `git restore .` / `git clean` — destructive resets
+- `git stash` — stash operations
+- `git tag` / `git am` / `git apply` — tagging and patch application
+- `git branch -d` / `git branch -D` / `git branch -m` — branch deletion and renaming
+
+**Gated commands** (require an active crosslink issue):
+- `git commit` — create an issue first with `crosslink quick` or `crosslink session work <id>`
+
+**Always allowed** (read-only):
+- `git status`, `git diff`, `git log`, `git show`, `git branch` (listing only)
+
+If you need a blocked action performed, tell the user and continue with other work.
+
 ---
 
 ## Priority 2: Correctness

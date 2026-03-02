@@ -62,6 +62,16 @@ Build a detailed prompt for the child agent. The prompt must be self-contained �
 - **Worktree awareness** (include this context block in the prompt):
   > You are running in a git worktree — an isolated working directory that shares git objects with the main repo. The `.crosslink/issues.db` is shared across all worktrees via the crosslink/hub branch. Other agents may be working concurrently in different worktrees. If you need to see the latest state from other agents, run `crosslink sync`.
 
+- **Blocked actions** (include this context block in the prompt):
+  > **Blocked actions**: The following commands are blocked by project policy and will be rejected. If you need one of these, ask the user to run it manually:
+  > - `git push`, `git merge`, `git rebase`, `git cherry-pick` — remote/branch operations
+  > - `git reset`, `git checkout .`, `git restore .`, `git clean` — destructive resets
+  > - `git stash`, `git tag`, `git am`, `git apply` — stash/tag/patch operations
+  > - `git branch -d`, `git branch -D`, `git branch -m` — branch deletion/renaming
+  >
+  > **Gated** (require active crosslink issue): `git commit`
+  > **Always allowed**: `git status`, `git diff`, `git log`, `git show`, `git branch` (listing)
+
 - Instructions to:
   1. **Start your crosslink session**: Run `crosslink session start` then `crosslink session work <issue-id>` to register yourself and mark your focus
   2. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
@@ -73,6 +83,13 @@ Build a detailed prompt for the child agent. The prompt must be self-contained �
   7b. **Log interventions**: If a hook blocks you, a human rejects a tool use, or you receive a redirect, log it immediately: `crosslink intervene <issue-id> "Description" --trigger <type> --context "what you were attempting"`
   7c. **Handle blockers visibly**: If something blocks progress, document it with `crosslink comment <issue-id> "Blocker: <description>" --kind blocker` rather than silently failing. If you resolve it, document that too: `crosslink comment <issue-id> "Resolved: <how>" --kind resolution`
   8. **Run the project's test suite** to verify changes don't break anything (use the detected test command)
+  8b. **Run lint and format checks** before committing. Use the project's detected tools:
+      - Rust: `cargo clippy -- -D warnings` and `cargo fmt --check`
+      - Node/TypeScript: `npx eslint .` or `npm run lint` (if configured)
+      - Python: `ruff check .` or `uv run ruff check .` (if ruff is available)
+      - Go: `go vet ./...` and `gofmt -l .`
+      - Other: check for linter/formatter config files and run accordingly
+      Fix any issues found before proceeding. Do not commit code with lint warnings or formatting errors.
   9. **Document results**: `crosslink comment <issue-id> "Result: <test summary, what was delivered>" --kind result`
   10. Use `/commit` to commit the work when implementation is complete
   11. Review the diff of all changes and fix any issues found
@@ -130,6 +147,7 @@ Add the self-review checklist as the final step before writing DONE (even for `-
 
 **Self-review checklist** (verify each before marking done):
 - All tests pass locally
+- Linter and formatter checks pass (no warnings or formatting errors)
 - No unintended file changes in the diff
 - No debug/temporary code left behind
 - Commit messages are clean and descriptive
