@@ -1,13 +1,6 @@
 {
   "version": 1,
-  "locks": {
-    "50": {
-      "agent_id": "maxine-at-forecast--noether--fix-sessions-migration",
-      "branch": null,
-      "claimed_at": "2026-03-02T02:23:16.495170Z",
-      "signed_by": "maxine-at-forecast--noether--fix-sessions-migration"
-    }
-  },
+  "locks": {},
   "settings": {
     "stale_lock_timeout_minutes": 60
   }
