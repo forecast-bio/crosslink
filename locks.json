@@ -1,17 +1,17 @@
 {
   "version": 1,
   "locks": {
-    "75": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:23:30.580261Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
     "57": {
       "agent_id": "maxine-at-forecast--noether--untrack-init-files",
       "branch": null,
       "claimed_at": "2026-03-02T03:32:12.646208Z",
       "signed_by": "maxine-at-forecast--noether--untrack-init-files"
+    },
+    "76": {
+      "agent_id": "maxine-at-forecast--noether--accept-both-conflict",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:36:34.792901Z",
+      "signed_by": "SHA256:X3FrE/ASfRqEa8NSzG3np6H1fpvXAV0sNzWiHdYzkyU"
     },
     "58": {
       "agent_id": "maxine-at-forecast--noether--untrack-init-files",
@@ -19,28 +19,16 @@
       "claimed_at": "2026-03-02T03:16:35.008264Z",
       "signed_by": "maxine-at-forecast--noether--untrack-init-files"
     },
+    "59": {
+      "agent_id": "maxine-at-forecast--noether--tmux-perms",
+      "branch": null,
+      "claimed_at": "2026-03-02T03:19:02.880573Z",
+      "signed_by": "maxine-at-forecast--noether--tmux-perms"
+    },
     "1": {
       "agent_id": "noether--add-container-agent",
       "branch": null,
       "claimed_at": "2026-03-02T07:44:33.703184156Z",
-      "signed_by": "SHA256:GBk2ORqB8F92S7A12jxrwAKclfb0vVx15wwFl0untOw"
-    },
-    "72": {
-      "agent_id": "noether--add-container-agent",
-      "branch": null,
-      "claimed_at": "2026-03-02T07:18:50.944671380Z",
-      "signed_by": "SHA256:GBk2ORqB8F92S7A12jxrwAKclfb0vVx15wwFl0untOw"
-    },
-    "56": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-02T03:13:09.501369Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "73": {
-      "agent_id": "noether--add-container-agent",
-      "branch": null,
-      "claimed_at": "2026-03-02T07:45:59.701224278Z",
       "signed_by": "SHA256:GBk2ORqB8F92S7A12jxrwAKclfb0vVx15wwFl0untOw"
     },
     "74": {
@@ -55,11 +43,29 @@
       "claimed_at": "2026-03-02T03:40:13.295604Z",
       "signed_by": "maxine-at-forecast--noether--tmux-perms"
     },
-    "59": {
-      "agent_id": "maxine-at-forecast--noether--tmux-perms",
+    "56": {
+      "agent_id": "maxine-at-forecast--noether",
       "branch": null,
-      "claimed_at": "2026-03-02T03:19:02.880573Z",
-      "signed_by": "maxine-at-forecast--noether--tmux-perms"
+      "claimed_at": "2026-03-02T03:13:09.501369Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "75": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:23:30.580261Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "72": {
+      "agent_id": "noether--add-container-agent",
+      "branch": null,
+      "claimed_at": "2026-03-02T07:18:50.944671380Z",
+      "signed_by": "SHA256:GBk2ORqB8F92S7A12jxrwAKclfb0vVx15wwFl0untOw"
+    },
+    "73": {
+      "agent_id": "noether--add-container-agent",
+      "branch": null,
+      "claimed_at": "2026-03-02T07:45:59.701224278Z",
+      "signed_by": "SHA256:GBk2ORqB8F92S7A12jxrwAKclfb0vVx15wwFl0untOw"
     }
   },
   "settings": {
