@@ -1,41 +1,11 @@
 {
   "version": 1,
   "locks": {
-    "76": {
-      "agent_id": "maxine-at-forecast--noether--accept-both-conflict",
+    "91": {
+      "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
       "branch": null,
-      "claimed_at": "2026-03-02T08:59:36.089593Z",
-      "signed_by": "SHA256:X3FrE/ASfRqEa8NSzG3np6H1fpvXAV0sNzWiHdYzkyU"
-    },
-    "1": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
-      "branch": null,
-      "claimed_at": "2026-03-02T09:34:34.949534Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
-    },
-    "82": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:55:58.192058Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "80": {
-      "agent_id": "maxine-at-forecast--noether--knowledge-norms",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:49:25.183969Z",
-      "signed_by": "SHA256:ZflVF3wwQSFMMn5a9MUuAXUk5MHPtGqKLO8jG+2n8pw"
-    },
-    "79": {
-      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:45:36.071973Z",
-      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
-    },
-    "94": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
-      "branch": null,
-      "claimed_at": "2026-03-02T10:03:05.660987Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
+      "claimed_at": "2026-03-02T09:25:34.546065Z",
+      "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
     },
     "86": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
@@ -43,17 +13,41 @@
       "claimed_at": "2026-03-02T09:07:45.219573Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
-    "91": {
-      "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
+    "80": {
+      "agent_id": "maxine-at-forecast--noether--knowledge-norms",
       "branch": null,
-      "claimed_at": "2026-03-02T09:25:34.546065Z",
-      "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
+      "claimed_at": "2026-03-02T08:49:25.183969Z",
+      "signed_by": "SHA256:ZflVF3wwQSFMMn5a9MUuAXUk5MHPtGqKLO8jG+2n8pw"
+    },
+    "94": {
+      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
+      "branch": null,
+      "claimed_at": "2026-03-02T10:03:05.660987Z",
+      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
+    },
+    "79": {
+      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:45:36.071973Z",
+      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
+    },
+    "1": {
+      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
+      "branch": null,
+      "claimed_at": "2026-03-02T09:34:34.949534Z",
+      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
     "87": {
       "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
       "branch": null,
       "claimed_at": "2026-03-02T09:34:36.842549Z",
       "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
+    },
+    "76": {
+      "agent_id": "maxine-at-forecast--noether--accept-both-conflict",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:59:36.089593Z",
+      "signed_by": "SHA256:X3FrE/ASfRqEa8NSzG3np6H1fpvXAV0sNzWiHdYzkyU"
     }
   },
   "settings": {
