@@ -1,16 +1,17 @@
 use anyhow::{Context, Result};
 use crossterm::{
+    cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     style::Stylize,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{self, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph},
-    Frame,
+    Frame, TerminalOptions, Viewport,
 };
 use std::fs;
 use std::io::{self, IsTerminal, Write};
@@ -1022,12 +1023,18 @@ fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoice
         kickoff_default,
     );
 
-    // Enter alternate screen + raw mode
+    // Inline viewport — renders below the current cursor, not full-screen
+    const WALKTHROUGH_HEIGHT: u16 = 14;
     enable_raw_mode().context("Failed to enable raw mode")?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("Failed to enter alternate screen")?;
+    let stdout = io::stdout();
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
-    let mut terminal = ratatui::Terminal::new(backend).context("Failed to create terminal")?;
+    let mut terminal = ratatui::Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: Viewport::Inline(WALKTHROUGH_HEIGHT),
+        },
+    )
+    .context("Failed to create terminal")?;
 
     // Run event loop — closure so we can always restore terminal on exit
     let result = (|| -> Result<()> {
@@ -1059,9 +1066,23 @@ fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Result<TuiChoice
         Ok(())
     })();
 
-    // Always restore terminal state
+    // Clear the inline viewport area so progress output fills it cleanly
+    {
+        let area = terminal.get_frame().area();
+        let backend = terminal.backend_mut();
+        for row in area.y..area.y + area.height {
+            execute!(
+                backend,
+                cursor::MoveTo(0, row),
+                terminal::Clear(terminal::ClearType::CurrentLine)
+            )
+            .ok();
+        }
+        execute!(backend, cursor::MoveTo(0, area.y)).ok();
+    }
+
+    // Restore terminal state
     disable_raw_mode().ok();
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
     terminal.show_cursor().ok();
 
     result?;
@@ -1161,6 +1182,35 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         return Ok(());
     }
 
+    // ── TUI walkthrough FIRST — before any filesystem changes ────────────
+    // If the user presses Esc, we bail before creating anything.
+    let config_path = crosslink_dir.join("hook-config.json");
+    let config_exists = config_path.exists();
+    let should_run_tui = !defaults && (!config_exists || force || reconfigure);
+
+    let tui_result = if should_run_tui {
+        let base_config: serde_json::Value = if config_exists && reconfigure {
+            let raw = fs::read_to_string(&config_path)
+                .context("Failed to read existing hook-config.json")?;
+            serde_json::from_str(&raw).context("hook-config.json contains invalid JSON")?
+        } else {
+            serde_json::from_str(HOOK_CONFIG_JSON)
+                .context("Embedded hook-config.json is invalid")?
+        };
+
+        let existing_ref = if config_exists {
+            Some(&base_config as &serde_json::Value)
+        } else {
+            None
+        };
+        let choices = run_tui_walkthrough(existing_ref)?;
+        Some((base_config, choices))
+    } else {
+        None
+    };
+
+    // ── All filesystem changes happen below this point ───────────────────
+
     ui.banner();
 
     let rules_dir = crosslink_dir.join("rules");
@@ -1174,40 +1224,22 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         ui.step_ok(None);
     }
 
-    // Write hook config — with TUI walkthrough when appropriate
-    let config_path = crosslink_dir.join("hook-config.json");
-    let config_exists = config_path.exists();
-    let should_run_tui = !defaults && (!config_exists || force || reconfigure);
-
-    if should_run_tui || !config_exists || force {
-        if should_run_tui {
-            let mut config: serde_json::Value = if config_exists && reconfigure {
-                let raw = fs::read_to_string(&config_path)
-                    .context("Failed to read existing hook-config.json")?;
-                serde_json::from_str(&raw).context("hook-config.json contains invalid JSON")?
-            } else {
-                serde_json::from_str(HOOK_CONFIG_JSON)
-                    .context("Embedded hook-config.json is invalid")?
-            };
-
-            let existing_ref = if config_exists {
-                Some(&config as &serde_json::Value)
-            } else {
-                None
-            };
-            let choices = run_tui_walkthrough(existing_ref)?;
+    // Write hook config
+    match tui_result {
+        Some((mut config, choices)) => {
             apply_tui_choices(&mut config, &choices)?;
-
             let output = serde_json::to_string_pretty(&config)
                 .context("Failed to serialize hook-config.json")?;
             fs::write(&config_path, format!("{}\n", output))
                 .context("Failed to write hook-config.json")?;
             ui.step_created("hook-config.json");
-        } else {
+        }
+        None if !config_exists || force => {
             fs::write(&config_path, HOOK_CONFIG_JSON)
                 .context("Failed to write hook-config.json")?;
             ui.step_created("hook-config.json");
         }
+        None => {}
     }
 
     // Write .crosslink/.gitignore for multi-agent files
