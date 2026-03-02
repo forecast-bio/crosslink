@@ -24,12 +24,6 @@
       "branch": null,
       "claimed_at": "2026-03-02T08:49:25.183969Z",
       "signed_by": "SHA256:ZflVF3wwQSFMMn5a9MUuAXUk5MHPtGqKLO8jG+2n8pw"
-    },
-    "87": {
-      "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
-      "branch": null,
-      "claimed_at": "2026-03-02T09:34:36.842549Z",
-      "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
     }
   },
   "settings": {
