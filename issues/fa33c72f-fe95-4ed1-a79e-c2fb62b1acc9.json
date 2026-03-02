@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--tui-dashboard",
   "created_at": "2026-03-02T09:08:11.204617Z",
-  "updated_at": "2026-03-02T09:21:10.183907Z",
+  "updated_at": "2026-03-02T09:21:39.611160Z",
   "labels": [
     "feature"
   ],
@@ -45,6 +45,13 @@
       "content": "Decision: Added concurrency groups to ci.yml, ci-feature.yml, and release-builds.yml to cancel stale runs. Using PR number for PR events and ref for push events to avoid cross-cancellation between PR validation and post-merge runs.",
       "created_at": "2026-03-02T09:21:10.183906Z",
       "kind": "decision"
+    },
+    {
+      "id": 163,
+      "author": "maxine-at-forecast--noether--ci-cd-restructure",
+      "content": "Observation: crosslink session work state keeps resetting between tool calls — the session focus does not persist across hook checks. Working around by re-calling session work before each gated operation.",
+      "created_at": "2026-03-02T09:21:39.611159Z",
+      "kind": "observation"
     }
   ]
 }
