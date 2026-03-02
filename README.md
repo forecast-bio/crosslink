@@ -44,12 +44,16 @@ crosslink session end --notes "Fixed token refresh. Dark mode is next."
 - **Smart workflow** — `quick` command, `next` recommendations, `tree` visualization
 - **Behavioral hooks** — Claude Code hooks enforce no-stubs, proper error handling, issue tracking
 - **Multi-agent** — Distributed issue locking via git for parallel AI work
-- **Templates** — Built-in templates for bugs, features, audits, investigations
+- **Templates** — Built-in templates for bugs, features, refactors, and research
 - **Subissues & dependencies** — Break tasks down, track blocking relationships
+- **Knowledge pages** — Shared documentation synced across agents via the coordination branch
+- **House style** — Sync project rules and policies from a central git repo
 - **Time tracking, milestones, archiving** — Full project management in the CLI
 - **Works everywhere** — CLI + VS Code extension + context provider for any AI agent
 
 ## Installation
+
+Requires **Rust 1.87+** ([install rustup](https://rustup.rs/)).
 
 ```bash
 # From crates.io

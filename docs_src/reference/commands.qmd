@@ -8,8 +8,8 @@ Complete command reference for the crosslink CLI.
 
 | Flag | Description |
 |------|-------------|
-| `--json` | JSON output (on supported commands) |
-| `--quiet` / `-q` | Minimal output (just IDs), useful for scripting |
+| `--json` | JSON output (supported by `list`, `show`, `search`, `session status`) |
+| `--quiet` / `-q` | Minimal output (just IDs, counts), useful for scripting |
 
 ## Issue Management
 
@@ -18,8 +18,8 @@ Complete command reference for the crosslink CLI.
 | `crosslink create <title>` | Create a new issue |
 | `crosslink create <title> -p high` | Create with priority (`low`/`medium`/`high`/`critical`) |
 | `crosslink create <title> -d "desc"` | Create with description |
-| `crosslink create <title> --template bug` | Create from template (`bug`/`feature`/`refactor`/`research`/`audit`/`continuation`/`investigation`) |
-| `crosslink create <title> --work -l bug` | Create, label, and start working on it |
+| `crosslink create <title> -t bug` | Create from template (`bug`/`feature`/`refactor`/`research`) |
+| `crosslink create <title> -w -l bug` | Create, label, and start working on it |
 | `crosslink quick <title> [-p high] [-l label]` | Shorthand: create + label + set as active work item |
 | `crosslink subissue <parent_id> <title>` | Create a subissue under a parent |
 | `crosslink subissue <parent_id> <title> -p high` | Subissue with priority |
@@ -28,6 +28,7 @@ Complete command reference for the crosslink CLI.
 | `crosslink list -s closed` | List closed issues |
 | `crosslink list -l bug` | Filter by label |
 | `crosslink list -p high` | Filter by priority |
+| `crosslink search <query>` | Search issues by text |
 | `crosslink show <id>` | Show issue details |
 | `crosslink show <id> --json` | Show issue details as JSON |
 | `crosslink update <id> --title "New"` | Update title |
@@ -48,6 +49,7 @@ Complete command reference for the crosslink CLI.
 | Command | Description |
 |---------|-------------|
 | `crosslink comment <id> "text"` | Add a comment to an issue |
+| `crosslink intervene <id> "desc" --trigger <type>` | Log a driver intervention (`tool_rejected`/`tool_blocked`/`redirect`/`context_provided`/`manual_action`/`question_answered`) |
 | `crosslink label <id> <label>` | Add a label |
 | `crosslink unlabel <id> <label>` | Remove a label |
 
@@ -66,6 +68,7 @@ Complete command reference for the crosslink CLI.
 |---------|-------------|
 | `crosslink relate <id1> <id2>` | Link two related issues |
 | `crosslink unrelate <id1> <id2>` | Remove relationship |
+| `crosslink related <id>` | List issues related to the given issue |
 
 ## Milestones
 
@@ -78,16 +81,16 @@ Complete command reference for the crosslink CLI.
 | `crosslink milestone add <milestone_id> <issue_id>` | Add issue to milestone |
 | `crosslink milestone remove <milestone_id> <issue_id>` | Remove issue from milestone |
 | `crosslink milestone close <id>` | Close a milestone |
-| `crosslink milestone reopen <id>` | Reopen a milestone |
+| `crosslink milestone delete <id>` | Delete a milestone |
 
 ## Archiving
 
 | Command | Description |
 |---------|-------------|
-| `crosslink archive <id>` | Archive a closed issue |
-| `crosslink unarchive <id>` | Restore an archived issue |
-| `crosslink archived` | List all archived issues |
-| `crosslink archive-older <days>` | Archive issues closed more than N days ago |
+| `crosslink archive add <id>` | Archive a closed issue |
+| `crosslink archive remove <id>` | Restore an archived issue |
+| `crosslink archive list` | List all archived issues |
+| `crosslink archive older <days>` | Archive issues closed more than N days ago |
 
 ## Export / Import
 
@@ -95,6 +98,7 @@ Complete command reference for the crosslink CLI.
 |---------|-------------|
 | `crosslink export` | Export all issues to JSON (stdout) |
 | `crosslink export -o backup.json` | Export to a file |
+| `crosslink export -f markdown` | Export as markdown |
 | `crosslink import backup.json` | Import issues from JSON |
 | `crosslink import backup.json --merge` | Merge with existing issues |
 
@@ -113,6 +117,7 @@ Complete command reference for the crosslink CLI.
 | `crosslink start <id>` | Start a timer for an issue |
 | `crosslink stop` | Stop the current timer |
 | `crosslink timer` | Show current timer status |
+| `crosslink tested` | Mark tests as run (resets test reminder) |
 
 ## Session Management
 
@@ -152,6 +157,72 @@ Complete command reference for the crosslink CLI.
 | `crosslink daemon start` | Start background daemon |
 | `crosslink daemon status` | Check daemon status |
 | `crosslink daemon stop` | Stop daemon |
+
+## Configuration
+
+| Command | Description |
+|---------|-------------|
+| `crosslink config show` | Show all configuration with default annotations |
+| `crosslink config get <key>` | Get a specific config value |
+| `crosslink config set <key> <value>` | Set a config value |
+| `crosslink config list` | List all available config keys with descriptions |
+| `crosslink config reset` | Reset config to defaults |
+| `crosslink config diff` | Show differences from default config |
+
+## Knowledge Pages
+
+| Command | Description |
+|---------|-------------|
+| `crosslink knowledge add <title>` | Create a new knowledge page |
+| `crosslink knowledge show <id>` | Display a knowledge page |
+| `crosslink knowledge list` | List all knowledge pages |
+| `crosslink knowledge edit <id>` | Update an existing knowledge page |
+| `crosslink knowledge remove <id>` | Remove a knowledge page |
+| `crosslink knowledge sync` | Manually sync from remote |
+| `crosslink knowledge search <query>` | Search knowledge page content |
+
+## House Style
+
+| Command | Description |
+|---------|-------------|
+| `crosslink style set <url>` | Set the house style source (a git repo URL) |
+| `crosslink style sync` | Pull latest from the house style source |
+| `crosslink style diff` | Show what's drifted from house style |
+| `crosslink style show` | Show current house style configuration |
+| `crosslink style unset` | Remove house style association |
+
+## Workflow
+
+| Command | Description |
+|---------|-------------|
+| `crosslink workflow diff` | Compare deployed policy files against embedded defaults |
+| `crosslink workflow trail <id>` | Show chronological comment trail for an issue |
+
+## Code Clone Detection
+
+| Command | Description |
+|---------|-------------|
+| `crosslink cpitd scan` | Scan for code clones and create issues |
+| `crosslink cpitd status` | Show open clone issues |
+| `crosslink cpitd clear` | Close all open clone issues |
+
+## Data Integrity
+
+| Command | Description |
+|---------|-------------|
+| `crosslink integrity` | Run all integrity checks |
+| `crosslink integrity counters` | Check counter consistency |
+| `crosslink integrity hydration` | Verify SQLite matches JSON issue files |
+| `crosslink integrity locks` | Check for stale or orphaned locks |
+| `crosslink integrity schema` | Verify SQLite schema version |
+
+## Migration
+
+| Command | Description |
+|---------|-------------|
+| `crosslink migrate-to-shared` | Migrate local SQLite issues to shared coordination branch |
+| `crosslink migrate-from-shared` | Import shared issues from coordination branch into local SQLite |
+| `crosslink migrate-rename-branch` | Rename coordination branch from `crosslink/locks` to `crosslink/hub` |
 
 ## Project Setup
 
