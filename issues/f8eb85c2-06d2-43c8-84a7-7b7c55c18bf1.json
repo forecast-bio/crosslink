@@ -2,11 +2,12 @@
   "uuid": "f8eb85c2-06d2-43c8-84a7-7b7c55c18bf1",
   "display_id": 19,
   "title": "Add KnowledgeManager for shared research knowledge branch",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "m1--f5",
   "created_at": "2026-02-28T06:07:13.450506Z",
-  "updated_at": "2026-03-02T08:53:39.108862Z",
+  "updated_at": "2026-03-02T08:53:40.684106Z",
+  "closed_at": "2026-03-02T08:53:40.684106Z",
   "labels": [
     "feature"
   ],
