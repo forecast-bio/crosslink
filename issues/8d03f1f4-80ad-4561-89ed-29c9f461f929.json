@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T08:24:11.989949Z",
-  "updated_at": "2026-03-02T08:24:13.629610Z",
+  "updated_at": "2026-03-02T08:39:15.877872Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 103,
+      "author": "maxine-at-forecast--noether--accept-both-conflict",
+      "content": "Plan: Add accept-both conflict resolution to knowledge branch sync/push flow.\n\nKey changes:\n1. Add conflict detection (has_conflict_markers) and resolution (resolve_accept_both) functions to knowledge.rs\n2. Add SyncOutcome struct to carry resolved conflict info back to callers\n3. Add handle_rebase_conflict() method to KnowledgeManager that aborts rebase, falls back to merge, resolves conflicts with accept-both\n4. Modify sync() to return Result<SyncOutcome> - catches rebase conflicts and uses accept-both fallback\n5. Modify push() to return Result<SyncOutcome> - catches pull --rebase conflicts and uses accept-both fallback\n6. Update commands/knowledge.rs callers to handle SyncOutcome, create crosslink issues for resolved conflicts, and print warnings\n7. Add comprehensive unit tests for conflict parsing, resolution, and the full flow\n\nFiles to modify:\n- crosslink/src/knowledge.rs (core conflict resolution logic + sync/push changes)\n- crosslink/src/commands/knowledge.rs (handle SyncOutcome, create issues, print warnings)",
+      "created_at": "2026-03-02T08:39:15.877872Z",
+      "kind": "plan"
+    }
   ]
 }
