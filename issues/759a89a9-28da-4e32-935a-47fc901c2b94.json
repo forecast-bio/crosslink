@@ -6,8 +6,19 @@
   "priority": "low",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T09:02:47.162543Z",
-  "updated_at": "2026-03-02T09:02:48.952511Z",
+  "updated_at": "2026-03-02T09:05:33.527770Z",
   "labels": [
     "fix"
+  ],
+  "comments": [
+    {
+      "id": 152,
+      "author": "maxine-at-forecast--noether",
+      "content": "Closed 16 stale 3/2 issues. Left open: #72 (container execution — PR #150 still open), #73 (manual container test — incomplete), #76 (accept-both — committed but not pushed), #75 (kickoff for #76), #78 (ratatui TUI — no evidence of merge), #77 (kickoff for #78), #80 (knowledge norms — no merge), #79 (kickoff for #80), #60 (pull main — unclear status)",
+      "created_at": "2026-03-02T09:05:33.527769Z",
+      "kind": "result",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAm/vVJTs1rIMUokRAaOciA2MH0BiyJZmSNmH7lSnZJGxf/fCdnRLI6HrXuVnbSbiIqfGDkRoY/j5xBfuTpkB0BA=="
+    }
   ]
 }
