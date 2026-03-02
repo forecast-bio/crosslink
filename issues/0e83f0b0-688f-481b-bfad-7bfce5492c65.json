@@ -1,0 +1,10 @@
+{
+  "uuid": "0e83f0b0-688f-481b-bfad-7bfce5492c65",
+  "display_id": 92,
+  "title": "Clean up completed feature agent sessions",
+  "status": "open",
+  "priority": "low",
+  "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
+  "created_at": "2026-03-02T09:32:24.996912Z",
+  "updated_at": "2026-03-02T09:32:24.996912Z"
+}
