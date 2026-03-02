@@ -196,6 +196,17 @@ def main():
     if locks_result and "No locks" not in locks_result:
         context_parts.append(f"## Active Locks\n{locks_result}")
 
+    # Show knowledge repo summary
+    knowledge_list = run_crosslink(["knowledge", "list", "--quiet"])
+    if knowledge_list is not None:
+        # --quiet outputs one slug per line; count non-empty lines
+        page_count = len([line for line in knowledge_list.splitlines() if line.strip()])
+        if page_count > 0:
+            context_parts.append(
+                f"## Knowledge Repo\n{page_count} page(s) available. "
+                "Search with `crosslink knowledge search '<query>'` before researching a topic."
+            )
+
     # Get ready issues (unblocked work)
     ready_issues = run_crosslink(["ready"])
     if ready_issues:

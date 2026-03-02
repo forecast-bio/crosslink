@@ -60,6 +60,72 @@ pub struct SearchMatch {
     pub context_lines: Vec<(usize, String)>,
 }
 
+/// Outcome of a sync or push operation that may involve conflict resolution.
+#[derive(Debug, Default)]
+pub struct SyncOutcome {
+    /// Slugs of knowledge pages that had merge conflicts resolved via "accept both".
+    pub resolved_conflicts: Vec<String>,
+}
+
+/// Check if content contains git merge conflict markers.
+pub fn has_conflict_markers(content: &str) -> bool {
+    content.contains("<<<<<<<") && content.contains("=======") && content.contains(">>>>>>>")
+}
+
+/// Resolve merge conflicts in content by keeping both versions.
+///
+/// Replaces each conflict block with an HTML comment noting the conflict,
+/// followed by both versions separated by horizontal rules. Content outside
+/// conflict blocks is preserved unchanged.
+pub fn resolve_accept_both(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_ours = false;
+    let mut in_theirs = false;
+    let mut ours = String::new();
+    let mut theirs = String::new();
+
+    for line in content.lines() {
+        if line.starts_with("<<<<<<<") {
+            in_ours = true;
+            in_theirs = false;
+            ours.clear();
+            theirs.clear();
+        } else if line.starts_with("=======") && in_ours {
+            in_ours = false;
+            in_theirs = true;
+        } else if line.starts_with(">>>>>>>") && in_theirs {
+            in_theirs = false;
+            // Emit the resolved version
+            result.push_str("<!-- MERGE CONFLICT: Both versions kept. Cleanup recommended. -->\n");
+            result.push_str("---\n");
+            result.push_str(&ours);
+            result.push_str("---\n");
+            result.push_str(&theirs);
+        } else if in_ours {
+            ours.push_str(line);
+            ours.push('\n');
+        } else if in_theirs {
+            theirs.push_str(line);
+            theirs.push('\n');
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    // Handle unterminated conflict block (shouldn't happen, but be defensive)
+    if in_ours || in_theirs {
+        if !ours.is_empty() {
+            result.push_str(&ours);
+        }
+        if !theirs.is_empty() {
+            result.push_str(&theirs);
+        }
+    }
+
+    result
+}
+
 impl KnowledgeManager {
     /// Create a new KnowledgeManager for the given .crosslink directory.
     ///
@@ -168,7 +234,12 @@ impl KnowledgeManager {
     }
 
     /// Fetch the latest state from remote and rebase local changes on top.
-    pub fn sync(&self) -> Result<()> {
+    ///
+    /// If a rebase produces merge conflicts, falls back to an "accept both"
+    /// strategy: aborts the rebase, merges instead, and resolves any remaining
+    /// conflicts by keeping both versions. Returns the list of slugs that had
+    /// conflicts resolved.
+    pub fn sync(&self) -> Result<SyncOutcome> {
         let fetch_result = self.git_in_cache(&["fetch", "origin", KNOWLEDGE_BRANCH]);
         if let Err(e) = &fetch_result {
             let err_str = e.to_string();
@@ -178,7 +249,7 @@ impl KnowledgeManager {
                 || err_str.contains("No such remote")
                 || err_str.contains("couldn't find remote ref")
             {
-                return Ok(());
+                return Ok(SyncOutcome::default());
             }
             fetch_result?;
         }
@@ -195,11 +266,16 @@ impl KnowledgeManager {
                     if err_str.contains("unknown revision")
                         || err_str.contains("ambiguous argument")
                     {
-                        return Ok(());
+                        return Ok(SyncOutcome::default());
+                    }
+                    // Rebase failed — likely a conflict. Try accept-both fallback.
+                    let outcome = self.handle_rebase_conflict(&remote_ref)?;
+                    if !outcome.resolved_conflicts.is_empty() {
+                        return Ok(outcome);
                     }
                     rebase_result?;
                 }
-                return Ok(());
+                return Ok(SyncOutcome::default());
             }
         }
 
@@ -208,33 +284,111 @@ impl KnowledgeManager {
         if let Err(e) = &reset_result {
             let err_str = e.to_string();
             if err_str.contains("unknown revision") || err_str.contains("ambiguous argument") {
-                return Ok(());
+                return Ok(SyncOutcome::default());
             }
             reset_result?;
         }
 
-        Ok(())
+        Ok(SyncOutcome::default())
     }
 
     /// Push local commits to the remote.
-    pub fn push(&self) -> Result<()> {
+    ///
+    /// If the push is rejected (non-fast-forward), attempts a pull --rebase.
+    /// If that rebase produces conflicts, falls back to "accept both" resolution.
+    pub fn push(&self) -> Result<SyncOutcome> {
         let push_result = self.git_in_cache(&["push", "origin", KNOWLEDGE_BRANCH]);
         if let Err(e) = &push_result {
             let err_str = e.to_string();
             if err_str.contains("Could not resolve host")
                 || err_str.contains("Could not read from remote")
             {
-                return Ok(());
+                return Ok(SyncOutcome::default());
             }
             if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                // Try pull + push once
-                let _ = self.git_in_cache(&["pull", "--rebase", "origin", KNOWLEDGE_BRANCH]);
+                let remote_ref = format!("origin/{}", KNOWLEDGE_BRANCH);
+                // Fetch latest
+                let _ = self.git_in_cache(&["fetch", "origin", KNOWLEDGE_BRANCH]);
+                // Try rebase
+                let rebase_result = self.git_in_cache(&["rebase", &remote_ref]);
+                if rebase_result.is_err() {
+                    // Rebase failed — try accept-both fallback
+                    let outcome = self.handle_rebase_conflict(&remote_ref)?;
+                    let _ = self.git_in_cache(&["push", "origin", KNOWLEDGE_BRANCH]);
+                    return Ok(outcome);
+                }
                 let _ = self.git_in_cache(&["push", "origin", KNOWLEDGE_BRANCH]);
-                return Ok(());
+                return Ok(SyncOutcome::default());
             }
             push_result?;
         }
-        Ok(())
+        Ok(SyncOutcome::default())
+    }
+
+    /// Abort a failed rebase and fall back to merge with "accept both" resolution.
+    ///
+    /// 1. Aborts the in-progress rebase
+    /// 2. Merges the remote ref
+    /// 3. If merge conflicts, resolves each .md file using accept-both
+    /// 4. Stages and commits the resolution
+    fn handle_rebase_conflict(&self, remote_ref: &str) -> Result<SyncOutcome> {
+        // Abort the failed rebase
+        let _ = self.git_in_cache(&["rebase", "--abort"]);
+
+        // Attempt a merge instead
+        let merge_result = self.git_in_cache(&["merge", remote_ref, "--no-edit"]);
+
+        let resolved = if merge_result.is_err() {
+            // Merge has conflicts — resolve all .md files with accept-both
+            self.resolve_conflicts_in_cache()?
+        } else {
+            Vec::new()
+        };
+
+        if !resolved.is_empty() {
+            // Stage resolved files and commit
+            self.git_in_cache(&["add", "-A"])?;
+            let slugs_str = resolved.join(", ");
+            self.commit(&format!(
+                "knowledge: accept-both conflict resolution for {}",
+                slugs_str
+            ))?;
+        }
+
+        Ok(SyncOutcome {
+            resolved_conflicts: resolved,
+        })
+    }
+
+    /// Scan all `.md` files in the cache for conflict markers and resolve them.
+    ///
+    /// Returns the list of slugs that had conflicts resolved.
+    fn resolve_conflicts_in_cache(&self) -> Result<Vec<String>> {
+        let mut resolved = Vec::new();
+
+        if !self.cache_dir.exists() {
+            return Ok(resolved);
+        }
+
+        for entry in std::fs::read_dir(&self.cache_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map(|e| e == "md").unwrap_or(false) {
+                let content = std::fs::read_to_string(&path)?;
+                if has_conflict_markers(&content) {
+                    let slug = path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    let resolved_content = resolve_accept_both(&content);
+                    std::fs::write(&path, &resolved_content)?;
+                    resolved.push(slug);
+                }
+            }
+        }
+
+        Ok(resolved)
     }
 
     /// Stage all changes in the knowledge worktree and commit.
@@ -1395,5 +1549,171 @@ updated: 2026-01-01
 
         // Should return false (not panic or escape) for traversal slugs
         assert!(!manager.page_exists("../etc/passwd"));
+    }
+
+    // --- Conflict detection and resolution tests ---
+
+    #[test]
+    fn test_has_conflict_markers_true() {
+        let content = "before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\nafter\n";
+        assert!(has_conflict_markers(content));
+    }
+
+    #[test]
+    fn test_has_conflict_markers_false_no_markers() {
+        let content = "# Normal page\n\nNo conflicts here.\n";
+        assert!(!has_conflict_markers(content));
+    }
+
+    #[test]
+    fn test_has_conflict_markers_false_partial() {
+        // Only has opening marker, not a real conflict
+        let content = "<<<<<<< HEAD\nsome text\n";
+        assert!(!has_conflict_markers(content));
+    }
+
+    #[test]
+    fn test_resolve_accept_both_single_conflict() {
+        let content = "\
+before conflict
+<<<<<<< HEAD
+local version line 1
+local version line 2
+=======
+remote version line 1
+remote version line 2
+>>>>>>> origin/crosslink/knowledge
+after conflict
+";
+        let resolved = resolve_accept_both(content);
+
+        assert!(!has_conflict_markers(&resolved));
+        assert!(resolved.contains("before conflict"));
+        assert!(resolved.contains("after conflict"));
+        assert!(resolved.contains("local version line 1"));
+        assert!(resolved.contains("local version line 2"));
+        assert!(resolved.contains("remote version line 1"));
+        assert!(resolved.contains("remote version line 2"));
+        assert!(
+            resolved.contains("<!-- MERGE CONFLICT: Both versions kept. Cleanup recommended. -->")
+        );
+        // Both versions should be separated by horizontal rules
+        assert!(resolved.contains("---\n"));
+    }
+
+    #[test]
+    fn test_resolve_accept_both_multiple_conflicts() {
+        let content = "\
+# Header
+<<<<<<< HEAD
+first local
+=======
+first remote
+>>>>>>> branch
+middle content
+<<<<<<< HEAD
+second local
+=======
+second remote
+>>>>>>> branch
+footer
+";
+        let resolved = resolve_accept_both(content);
+
+        assert!(!has_conflict_markers(&resolved));
+        assert!(resolved.contains("# Header"));
+        assert!(resolved.contains("first local"));
+        assert!(resolved.contains("first remote"));
+        assert!(resolved.contains("middle content"));
+        assert!(resolved.contains("second local"));
+        assert!(resolved.contains("second remote"));
+        assert!(resolved.contains("footer"));
+        // Should have two conflict comments
+        assert_eq!(resolved.matches("<!-- MERGE CONFLICT:").count(), 2);
+    }
+
+    #[test]
+    fn test_resolve_accept_both_no_conflicts() {
+        let content = "# Normal content\n\nNo conflicts.\n";
+        let resolved = resolve_accept_both(content);
+        assert_eq!(resolved, content);
+    }
+
+    #[test]
+    fn test_resolve_accept_both_preserves_frontmatter() {
+        let content = "\
+---
+title: Test Page
+tags: [rust]
+sources: []
+contributors: [alice]
+created: 2026-01-01
+updated: 2026-01-01
+---
+
+<<<<<<< HEAD
+Local section content
+=======
+Remote section content
+>>>>>>> origin/crosslink/knowledge
+";
+        let resolved = resolve_accept_both(content);
+
+        assert!(!has_conflict_markers(&resolved));
+        // Frontmatter should be intact
+        assert!(resolved.contains("title: Test Page"));
+        assert!(resolved.contains("tags: [rust]"));
+        // Both versions kept
+        assert!(resolved.contains("Local section content"));
+        assert!(resolved.contains("Remote section content"));
+    }
+
+    #[test]
+    fn test_resolve_accept_both_empty_sides() {
+        let content = "\
+<<<<<<< HEAD
+=======
+only remote
+>>>>>>> branch
+";
+        let resolved = resolve_accept_both(content);
+
+        assert!(!has_conflict_markers(&resolved));
+        assert!(resolved.contains("only remote"));
+        assert!(resolved.contains("<!-- MERGE CONFLICT:"));
+    }
+
+    #[test]
+    fn test_resolve_conflicts_in_cache() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        let cache_dir = crosslink_dir.join(KNOWLEDGE_CACHE_DIR);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        let manager = KnowledgeManager::new(&crosslink_dir).unwrap();
+
+        // Write a file with conflict markers
+        let conflicted =
+            "---\ntitle: Test\n---\n\n<<<<<<< HEAD\nlocal\n=======\nremote\n>>>>>>> branch\n";
+        manager.write_page("conflicted", conflicted).unwrap();
+
+        // Write a clean file
+        let clean = "---\ntitle: Clean\n---\n\nNo conflicts.\n";
+        manager.write_page("clean", clean).unwrap();
+
+        let resolved = manager.resolve_conflicts_in_cache().unwrap();
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0], "conflicted");
+
+        // Verify the file was actually resolved
+        let content = manager.read_page("conflicted").unwrap();
+        assert!(!has_conflict_markers(&content));
+        assert!(content.contains("local"));
+        assert!(content.contains("remote"));
+
+        // Verify clean file was not touched
+        let clean_content = manager.read_page("clean").unwrap();
+        assert_eq!(clean_content, clean);
     }
 }

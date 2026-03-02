@@ -1,29 +1,25 @@
 name: Publish to crates.io
 
+# Release pipeline: validates release PRs (dry-run) and publishes on tag push.
+# PRs to main come from release/* or hotfix/* branches (git flow).
+# Tag pushes trigger the actual crates.io publish.
+#
+# NOTE: This workflow does NOT re-run CI. Branch protection on main requires
+# the CI check suite to pass before merge. By the time this runs, CI has
+# already passed on the PR branch. This avoids duplicate CI runs.
 on:
   push:
     tags:
       - 'v*'
   pull_request:
     branches: [main]
-    paths:
-      - 'crosslink/Cargo.toml'
-      - 'crosslink/Cargo.lock'
-      - 'crosslink/src/**'
-      - 'crosslink/build.rs'
-      - 'crosslink/resources/**'
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
-    name: CI
-    uses: ./.github/workflows/ci.yml
-
   dry-run:
     name: Publish Dry Run
-    needs: ci
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     defaults:
@@ -40,7 +36,6 @@ jobs:
 
   publish:
     name: Publish
-    needs: ci
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: cargo

@@ -39,6 +39,7 @@ fn main() {
     println!("cargo:rerun-if-changed=resources/crosslink/rules/elixir-phoenix.md");
     println!("cargo:rerun-if-changed=resources/crosslink/rules/web.md");
     println!("cargo:rerun-if-changed=resources/crosslink/rules/sanitize-patterns.txt");
+    println!("cargo:rerun-if-changed=resources/crosslink/rules/knowledge.md");
     println!("cargo:rerun-if-changed=resources/crosslink/rules/tracking-strict.md");
     println!("cargo:rerun-if-changed=resources/crosslink/rules/tracking-normal.md");
     println!("cargo:rerun-if-changed=resources/crosslink/rules/tracking-relaxed.md");
