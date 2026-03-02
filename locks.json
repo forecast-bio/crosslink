@@ -6,12 +6,6 @@
       "branch": null,
       "claimed_at": "2026-03-02T02:23:16.495170Z",
       "signed_by": "maxine-at-forecast--noether--fix-sessions-migration"
-    },
-    "53": {
-      "agent_id": "maxine-at-forecast--noether--improve-gitignore",
-      "branch": null,
-      "claimed_at": "2026-03-02T02:52:38.130586Z",
-      "signed_by": "maxine-at-forecast--noether--improve-gitignore"
     }
   },
   "settings": {
