@@ -2,11 +2,12 @@
   "uuid": "3aa74838-a313-4f19-ba7d-ce6caa17d8a3",
   "display_id": 112,
   "title": "Switch to develop and pull",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T23:35:41.474830Z",
-  "updated_at": "2026-03-02T23:35:43.602330Z",
+  "updated_at": "2026-03-02T23:36:12.894558Z",
+  "closed_at": "2026-03-02T23:36:12.894558Z",
   "labels": [
     "ops"
   ]
