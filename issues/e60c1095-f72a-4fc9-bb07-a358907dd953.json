@@ -2,11 +2,12 @@
   "uuid": "e60c1095-f72a-4fc9-bb07-a358907dd953",
   "display_id": 30,
   "title": "Kickoff agent for GH #63: knowledge page CRUD commands",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-28T22:54:55.719526Z",
-  "updated_at": "2026-03-02T08:53:15.143769Z",
+  "updated_at": "2026-03-02T08:53:17.166960Z",
+  "closed_at": "2026-03-02T08:53:17.166960Z",
   "labels": [
     "feature"
   ],
