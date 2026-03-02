@@ -6,7 +6,7 @@
   "priority": "high",
   "created_by": "m1--f5",
   "created_at": "2026-02-28T06:07:13.450506Z",
-  "updated_at": "2026-02-28T06:12:30.784482Z",
+  "updated_at": "2026-03-02T08:53:39.108862Z",
   "labels": [
     "feature"
   ],
@@ -17,6 +17,15 @@
       "content": "Implementing KnowledgeManager struct modeled after SyncManager in sync.rs. Key components: 1) KnowledgeManager struct with crosslink_dir, cache_dir, repo_root fields 2) init_cache() for orphan branch + worktree creation 3) sync()/push()/commit() for git operations 4) Frontmatter parsing (hand-rolled, no serde_yaml) 5) Page CRUD (list_pages, read_page, write_page) 6) Integration: add pub mod knowledge to lib.rs, add .knowledge-cache to .gitignore in init.rs",
       "created_at": "2026-02-28T06:12:30.784482Z",
       "kind": "note"
+    },
+    {
+      "id": 116,
+      "author": "maxine-at-forecast--noether",
+      "content": "Completed: PR #90 merged — KnowledgeManager implemented",
+      "created_at": "2026-03-02T08:53:39.108861Z",
+      "kind": "note",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzhnXG4P1SeshmCZSnQyGvOp9EBMwhbdPqeSVqQ6L9wPbjRJmUFtrWCWk61+dY1P9eZJzVe4Sznony6W18la/Bw=="
     }
   ]
 }
