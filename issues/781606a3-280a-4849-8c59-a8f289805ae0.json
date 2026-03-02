@@ -6,7 +6,7 @@
   "priority": "high",
   "created_by": "maxine-at-forecast--noether--tui-dashboard",
   "created_at": "2026-03-02T17:43:49.011037Z",
-  "updated_at": "2026-03-02T17:52:31.891161Z",
+  "updated_at": "2026-03-02T20:49:46.121331Z",
   "labels": [
     "bugfix"
   ],
@@ -17,6 +17,13 @@
       "content": "Adversarial review of TUI (all 5 phases). Consolidated findings:\n\nCRITICAL (2):\n- C1: Terminal not restored on error paths — if App::new(), terminal.draw(), or event::read() returns Err, cleanup is skipped. Terminal left in raw mode. Fix: RAII guard struct.\n- C2: truncate_str/truncate panics on multi-byte UTF-8 — uses byte indexing `&s[..n]`. Any non-ASCII agent ID or branch name crashes TUI. Fix: use char_indices().\n\nHIGH (4):\n- H1: Blocking network I/O (sync.fetch()) freezes TUI on slow/offline networks (agents_tab, knowledge_tab).\n- H2: IssuesTab opens a new DB connection on every keystroke, even arrow navigation.\n- H3: event_scroll u16 truncation silently wraps for >65K events in config_tab.\n- H4: Panic hook never restored after run() returns; calling run() twice chains hooks.\n\nMEDIUM (7):\n- M1: Unbounded scroll in all detail views — can scroll past content into blank space.\n- M2: 'q' quits from issue detail view with no confirmation.\n- M3: Clipboard copy (y key) gives no feedback — result silently ignored.\n- M4: Detail Esc always returns to List, not Tree view.\n- M5: Mouse tab-bar click uses byte len() not display width; border clicks trigger switch.\n- M6: Flash message cleared on any mouse event including hover.\n- M7: build_tree_recursive has no depth limit or cycle detection.\n\nLOW (8):\n- L1: Inconsistent on_enter refresh across tabs.\n- L2: Status bar r:Refresh hint without global binding.\n- L3: Unused content_area field.\n- L4: Help overlay has no scroll support.\n- L5: Tag filter cycles by index not name (loses position on refresh).\n- L6: Negative time display for future timestamps.\n- L7: Missing y:Copy hints in detail view footers.\n\nNIT (5): Duplicate truncate/format_relative_time helpers, SyncManager created twice per config refresh, dead PlaceholderTab, hardcoded tab count range.\n\nRecommended fix priority: C1 (terminal guard), C2 (UTF-8 safe truncation), H4 (panic hook restore), M3 (clipboard feedback).",
       "created_at": "2026-03-02T17:52:31.891161Z",
       "kind": "note"
+    },
+    {
+      "id": 188,
+      "author": "maxine-at-forecast--noether--tui-dashboard",
+      "content": "Fixed ADR findings:\n\nCRITICAL: C1 (RAII terminal guard), C2 (UTF-8 safe truncation)\nHIGH: H2 (lazy DB open), H3 (event_scroll usize), H4 (panic hook restore)\nMEDIUM: M3 (clipboard flash feedback), M4 (detail Esc to prev view), M5 (tab click char width), M6 (flash only on click/scroll), M7 (tree depth limit)\nLOW: L4 (unused field), L7 (future timestamp), L8 (y:Copy hints)\n\nDeferred: H1 (async I/O), M1 (scroll clamping), M2 (q from detail), L1-L3/L5-L6 (minor consistency)\n\n123 tests pass, clippy clean, Cargo.lock regenerated.",
+      "created_at": "2026-03-02T20:49:46.121331Z",
+      "kind": "result"
     }
   ]
 }
