@@ -1,0 +1,10 @@
+{
+  "uuid": "7cb60eb2-0415-4dac-8cfd-a35b46b45b98",
+  "display_id": 68,
+  "title": "Fix ci.yml missing workflow_call trigger for publish CD",
+  "status": "open",
+  "priority": "high",
+  "created_by": "maxine-at-forecast--noether",
+  "created_at": "2026-03-02T05:49:46.697741Z",
+  "updated_at": "2026-03-02T05:49:46.697741Z"
+}
