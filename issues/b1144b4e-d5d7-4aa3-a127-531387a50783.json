@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T03:13:17.115736Z",
-  "updated_at": "2026-03-02T03:16:12.666149Z",
+  "updated_at": "2026-03-02T03:18:44.852951Z",
   "labels": [
     "feature"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: 1) Add missing .gitignore entries for .crosslink/rules/ and .mcp.json. 2) Update the managed section comments to reflect that rules are auto-generated, not project policy. 3) Run git rm --cached on all auto-generated files (hooks, mcp server, rules, integrations, .mcp.json). 4) Keep .claude/settings.json and .crosslink/hook-config.json tracked. 5) Verify files still exist on disk. 6) Run tests. 7) Commit.",
       "created_at": "2026-03-02T03:16:12.666149Z",
       "kind": "plan"
+    },
+    {
+      "id": 78,
+      "author": "maxine-at-forecast--noether--untrack-init-files",
+      "content": "Decision: Added .crosslink/rules/ and .mcp.json to .gitignore (they were missing). Updated comments to reflect rules are auto-generated from resource templates, not project policy. Only staged the git rm --cached deletions and .gitignore update — left hook-config.json reformatting out of scope.",
+      "created_at": "2026-03-02T03:18:44.852950Z",
+      "kind": "decision"
     }
   ]
 }
