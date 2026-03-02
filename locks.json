@@ -1,6 +1,12 @@
 {
   "version": 1,
   "locks": {
+    "113": {
+      "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
+      "branch": null,
+      "claimed_at": "2026-03-02T23:38:56.972082Z",
+      "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
+    },
     "98": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
