@@ -16,8 +16,8 @@ use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
 use crate::issue_file::{
-    read_counters, read_issue_file, read_milestone_file, write_counters, CommentEntry, Counters,
-    IssueFile, MilestoneEntry,
+    read_counters, read_issue_file, read_milestone_file, write_counters, CommentEntry, CommentFile,
+    Counters, IssueFile, MilestoneEntry,
 };
 use crate::sync::SyncManager;
 
@@ -133,6 +133,12 @@ impl SharedWriter {
         &self.agent.agent_id
     }
 
+    /// Check the current hub layout version.
+    fn layout_version(&self) -> u32 {
+        let meta_dir = self.sync.cache_path().join("meta");
+        crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1)
+    }
+
     /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
     ///
     /// Returns the assigned display ID.
@@ -155,6 +161,7 @@ impl SharedWriter {
             |writer| {
                 let (id, counters) = writer.claim_display_id(1)?;
                 display_id.set(id);
+                let is_v2 = writer.layout_version() >= 2;
                 let issue = IssueFile {
                     uuid,
                     display_id: Some(id),
@@ -175,8 +182,19 @@ impl SharedWriter {
                     time_entries: vec![],
                 };
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&uuid);
+                if is_v2 {
+                    // Ensure the comments subdirectory exists for v2 layout
+                    let comments_dir = writer
+                        .cache_dir
+                        .join("issues")
+                        .join(uuid.to_string())
+                        .join("comments");
+                    std::fs::create_dir_all(&comments_dir)
+                        .context("Failed to create v2 comments directory")?;
+                }
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: Some(counters),
                     use_git_rm: false,
                 })
@@ -218,6 +236,7 @@ impl SharedWriter {
             |writer| {
                 let (id, counters) = writer.claim_display_id(1)?;
                 display_id.set(id);
+                let is_v2 = writer.layout_version() >= 2;
                 let issue = IssueFile {
                     uuid,
                     display_id: Some(id),
@@ -238,8 +257,18 @@ impl SharedWriter {
                     time_entries: vec![],
                 };
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&uuid);
+                if is_v2 {
+                    let comments_dir = writer
+                        .cache_dir
+                        .join("issues")
+                        .join(uuid.to_string())
+                        .join("comments");
+                    std::fs::create_dir_all(&comments_dir)
+                        .context("Failed to create v2 comments directory")?;
+                }
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: Some(counters),
                     use_git_rm: false,
                 })
@@ -289,8 +318,9 @@ impl SharedWriter {
                 }
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -312,8 +342,9 @@ impl SharedWriter {
                 issue.closed_at = Some(now);
                 issue.updated_at = now;
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -334,8 +365,9 @@ impl SharedWriter {
                 issue.closed_at = None;
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -391,33 +423,62 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(display_id, db)?;
                 let mut counters = writer.read_counters()?;
                 let id = counters.next_comment_id;
                 counters.next_comment_id += 1;
                 comment_id.set(id);
 
                 let (signed_by, signature) = writer.sign_comment(&content_owned, &agent_id, id);
-                issue.comments.push(CommentEntry {
-                    id,
-                    author: agent_id.clone(),
-                    content: content_owned.clone(),
-                    created_at: Utc::now(),
-                    kind: kind_owned.clone(),
-                    trigger_type: None,
-                    intervention_context: None,
-                    driver_key_fingerprint: None,
-                    signed_by,
-                    signature,
-                });
-                issue.updated_at = Utc::now();
 
-                let json = serde_json::to_vec_pretty(&issue)?;
-                Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
-                    counters: Some(counters),
-                    use_git_rm: false,
-                })
+                if writer.layout_version() >= 2 {
+                    // V2: write a standalone comment file, don't modify the issue file
+                    let issue = writer.load_issue_by_id(display_id, db)?;
+                    let comment_uuid = Uuid::new_v4();
+                    let comment_file = CommentFile {
+                        uuid: comment_uuid,
+                        issue_uuid: issue.uuid,
+                        author: agent_id.clone(),
+                        content: content_owned.clone(),
+                        created_at: Utc::now(),
+                        kind: kind_owned.clone(),
+                        trigger_type: None,
+                        intervention_context: None,
+                        driver_key_fingerprint: None,
+                        signed_by,
+                        signature,
+                    };
+                    let json = serde_json::to_vec_pretty(&comment_file)?;
+                    let rel_path = format!("issues/{}/comments/{}.json", issue.uuid, comment_uuid);
+                    Ok(WriteSet {
+                        files: vec![(rel_path, json)],
+                        counters: Some(counters),
+                        use_git_rm: false,
+                    })
+                } else {
+                    // V1: append comment inline to the issue file
+                    let mut issue = writer.load_issue_by_id(display_id, db)?;
+                    issue.comments.push(CommentEntry {
+                        id,
+                        author: agent_id.clone(),
+                        content: content_owned.clone(),
+                        created_at: Utc::now(),
+                        kind: kind_owned.clone(),
+                        trigger_type: None,
+                        intervention_context: None,
+                        driver_key_fingerprint: None,
+                        signed_by,
+                        signature,
+                    });
+                    issue.updated_at = Utc::now();
+
+                    let json = serde_json::to_vec_pretty(&issue)?;
+                    let rel_path = writer.issue_rel_path(&issue.uuid);
+                    Ok(WriteSet {
+                        files: vec![(rel_path, json)],
+                        counters: Some(counters),
+                        use_git_rm: false,
+                    })
+                }
             },
             &format!("comment on issue #{}", display_id),
         )?;
@@ -445,33 +506,62 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(display_id, db)?;
                 let mut counters = writer.read_counters()?;
                 let id = counters.next_comment_id;
                 counters.next_comment_id += 1;
                 comment_id.set(id);
 
                 let (signed_by, signature) = writer.sign_comment(&content_owned, &agent_id, id);
-                issue.comments.push(CommentEntry {
-                    id,
-                    author: agent_id.clone(),
-                    content: content_owned.clone(),
-                    created_at: Utc::now(),
-                    kind: "intervention".to_string(),
-                    trigger_type: Some(trigger_owned.clone()),
-                    intervention_context: context_owned.clone(),
-                    driver_key_fingerprint: driver_fp_owned.clone(),
-                    signed_by,
-                    signature,
-                });
-                issue.updated_at = Utc::now();
 
-                let json = serde_json::to_vec_pretty(&issue)?;
-                Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
-                    counters: Some(counters),
-                    use_git_rm: false,
-                })
+                if writer.layout_version() >= 2 {
+                    // V2: write a standalone comment file
+                    let issue = writer.load_issue_by_id(display_id, db)?;
+                    let comment_uuid = Uuid::new_v4();
+                    let comment_file = CommentFile {
+                        uuid: comment_uuid,
+                        issue_uuid: issue.uuid,
+                        author: agent_id.clone(),
+                        content: content_owned.clone(),
+                        created_at: Utc::now(),
+                        kind: "intervention".to_string(),
+                        trigger_type: Some(trigger_owned.clone()),
+                        intervention_context: context_owned.clone(),
+                        driver_key_fingerprint: driver_fp_owned.clone(),
+                        signed_by,
+                        signature,
+                    };
+                    let json = serde_json::to_vec_pretty(&comment_file)?;
+                    let rel_path = format!("issues/{}/comments/{}.json", issue.uuid, comment_uuid);
+                    Ok(WriteSet {
+                        files: vec![(rel_path, json)],
+                        counters: Some(counters),
+                        use_git_rm: false,
+                    })
+                } else {
+                    // V1: append comment inline to the issue file
+                    let mut issue = writer.load_issue_by_id(display_id, db)?;
+                    issue.comments.push(CommentEntry {
+                        id,
+                        author: agent_id.clone(),
+                        content: content_owned.clone(),
+                        created_at: Utc::now(),
+                        kind: "intervention".to_string(),
+                        trigger_type: Some(trigger_owned.clone()),
+                        intervention_context: context_owned.clone(),
+                        driver_key_fingerprint: driver_fp_owned.clone(),
+                        signed_by,
+                        signature,
+                    });
+                    issue.updated_at = Utc::now();
+
+                    let json = serde_json::to_vec_pretty(&issue)?;
+                    let rel_path = writer.issue_rel_path(&issue.uuid);
+                    Ok(WriteSet {
+                        files: vec![(rel_path, json)],
+                        counters: Some(counters),
+                        use_git_rm: false,
+                    })
+                }
             },
             &format!("intervention on issue #{}", display_id),
         )?;
@@ -492,8 +582,9 @@ impl SharedWriter {
                     issue.updated_at = Utc::now();
                 }
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -517,8 +608,9 @@ impl SharedWriter {
                     issue.updated_at = Utc::now();
                 }
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -544,8 +636,9 @@ impl SharedWriter {
                     issue.updated_at = Utc::now();
                 }
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -569,8 +662,9 @@ impl SharedWriter {
                     issue.updated_at = Utc::now();
                 }
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -594,8 +688,9 @@ impl SharedWriter {
                     issue.updated_at = Utc::now();
                 }
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -619,8 +714,9 @@ impl SharedWriter {
                     issue.updated_at = Utc::now();
                 }
                 let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
                 Ok(WriteSet {
-                    files: vec![(format!("issues/{}.json", issue.uuid), json)],
+                    files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
                 })
@@ -975,6 +1071,8 @@ impl SharedWriter {
     }
 
     /// Find all issue files in the cache with `display_id: null` created by this agent.
+    ///
+    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
     fn find_offline_issues(&self) -> Result<Vec<IssueFile>> {
         let issues_dir = self.cache_dir.join("issues");
         let mut offline = Vec::new();
@@ -984,12 +1082,23 @@ impl SharedWriter {
         for entry in std::fs::read_dir(&issues_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
+            // V1: issues/{uuid}.json (flat file)
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(issue) = read_issue_file(&path) {
+                    if issue.display_id.is_none() && issue.created_by == self.agent.agent_id {
+                        offline.push(issue);
+                    }
+                }
             }
-            if let Ok(issue) = read_issue_file(&path) {
-                if issue.display_id.is_none() && issue.created_by == self.agent.agent_id {
-                    offline.push(issue);
+            // V2: issues/{uuid}/issue.json (directory per issue)
+            if path.is_dir() {
+                let issue_file = path.join("issue.json");
+                if issue_file.exists() {
+                    if let Ok(issue) = read_issue_file(&issue_file) {
+                        if issue.display_id.is_none() && issue.created_by == self.agent.agent_id {
+                            offline.push(issue);
+                        }
+                    }
                 }
             }
         }
@@ -1056,7 +1165,8 @@ impl SharedWriter {
         self.write_counters_to_cache(&counters)?;
 
         // Amend the local commit with the reverted files
-        self.git_in_cache(&["add", &format!("issues/{}.json", uuid)])?;
+        let rel_path = self.issue_rel_path(&uuid);
+        self.git_in_cache(&["add", &rel_path])?;
         self.git_in_cache(&["add", "meta/counters.json"])?;
         self.git_in_cache(&["commit", "--amend", "--no-edit"])?;
         Ok(())
@@ -1075,13 +1185,36 @@ impl SharedWriter {
     }
 
     /// Path to an issue JSON file in the cache.
+    ///
+    /// V1: `issues/{uuid}.json`
+    /// V2: `issues/{uuid}/issue.json`
     fn issue_path(&self, uuid: &Uuid) -> PathBuf {
-        self.cache_dir.join("issues").join(format!("{}.json", uuid))
+        if self.layout_version() >= 2 {
+            self.cache_dir
+                .join("issues")
+                .join(uuid.to_string())
+                .join("issue.json")
+        } else {
+            self.cache_dir.join("issues").join(format!("{}.json", uuid))
+        }
+    }
+
+    /// Relative path to an issue JSON file (for WriteSet entries and git staging).
+    ///
+    /// V1: `issues/{uuid}.json`
+    /// V2: `issues/{uuid}/issue.json`
+    fn issue_rel_path(&self, uuid: &Uuid) -> String {
+        if self.layout_version() >= 2 {
+            format!("issues/{}/issue.json", uuid)
+        } else {
+            format!("issues/{}.json", uuid)
+        }
     }
 
     /// Load an issue JSON file by its display ID.
     ///
     /// Scans the issues directory for a file matching the display ID.
+    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
     fn load_issue_by_display_id(&self, display_id: i64) -> Result<IssueFile> {
         let issues_dir = self.cache_dir.join("issues");
         for entry in std::fs::read_dir(&issues_dir)
@@ -1089,12 +1222,23 @@ impl SharedWriter {
         {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
+            // V1: issues/{uuid}.json (flat file)
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(issue) = read_issue_file(&path) {
+                    if issue.display_id == Some(display_id) {
+                        return Ok(issue);
+                    }
+                }
             }
-            if let Ok(issue) = read_issue_file(&path) {
-                if issue.display_id == Some(display_id) {
-                    return Ok(issue);
+            // V2: issues/{uuid}/issue.json (directory per issue)
+            if path.is_dir() {
+                let issue_file = path.join("issue.json");
+                if issue_file.exists() {
+                    if let Ok(issue) = read_issue_file(&issue_file) {
+                        if issue.display_id == Some(display_id) {
+                            return Ok(issue);
+                        }
+                    }
                 }
             }
         }
@@ -1448,5 +1592,126 @@ mod tests {
             }
         }
         bail!("Issue #{} not found", display_id)
+    }
+
+    #[test]
+    fn test_v1_issue_path_format() {
+        let uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
+        let path = format!("issues/{}.json", uuid);
+        assert_eq!(path, "issues/a1b2c3d4-e5f6-7890-abcd-ef1234567890.json");
+    }
+
+    #[test]
+    fn test_v2_issue_path_format() {
+        let uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
+        let path = format!("issues/{}/issue.json", uuid);
+        assert_eq!(
+            path,
+            "issues/a1b2c3d4-e5f6-7890-abcd-ef1234567890/issue.json"
+        );
+    }
+
+    #[test]
+    fn test_v2_comment_path_format() {
+        let issue_uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
+        let comment_uuid = Uuid::parse_str("11111111-2222-3333-4444-555555555555").unwrap();
+        let path = format!("issues/{}/comments/{}.json", issue_uuid, comment_uuid);
+        assert_eq!(
+            path,
+            "issues/a1b2c3d4-e5f6-7890-abcd-ef1234567890/comments/11111111-2222-3333-4444-555555555555.json"
+        );
+    }
+
+    #[test]
+    fn test_v2_scan_finds_issue_in_subdirectory() {
+        let dir = tempdir().unwrap();
+        let issues_dir = dir.path().join("issues");
+
+        // Create a v2-style issue directory
+        let issue = make_issue(7, "V2 Issue");
+        let issue_subdir = issues_dir.join(issue.uuid.to_string());
+        std::fs::create_dir_all(issue_subdir.join("comments")).unwrap();
+        write_issue_file(&issue_subdir.join("issue.json"), &issue).unwrap();
+
+        // The v2 scan should find it
+        let mut found = false;
+        for entry in std::fs::read_dir(&issues_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                let issue_file = path.join("issue.json");
+                if issue_file.exists() {
+                    if let Ok(loaded) = read_issue_file(&issue_file) {
+                        if loaded.display_id == Some(7) {
+                            assert_eq!(loaded.title, "V2 Issue");
+                            found = true;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(found, "v2 issue not found in subdirectory scan");
+    }
+
+    #[test]
+    fn test_v2_comment_file_construction() {
+        use crate::issue_file::CommentFile;
+
+        let issue_uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
+        let comment_uuid = Uuid::new_v4();
+        let comment = CommentFile {
+            uuid: comment_uuid,
+            issue_uuid,
+            author: "test-agent".to_string(),
+            content: "A standalone comment".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+
+        let json = serde_json::to_string_pretty(&comment).unwrap();
+        let parsed: CommentFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.uuid, comment_uuid);
+        assert_eq!(parsed.issue_uuid, issue_uuid);
+        assert_eq!(parsed.content, "A standalone comment");
+        assert_eq!(parsed.kind, "note");
+    }
+
+    #[test]
+    fn test_v2_intervention_comment_file_construction() {
+        use crate::issue_file::CommentFile;
+
+        let issue_uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
+        let comment_uuid = Uuid::new_v4();
+        let comment = CommentFile {
+            uuid: comment_uuid,
+            issue_uuid,
+            author: "test-agent".to_string(),
+            content: "Driver intervention".to_string(),
+            created_at: Utc::now(),
+            kind: "intervention".to_string(),
+            trigger_type: Some("redirect".to_string()),
+            intervention_context: Some("User redirected task".to_string()),
+            driver_key_fingerprint: Some("SHA256:abc123".to_string()),
+            signed_by: None,
+            signature: None,
+        };
+
+        let json = serde_json::to_string_pretty(&comment).unwrap();
+        let parsed: CommentFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.kind, "intervention");
+        assert_eq!(parsed.trigger_type, Some("redirect".to_string()));
+        assert_eq!(
+            parsed.intervention_context,
+            Some("User redirected task".to_string())
+        );
+        assert_eq!(
+            parsed.driver_key_fingerprint,
+            Some("SHA256:abc123".to_string())
+        );
     }
 }

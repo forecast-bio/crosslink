@@ -266,6 +266,136 @@ pub fn read_all_milestone_files(
     Ok(entries)
 }
 
+/// A standalone comment file for the v2 hub layout.
+///
+/// Stored at `issues/{issue-uuid}/comments/{comment-uuid}.json`.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentFile {
+    pub uuid: Uuid,
+    pub issue_uuid: Uuid,
+    pub author: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intervention_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver_key_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+}
+
+/// A per-issue lock file for the v2 hub layout.
+///
+/// Stored at `locks/{display-id}.json`.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockFileV2 {
+    pub issue_id: i64,
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    pub claimed_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_by: Option<String>,
+}
+
+/// Layout version marker stored at `meta/version.json`.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutVersion {
+    pub layout_version: u32,
+}
+
+/// The current hub directory layout version.
+#[allow(dead_code)]
+pub const CURRENT_LAYOUT_VERSION: u32 = 2;
+
+/// Read a single comment file from disk.
+#[allow(dead_code)]
+pub fn read_comment_file(path: &std::path::Path) -> anyhow::Result<CommentFile> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read comment file: {}", path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse comment file: {}", path.display()))
+}
+
+/// Write a comment file to disk (pretty-printed JSON).
+/// Uses atomic write (temp file + rename) to prevent corruption from interrupted writes.
+#[allow(dead_code)]
+pub fn write_comment_file(path: &std::path::Path, comment: &CommentFile) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(comment)?;
+    crate::utils::atomic_write(path, content.as_bytes())
+}
+
+/// Read all comment files from a directory, sorted by `(created_at, author, uuid)`.
+#[allow(dead_code)]
+pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<CommentFile>> {
+    let mut comments = Vec::new();
+    if !comments_dir.exists() {
+        return Ok(comments);
+    }
+    for entry in std::fs::read_dir(comments_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            match read_comment_file(&path) {
+                Ok(comment) => comments.push(comment),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: skipping malformed comment file {}: {e}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    comments.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then_with(|| a.author.cmp(&b.author))
+            .then_with(|| a.uuid.cmp(&b.uuid))
+    });
+    Ok(comments)
+}
+
+/// Read the layout version from `meta/version.json`.
+///
+/// Returns `1` if the file is absent, indicating a v1 (flat-file) layout.
+#[allow(dead_code)]
+pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
+    let path = meta_dir.join("version.json");
+    if !path.exists() {
+        return Ok(1);
+    }
+    let content = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read layout version: {}", path.display()))?;
+    let version: LayoutVersion = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse layout version: {}", path.display()))?;
+    Ok(version.layout_version)
+}
+
+/// Write the layout version to `meta/version.json`.
+#[allow(dead_code)]
+pub fn write_layout_version(meta_dir: &std::path::Path, version: u32) -> anyhow::Result<()> {
+    std::fs::create_dir_all(meta_dir)?;
+    let path = meta_dir.join("version.json");
+    let layout = LayoutVersion {
+        layout_version: version,
+    };
+    let content = serde_json::to_string_pretty(&layout)?;
+    std::fs::write(&path, content)
+        .with_context(|| format!("Failed to write layout version: {}", path.display()))
+}
+
 use anyhow::Context;
 
 #[cfg(test)]
@@ -577,5 +707,282 @@ mod tests {
         // Dir doesn't exist
         let loaded = read_all_milestone_files(&ms_dir).unwrap();
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_comment_file_roundtrip() {
+        let comment = CommentFile {
+            uuid: Uuid::new_v4(),
+            issue_uuid: Uuid::new_v4(),
+            author: "worker-1".to_string(),
+            content: "This is a comment".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: Some("redirect".to_string()),
+            intervention_context: None,
+            driver_key_fingerprint: Some("SHA256:abc123".to_string()),
+            signed_by: Some("SHA256:def456".to_string()),
+            signature: Some("base64sig==".to_string()),
+        };
+
+        let json = serde_json::to_string_pretty(&comment).unwrap();
+        let parsed: CommentFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(comment.uuid, parsed.uuid);
+        assert_eq!(comment.issue_uuid, parsed.issue_uuid);
+        assert_eq!(comment.author, parsed.author);
+        assert_eq!(comment.content, parsed.content);
+        assert_eq!(comment.kind, parsed.kind);
+        assert_eq!(comment.trigger_type, parsed.trigger_type);
+        assert_eq!(comment.intervention_context, parsed.intervention_context);
+        assert_eq!(
+            comment.driver_key_fingerprint,
+            parsed.driver_key_fingerprint
+        );
+        assert_eq!(comment.signed_by, parsed.signed_by);
+        assert_eq!(comment.signature, parsed.signature);
+    }
+
+    #[test]
+    fn test_comment_file_optional_fields_omitted() {
+        let comment = CommentFile {
+            uuid: Uuid::new_v4(),
+            issue_uuid: Uuid::new_v4(),
+            author: "worker-1".to_string(),
+            content: "Minimal comment".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+
+        let json = serde_json::to_string(&comment).unwrap();
+        // None fields should be omitted from the JSON
+        assert!(!json.contains("trigger_type"));
+        assert!(!json.contains("intervention_context"));
+        assert!(!json.contains("driver_key_fingerprint"));
+        assert!(!json.contains("signed_by"));
+        assert!(!json.contains("signature"));
+    }
+
+    #[test]
+    fn test_lock_file_v2_roundtrip() {
+        let lock = LockFileV2 {
+            issue_id: 42,
+            agent_id: "worker-1".to_string(),
+            branch: Some("feature/hub-layout".to_string()),
+            claimed_at: Utc::now(),
+            signed_by: Some("SHA256:abc123".to_string()),
+        };
+
+        let json = serde_json::to_string_pretty(&lock).unwrap();
+        let parsed: LockFileV2 = serde_json::from_str(&json).unwrap();
+        assert_eq!(lock.issue_id, parsed.issue_id);
+        assert_eq!(lock.agent_id, parsed.agent_id);
+        assert_eq!(lock.branch, parsed.branch);
+        assert_eq!(lock.signed_by, parsed.signed_by);
+    }
+
+    #[test]
+    fn test_lock_file_v2_optional_fields_omitted() {
+        let lock = LockFileV2 {
+            issue_id: 1,
+            agent_id: "worker-2".to_string(),
+            branch: None,
+            claimed_at: Utc::now(),
+            signed_by: None,
+        };
+
+        let json = serde_json::to_string(&lock).unwrap();
+        assert!(!json.contains("branch"));
+        assert!(!json.contains("signed_by"));
+    }
+
+    #[test]
+    fn test_layout_version_roundtrip() {
+        let version = LayoutVersion { layout_version: 2 };
+
+        let json = serde_json::to_string_pretty(&version).unwrap();
+        let parsed: LayoutVersion = serde_json::from_str(&json).unwrap();
+        assert_eq!(version.layout_version, parsed.layout_version);
+    }
+
+    #[test]
+    fn test_current_layout_version_constant() {
+        assert_eq!(CURRENT_LAYOUT_VERSION, 2);
+    }
+
+    #[test]
+    fn test_read_write_comment_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("comments").join("test-comment.json");
+
+        let comment = CommentFile {
+            uuid: Uuid::new_v4(),
+            issue_uuid: Uuid::new_v4(),
+            author: "worker-1".to_string(),
+            content: "Test comment content".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+
+        write_comment_file(&path, &comment).unwrap();
+        let loaded = read_comment_file(&path).unwrap();
+        assert_eq!(comment.uuid, loaded.uuid);
+        assert_eq!(comment.issue_uuid, loaded.issue_uuid);
+        assert_eq!(comment.content, loaded.content);
+    }
+
+    #[test]
+    fn test_read_comment_files_sorted() {
+        let dir = tempfile::tempdir().unwrap();
+        let comments_dir = dir.path().join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+
+        let now = Utc::now();
+
+        // Create comments with different timestamps, authors, and UUIDs
+        // to verify the sort order: (created_at, author, uuid)
+        let uuid_a = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let uuid_b = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
+        let uuid_c = Uuid::parse_str("00000000-0000-0000-0000-000000000003").unwrap();
+
+        let issue_uuid = Uuid::new_v4();
+
+        // Comment 3: newest timestamp
+        let c3 = CommentFile {
+            uuid: uuid_c,
+            issue_uuid,
+            author: "alice".to_string(),
+            content: "Third".to_string(),
+            created_at: now + chrono::Duration::seconds(2),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+
+        // Comment 1: oldest timestamp
+        let c1 = CommentFile {
+            uuid: uuid_a,
+            issue_uuid,
+            author: "alice".to_string(),
+            content: "First".to_string(),
+            created_at: now,
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+
+        // Comment 2: same timestamp as c1, different author (bob > alice)
+        let c2 = CommentFile {
+            uuid: uuid_b,
+            issue_uuid,
+            author: "bob".to_string(),
+            content: "Second".to_string(),
+            created_at: now,
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+
+        // Write in non-sorted order
+        write_comment_file(&comments_dir.join(format!("{}.json", c3.uuid)), &c3).unwrap();
+        write_comment_file(&comments_dir.join(format!("{}.json", c1.uuid)), &c1).unwrap();
+        write_comment_file(&comments_dir.join(format!("{}.json", c2.uuid)), &c2).unwrap();
+
+        let loaded = read_comment_files(&comments_dir).unwrap();
+        assert_eq!(loaded.len(), 3);
+        // Sorted by (created_at, author, uuid): c1 (oldest, alice), c2 (oldest, bob), c3 (newest)
+        assert_eq!(loaded[0].content, "First");
+        assert_eq!(loaded[1].content, "Second");
+        assert_eq!(loaded[2].content, "Third");
+    }
+
+    #[test]
+    fn test_read_comment_files_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let comments_dir = dir.path().join("comments");
+        // Dir doesn't exist
+        let loaded = read_comment_files(&comments_dir).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_read_comment_files_skips_malformed() {
+        let dir = tempfile::tempdir().unwrap();
+        let comments_dir = dir.path().join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+
+        // Write a valid comment file
+        let comment = CommentFile {
+            uuid: Uuid::new_v4(),
+            issue_uuid: Uuid::new_v4(),
+            author: "worker-1".to_string(),
+            content: "Valid".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+        write_comment_file(&comments_dir.join("valid.json"), &comment).unwrap();
+
+        // Write a malformed file
+        std::fs::write(comments_dir.join("bad.json"), "not valid json").unwrap();
+
+        let loaded = read_comment_files(&comments_dir).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].content, "Valid");
+    }
+
+    #[test]
+    fn test_read_layout_version_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta_dir = dir.path().join("meta");
+        // meta dir doesn't exist, should return 1
+        let version = read_layout_version(&meta_dir).unwrap();
+        assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn test_write_read_layout_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta_dir = dir.path().join("meta");
+
+        write_layout_version(&meta_dir, CURRENT_LAYOUT_VERSION).unwrap();
+        let version = read_layout_version(&meta_dir).unwrap();
+        assert_eq!(version, CURRENT_LAYOUT_VERSION);
+    }
+
+    #[test]
+    fn test_write_read_layout_version_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta_dir = dir.path().join("meta");
+
+        // Write version 2
+        write_layout_version(&meta_dir, 2).unwrap();
+        assert_eq!(read_layout_version(&meta_dir).unwrap(), 2);
+
+        // Overwrite with version 3
+        write_layout_version(&meta_dir, 3).unwrap();
+        assert_eq!(read_layout_version(&meta_dir).unwrap(), 3);
     }
 }
