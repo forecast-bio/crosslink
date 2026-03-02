@@ -192,7 +192,7 @@ fn run_install_command(program: &str, args: &[&str]) -> Result<bool> {
 /// If `signing_key` is provided, uses that path. Otherwise checks for an
 /// existing git signing key, then falls back to common SSH key locations.
 /// Stores the driver's public key at `.crosslink/driver-key.pub`.
-fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>) -> Result<()> {
+fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>, ui: &InitUI) -> Result<()> {
     use crate::signing;
 
     let crosslink_dir = project_root.join(".crosslink");
@@ -200,29 +200,30 @@ fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>) -> Resul
 
     // If driver key already configured and not forcing, skip
     if driver_pub_path.exists() {
+        ui.step_start("Configuring signing");
+        ui.step_ok(Some("already configured"));
         return Ok(());
     }
 
     // Find the key to use
     let pubkey_path = if let Some(key_path) = signing_key {
-        // Explicit --signing-key flag
         let p = std::path::PathBuf::from(key_path);
         if !p.exists() {
-            println!("Warning: Signing key not found at {}", key_path);
+            ui.warn(&format!("Signing key not found at {}", key_path));
             return Ok(());
         }
         Some(p)
     } else {
-        // Try git's configured signing key first, then default SSH keys
         signing::find_git_signing_key().or_else(signing::find_default_ssh_key)
     };
 
     let pubkey_path = match pubkey_path {
         Some(p) => p,
         None => {
-            println!("No SSH key found. Signing setup skipped.");
-            println!("  Generate one with: ssh-keygen -t ed25519");
-            println!("  Then re-run: crosslink init --force");
+            ui.step_start("Configuring signing");
+            ui.step_ok(Some("skipped"));
+            ui.detail("No SSH key found. Generate one with: ssh-keygen -t ed25519");
+            ui.detail("Then re-run: crosslink init --force");
             return Ok(());
         }
     };
@@ -239,15 +240,14 @@ fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>) -> Resul
         pubkey_path
     };
 
+    ui.step_start("Configuring signing");
     match signing::read_public_key(&pubkey_path) {
         Ok(public_key) => {
-            // Copy driver public key into .crosslink/
             fs::write(&driver_pub_path, &public_key).context("Failed to write driver-key.pub")?;
 
-            // Get fingerprint for display
             match signing::get_key_fingerprint(&pubkey_path) {
-                Ok(fp) => println!("Driver signing key: {} ({})", fp, pubkey_path.display()),
-                Err(_) => println!("Driver signing key: {}", pubkey_path.display()),
+                Ok(fp) => ui.step_ok(Some(&fp)),
+                Err(_) => ui.step_ok(Some(&pubkey_path.display().to_string())),
             }
 
             // NOTE: We intentionally do NOT call configure_git_ssh_signing()
@@ -257,11 +257,11 @@ fn setup_driver_signing(project_root: &Path, signing_key: Option<&str>) -> Resul
             // up separately in sync.rs.
         }
         Err(_) => {
-            println!(
-                "Warning: {} does not appear to be an SSH public key",
+            ui.step_ok(Some("skipped"));
+            ui.warn(&format!(
+                "{} does not appear to be an SSH public key",
                 pubkey_path.display()
-            );
-            println!("  Signing setup skipped.");
+            ));
         }
     }
 
@@ -1326,9 +1326,7 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
 
     // Driver SSH key detection and setup
     if !skip_signing {
-        ui.step_start("Configuring signing");
-        setup_driver_signing(path, signing_key)?;
-        ui.step_ok(None);
+        setup_driver_signing(path, signing_key, &ui)?;
     }
 
     ui.success();
