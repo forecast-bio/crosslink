@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "m1--f4",
   "created_at": "2026-02-28T05:40:27.911338Z",
-  "updated_at": "2026-02-28T20:36:47.650580Z",
+  "updated_at": "2026-03-02T08:53:46.029583Z",
   "labels": [
     "fix"
   ],
@@ -17,6 +17,15 @@
       "content": "GH #60: crosslink quick creates issue and sets active work item but does NOT claim a lock. Need to add auto-claim lock logic (from session.rs lines 152-165) into create.rs in both run() and run_subissue() functions, after enforce_lock and before set_session_issue.",
       "created_at": "2026-02-28T05:40:56.536529Z",
       "kind": "note"
+    },
+    {
+      "id": 118,
+      "author": "maxine-at-forecast--noether",
+      "content": "Completed: PR #83 merged — quick command now claims lock",
+      "created_at": "2026-03-02T08:53:46.029582Z",
+      "kind": "note",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABArXdLi4lhfELP2ZgiEaThX9CQxVDHWwObq8iYEyvJqRB2cz2tuKK/h9qhmTOJ/Eemj1/5S/G0aRjEKW483fClBw=="
     }
   ]
 }
