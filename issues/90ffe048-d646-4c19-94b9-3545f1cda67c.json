@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T10:50:29.612491Z",
-  "updated_at": "2026-03-02T10:50:31.422933Z",
+  "updated_at": "2026-03-02T10:51:01.840278Z",
   "labels": [
     "ops"
+  ],
+  "comments": [
+    {
+      "id": 176,
+      "author": "maxine-at-forecast--noether--ci-cd-restructure",
+      "content": "Added hotfix/* ruleset: CI required (Lint + Tests x2), no force push, no deletion. Matches release/* rules.",
+      "created_at": "2026-03-02T10:51:01.840278Z",
+      "kind": "handoff"
+    }
   ]
 }
