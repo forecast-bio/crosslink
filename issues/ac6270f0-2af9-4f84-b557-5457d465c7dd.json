@@ -7,8 +7,17 @@
   "priority": "high",
   "created_by": "maxine-at-forecast--noether--tui-dashboard",
   "created_at": "2026-03-02T17:42:13.939895Z",
-  "updated_at": "2026-03-02T17:42:16.122266Z",
+  "updated_at": "2026-03-02T17:42:29.296187Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 180,
+      "author": "maxine-at-forecast--noether--tui-dashboard",
+      "content": "[plan] Implementing Phase 1 TUI dashboard with ratatui 0.30 + crossterm 0.29. Files: src/tui/mod.rs (Tab trait, App struct, event loop), src/tui/issues_tab.rs (list+detail views with sort/filter/search), src/tui/tabs.rs (PlaceholderTab), src/commands/tui.rs (CLI entry point).",
+      "created_at": "2026-03-02T17:42:29.296187Z",
+      "kind": "note"
+    }
   ]
 }
