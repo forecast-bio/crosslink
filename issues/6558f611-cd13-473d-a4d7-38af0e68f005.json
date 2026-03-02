@@ -1,0 +1,10 @@
+{
+  "uuid": "6558f611-cd13-473d-a4d7-38af0e68f005",
+  "display_id": 102,
+  "title": "Migrate TUI issues from crosslink/ subdir DB",
+  "status": "open",
+  "priority": "low",
+  "created_by": "maxine-at-forecast--noether--tui-dashboard",
+  "created_at": "2026-03-02T17:41:59.261068Z",
+  "updated_at": "2026-03-02T17:41:59.261068Z"
+}
