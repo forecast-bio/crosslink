@@ -1,29 +1,55 @@
 meta:
   name: Forecast
   link: https://forecast.bio
+  github: https://github.com/forecast-bio
 
 color:
   palette:
     white: "#FFFFFF"
-    neutral-pink: "#F9F4F5"
-    red: "#F95838"
-    blue: "#00A6DB"
+    black: "#000000"
+    neutral_pink_light: "#F9F4F5"
     green: "#007C35"
-    dark: "#1a1a2e"
-    gray: "#6c757d"
-  foreground: dark
-  background: neutral-pink
-  primary: red
-  secondary: blue
+    blue: "#00A6DB"
+    yellow: "#FFCE02"
+    red: "#F95838"
+    pink: "#FFB6C6"
+
+  foreground: black
+  background: neutral_pink_light
+  primary: neutral_pink_light
   success: green
+  warning: yellow
+  danger: red
+  light: neutral_pink_light
+  dark: black
 
 typography:
+  fonts:
+  #   - family: Open Sans
+  #     source: google
+    - family: IBM Plex Mono
+      source: google
+  #   - family: Rubik
+  #     source: google
   base:
-    family: 'Helvetica, Arial, sans-serif'
+    family: Helvetica
+    # line-height: 1.6
   headings:
-    family: 'Helvetica, Arial, sans-serif'
-    weight: 700
+    family: Helvetica
+    weight: normal
+  link:
+    color: blue
+  # TODO
   monospace:
-    family: '"IBM Plex Mono", "Fira Code", monospace'
-  monospace-inline:
-    family: '"IBM Plex Mono", "Fira Code", monospace'
+    family: IBM Plex Mono
+    size: 0.9em
+
+defaults:
+  bootstrap:
+#     # bootstrap variable definitions
+    link-decoration: none
+    rules: |
+      h2 {
+        font-family: "Times New Roman", "Times", sans-serif;
+        font-style: italic;
+      }

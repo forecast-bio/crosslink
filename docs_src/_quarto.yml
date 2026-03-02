@@ -53,6 +53,34 @@ format:
       - pandoc
       - brand
       - theme-light.scss
-    css: styles.css
+    css:
+      - styles.css
+      - assets/styles.css
     toc: true
-    toc-depth: 3
+    toc-location: right
+    include-in-header:
+    - text: |
+        <style>
+        .navbar-logo {
+          max-height: unset;
+          height: 18px;
+          margin-top: -1px;
+        }
+        .navbar-brand {
+          margin-top: -4px;
+        }
+        .navbar-brand.navbar-brand-logo {
+          margin-right: 0px;
+        }
+        .navbar-title {
+          color: #F95838;
+          font-size: 19pt;
+          font-family: 'Times New Roman';
+          font-style: italic;
+          letter-spacing: -0.6px;
+        }
+        </style>
+
+    code-copy: true
+    code-overflow: wrap
+    highlight-style: github

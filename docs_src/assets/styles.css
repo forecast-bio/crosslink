@@ -1,0 +1,119 @@
+/* Custom styles for atdata documentation */
+
+/* ===========================================
+   LIGHT THEME STYLES
+   =========================================== */
+
+/* Note: Quarto handles code block and callout styling.
+   Only add custom component styles here. */
+
+/* API reference styling */
+.api-signature {
+  font-family: monospace;
+  background-color: #e9ecef;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+/* Table styling */
+table {
+  width: 100%;
+}
+
+/* Sidebar adjustments */
+.sidebar-title {
+  font-weight: 600;
+}
+
+/* Hero section on index page */
+.hero {
+  text-align: center;
+  padding: 2rem 0;
+  margin-bottom: 2rem;
+}
+
+.hero h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.hero .tagline {
+  font-size: 1.25rem;
+  color: #6c757d;
+  margin-bottom: 1.5rem;
+}
+
+/* Feature cards */
+.feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  padding: 1.5rem;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+/* Installation box */
+.install-box {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+}
+
+.install-box code {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+/* ===========================================
+   DARK THEME STYLES
+   Only for custom components - let Quarto handle
+   standard elements (callouts, code blocks, tables)
+   =========================================== */
+
+/* API reference styling in dark mode */
+.quarto-dark .api-signature {
+  background-color: #2d2d2d;
+  border: 1px solid #444;
+}
+
+/* Feature cards in dark mode */
+.quarto-dark .feature-card {
+  background: #2d2d2d;
+  border-color: #444;
+}
+
+/* Hero tagline in dark mode */
+.quarto-dark .hero .tagline {
+  color: #adb5bd;
+}
+
+/* Install box in dark mode - cool cyan/teal gradient */
+.quarto-dark .install-box {
+  background: linear-gradient(135deg, #0d9488 0%, #0891b2 100%);
+}
+
+.quarto-dark .install-box code {
+  background: rgba(0, 0, 0, 0.3);
+  color: #e2e8f0;
+}
+
+/* Fix comment color in install-box code blocks */
+.quarto-dark .install-box .co,
+.quarto-dark .install-box .sourceCode .co {
+  color: #94a3b8;
+}
