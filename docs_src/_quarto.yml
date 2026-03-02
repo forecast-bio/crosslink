@@ -15,6 +15,7 @@ website:
         menu:
           - guides/session-workflow.qmd
           - guides/multi-agent.qmd
+          - guides/kickoff.qmd
           - guides/hooks.qmd
           - guides/tracking-modes.qmd
       - text: Reference
@@ -36,6 +37,7 @@ website:
       contents:
         - guides/session-workflow.qmd
         - guides/multi-agent.qmd
+        - guides/kickoff.qmd
         - guides/hooks.qmd
         - guides/tracking-modes.qmd
     - title: "Reference"
