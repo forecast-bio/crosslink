@@ -6,8 +6,17 @@
   "priority": "low",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T10:21:33.052491Z",
-  "updated_at": "2026-03-02T10:21:37.155146Z",
+  "updated_at": "2026-03-02T10:24:07.219119Z",
   "labels": [
     "ops"
+  ],
+  "comments": [
+    {
+      "id": 174,
+      "author": "maxine-at-forecast--noether--ci-cd-restructure",
+      "content": "Created GH issue #158 for knowledge MCP/skills. Commented on #61 referencing it.",
+      "created_at": "2026-03-02T10:24:07.219119Z",
+      "kind": "handoff"
+    }
   ]
 }
