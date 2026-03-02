@@ -584,6 +584,9 @@ enum AgentCommands {
         /// Skip SSH key generation
         #[arg(long)]
         no_key: bool,
+        /// Overwrite existing agent configuration
+        #[arg(long)]
+        force: bool,
     },
     /// Show current agent identity
     Status,
@@ -1324,9 +1327,14 @@ fn main() -> Result<()> {
                     agent_id,
                     description,
                     no_key,
-                } => {
-                    commands::agent::init(&crosslink_dir, &agent_id, description.as_deref(), no_key)
-                }
+                    force,
+                } => commands::agent::init(
+                    &crosslink_dir,
+                    &agent_id,
+                    description.as_deref(),
+                    no_key,
+                    force,
+                ),
                 AgentCommands::Status => commands::agent::status(&crosslink_dir),
             }
         }
