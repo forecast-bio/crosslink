@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--tui-dashboard",
   "created_at": "2026-03-02T09:08:11.204617Z",
-  "updated_at": "2026-03-02T09:20:50.004368Z",
+  "updated_at": "2026-03-02T09:20:57.866336Z",
   "labels": [
     "feature"
   ],
@@ -23,6 +23,13 @@
       "author": "maxine-at-forecast--noether--ci-cd-restructure",
       "content": "Decision: Removed build-release job from ci.yml and created separate release-builds.yml. Rationale: release binaries (3 platforms including Windows) are expensive and only needed for actual releases — no reason to build them on every PR to develop. This saves ~15 min of CI per develop PR.",
       "created_at": "2026-03-02T09:20:50.004367Z",
+      "kind": "decision"
+    },
+    {
+      "id": 160,
+      "author": "maxine-at-forecast--noether--ci-cd-restructure",
+      "content": "Decision: ci.yml triggers on push/PR to develop (not main). PRs to main are exclusively handled by publish.yml which calls ci.yml via workflow_call. This eliminates the duplicate CI run where both ci.yml and publish.yml would trigger on the same PR to main.",
+      "created_at": "2026-03-02T09:20:57.866335Z",
       "kind": "decision"
     }
   ]
