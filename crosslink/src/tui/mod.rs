@@ -1,5 +1,6 @@
 pub mod agents_tab;
 pub mod issues_tab;
+pub mod knowledge_tab;
 pub mod tabs;
 
 use crossterm::{
@@ -54,10 +55,14 @@ impl App {
         let db_path = crosslink_dir.join("issues.db");
         let issues_tab = issues_tab::IssuesTab::new(db, &db_path)?;
         let agents_tab = agents_tab::AgentsTab::new(crosslink_dir);
-        let mut tabs: Vec<Box<dyn Tab>> = vec![Box::new(issues_tab), Box::new(agents_tab)];
+        let knowledge_tab = knowledge_tab::KnowledgeTab::new(crosslink_dir);
+        let mut tabs: Vec<Box<dyn Tab>> = vec![
+            Box::new(issues_tab),
+            Box::new(agents_tab),
+            Box::new(knowledge_tab),
+        ];
 
         // Placeholder tabs for future phases
-        tabs.push(Box::new(tabs::PlaceholderTab::new("Knowledge", 3)));
         tabs.push(Box::new(tabs::PlaceholderTab::new("Milestones", 4)));
         tabs.push(Box::new(tabs::PlaceholderTab::new("Config", 5)));
 
@@ -252,6 +257,17 @@ impl App {
             Line::from("  Enter         View agent details"),
             Line::from("  v             Cycle view (Agents/Locks/Trust)"),
             Line::from("  r             Refresh data"),
+            Line::from("  Esc           Back to list"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Knowledge Tab",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from("  Up/Down / j/k Navigate pages"),
+            Line::from("  Enter         Read page"),
+            Line::from("  /             Search pages"),
+            Line::from("  t             Cycle tag filter"),
+            Line::from("  r             Refresh"),
             Line::from("  Esc           Back to list"),
             Line::from(""),
             Line::from(Span::styled(
