@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-02T02:23:55.565349Z",
-  "updated_at": "2026-03-02T02:30:45.382675Z",
+  "updated_at": "2026-03-02T02:39:00.717402Z",
   "labels": [
     "feature"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: Two changes needed in the resource templates (not init.rs itself, since templates are embedded via include_str!):\n\n1. **global.md** — Add a 'Blocked Actions' section documenting commands blocked by work-check.py (git push/merge/rebase/reset/etc.), gated commands (git commit requires active issue), and directing agents to ask the user for manual steps instead of attempting blocked commands. This goes into the rules that get injected into every agent's context.\n\n2. **kickoff.md** — Add lint/format check instructions to the agent prompt template. In step 8 (test suite), also include running the project's linter and formatter (cargo clippy/fmt, eslint, ruff, etc.) before committing. This ensures subagents always lint before marking work complete.\n\nKey files to modify:\n- crosslink/resources/crosslink/rules/global.md (blocked actions documentation)\n- crosslink/resources/claude/commands/kickoff.md (lint instructions in agent prompt)",
       "created_at": "2026-03-02T02:30:45.382675Z",
       "kind": "plan"
+    },
+    {
+      "id": 68,
+      "author": "maxine-at-forecast--noether--init-blocked-lint",
+      "content": "Result: Implemented both changes:\n\n1. global.md - Added 'Blocked Actions' subsection under Priority 1: Security documenting permanently blocked git commands (push/merge/rebase/reset/etc.), gated commands (commit requires active issue), and always-allowed read-only commands.\n\n2. kickoff.md - Three additions:\n   a. Blocked actions context block in the agent prompt (alongside worktree awareness)\n   b. Step 8b: lint/format check instructions with per-language examples (cargo clippy/fmt, eslint, ruff, go vet/gofmt)\n   c. Self-review checklist: added lint/formatter pass item\n\nAll 146 tests pass, clippy clean, fmt clean.",
+      "created_at": "2026-03-02T02:39:00.717401Z",
+      "kind": "result"
     }
   ]
 }
