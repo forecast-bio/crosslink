@@ -828,6 +828,8 @@ enum ConfigCommands {
 fn find_crosslink_dir() -> Result<PathBuf> {
     let mut current = env::current_dir()?;
 
+    // First, walk up from cwd looking for .crosslink (works in main repo)
+    let start = current.clone();
     loop {
         let candidate = current.join(".crosslink");
         if candidate.is_dir() {
@@ -835,9 +837,19 @@ fn find_crosslink_dir() -> Result<PathBuf> {
         }
 
         if !current.pop() {
-            bail!("Not a crosslink repository (or any parent). Run 'crosslink init' first.");
+            break;
         }
     }
+
+    // Not found — check if we're in a git worktree and look in the main repo root
+    if let Some(main_root) = utils::resolve_main_repo_root(&start) {
+        let candidate = main_root.join(".crosslink");
+        if candidate.is_dir() {
+            return Ok(candidate);
+        }
+    }
+
+    bail!("Not a crosslink repository (or any parent). Run 'crosslink init' first.");
 }
 
 fn get_db() -> Result<Database> {

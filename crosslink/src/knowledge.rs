@@ -3,6 +3,8 @@ use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::utils::resolve_main_repo_root;
+
 /// Directory name under .crosslink for the knowledge cache worktree.
 pub(crate) const KNOWLEDGE_CACHE_DIR: &str = ".knowledge-cache";
 
@@ -498,57 +500,6 @@ fn group_matches(indices: &[usize], context: usize) -> Vec<Vec<usize>> {
     }
 
     groups
-}
-
-/// Resolve the main repository root when running inside a git worktree.
-///
-/// This is the same logic used by `SyncManager` — if `git-common-dir` differs
-/// from `git-dir`, we're in a worktree and the main repo root is the parent
-/// of the common dir.
-fn resolve_main_repo_root(repo_root: &Path) -> Option<PathBuf> {
-    let repo_str = repo_root.to_string_lossy();
-
-    let common_output = Command::new("git")
-        .args(["-C", &repo_str, "rev-parse", "--git-common-dir"])
-        .output()
-        .ok()?;
-
-    let git_dir_output = Command::new("git")
-        .args(["-C", &repo_str, "rev-parse", "--git-dir"])
-        .output()
-        .ok()?;
-
-    if !common_output.status.success() || !git_dir_output.status.success() {
-        return None;
-    }
-
-    let common_raw = String::from_utf8_lossy(&common_output.stdout)
-        .trim()
-        .to_string();
-    let git_dir_raw = String::from_utf8_lossy(&git_dir_output.stdout)
-        .trim()
-        .to_string();
-
-    let common_path = if Path::new(&common_raw).is_absolute() {
-        PathBuf::from(&common_raw)
-    } else {
-        repo_root.join(&common_raw)
-    };
-
-    let git_dir_path = if Path::new(&git_dir_raw).is_absolute() {
-        PathBuf::from(&git_dir_raw)
-    } else {
-        repo_root.join(&git_dir_raw)
-    };
-
-    let common_canonical = common_path.canonicalize().unwrap_or(common_path);
-    let git_dir_canonical = git_dir_path.canonicalize().unwrap_or(git_dir_path);
-
-    if common_canonical != git_dir_canonical {
-        common_canonical.parent().map(|p| p.to_path_buf())
-    } else {
-        Some(repo_root.to_path_buf())
-    }
 }
 
 // --- Frontmatter parsing ---
@@ -1179,25 +1130,7 @@ updated: 2026-01-01
             .unwrap();
     }
 
-    #[test]
-    fn test_resolve_main_repo_root_not_a_repo() {
-        let dir = tempdir().unwrap();
-        let result = resolve_main_repo_root(dir.path());
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_resolve_main_repo_root_normal_repo() {
-        let dir = tempdir().unwrap();
-        init_git_repo(dir.path());
-
-        let result = resolve_main_repo_root(dir.path());
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().canonicalize().unwrap(),
-            dir.path().canonicalize().unwrap()
-        );
-    }
+    // resolve_main_repo_root tests are in utils::tests
 
     #[test]
     fn test_knowledge_manager_in_worktree_uses_main_cache() {

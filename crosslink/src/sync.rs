@@ -6,6 +6,7 @@ use std::process::Command;
 use crate::identity::AgentConfig;
 use crate::locks::{Heartbeat, Keyring, LocksFile};
 use crate::signing;
+use crate::utils::resolve_main_repo_root;
 
 /// Directory name under .crosslink for the hub cache worktree.
 pub(crate) const HUB_CACHE_DIR: &str = ".hub-cache";
@@ -777,63 +778,6 @@ impl SyncManager {
     }
 }
 
-/// Resolve the main repository root when running inside a git worktree.
-///
-/// Compares `git rev-parse --git-common-dir` with `--git-dir`. If they
-/// differ, we're in a worktree and the main repo root is the parent of
-/// `git-common-dir`. Returns `None` if not in a git repo or if git
-/// commands fail (e.g. in unit tests with plain temp directories).
-fn resolve_main_repo_root(repo_root: &Path) -> Option<PathBuf> {
-    let repo_str = repo_root.to_string_lossy();
-
-    let common_output = Command::new("git")
-        .args(["-C", &repo_str, "rev-parse", "--git-common-dir"])
-        .output()
-        .ok()?;
-
-    let git_dir_output = Command::new("git")
-        .args(["-C", &repo_str, "rev-parse", "--git-dir"])
-        .output()
-        .ok()?;
-
-    if !common_output.status.success() || !git_dir_output.status.success() {
-        return None;
-    }
-
-    let common_raw = String::from_utf8_lossy(&common_output.stdout)
-        .trim()
-        .to_string();
-    let git_dir_raw = String::from_utf8_lossy(&git_dir_output.stdout)
-        .trim()
-        .to_string();
-
-    // Resolve to absolute paths for reliable comparison
-    let common_path = if Path::new(&common_raw).is_absolute() {
-        PathBuf::from(&common_raw)
-    } else {
-        repo_root.join(&common_raw)
-    };
-
-    let git_dir_path = if Path::new(&git_dir_raw).is_absolute() {
-        PathBuf::from(&git_dir_raw)
-    } else {
-        repo_root.join(&git_dir_raw)
-    };
-
-    // Canonicalize to handle symlinks and ".." components
-    let common_canonical = common_path.canonicalize().unwrap_or(common_path);
-    let git_dir_canonical = git_dir_path.canonicalize().unwrap_or(git_dir_path);
-
-    if common_canonical != git_dir_canonical {
-        // We're in a worktree — git-common-dir points to the main .git directory.
-        // Its parent is the main repo root.
-        common_canonical.parent().map(|p| p.to_path_buf())
-    } else {
-        // Not in a worktree — use the given repo root as-is.
-        Some(repo_root.to_path_buf())
-    }
-}
-
 // parse_gpg_fingerprint has been moved to signing.rs
 
 #[cfg(test)]
@@ -1027,67 +971,7 @@ mod tests {
             .unwrap();
     }
 
-    #[test]
-    fn test_resolve_main_repo_root_not_a_repo() {
-        let dir = tempdir().unwrap();
-        // Plain directory, no git repo — should return None
-        let result = resolve_main_repo_root(dir.path());
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_resolve_main_repo_root_normal_repo() {
-        let dir = tempdir().unwrap();
-        init_git_repo(dir.path());
-
-        let result = resolve_main_repo_root(dir.path());
-        assert!(result.is_some());
-        // Canonicalize both sides for reliable comparison on macOS (/private/var/...)
-        assert_eq!(
-            result.unwrap().canonicalize().unwrap(),
-            dir.path().canonicalize().unwrap()
-        );
-    }
-
-    #[test]
-    fn test_resolve_main_repo_root_in_worktree() {
-        let dir = tempdir().unwrap();
-        let main_root = dir.path().join("main");
-        std::fs::create_dir_all(&main_root).unwrap();
-        init_git_repo(&main_root);
-
-        // Create a branch and worktree
-        Command::new("git")
-            .args([
-                "-C",
-                &main_root.to_string_lossy(),
-                "branch",
-                "feature/wt-test",
-            ])
-            .output()
-            .unwrap();
-
-        let wt_path = main_root.join(".worktrees").join("wt-test");
-        std::fs::create_dir_all(wt_path.parent().unwrap()).unwrap();
-        Command::new("git")
-            .args([
-                "-C",
-                &main_root.to_string_lossy(),
-                "worktree",
-                "add",
-                &wt_path.to_string_lossy(),
-                "feature/wt-test",
-            ])
-            .output()
-            .unwrap();
-
-        let result = resolve_main_repo_root(&wt_path);
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().canonicalize().unwrap(),
-            main_root.canonicalize().unwrap()
-        );
-    }
+    // resolve_main_repo_root tests are in utils::tests
 
     #[test]
     fn test_sync_manager_in_worktree_uses_main_hub_cache() {
