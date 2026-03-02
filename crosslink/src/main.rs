@@ -458,6 +458,86 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Manage container-based agent execution
+    Container {
+        #[command(subcommand)]
+        action: ContainerCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContainerCommands {
+    /// Build the crosslink agent container image
+    Build {
+        /// Rebuild from scratch (no cache)
+        #[arg(long)]
+        force: bool,
+        /// Image tag (default: latest)
+        #[arg(long)]
+        tag: Option<String>,
+        /// Path to a custom Dockerfile
+        #[arg(long)]
+        dockerfile: Option<String>,
+    },
+    /// Start a task container for a worktree
+    Start {
+        /// Path to the worktree directory
+        worktree: String,
+        /// Container name (default: derived from worktree slug)
+        #[arg(long)]
+        name: Option<String>,
+        /// Path to the prompt file (default: KICKOFF.md in worktree)
+        #[arg(long)]
+        prompt: Option<String>,
+        /// Crosslink issue ID being worked on
+        #[arg(long)]
+        issue: Option<i64>,
+        /// Memory limit (default: auto-detect from host)
+        #[arg(long)]
+        memory: Option<String>,
+    },
+    /// List running task containers
+    Ps,
+    /// Stream logs from a container
+    Logs {
+        /// Container name
+        name: String,
+        /// Follow log output
+        #[arg(short, long)]
+        follow: bool,
+        /// Number of lines to show (default: 100)
+        #[arg(long)]
+        tail: Option<u32>,
+    },
+    /// Stop a running container
+    Stop {
+        /// Container name
+        name: String,
+    },
+    /// Remove a stopped container
+    Rm {
+        /// Container name
+        name: String,
+    },
+    /// Stop and remove a container
+    Kill {
+        /// Container name
+        name: String,
+    },
+    /// Open a shell inside a running container
+    Shell {
+        /// Container name
+        name: String,
+    },
+    /// Snapshot a container as a cached image (preserves installed toolchains)
+    Snapshot {
+        /// Container name
+        name: String,
+        /// Image tag for the snapshot (default: cached)
+        #[arg(long)]
+        tag: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1520,6 +1600,41 @@ fn main() -> Result<()> {
             crate::hydration::hydrate_to_sqlite(&cache_dir, &db)?;
             Ok(())
         }
+
+        Commands::Container { action } => match action {
+            ContainerCommands::Build {
+                force,
+                tag,
+                dockerfile,
+            } => commands::container::build(force, tag.as_deref(), dockerfile.as_deref()),
+            ContainerCommands::Start {
+                worktree,
+                name,
+                prompt,
+                issue,
+                memory,
+            } => {
+                let path = std::path::PathBuf::from(&worktree);
+                commands::container::start(
+                    &path,
+                    name.as_deref(),
+                    prompt.as_deref(),
+                    issue,
+                    memory.as_deref(),
+                )
+            }
+            ContainerCommands::Ps => commands::container::ps(),
+            ContainerCommands::Logs { name, follow, tail } => {
+                commands::container::logs(&name, follow, tail)
+            }
+            ContainerCommands::Stop { name } => commands::container::stop(&name),
+            ContainerCommands::Rm { name } => commands::container::rm(&name),
+            ContainerCommands::Kill { name } => commands::container::kill(&name),
+            ContainerCommands::Shell { name } => commands::container::shell(&name),
+            ContainerCommands::Snapshot { name, tag } => {
+                commands::container::snapshot(&name, tag.as_deref())
+            }
+        },
 
         Commands::Style { command } => {
             let crosslink_dir = find_crosslink_dir()?;

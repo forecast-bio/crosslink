@@ -1,6 +1,6 @@
 ---
-allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(tmux *), Bash(cat *), Bash(mkdir *), Bash(which *), Bash(test *), Bash(head *), Bash(grep *), Bash(echo *), Read, Write, Skill
-description: Create a worktree and launch a background claude agent in tmux to implement a feature
+allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(tmux *), Bash(docker *), Bash(crosslink *), Bash(cat *), Bash(mkdir *), Bash(which *), Bash(test *), Bash(head *), Bash(grep *), Bash(echo *), Read, Write, Skill
+description: Create a worktree and launch a background claude agent (container or tmux) to implement a feature
 ---
 
 ## Context
@@ -9,6 +9,8 @@ description: Create a worktree and launch a background claude agent in tmux to i
 - Current branch: !`git branch --show-current`
 - Existing worktrees: !`git worktree list`
 - Working tree status: !`git status --short`
+- Docker available: !`docker info --format '{{.ID}}' 2>/dev/null || echo "not available"`
+- crosslink image: !`docker images crosslink-agent:latest --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || echo "not built"`
 - tmux available: !`which tmux`
 - gh available: !`which gh`
 - CLAUDE.md head: !`head -3 CLAUDE.md`
@@ -16,7 +18,7 @@ description: Create a worktree and launch a background claude agent in tmux to i
 
 ## Your task
 
-The user provides a feature description (e.g. "add batch retry logic") and optionally additional context, file references, or constraints. You will create an isolated worktree, then launch a background `claude` process in a tmux session to implement the feature autonomously.
+The user provides a feature description (e.g. "add batch retry logic") and optionally additional context, file references, or constraints. You will create an isolated worktree, then launch a background `claude` process to implement the feature autonomously.
 
 ### Arguments
 
@@ -26,15 +28,39 @@ The user may pass these flags after the feature description:
   - `local` (default): Local tests + self-review checklist only.
   - `ci`: Push branch, open draft PR, wait for CI to pass, fix failures.
   - `thorough`: Everything in `ci` plus a structured adversarial self-review using the `/ad` skill.
+- `--backend <mode>`: Controls execution backend.
+  - `auto` (default): Use Docker container if Docker is available and the `crosslink-agent` image is built. Fall back to tmux otherwise.
+  - `container`: Force Docker container mode. Abort if Docker is unavailable or the image isn't built.
+  - `tmux`: Force tmux mode (legacy behavior).
 - All other text is the feature description.
 
-**Parsing**: Split ARGUMENTS on whitespace. If `--verify` is found, consume the next token as the level (`local`, `ci`, or `thorough`). Everything else (before or after the flag) is the feature description. If `--verify` is not present, default to `local`.
+**Parsing**: Split ARGUMENTS on whitespace. If `--verify` is found, consume the next token as the level (`local`, `ci`, or `thorough`). If `--backend` is found, consume the next token as the mode (`auto`, `container`, or `tmux`). Everything else (before or after flags) is the feature description. Defaults: `--verify local`, `--backend auto`.
 
-### 1. Validate prerequisites
+### 1. Determine execution backend and validate prerequisites
 
-- Confirm `tmux` is installed (`which tmux`). If not, abort with a message telling the user to install it.
+Parse the `--backend` flag (default: `auto`).
+
+**If `auto`:**
+1. Check Docker: run `docker info` (succeeds = Docker available)
+2. Check image: run `docker images crosslink-agent:latest -q` (non-empty output = image built)
+3. Check crosslink CLI: run `which crosslink` (must be available for container mode)
+4. If all three pass → use **container** mode
+5. Otherwise, check `which tmux`. If available → use **tmux** mode
+6. If neither is available, abort: "Install Docker (and run `crosslink container build`) or install tmux."
+
+**If `container`:**
+- Verify Docker is available (`docker info`). If not → abort: "Docker is not available. Install Docker and ensure the daemon is running."
+- Verify image exists (`docker images crosslink-agent:latest -q`). If empty → abort: "Container image not built. Run `crosslink container build` first."
+- Verify `crosslink` CLI is available (`which crosslink`). If not → abort.
+
+**If `tmux`:**
+- Verify `tmux` is installed (`which tmux`). If not → abort: "tmux is not installed."
+
+**For all modes:**
 - Confirm `claude` CLI is installed (`which claude`). If not, abort.
-- If `--verify ci` or `--verify thorough`, confirm `gh` is installed (`which gh`). If not, abort with a message telling the user to install GitHub CLI.
+- If `--verify ci` or `--verify thorough`, confirm `gh` is installed (`which gh`). If not, abort.
+
+Print the chosen backend: `"Using <container|tmux> backend."`
 
 ### 2. Create the worktree via /featree
 
@@ -61,6 +87,9 @@ Build a detailed prompt for the child agent. The prompt must be self-contained �
 - The `--verify` level that was selected (so the prompt can reference it)
 - **Worktree awareness** (include this context block in the prompt):
   > You are running in a git worktree — an isolated working directory that shares git objects with the main repo. The `.crosslink/issues.db` is shared across all worktrees via the crosslink/hub branch. Other agents may be working concurrently in different worktrees. If you need to see the latest state from other agents, run `crosslink sync`.
+
+- **If container mode**, also include this context block:
+  > You are running inside a Docker container with `--dangerously-skip-permissions`. The container is the security boundary — crosslink hooks still enforce git policy (push, merge, reset are blocked). You can spawn sub-agents by running `claude --dangerously-skip-permissions` directly as background processes (no tmux or Docker needed inside the container). Each sub-agent should work in its own git worktree.
 
 - **Blocked actions** (include this context block in the prompt):
   > **Blocked actions**: The following commands are blocked by project policy and will be rejected. If you need one of these, ask the user to run it manually:
@@ -169,13 +198,36 @@ grep -qxF 'KICKOFF.md' "$common_dir/info/exclude" || echo "KICKOFF.md" >> "$comm
 grep -qxF '.kickoff-status' "$common_dir/info/exclude" || echo ".kickoff-status" >> "$common_dir/info/exclude"
 ```
 
-### 5. Derive the tmux session name
+### 5. Launch the agent
 
+#### If container mode:
+
+Run:
+
+```bash
+crosslink container start <worktree-path> --issue <issue-id>
+```
+
+That's it. `crosslink container start`:
+- Reads KICKOFF.md from the worktree automatically
+- Sets up all volume mounts (worktree, .git, hub cache, credentials)
+- Handles UID remapping, memory limits, git worktree fixups
+- Runs `claude --dangerously-skip-permissions --model opus -- <prompt>`
+- Writes the container ID to `<worktree>/.crosslink/container-id`
+
+The container name will be `crosslink-task-<slug>` (auto-derived from the worktree directory name).
+
+No tmux, no send-keys, no trust approval needed.
+
+#### If tmux mode:
+
+Derive the tmux session name:
 - Use the feature branch slug as the tmux session name (e.g. `feat-add-batch-retry-logic`).
 - Prefix with `feat-` and truncate to 50 characters if needed.
 - Replace any characters invalid for tmux session names (periods, colons) with hyphens.
+- If a tmux session with the same name already exists, append a short random suffix.
 
-### 6. Launch the tmux session
+Launch the session:
 
 ```bash
 tmux new-session -d -s <session-name> -c <worktree-path>
@@ -211,10 +263,29 @@ Concatenate all applicable tool groups into the comma-separated `--allowedTools`
 tmux send-keys -t <session-name> "env -u CLAUDECODE claude --model opus --allowedTools '<all-tools>' -- \"\$(cat KICKOFF.md)\"" Enter
 ```
 
-### 7. Report to user
+### 6. Report to user
+
+#### If container mode:
 
 ```
-Feature agent launched.
+Feature agent launched (container mode).
+
+  Worktree:   <path>
+  Branch:     feature/<slug>
+  Container:  crosslink-task-<slug>
+  Verify:     <local|ci|thorough>
+
+  Check status:    /check
+  View logs:       crosslink container logs crosslink-task-<slug>
+  Shell into:      crosslink container shell crosslink-task-<slug>
+
+  No trust approval needed — the container boundary replaces interactive trust.
+```
+
+#### If tmux mode:
+
+```
+Feature agent launched (tmux mode).
 
   Worktree: <path>
   Branch:   feature/<slug>
@@ -238,4 +309,5 @@ If `--verify ci` or `--verify thorough`, also include:
 - Do not push the branch to a remote from the kickoff skill itself. (The child agent handles pushing when `--verify ci` or `--verify thorough`.)
 - The child agent prompt must be fully self-contained.
 - Leave `KICKOFF.md` in the worktree for reference (git-excluded).
+- If using container mode, ensure the `crosslink-agent` image is built before attempting to start.
 - If a tmux session with the same name already exists, append a short random suffix.

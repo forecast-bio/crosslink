@@ -2123,7 +2123,7 @@ mod tests {
         // First init: no markers → python3
         run(dir.path(), &test_opts(false)).unwrap();
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
-        assert!(content.contains("\"python3 \\\"$(git"));
+        assert!(content.contains("python3 \\\"$HOOK\\\""));
 
         // Add uv.lock, force re-init → should now use uv
         fs::write(dir.path().join("uv.lock"), "").unwrap();
