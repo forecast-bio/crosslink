@@ -6,8 +6,17 @@
   "priority": "high",
   "created_by": "maxine-at-forecast--noether--ratatui-tui",
   "created_at": "2026-03-02T09:52:36.130779Z",
-  "updated_at": "2026-03-02T09:52:37.901686Z",
+  "updated_at": "2026-03-02T09:52:53.664308Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 172,
+      "author": "maxine-at-forecast--noether--ratatui-tui",
+      "content": "Plan: Three improvements: (1) Increase inline viewport height from 14 to 20 so previous selections summary is visible. (2) Add a confirmation screen after the last question showing all 4 choices with Enter to confirm / Backspace to go back. (3) Fix output inconsistencies: cpitd subprocess output bleeds into step_start/step_ok pattern, signing 'skipped' shown as step_ok instead of skip style, and overall alignment smoothing.",
+      "created_at": "2026-03-02T09:52:53.664308Z",
+      "kind": "plan"
+    }
   ]
 }
