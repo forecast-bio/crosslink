@@ -6,5 +6,8 @@
   "priority": "low",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T10:51:57.057556Z",
-  "updated_at": "2026-03-02T10:51:57.057556Z"
+  "updated_at": "2026-03-02T10:51:58.763680Z",
+  "labels": [
+    "ops"
+  ]
 }
