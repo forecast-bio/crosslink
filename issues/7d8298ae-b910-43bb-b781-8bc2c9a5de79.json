@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "noether--add-container-agent",
   "created_at": "2026-03-02T07:45:54.401048513Z",
-  "updated_at": "2026-03-02T07:46:32.523769933Z",
+  "updated_at": "2026-03-02T07:49:44.862235906Z",
   "labels": [
     "test"
   ],
@@ -23,6 +23,13 @@
       "author": "noether--add-container-agent",
       "content": "Observation: hook-config.json doesn't allow docker commands. Need to temporarily add 'docker ' to allowed_bash_prefixes to run manual container tests.",
       "created_at": "2026-03-02T07:46:32.523769526Z",
+      "kind": "observation"
+    },
+    {
+      "id": 98,
+      "author": "noether--add-container-agent",
+      "content": "Bug found: Claude CLI install script uses bash syntax but Dockerfile RUN uses /bin/sh (dash on Ubuntu 24.04). Fix: pipe to bash instead of sh.",
+      "created_at": "2026-03-02T07:49:44.862235645Z",
       "kind": "observation"
     }
   ]
