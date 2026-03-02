@@ -1,10 +1,22 @@
 {
   "version": 1,
   "locks": {
-    "1": {
+    "79": {
+      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
+      "branch": null,
+      "claimed_at": "2026-03-02T08:45:36.071973Z",
+      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
+    },
+    "94": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
-      "claimed_at": "2026-03-02T09:34:34.949534Z",
+      "claimed_at": "2026-03-02T10:03:05.660987Z",
+      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
+    },
+    "86": {
+      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
+      "branch": null,
+      "claimed_at": "2026-03-02T09:07:45.219573Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
     "80": {
@@ -18,24 +30,6 @@
       "branch": null,
       "claimed_at": "2026-03-02T09:34:36.842549Z",
       "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
-    },
-    "79": {
-      "agent_id": "maxine-at-forecast--noether--ratatui-tui",
-      "branch": null,
-      "claimed_at": "2026-03-02T08:45:36.071973Z",
-      "signed_by": "SHA256:J+t2Pf8suZQxT6bNzTgUHpCZJaWd2d4pO9JrZkScdGg"
-    },
-    "86": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
-      "branch": null,
-      "claimed_at": "2026-03-02T09:07:45.219573Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
-    },
-    "94": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
-      "branch": null,
-      "claimed_at": "2026-03-02T10:03:05.660987Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     }
   },
   "settings": {
