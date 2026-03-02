@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::knowledge::{
     parse_frontmatter, serialize_frontmatter, KnowledgeManager, PageFrontmatter, Source,
+    SyncOutcome,
 };
 
 /// Get the current agent ID, falling back to "unknown".
@@ -23,6 +24,17 @@ fn ensure_initialized(km: &KnowledgeManager) -> Result<()> {
     Ok(())
 }
 
+/// Print warnings for any conflicts that were resolved via "accept both".
+fn warn_resolved_conflicts(outcome: &SyncOutcome) {
+    for slug in &outcome.resolved_conflicts {
+        eprintln!(
+            "Warning: Merge conflict in {}.md — both versions kept. \
+             A cleanup issue should be created.",
+            slug
+        );
+    }
+}
+
 pub fn add(
     crosslink_dir: &Path,
     slug: &str,
@@ -33,7 +45,8 @@ pub fn add(
 ) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
-    km.sync()?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
 
     if km.page_exists(slug) {
         bail!(
@@ -77,7 +90,8 @@ pub fn add(
 
     km.write_page(slug, &page_content)?;
     km.commit(&format!("knowledge: add {}", slug))?;
-    km.push()?;
+    let push_outcome = km.push()?;
+    warn_resolved_conflicts(&push_outcome);
 
     println!("Created knowledge page: {}", slug);
     Ok(())
@@ -86,7 +100,8 @@ pub fn add(
 pub fn show(crosslink_dir: &Path, slug: &str, json: bool) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
-    km.sync()?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
 
     let content = km.read_page(slug)?;
 
@@ -127,7 +142,8 @@ pub fn list(
 ) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
-    km.sync()?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
 
     let pages = km.list_pages()?;
 
@@ -187,7 +203,8 @@ pub fn edit(
 ) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
-    km.sync()?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
 
     if !km.page_exists(slug) {
         bail!(
@@ -267,7 +284,8 @@ pub fn edit(
 
     km.write_page(slug, &page_content)?;
     km.commit(&format!("knowledge: edit {}", slug))?;
-    km.push()?;
+    let push_outcome = km.push()?;
+    warn_resolved_conflicts(&push_outcome);
 
     println!("Updated knowledge page: {}", slug);
     Ok(())
@@ -276,7 +294,8 @@ pub fn edit(
 pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
-    km.sync()?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
 
     if !km.page_exists(slug) {
         bail!("Page '{}' not found", slug);
@@ -307,7 +326,8 @@ pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
 
     km.delete_page(slug)?;
     km.commit(&format!("knowledge: remove {}", slug))?;
-    km.push()?;
+    let push_outcome = km.push()?;
+    warn_resolved_conflicts(&push_outcome);
 
     println!("Removed knowledge page: {}", slug);
     Ok(())
@@ -316,7 +336,8 @@ pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
 pub fn sync(crosslink_dir: &Path) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
-    km.sync()?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
 
     println!("Knowledge cache synced.");
     Ok(())
