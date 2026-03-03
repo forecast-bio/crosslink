@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--fuzz-ci",
   "created_at": "2026-03-03T00:22:10.329936Z",
-  "updated_at": "2026-03-03T00:25:18.483962Z",
+  "updated_at": "2026-03-03T00:26:06.631331Z",
   "labels": [
     "feature"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: Implementing T1-T5 from ADR adversarial review. Order: T4 (permissions) → T5 (Cargo.lock --locked) → T2 (remove continue-on-error) → T3 (increase fuzz durations + nightly job) → T1 (new fuzz targets for comments, labels, updates, milestones, subissues, relations). docs.yml already has permissions block. Will add permissions: contents: read to ci.yml, ci-feature.yml. publish.yml needs contents: read for dry-run and publish jobs. release-builds.yml needs contents: read.",
       "created_at": "2026-03-03T00:25:18.483961Z",
       "kind": "plan"
+    },
+    {
+      "id": 200,
+      "author": "maxine-at-forecast--noether--fuzz-ci",
+      "content": "Decision: For release-builds.yml, upload-artifact@v4 works with contents: read — artifact upload uses the implicit ACTIONS_RUNTIME_TOKEN, not the GITHUB_TOKEN permissions. For publish.yml, contents: read is sufficient since the crates.io publish uses CARGO_REGISTRY_TOKEN (a secret), not GitHub permissions.",
+      "created_at": "2026-03-03T00:26:06.631330Z",
+      "kind": "decision"
     }
   ]
 }
