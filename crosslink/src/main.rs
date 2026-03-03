@@ -1403,9 +1403,11 @@ fn main() -> Result<()> {
                 }
                 MilestoneCommands::List { status } => commands::milestone::list(&db, Some(&status)),
                 MilestoneCommands::Show { id } => commands::milestone::show(&db, id),
-                MilestoneCommands::Add { id, issues } => commands::milestone::add(&db, id, &issues),
+                MilestoneCommands::Add { id, issues } => {
+                    commands::milestone::add(&db, shared_ref, id, &issues)
+                }
                 MilestoneCommands::Remove { id, issue } => {
-                    commands::milestone::remove(&db, id, issue)
+                    commands::milestone::remove(&db, shared_ref, id, issue)
                 }
                 MilestoneCommands::Close { id } => commands::milestone::close(&db, shared_ref, id),
                 MilestoneCommands::Delete { id } => {

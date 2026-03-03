@@ -974,6 +974,66 @@ impl SharedWriter {
         Ok(())
     }
 
+    /// Set `milestone_uuid` on issue JSON files for the given issue IDs.
+    ///
+    /// Loads the milestone to get its UUID, then patches each issue file.
+    pub fn set_milestone_on_issues(
+        &self,
+        db: &Database,
+        milestone_id: i64,
+        issue_ids: &[i64],
+    ) -> Result<()> {
+        let milestone = self.load_milestone_by_id(milestone_id)?;
+        let ms_uuid = milestone.uuid;
+
+        let ids: Vec<i64> = issue_ids.to_vec();
+        let _ = self.write_commit_push(
+            |writer| {
+                let mut files = Vec::new();
+                for &issue_id in &ids {
+                    if let Ok(mut issue) = writer.load_issue_by_id(issue_id, db) {
+                        issue.milestone_uuid = Some(ms_uuid);
+                        issue.updated_at = Utc::now();
+                        let json = serde_json::to_vec_pretty(&issue)?;
+                        let rel_path = writer.issue_rel_path(&issue.uuid);
+                        files.push((rel_path, json));
+                    }
+                }
+                Ok(WriteSet {
+                    files,
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("add {} issue(s) to milestone #{}", ids.len(), milestone_id),
+        )?;
+
+        hydrate_to_sqlite(&self.cache_dir, db)?;
+        Ok(())
+    }
+
+    /// Clear `milestone_uuid` on an issue JSON file.
+    pub fn clear_milestone_on_issue(&self, db: &Database, issue_id: i64) -> Result<()> {
+        let _ = self.write_commit_push(
+            |writer| {
+                let mut issue = writer.load_issue_by_id(issue_id, db)?;
+                issue.milestone_uuid = None;
+                issue.updated_at = Utc::now();
+                let json = serde_json::to_vec_pretty(&issue)?;
+                let rel_path = writer.issue_rel_path(&issue.uuid);
+                Ok(WriteSet {
+                    files: vec![(rel_path, json)],
+                    counters: None,
+                    use_git_rm: false,
+                })
+            },
+            &format!("remove issue #{} from milestone", issue_id),
+        )?;
+
+        hydrate_to_sqlite(&self.cache_dir, db)?;
+        Ok(())
+    }
+
     /// Promote offline issues (`display_id: null`) to real display IDs.
     ///
     /// Called during sync when connectivity is restored. Scans the cache for

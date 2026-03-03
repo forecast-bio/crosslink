@@ -90,7 +90,12 @@ pub fn show(db: &Database, id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn add(db: &Database, milestone_id: i64, issue_ids: &[i64]) -> Result<()> {
+pub fn add(
+    db: &Database,
+    shared: Option<&SharedWriter>,
+    milestone_id: i64,
+    issue_ids: &[i64],
+) -> Result<()> {
     let milestone = db.get_milestone(milestone_id)?;
     if milestone.is_none() {
         bail!("Milestone #{} not found", milestone_id);
@@ -120,16 +125,28 @@ pub fn add(db: &Database, milestone_id: i64, issue_ids: &[i64]) -> Result<()> {
         }
     }
 
+    if let Some(sw) = shared {
+        sw.set_milestone_on_issues(db, milestone_id, issue_ids)?;
+    }
+
     Ok(())
 }
 
-pub fn remove(db: &Database, milestone_id: i64, issue_id: i64) -> Result<()> {
+pub fn remove(
+    db: &Database,
+    shared: Option<&SharedWriter>,
+    milestone_id: i64,
+    issue_id: i64,
+) -> Result<()> {
     if db.remove_issue_from_milestone(milestone_id, issue_id)? {
         println!(
             "Removed {} from milestone #{}",
             format_issue_id(issue_id),
             milestone_id
         );
+        if let Some(sw) = shared {
+            sw.clear_milestone_on_issue(db, issue_id)?;
+        }
     } else {
         println!(
             "Issue {} not in milestone #{}",
@@ -238,7 +255,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let milestone_id = db.create_milestone("v1.0", None).unwrap();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
-        add(&db, milestone_id, &[issue_id]).unwrap();
+        add(&db, None, milestone_id, &[issue_id]).unwrap();
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].id, issue_id);
@@ -248,7 +265,7 @@ mod tests {
     fn test_add_to_nonexistent_milestone() {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
-        let result = add(&db, 99999, &[issue_id]);
+        let result = add(&db, None, 99999, &[issue_id]);
         assert!(result.is_err());
     }
 
@@ -258,7 +275,7 @@ mod tests {
         let milestone_id = db.create_milestone("v1.0", None).unwrap();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
         db.add_issue_to_milestone(milestone_id, issue_id).unwrap();
-        remove(&db, milestone_id, issue_id).unwrap();
+        remove(&db, None, milestone_id, issue_id).unwrap();
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert!(issues.is_empty(), "Issue should be removed from milestone");
     }
