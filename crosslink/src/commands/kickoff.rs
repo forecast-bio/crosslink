@@ -42,6 +42,7 @@ pub struct KickoffOpts<'a> {
     pub dry_run: bool,
     pub branch: Option<&'a str>,
     pub quiet: bool,
+    pub design_doc: Option<&'a super::design_doc::DesignDoc>,
 }
 
 /// Parse a container mode string into the enum.
@@ -402,6 +403,14 @@ these, ask the user to run it manually:
         branch_name = branch_name,
         verify_name = verify_name,
     );
+
+    // Inject design document sections if provided
+    if let Some(doc) = opts.design_doc {
+        prompt.push_str(&super::design_doc::build_design_doc_section(doc));
+        if let Some(escalation) = super::design_doc::build_open_questions_escalation(doc) {
+            prompt.push_str(&escalation);
+        }
+    }
 
     prompt.push_str(&build_test_lint_instructions(conventions, issue_id));
 
@@ -1343,6 +1352,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -1372,6 +1382,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -1398,6 +1409,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -1731,6 +1743,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -1757,6 +1770,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -1784,6 +1798,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -1811,6 +1826,7 @@ mod tests {
             dry_run: false,
             branch: None,
             quiet: false,
+            design_doc: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -1819,5 +1835,89 @@ mod tests {
         assert!(prompt.contains("Run lint and format checks"));
         // Should NOT contain backtick-quoted commands
         assert!(!prompt.contains("`cargo test`"));
+    }
+
+    #[test]
+    fn test_build_prompt_with_design_doc() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Batch Retry".to_string(),
+            summary: "Add retry logic.".to_string(),
+            requirements: vec!["REQ-1: Retry 3 times".to_string()],
+            acceptance_criteria: vec!["AC-1: Tests pass".to_string()],
+            architecture: "Middleware pattern".to_string(),
+            open_questions: Vec::new(),
+            out_of_scope: vec!["Not doing X".to_string()],
+            unknown_sections: Vec::new(),
+        };
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "batch retry",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+        };
+        let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
+
+        assert!(prompt.contains("## Design Specification"));
+        assert!(prompt.contains("Add retry logic."));
+        assert!(prompt.contains("REQ-1: Retry 3 times"));
+        assert!(prompt.contains("AC-1: Tests pass"));
+        assert!(prompt.contains("Middleware pattern"));
+        assert!(prompt.contains("Not doing X"));
+        // No open questions, so no escalation block
+        assert!(!prompt.contains("Escalation Required"));
+    }
+
+    #[test]
+    fn test_build_prompt_with_design_doc_open_questions() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Auth Feature".to_string(),
+            summary: "Add auth.".to_string(),
+            requirements: vec!["REQ-1: Login".to_string()],
+            acceptance_criteria: vec!["AC-1: Can log in".to_string()],
+            architecture: String::new(),
+            open_questions: vec![
+                "Q1: OAuth or JWT?".to_string(),
+                "Q2: Session duration?".to_string(),
+            ],
+            out_of_scope: Vec::new(),
+            unknown_sections: Vec::new(),
+        };
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "auth feature",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+        };
+        let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
+
+        assert!(prompt.contains("## Design Specification"));
+        assert!(prompt.contains("Escalation Required"));
+        assert!(prompt.contains("Q1: OAuth or JWT?"));
+        assert!(prompt.contains("Q2: Session duration?"));
+        assert!(prompt.contains("crosslink comment"));
     }
 }

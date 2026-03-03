@@ -958,6 +958,9 @@ enum KickoffCommands {
         /// Branch to use (auto-creates feature branch if omitted)
         #[arg(long)]
         branch: Option<String>,
+        /// Path to a design document (markdown) with structured requirements
+        #[arg(long, value_name = "PATH")]
+        doc: Option<PathBuf>,
     },
     /// Check status of a running kickoff agent
     Status {
@@ -1828,7 +1831,20 @@ fn main() -> Result<()> {
                     timeout,
                     dry_run,
                     branch,
+                    doc,
                 } => {
+                    let parsed_doc = if let Some(ref path) = doc {
+                        let content = std::fs::read_to_string(path).with_context(|| {
+                            format!("Failed to read design doc: {}", path.display())
+                        })?;
+                        let d = commands::design_doc::parse_design_doc(&content);
+                        for warning in commands::design_doc::validate_design_doc(&d) {
+                            eprintln!("Warning: {}", warning);
+                        }
+                        Some(d)
+                    } else {
+                        None
+                    };
                     let writer = get_writer(&crosslink_dir);
                     let opts = commands::kickoff::KickoffOpts {
                         description: &description,
@@ -1841,6 +1857,7 @@ fn main() -> Result<()> {
                         dry_run,
                         branch: branch.as_deref(),
                         quiet: cli.quiet,
+                        design_doc: parsed_doc.as_ref(),
                     };
                     commands::kickoff::run(&crosslink_dir, &db, writer.as_ref(), &opts)
                 }
