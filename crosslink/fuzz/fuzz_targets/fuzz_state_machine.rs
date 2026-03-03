@@ -90,7 +90,7 @@ fuzz_target!(|input: StateMachineInput| {
                 }
             }
             StateOp::StartSession => {
-                if let Ok(id) = db.start_session() {
+                if let Ok(id) = db.start_session_with_agent(None) {
                     session_id = Some(id);
                 }
             }
@@ -121,7 +121,7 @@ fuzz_target!(|input: StateMachineInput| {
                 }
             }
             StateOp::GetCurrentSession => {
-                let _ = db.get_current_session();
+                let _ = db.get_current_session_for_agent(None);
             }
             StateOp::GetActiveTimer => {
                 let _ = db.get_active_timer();
@@ -136,7 +136,7 @@ fuzz_target!(|input: StateMachineInput| {
     }
 
     // Final consistency checks - should never panic
-    let _ = db.get_current_session();
+    let _ = db.get_current_session_for_agent(None);
     let _ = db.get_active_timer();
     let _ = db.list_issues(None, None, None);
     let _ = db.list_archived_issues();

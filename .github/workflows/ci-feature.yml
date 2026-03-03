@@ -8,6 +8,9 @@ on:
   push:
     branches: ['feature/**']
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -41,7 +44,7 @@ jobs:
           key: ${{ runner.os }}-cargo-feature-${{ hashFiles('crosslink/Cargo.lock') }}
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --locked --verbose
 
       - name: Run unit tests
         run: cargo test --bin crosslink --verbose -- --skip proptest

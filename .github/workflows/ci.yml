@@ -10,6 +10,9 @@ on:
   pull_request:
     branches: [develop]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -110,7 +113,7 @@ jobs:
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('crosslink/Cargo.lock') }}
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --locked --verbose
 
       - name: Run unit tests (with proptests, Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
@@ -156,7 +159,7 @@ jobs:
           PROPTEST_CASES: 1000
 
   # ===========================================
-  # Fuzzing (Linux only, nightly)
+  # Fuzzing - smoke test (Linux only, nightly Rust)
   # ===========================================
   fuzz:
     needs: test
@@ -186,14 +189,38 @@ jobs:
             crosslink/fuzz/target/
           key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('crosslink/Cargo.lock') }}
 
-      - name: Fuzz create_issue (30 seconds)
-        run: cargo +nightly fuzz run fuzz_create_issue -- -max_total_time=30
-        continue-on-error: true
+      - name: Fuzz create_issue (60s)
+        run: cargo +nightly fuzz run fuzz_create_issue -- -max_total_time=60
 
-      - name: Fuzz search (30 seconds)
-        run: cargo +nightly fuzz run fuzz_search -- -max_total_time=30
-        continue-on-error: true
+      - name: Fuzz search (60s)
+        run: cargo +nightly fuzz run fuzz_search -- -max_total_time=60
 
-      - name: Fuzz import (30 seconds)
-        run: cargo +nightly fuzz run fuzz_import -- -max_total_time=30
-        continue-on-error: true
+      - name: Fuzz import (60s)
+        run: cargo +nightly fuzz run fuzz_import -- -max_total_time=60
+
+      - name: Fuzz dependency_graph (60s)
+        run: cargo +nightly fuzz run fuzz_dependency_graph -- -max_total_time=60
+
+      - name: Fuzz state_machine (60s)
+        run: cargo +nightly fuzz run fuzz_state_machine -- -max_total_time=60
+
+      - name: Fuzz cli_output (60s)
+        run: cargo +nightly fuzz run fuzz_cli_output -- -max_total_time=60
+
+      - name: Fuzz comments (60s)
+        run: cargo +nightly fuzz run fuzz_comments -- -max_total_time=60
+
+      - name: Fuzz labels (60s)
+        run: cargo +nightly fuzz run fuzz_labels -- -max_total_time=60
+
+      - name: Fuzz update_operations (60s)
+        run: cargo +nightly fuzz run fuzz_update_operations -- -max_total_time=60
+
+      - name: Fuzz milestones (60s)
+        run: cargo +nightly fuzz run fuzz_milestones -- -max_total_time=60
+
+      - name: Fuzz subissues (60s)
+        run: cargo +nightly fuzz run fuzz_subissues -- -max_total_time=60
+
+      - name: Fuzz relations (60s)
+        run: cargo +nightly fuzz run fuzz_relations -- -max_total_time=60

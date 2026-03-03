@@ -66,3 +66,45 @@ path = "fuzz_targets/fuzz_cli_output.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_comments"
+path = "fuzz_targets/fuzz_comments.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_labels"
+path = "fuzz_targets/fuzz_labels.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_update_operations"
+path = "fuzz_targets/fuzz_update_operations.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_milestones"
+path = "fuzz_targets/fuzz_milestones.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_subissues"
+path = "fuzz_targets/fuzz_subissues.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_relations"
+path = "fuzz_targets/fuzz_relations.rs"
+test = false
+doc = false
+bench = false
