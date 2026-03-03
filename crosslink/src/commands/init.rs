@@ -310,6 +310,7 @@ const COMMIT_CMD_MD: &str = include_str!("../../resources/claude/commands/commit
 const PREFLIGHT_CMD_MD: &str = include_str!("../../resources/claude/commands/preflight.md");
 const REVIEW_CMD_MD: &str = include_str!("../../resources/claude/commands/review.md");
 const AUDIT_CMD_MD: &str = include_str!("../../resources/claude/commands/audit.md");
+const MAINTAIN_CMD_MD: &str = include_str!("../../resources/claude/commands/maintain.md");
 
 // Embed sanitization patterns
 const SANITIZE_PATTERNS: &str =
@@ -1440,6 +1441,8 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             .context("Failed to write review.md")?;
         fs::write(commands_dir.join("audit.md"), AUDIT_CMD_MD)
             .context("Failed to write audit.md")?;
+        fs::write(commands_dir.join("maintain.md"), MAINTAIN_CMD_MD)
+            .context("Failed to write maintain.md")?;
 
         let warnings =
             write_mcp_json_merged(&path.join(".mcp.json")).context("Failed to write .mcp.json")?;
