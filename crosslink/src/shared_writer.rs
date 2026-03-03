@@ -2318,5 +2318,275 @@ mod tests {
             assert!(state.locks.is_empty());
             assert!(!cache.join("locks/5.json").exists());
         }
+
+        #[test]
+        fn test_lock_file_v2_with_all_fields() {
+            let dir = tempdir().unwrap();
+            let locks_dir = dir.path().join("locks");
+            std::fs::create_dir_all(&locks_dir).unwrap();
+
+            let now = chrono::Utc::now();
+            let lock = LockFileV2 {
+                issue_id: 100,
+                agent_id: "agent-special".to_string(),
+                branch: Some("feature/special-branch".to_string()),
+                claimed_at: now,
+                signed_by: Some("SHA256:xyz789".to_string()),
+            };
+            let json = serde_json::to_string_pretty(&lock).unwrap();
+            let path = locks_dir.join("100.json");
+            std::fs::write(&path, &json).unwrap();
+
+            let content = std::fs::read_to_string(&path).unwrap();
+            let parsed: LockFileV2 = serde_json::from_str(&content).unwrap();
+            assert_eq!(parsed.issue_id, 100);
+            assert_eq!(parsed.agent_id, "agent-special");
+            assert_eq!(parsed.branch, Some("feature/special-branch".to_string()));
+            assert_eq!(parsed.claimed_at, now);
+            assert_eq!(parsed.signed_by, Some("SHA256:xyz789".to_string()));
+        }
+
+        #[test]
+        fn test_lock_claim_result_display_and_equality() {
+            // Verify Contended results with different winners are not equal
+            let c1 = LockClaimResult::Contended {
+                winner_agent_id: "agent-1".to_string(),
+            };
+            let c2 = LockClaimResult::Contended {
+                winner_agent_id: "agent-2".to_string(),
+            };
+            assert_ne!(c1, c2);
+
+            // Verify same winner is equal
+            let c3 = LockClaimResult::Contended {
+                winner_agent_id: "agent-1".to_string(),
+            };
+            assert_eq!(c1, c3);
+
+            // Verify Clone works correctly
+            let cloned = c1.clone();
+            assert_eq!(c1, cloned);
+        }
+
+        #[test]
+        fn test_lock_contention_with_three_agents() {
+            // Three agents claiming same lock, verify deterministic winner
+            use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
+            use crate::events::{append_event, Event, EventEnvelope};
+            use chrono::Utc;
+
+            let dir = tempdir().unwrap();
+            let cache = dir.path();
+
+            std::fs::create_dir_all(cache.join("checkpoint")).unwrap();
+            std::fs::create_dir_all(cache.join("agents/agent-a")).unwrap();
+            std::fs::create_dir_all(cache.join("agents/agent-b")).unwrap();
+            std::fs::create_dir_all(cache.join("agents/agent-c")).unwrap();
+            std::fs::create_dir_all(cache.join("locks")).unwrap();
+            std::fs::create_dir_all(cache.join("issues")).unwrap();
+
+            let state = CheckpointState::default();
+            write_checkpoint(cache, &state).unwrap();
+
+            let now = Utc::now();
+
+            // Agent C claims first (earliest)
+            let e1 = EventEnvelope {
+                agent_id: "agent-c".to_string(),
+                agent_seq: 1,
+                timestamp: now - chrono::Duration::seconds(3),
+                event: Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: Some("feature/c".to_string()),
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&cache.join("agents/agent-c/events.log"), &e1).unwrap();
+
+            // Agent A claims second
+            let e2 = EventEnvelope {
+                agent_id: "agent-a".to_string(),
+                agent_seq: 1,
+                timestamp: now - chrono::Duration::seconds(2),
+                event: Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: Some("feature/a".to_string()),
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&cache.join("agents/agent-a/events.log"), &e2).unwrap();
+
+            // Agent B claims third
+            let e3 = EventEnvelope {
+                agent_id: "agent-b".to_string(),
+                agent_seq: 1,
+                timestamp: now - chrono::Duration::seconds(1),
+                event: Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: Some("feature/b".to_string()),
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&cache.join("agents/agent-b/events.log"), &e3).unwrap();
+
+            let result = crate::compaction::compact(cache, "agent-a", true)
+                .unwrap()
+                .unwrap();
+            assert_eq!(result.locks_materialized, 1);
+
+            let state = read_checkpoint(cache).unwrap();
+            let lock = state.locks.get(&1).unwrap();
+            assert_eq!(lock.agent_id, "agent-c");
+            assert_eq!(lock.branch, Some("feature/c".to_string()));
+        }
+
+        #[test]
+        fn test_lock_contention_then_winner_releases() {
+            // Two agents contend. Winner releases. Lock should be empty.
+            use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
+            use crate::events::{append_event, Event, EventEnvelope};
+            use chrono::Utc;
+
+            let dir = tempdir().unwrap();
+            let cache = dir.path();
+
+            std::fs::create_dir_all(cache.join("checkpoint")).unwrap();
+            std::fs::create_dir_all(cache.join("agents/agent-a")).unwrap();
+            std::fs::create_dir_all(cache.join("agents/agent-b")).unwrap();
+            std::fs::create_dir_all(cache.join("locks")).unwrap();
+            std::fs::create_dir_all(cache.join("issues")).unwrap();
+
+            let state = CheckpointState::default();
+            write_checkpoint(cache, &state).unwrap();
+
+            let now = Utc::now();
+
+            // Agent A claims first (wins)
+            let e1 = EventEnvelope {
+                agent_id: "agent-a".to_string(),
+                agent_seq: 1,
+                timestamp: now - chrono::Duration::seconds(3),
+                event: Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&cache.join("agents/agent-a/events.log"), &e1).unwrap();
+
+            // Agent B claims second (loses)
+            let e2 = EventEnvelope {
+                agent_id: "agent-b".to_string(),
+                agent_seq: 1,
+                timestamp: now - chrono::Duration::seconds(2),
+                event: Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
+
+            // Agent A releases
+            let e3 = EventEnvelope {
+                agent_id: "agent-a".to_string(),
+                agent_seq: 2,
+                timestamp: now - chrono::Duration::seconds(1),
+                event: Event::LockReleased {
+                    issue_display_id: 1,
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&cache.join("agents/agent-a/events.log"), &e3).unwrap();
+
+            crate::compaction::compact(cache, "agent-a", true).unwrap();
+
+            let state = read_checkpoint(cache).unwrap();
+            assert!(state.locks.is_empty());
+            assert!(!cache.join("locks/1.json").exists());
+        }
+
+        #[test]
+        fn test_lock_file_v2_missing_optional_fields() {
+            // Verify LockFileV2 deserialization works when optional fields are null
+            let json = r#"{
+                "issue_id": 7,
+                "agent_id": "agent-minimal",
+                "branch": null,
+                "claimed_at": "2026-01-01T00:00:00Z",
+                "signed_by": null
+            }"#;
+            let parsed: LockFileV2 = serde_json::from_str(json).unwrap();
+            assert_eq!(parsed.issue_id, 7);
+            assert_eq!(parsed.agent_id, "agent-minimal");
+            assert!(parsed.branch.is_none());
+            assert!(parsed.signed_by.is_none());
+        }
+
+        #[test]
+        fn test_lock_contention_deterministic_across_compaction_agents() {
+            // The same winner should emerge regardless of which agent runs compaction
+            use crate::checkpoint::{read_checkpoint, write_checkpoint, CheckpointState};
+            use crate::events::{append_event, Event, EventEnvelope};
+            use chrono::Utc;
+
+            let now = Utc::now();
+
+            // Set up two identical caches with the same events
+            for compactor in &["agent-a", "agent-b"] {
+                let dir = tempdir().unwrap();
+                let cache = dir.path();
+
+                std::fs::create_dir_all(cache.join("checkpoint")).unwrap();
+                std::fs::create_dir_all(cache.join("agents/agent-a")).unwrap();
+                std::fs::create_dir_all(cache.join("agents/agent-b")).unwrap();
+                std::fs::create_dir_all(cache.join("locks")).unwrap();
+                std::fs::create_dir_all(cache.join("issues")).unwrap();
+
+                let state = CheckpointState::default();
+                write_checkpoint(cache, &state).unwrap();
+
+                let e1 = EventEnvelope {
+                    agent_id: "agent-a".to_string(),
+                    agent_seq: 1,
+                    timestamp: now - chrono::Duration::seconds(2),
+                    event: Event::LockClaimed {
+                        issue_display_id: 1,
+                        branch: None,
+                    },
+                    signed_by: None,
+                    signature: None,
+                };
+                append_event(&cache.join("agents/agent-a/events.log"), &e1).unwrap();
+
+                let e2 = EventEnvelope {
+                    agent_id: "agent-b".to_string(),
+                    agent_seq: 1,
+                    timestamp: now - chrono::Duration::seconds(1),
+                    event: Event::LockClaimed {
+                        issue_display_id: 1,
+                        branch: None,
+                    },
+                    signed_by: None,
+                    signature: None,
+                };
+                append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
+
+                crate::compaction::compact(cache, compactor, true).unwrap();
+
+                let state = read_checkpoint(cache).unwrap();
+                assert_eq!(
+                    state.locks[&1].agent_id, "agent-a",
+                    "Winner should be agent-a regardless of who runs compaction (compactor={})",
+                    compactor
+                );
+            }
+        }
     }
 }

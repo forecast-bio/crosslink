@@ -1422,4 +1422,650 @@ mod tests {
             Some(milestone_uuid)
         );
     }
+
+    // ── Lock claim / release / contention tests ─────────────────────
+
+    #[test]
+    fn test_lock_release_by_non_holder_ignored() {
+        // Agent B cannot release a lock held by Agent A
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log_a = cache_dir.join("agents/agent-a/events.log");
+        let log_b = cache_dir.join("agents/agent-b/events.log");
+
+        let mut e1 = make_envelope(
+            "agent-a",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e1.timestamp = Utc::now() - Duration::seconds(3);
+
+        let mut e2 = make_envelope(
+            "agent-b",
+            1,
+            Event::LockReleased {
+                issue_display_id: 1,
+            },
+        );
+        e2.timestamp = Utc::now() - Duration::seconds(1);
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+
+        compact(cache_dir, "agent-a", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        // Lock should still be held by agent-a since agent-b cannot release it
+        assert_eq!(state.locks[&1].agent_id, "agent-a");
+        assert!(cache_dir.join("locks/1.json").exists());
+    }
+
+    #[test]
+    fn test_lock_claim_release_reclaim_cycle() {
+        // Agent claims, releases, then reclaims the same lock
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/first".to_string()),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(3);
+
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::LockReleased {
+                issue_display_id: 1,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(2);
+
+        let mut e3 = make_envelope(
+            "agent-1",
+            3,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/second".to_string()),
+            },
+        );
+        e3.timestamp = now - Duration::seconds(1);
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let lock = state.locks.get(&1).unwrap();
+        assert_eq!(lock.agent_id, "agent-1");
+        assert_eq!(lock.branch, Some("feature/second".to_string()));
+    }
+
+    #[test]
+    fn test_three_way_lock_contention() {
+        // Three agents all claim the same lock — earliest timestamp wins
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let now = Utc::now();
+
+        for (agent, seq_offset) in &[("agent-a", 3), ("agent-b", 2), ("agent-c", 1)] {
+            let log = cache_dir.join(format!("agents/{}/events.log", agent));
+            let mut e = make_envelope(
+                agent,
+                1,
+                Event::LockClaimed {
+                    issue_display_id: 1,
+                    branch: None,
+                },
+            );
+            e.timestamp = now - Duration::seconds(*seq_offset);
+            append_event(&log, &e).unwrap();
+        }
+
+        compact(cache_dir, "agent-a", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        // agent-c has the earliest timestamp (now - 1), but agent-a has (now - 3)
+        assert_eq!(state.locks[&1].agent_id, "agent-a");
+    }
+
+    #[test]
+    fn test_lock_contention_timestamp_tiebreaker_uses_agent_id() {
+        // When timestamps are identical, agent_id string ordering breaks the tie
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let same_time = Utc::now() - Duration::seconds(5);
+
+        let log_a = cache_dir.join("agents/agent-alpha/events.log");
+        let log_b = cache_dir.join("agents/agent-beta/events.log");
+
+        let mut e1 = make_envelope(
+            "agent-alpha",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e1.timestamp = same_time;
+
+        let mut e2 = make_envelope(
+            "agent-beta",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e2.timestamp = same_time;
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+
+        compact(cache_dir, "agent-alpha", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        // "agent-alpha" < "agent-beta" lexicographically, so alpha wins
+        assert_eq!(state.locks[&1].agent_id, "agent-alpha");
+    }
+
+    #[test]
+    fn test_concurrent_claims_on_different_issues() {
+        // Two agents claim different issues — both should succeed
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log_a = cache_dir.join("agents/agent-a/events.log");
+        let log_b = cache_dir.join("agents/agent-b/events.log");
+
+        let mut e1 = make_envelope(
+            "agent-a",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/a".to_string()),
+            },
+        );
+        e1.timestamp = Utc::now() - Duration::seconds(2);
+
+        let mut e2 = make_envelope(
+            "agent-b",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 2,
+                branch: Some("feature/b".to_string()),
+            },
+        );
+        e2.timestamp = Utc::now() - Duration::seconds(1);
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+
+        let result = compact(cache_dir, "agent-a", true).unwrap().unwrap();
+        assert_eq!(result.locks_materialized, 2);
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert_eq!(state.locks.len(), 2);
+        assert_eq!(state.locks[&1].agent_id, "agent-a");
+        assert_eq!(state.locks[&2].agent_id, "agent-b");
+
+        // Both lock files should exist
+        assert!(cache_dir.join("locks/1.json").exists());
+        assert!(cache_dir.join("locks/2.json").exists());
+    }
+
+    #[test]
+    fn test_lock_branch_metadata_preserved_through_contention() {
+        // Winner's branch metadata should be preserved, loser's discarded
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log_a = cache_dir.join("agents/agent-a/events.log");
+        let log_b = cache_dir.join("agents/agent-b/events.log");
+
+        let mut e1 = make_envelope(
+            "agent-a",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/winner-branch".to_string()),
+            },
+        );
+        e1.timestamp = Utc::now() - Duration::seconds(2);
+
+        let mut e2 = make_envelope(
+            "agent-b",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/loser-branch".to_string()),
+            },
+        );
+        e2.timestamp = Utc::now() - Duration::seconds(1);
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+
+        compact(cache_dir, "agent-a", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let lock = state.locks.get(&1).unwrap();
+        assert_eq!(lock.agent_id, "agent-a");
+        assert_eq!(lock.branch, Some("feature/winner-branch".to_string()));
+
+        // Verify materialized lock file also has correct branch
+        let lock_content = std::fs::read_to_string(cache_dir.join("locks/1.json")).unwrap();
+        let lock_file: LockFileV2 = serde_json::from_str(&lock_content).unwrap();
+        assert_eq!(lock_file.branch, Some("feature/winner-branch".to_string()));
+    }
+
+    #[test]
+    fn test_lock_release_removes_materialized_file() {
+        // After claim + release, the lock file should be removed
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 5,
+                branch: None,
+            },
+        );
+        e1.timestamp = Utc::now() - Duration::seconds(2);
+
+        let e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::LockReleased {
+                issue_display_id: 5,
+            },
+        );
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        // Lock should be absent from checkpoint and disk
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(state.locks.is_empty());
+        assert!(!cache_dir.join("locks/5.json").exists());
+    }
+
+    #[test]
+    fn test_lock_release_of_nonexistent_is_noop() {
+        // Releasing a lock that was never claimed should be harmless
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let e = make_envelope(
+            "agent-1",
+            1,
+            Event::LockReleased {
+                issue_display_id: 99,
+            },
+        );
+        append_event(&log, &e).unwrap();
+
+        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        assert_eq!(result.events_processed, 1);
+        assert_eq!(result.locks_materialized, 0);
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(state.locks.is_empty());
+    }
+
+    #[test]
+    fn test_incremental_compaction_with_lock_changes() {
+        // First compaction claims, second (incremental) releases
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        // First round: claim
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/x".to_string()),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(3);
+        append_event(&log, &e1).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        // Verify lock is held
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert_eq!(state.locks[&1].agent_id, "agent-1");
+        assert!(cache_dir.join("locks/1.json").exists());
+
+        // Second round: release (incremental — watermark set from first round)
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::LockReleased {
+                issue_display_id: 1,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(1);
+        append_event(&log, &e2).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        // Lock should be gone
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(state.locks.is_empty());
+        assert!(!cache_dir.join("locks/1.json").exists());
+    }
+
+    #[test]
+    fn test_contention_loser_then_winner_releases() {
+        // Agent A wins, Agent B loses. Then Agent A releases.
+        // After compaction, the lock should be gone entirely.
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log_a = cache_dir.join("agents/agent-a/events.log");
+        let log_b = cache_dir.join("agents/agent-b/events.log");
+        let now = Utc::now();
+
+        // Agent A claims first
+        let mut e1 = make_envelope(
+            "agent-a",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e1.timestamp = now - Duration::seconds(4);
+
+        // Agent B claims second (will lose)
+        let mut e2 = make_envelope(
+            "agent-b",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(3);
+
+        // Agent A releases
+        let mut e3 = make_envelope(
+            "agent-a",
+            2,
+            Event::LockReleased {
+                issue_display_id: 1,
+            },
+        );
+        e3.timestamp = now - Duration::seconds(1);
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+        append_event(&log_a, &e3).unwrap();
+
+        compact(cache_dir, "agent-a", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        // Lock should be gone — agent-a won and then released
+        assert!(state.locks.is_empty());
+        assert!(!cache_dir.join("locks/1.json").exists());
+    }
+
+    #[test]
+    fn test_same_agent_reclaim_after_contention_loss() {
+        // Agent A claims at t=1, Agent B claims at t=2 (loses to A).
+        // Agent A releases at t=3. Agent B reclaims at t=4 (now unopposed).
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log_a = cache_dir.join("agents/agent-a/events.log");
+        let log_b = cache_dir.join("agents/agent-b/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-a",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e1.timestamp = now - Duration::seconds(4);
+
+        let mut e2 = make_envelope(
+            "agent-b",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(3);
+
+        let mut e3 = make_envelope(
+            "agent-a",
+            2,
+            Event::LockReleased {
+                issue_display_id: 1,
+            },
+        );
+        e3.timestamp = now - Duration::seconds(2);
+
+        let mut e4 = make_envelope(
+            "agent-b",
+            2,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: Some("feature/retry".to_string()),
+            },
+        );
+        e4.timestamp = now - Duration::seconds(1);
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+        append_event(&log_a, &e3).unwrap();
+        append_event(&log_b, &e4).unwrap();
+
+        compact(cache_dir, "agent-a", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let lock = state.locks.get(&1).unwrap();
+        assert_eq!(lock.agent_id, "agent-b");
+        assert_eq!(lock.branch, Some("feature/retry".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_issues_independent_contention() {
+        // Agent A and B each claim issue 1 and issue 2
+        // Agent A wins issue 1 (earlier), Agent B wins issue 2 (earlier)
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log_a = cache_dir.join("agents/agent-a/events.log");
+        let log_b = cache_dir.join("agents/agent-b/events.log");
+        let now = Utc::now();
+
+        // Issue 1: Agent A claims first
+        let mut e1 = make_envelope(
+            "agent-a",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e1.timestamp = now - Duration::seconds(4);
+
+        // Issue 2: Agent B claims first
+        let mut e2 = make_envelope(
+            "agent-b",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 2,
+                branch: None,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(3);
+
+        // Issue 1: Agent B claims second (loses)
+        let mut e3 = make_envelope(
+            "agent-b",
+            2,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e3.timestamp = now - Duration::seconds(2);
+
+        // Issue 2: Agent A claims second (loses)
+        let mut e4 = make_envelope(
+            "agent-a",
+            2,
+            Event::LockClaimed {
+                issue_display_id: 2,
+                branch: None,
+            },
+        );
+        e4.timestamp = now - Duration::seconds(1);
+
+        append_event(&log_a, &e1).unwrap();
+        append_event(&log_b, &e2).unwrap();
+        append_event(&log_b, &e3).unwrap();
+        append_event(&log_a, &e4).unwrap();
+
+        compact(cache_dir, "agent-a", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert_eq!(state.locks.len(), 2);
+        assert_eq!(state.locks[&1].agent_id, "agent-a");
+        assert_eq!(state.locks[&2].agent_id, "agent-b");
+    }
+
+    #[test]
+    fn test_prune_preserves_unpruned_lock_events() {
+        // Claim at seq=1, release at seq=2. Watermark covers seq=1 only.
+        // After prune, seq=2 (release) should remain.
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e1.timestamp = now - Duration::seconds(3);
+
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::LockReleased {
+                issue_display_id: 1,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(1);
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+
+        // Set watermark to cover only the first event
+        let watermark = OrderingKey {
+            timestamp: now - Duration::seconds(2),
+            agent_id: "agent-1".to_string(),
+            agent_seq: 1,
+        };
+        crate::checkpoint::write_watermark(cache_dir, &watermark).unwrap();
+
+        let pruned = prune_events(cache_dir, "agent-1").unwrap();
+        assert_eq!(pruned, 1);
+
+        // Remaining event should be the release
+        let remaining = crate::events::read_events(&log).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert!(matches!(
+            remaining[0].event,
+            Event::LockReleased {
+                issue_display_id: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn test_lock_claimed_at_timestamp_matches_event() {
+        // The claimed_at field in the lock entry should match the event timestamp
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let claim_time = Utc::now() - Duration::seconds(10);
+
+        let mut e = make_envelope(
+            "agent-1",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 1,
+                branch: None,
+            },
+        );
+        e.timestamp = claim_time;
+        append_event(&log, &e).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let lock = state.locks.get(&1).unwrap();
+        assert_eq!(lock.claimed_at, claim_time);
+
+        // Check materialized file too
+        let lock_content = std::fs::read_to_string(cache_dir.join("locks/1.json")).unwrap();
+        let lock_file: LockFileV2 = serde_json::from_str(&lock_content).unwrap();
+        assert_eq!(lock_file.claimed_at, claim_time);
+    }
 }
