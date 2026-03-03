@@ -1,29 +1,17 @@
 {
   "version": 1,
   "locks": {
-    "115": {
-      "agent_id": "maxine-at-forecast--noether--clock-skew",
-      "branch": null,
-      "claimed_at": "2026-03-02T23:48:14.247641Z",
-      "signed_by": "SHA256:U3fnZuhDO44/4CuBiCQ5VALzbZlRLGhRc8pQ6+0HSSs"
-    },
-    "100": {
+    "106": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
-      "claimed_at": "2026-03-02T15:18:33.859856Z",
+      "claimed_at": "2026-03-02T17:43:55.536469Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     },
-    "107": {
+    "98": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
-      "claimed_at": "2026-03-02T21:44:52.098372Z",
+      "claimed_at": "2026-03-02T10:51:01.378539Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
-    },
-    "117": {
-      "agent_id": "maxine-at-forecast--noether--fuzz-ci",
-      "branch": null,
-      "claimed_at": "2026-03-03T00:50:40.730093Z",
-      "signed_by": "SHA256:u+ioXcXL2RSrS4QvJQQc7MDwUnl4GM2cf3uzV1rpmkU"
     },
     "114": {
       "agent_id": "maxine-at-forecast--noether--clock-skew",
@@ -31,11 +19,17 @@
       "claimed_at": "2026-03-02T23:45:31.423412Z",
       "signed_by": "SHA256:U3fnZuhDO44/4CuBiCQ5VALzbZlRLGhRc8pQ6+0HSSs"
     },
-    "106": {
-      "agent_id": "maxine-at-forecast--noether--tui-dashboard",
+    "115": {
+      "agent_id": "maxine-at-forecast--noether--clock-skew",
       "branch": null,
-      "claimed_at": "2026-03-02T17:43:55.536469Z",
-      "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
+      "claimed_at": "2026-03-02T23:48:14.247641Z",
+      "signed_by": "SHA256:U3fnZuhDO44/4CuBiCQ5VALzbZlRLGhRc8pQ6+0HSSs"
+    },
+    "117": {
+      "agent_id": "maxine-at-forecast--noether--fuzz-ci",
+      "branch": null,
+      "claimed_at": "2026-03-03T00:50:40.730093Z",
+      "signed_by": "SHA256:u+ioXcXL2RSrS4QvJQQc7MDwUnl4GM2cf3uzV1rpmkU"
     },
     "113": {
       "agent_id": "maxine-at-forecast--noether--ci-cd-restructure",
@@ -43,10 +37,10 @@
       "claimed_at": "2026-03-02T23:38:56.972082Z",
       "signed_by": "SHA256:z1rKWos5xjaOXUIKcIeuUVauxX9ZJJ4ddqVcp771KZk"
     },
-    "98": {
+    "107": {
       "agent_id": "maxine-at-forecast--noether--tui-dashboard",
       "branch": null,
-      "claimed_at": "2026-03-02T10:51:01.378539Z",
+      "claimed_at": "2026-03-02T21:44:52.098372Z",
       "signed_by": "SHA256:tPoWJXhTXDtZe8O3w+zx+GJWc+jzz9f70Oukj4bjr9Q"
     }
   },
