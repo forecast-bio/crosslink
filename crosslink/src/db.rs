@@ -1371,7 +1371,7 @@ impl Database {
     /// For offline issues (display_id=None), uses negative temp IDs.
     pub fn insert_hydrated_issue(&self, h: &HydratedIssue<'_>) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO issues (id, uuid, title, description, status, priority, parent_id, created_by, created_at, updated_at, closed_at)
+            "INSERT OR REPLACE INTO issues (id, uuid, title, description, status, priority, parent_id, created_by, created_at, updated_at, closed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![h.id, h.uuid, h.title, h.description, h.status, h.priority, h.parent_id, h.created_by, h.created_at, h.updated_at, h.closed_at],
         )?;

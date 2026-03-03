@@ -15,6 +15,36 @@ use crate::issue_file::{
     read_all_issue_files, read_all_milestone_files, read_milestones_file, IssueFile,
 };
 
+/// Deduplicate issue files that share the same display_id.
+///
+/// When multiple JSON files claim the same display_id (e.g. from a sync loop
+/// that created duplicates), keep the one with the most recent `updated_at`
+/// timestamp and return the rest for cleanup.
+fn dedup_issue_files(issues: &[IssueFile]) -> (Vec<&IssueFile>, Vec<&IssueFile>) {
+    let mut by_display_id: HashMap<i64, Vec<&IssueFile>> = HashMap::new();
+    let mut no_display_id = Vec::new();
+
+    for issue in issues {
+        match issue.display_id {
+            Some(id) => by_display_id.entry(id).or_default().push(issue),
+            None => no_display_id.push(issue),
+        }
+    }
+
+    let mut keep = Vec::new();
+    let mut dupes = Vec::new();
+
+    for (_id, mut group) in by_display_id {
+        // Sort by updated_at descending — most recent first
+        group.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        keep.push(group[0]);
+        dupes.extend(group.into_iter().skip(1));
+    }
+
+    keep.extend(no_display_id);
+    (keep, dupes)
+}
+
 /// Statistics returned after hydration.
 #[derive(Debug, Default)]
 pub struct HydrationStats {
@@ -42,6 +72,23 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         return Ok(HydrationStats::default());
     }
 
+    // Deduplicate: multiple JSON files may claim the same display_id (e.g. from
+    // a sync loop that created duplicates). Keep the most recently updated file
+    // for each display_id and log warnings for the rest.
+    let (deduped, dupes) = dedup_issue_files(&issue_files);
+    if !dupes.is_empty() {
+        eprintln!(
+            "warning: {} duplicate issue file(s) skipped during hydration (same display_id)",
+            dupes.len()
+        );
+        for d in &dupes {
+            eprintln!(
+                "  skipped: {} (display_id {:?}, uuid {})",
+                d.title, d.display_id, d.uuid
+            );
+        }
+    }
+
     // Try per-file milestones first (new format), fall back to legacy single-file
     let milestones_dir = cache_dir.join("meta").join("milestones");
     let mut milestone_entries = read_all_milestone_files(&milestones_dir)?;
@@ -52,7 +99,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     }
 
     // Build uuid -> display_id lookup for resolving cross-references
-    let mut uuid_to_id: HashMap<String, i64> = issue_files
+    let mut uuid_to_id: HashMap<String, i64> = deduped
         .iter()
         .filter_map(|f| f.display_id.map(|id| (f.uuid.to_string(), id)))
         .collect();
@@ -85,7 +132,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         }
 
         // Sort issues so parents come before children (foreign key constraint)
-        let sorted_issues = topo_sort_issues(&issue_files);
+        let sorted_issues = topo_sort_issues(&deduped);
 
         // Insert issues (offline issues get sequential negative IDs)
         let mut next_local_id: i64 = -1;
@@ -169,10 +216,10 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         }
 
         // Hydrate dependencies (single-direction: blockers array on blocked issue)
-        hydrate_dependencies(db, &issue_files, &uuid_to_id, &mut stats)?;
+        hydrate_dependencies(db, &deduped, &uuid_to_id, &mut stats)?;
 
         // Hydrate relations (single-direction: related array, insert both directions)
-        hydrate_relations(db, &issue_files, &uuid_to_id, &mut stats)?;
+        hydrate_relations(db, &deduped, &uuid_to_id, &mut stats)?;
 
         Ok(stats)
     })
@@ -180,12 +227,12 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
 
 /// Sort issues so parents appear before children (for foreign key constraints).
 /// Issues without parents come first, then children in dependency order.
-fn topo_sort_issues(issues: &[IssueFile]) -> Vec<&IssueFile> {
+fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
     let uuid_set: std::collections::HashSet<_> = issues.iter().map(|i| i.uuid).collect();
-    let mut roots = Vec::new();
-    let mut children = Vec::new();
+    let mut roots: Vec<&'a IssueFile> = Vec::new();
+    let mut children: Vec<&'a IssueFile> = Vec::new();
 
-    for issue in issues {
+    for &issue in issues {
         match issue.parent_uuid {
             Some(parent) if uuid_set.contains(&parent) => children.push(issue),
             _ => roots.push(issue),
@@ -204,7 +251,7 @@ fn topo_sort_issues(issues: &[IssueFile]) -> Vec<&IssueFile> {
             break;
         }
         let sorted_uuids: std::collections::HashSet<_> = sorted.iter().map(|i| i.uuid).collect();
-        let (ready, still_remaining): (Vec<_>, Vec<_>) = remaining
+        let (ready, still_remaining): (Vec<&'a IssueFile>, Vec<&'a IssueFile>) = remaining
             .into_iter()
             .partition(|i| i.parent_uuid.is_none_or(|p| sorted_uuids.contains(&p)));
         sorted.extend(ready);
@@ -218,7 +265,7 @@ fn topo_sort_issues(issues: &[IssueFile]) -> Vec<&IssueFile> {
 /// Hydrate the dependencies table from `blockers` arrays in issue files.
 fn hydrate_dependencies(
     db: &Database,
-    issue_files: &[IssueFile],
+    issue_files: &[&IssueFile],
     uuid_to_id: &HashMap<String, i64>,
     stats: &mut HydrationStats,
 ) -> Result<()> {
@@ -241,7 +288,7 @@ fn hydrate_dependencies(
 /// Hydrate the relations table from `related` arrays in issue files.
 fn hydrate_relations(
     db: &Database,
-    issue_files: &[IssueFile],
+    issue_files: &[&IssueFile],
     uuid_to_id: &HashMap<String, i64>,
     stats: &mut HydrationStats,
 ) -> Result<()> {
