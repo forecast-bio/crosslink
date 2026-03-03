@@ -1,6 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { chmodSync } from 'fs';
 
 export type Platform = 'win32' | 'linux' | 'darwin';
@@ -123,6 +124,30 @@ export function ensureExecutable(binaryPath: string): void {
 }
 
 /**
+ * Verifies the SHA256 checksum of a bundled binary.
+ *
+ * If no .sha256 file exists (dev build or user-configured override),
+ * verification is silently skipped.
+ */
+export function verifyBinaryChecksum(binaryPath: string): void {
+    const checksumPath = binaryPath + '.sha256';
+    if (!fs.existsSync(checksumPath)) {
+        return;
+    }
+    const expected = fs.readFileSync(checksumPath, 'utf-8').trim();
+    const hash = crypto.createHash('sha256');
+    hash.update(fs.readFileSync(binaryPath));
+    const actual = hash.digest('hex');
+    if (actual !== expected) {
+        throw new Error(
+            `Binary integrity check failed for ${path.basename(binaryPath)}.\n` +
+            `Expected: ${expected}\nActual:   ${actual}\n` +
+            'The bundled binary may have been tampered with.'
+        );
+    }
+}
+
+/**
  * Validates that all required binaries are present for the current platform.
  * Useful for extension activation checks.
  */
@@ -130,6 +155,7 @@ export function validateBinaries(extensionPath: string): { valid: boolean; error
     try {
         const binaryPath = resolveBinaryPath(extensionPath);
         ensureExecutable(binaryPath);
+        verifyBinaryChecksum(binaryPath);
         return { valid: true };
     } catch (error) {
         return {

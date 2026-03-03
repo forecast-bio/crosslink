@@ -7,6 +7,7 @@
  */
 
 const { execSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -57,6 +58,14 @@ function checkCommand(cmd) {
     }
 }
 
+function writeChecksum(filePath) {
+    const hash = crypto.createHash('sha256');
+    hash.update(fs.readFileSync(filePath));
+    const checksum = hash.digest('hex');
+    fs.writeFileSync(filePath + '.sha256', checksum + '\n');
+    console.log(`  SHA256: ${checksum}`);
+}
+
 function buildWindows() {
     console.log('\n=== Building Windows binary ===');
     console.log('Cleaning previous build...');
@@ -67,6 +76,7 @@ function buildWindows() {
         const dest = path.join(BIN_DIR, 'crosslink-win.exe');
         if (fs.existsSync(src)) {
             fs.copyFileSync(src, dest);
+            writeChecksum(dest);
             console.log(`Copied: ${dest}`);
             return true;
         }
@@ -92,6 +102,7 @@ function buildLinux() {
             const dest = path.join(BIN_DIR, 'crosslink-linux');
             if (fs.existsSync(src)) {
                 fs.copyFileSync(src, dest);
+                writeChecksum(dest);
                 console.log(`Copied: ${dest}`);
                 run('wsl -d FedoraLinux-42 -- bash -c "chmod +x /mnt/c/Users/texas/crosslink/crosslink/vscode-extension/bin/crosslink-linux"');
                 return true;
@@ -111,6 +122,7 @@ function buildLinux() {
             if (fs.existsSync(src)) {
                 fs.copyFileSync(src, dest);
                 fs.chmodSync(dest, 0o755);
+                writeChecksum(dest);
                 console.log(`Copied: ${dest}`);
                 return true;
             }
@@ -151,6 +163,7 @@ function buildMacOS() {
         const dest = path.join(BIN_DIR, 'crosslink-darwin-arm64');
         if (fs.existsSync(src)) {
             fs.copyFileSync(src, dest);
+            writeChecksum(dest);
             console.log(`Copied: ${dest}`);
             arm64Ok = true;
         }
@@ -165,6 +178,7 @@ function buildMacOS() {
         const dest = path.join(BIN_DIR, 'crosslink-darwin');
         if (fs.existsSync(src)) {
             fs.copyFileSync(src, dest);
+            writeChecksum(dest);
             console.log(`Copied: ${dest}`);
             x64Ok = true;
         }
@@ -203,6 +217,7 @@ function main() {
             if (fs.existsSync(src)) {
                 fs.copyFileSync(src, dest);
                 fs.chmodSync(dest, 0o755);
+                writeChecksum(dest);
                 console.log(`Copied: ${dest}`);
                 macosOk = true;
             }

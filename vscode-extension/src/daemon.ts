@@ -4,6 +4,11 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { resolveBinaryPath, ensureExecutable } from './platform';
 
+/** Strip ANSI escape codes (SGR, cursor, OSC) from a string. */
+function stripAnsi(s: string): string {
+    return s.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '');
+}
+
 export interface DaemonOptions {
     extensionPath: string;
     workspaceFolder: string;
@@ -71,7 +76,7 @@ export class DaemonManager {
         this.process.stdout?.on('data', (data: Buffer) => {
             const lines = data.toString().trim().split('\n');
             for (const line of lines) {
-                this.outputChannel.appendLine(`[daemon] ${line}`);
+                this.outputChannel.appendLine(`[daemon] ${stripAnsi(line)}`);
             }
         });
 
@@ -79,7 +84,7 @@ export class DaemonManager {
         this.process.stderr?.on('data', (data: Buffer) => {
             const lines = data.toString().trim().split('\n');
             for (const line of lines) {
-                this.outputChannel.appendLine(`[daemon:err] ${line}`);
+                this.outputChannel.appendLine(`[daemon:err] ${stripAnsi(line)}`);
             }
         });
 
