@@ -258,6 +258,11 @@ impl SyncManager {
         // in the cache (e.g. bootstrap step 7) don't fail in CI.
         self.ensure_cache_git_identity()?;
 
+        // Propagate .claude/hooks into the cache worktree so that PreToolUse
+        // hooks (which resolve via `git rev-parse --show-toplevel`) still work
+        // when an agent's CWD lands inside the hub cache.
+        self.propagate_claude_hooks()?;
+
         Ok(())
     }
 
@@ -966,6 +971,33 @@ impl SyncManager {
 
     /// Ensure the cache worktree has a git identity configured so commits
     /// succeed even in environments without a global git config (e.g. CI).
+    /// Copy `.claude/hooks/` from the repo root into the hub cache worktree.
+    ///
+    /// PreToolUse hooks resolve their path via `git rev-parse --show-toplevel`.
+    /// When an agent's CWD is inside the hub cache, that resolves to the cache
+    /// root instead of the main repo, so the hooks must exist there too.
+    /// This is a best-effort operation — if `.claude/hooks/` doesn't exist in
+    /// the repo root, we silently skip.
+    fn propagate_claude_hooks(&self) -> Result<()> {
+        let src = self.repo_root.join(".claude").join("hooks");
+        if !src.is_dir() {
+            return Ok(());
+        }
+        let dst = self.cache_dir.join(".claude").join("hooks");
+        if dst.is_dir() {
+            return Ok(()); // already propagated
+        }
+        std::fs::create_dir_all(&dst)?;
+        for entry in std::fs::read_dir(&src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            if ty.is_file() {
+                std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+
     fn ensure_cache_git_identity(&self) -> Result<()> {
         let has_email = Command::new("git")
             .current_dir(&self.cache_dir)
