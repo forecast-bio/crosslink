@@ -271,6 +271,34 @@ impl SyncManager {
         Ok(())
     }
 
+    /// Detect and resolve dirty hub cache state.
+    ///
+    /// If the cache has modified/untracked files (e.g. from a failed push retry
+    /// that left files staged but uncommitted), stage everything and commit it
+    /// so that subsequent rebase/pull operations can proceed.
+    ///
+    /// Returns `true` if dirty state was found and cleaned.
+    pub fn clean_dirty_state(&self) -> Result<bool> {
+        let status = self.git_in_cache(&["status", "--porcelain"]);
+        match status {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.trim().is_empty() {
+                    return Ok(false);
+                }
+                // Dirty state found — stage and commit to recover
+                let _ = self.git_in_cache(&["add", "-A"]);
+                let _ = self.git_in_cache(&[
+                    "commit",
+                    "-m",
+                    "sync: auto-stage dirty hub state (recovery)",
+                ]);
+                Ok(true)
+            }
+            Err(_) => Ok(false), // Can't check status — don't block
+        }
+    }
+
     /// Fetch the latest state from remote and reset the cache to match.
     pub fn fetch(&self) -> Result<()> {
         // Try fetching from remote. If no remote is configured, this is a no-op.
@@ -297,6 +325,9 @@ impl SyncManager {
         if let Ok(output) = &log_result {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if !stdout.trim().is_empty() {
+                // Clean dirty state before rebase — prevents "cannot pull
+                // with rebase: You have unstaged changes" error loop
+                self.clean_dirty_state()?;
                 // Unpushed commits exist — rebase to preserve them
                 let rebase_result = self.git_in_cache(&["rebase", &remote_ref]);
                 if let Err(e) = &rebase_result {
@@ -611,8 +642,9 @@ impl SyncManager {
                 eprintln!("Warning: heartbeat push failed (offline), changes saved locally only");
                 return Ok(());
             }
-            // If push is rejected (conflict), try pull+push once
+            // If push is rejected (conflict), clean dirty state and try pull+push once
             if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
+                let _ = self.clean_dirty_state();
                 let _ = self.git_in_cache(&["pull", "--rebase", "origin", HUB_BRANCH]);
                 if let Err(retry_err) = self.git_in_cache(&["push", "origin", HUB_BRANCH]) {
                     eprintln!(

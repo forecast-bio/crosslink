@@ -278,7 +278,10 @@ impl SharedWriter {
                     }
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < MAX_RETRIES - 1 {
-                            let _ = self.git_in_cache(&["reset", "HEAD~1"]);
+                            // Reset commit AND working directory — the prepare
+                            // closure re-generates content on the next iteration,
+                            // so losing working dir changes is safe.
+                            let _ = self.git_in_cache(&["reset", "--hard", "HEAD~1"]);
                             self.git_in_cache(&[
                                 "pull",
                                 "--rebase",
@@ -1110,8 +1113,14 @@ impl SharedWriter {
                 let _ = self.write_counters_to_cache(&counters);
             }
             // Amend the commit to reflect reverted state
-            let _ = self.git_in_cache(&["add", "."]);
-            let _ = self.git_in_cache(&["commit", "--amend", "--no-edit"]);
+            if let Err(e) = self.git_in_cache(&["add", "."]) {
+                eprintln!("Warning: failed to stage reverted state: {}", e);
+            }
+            if let Err(e) = self.git_in_cache(&["commit", "--amend", "--no-edit"]) {
+                eprintln!("Warning: failed to commit reverted state: {}", e);
+                // Last resort: clean dirty state so we don't poison future syncs
+                let _ = self.sync.clean_dirty_state();
+            }
             return Ok(vec![]);
         }
 
@@ -1222,15 +1231,19 @@ impl SharedWriter {
 
         // Commit JSON changes if any
         if json_changed {
-            let _ = self.git_in_cache(&["add", "issues/"]);
-            let _ = self.git_in_cache(&[
+            if let Err(e) = self.git_in_cache(&["add", "issues/"]) {
+                eprintln!("Warning: failed to stage rewritten references: {}", e);
+            }
+            if let Err(e) = self.git_in_cache(&[
                 "commit",
                 "-m",
                 &format!(
                     "{}: rewrite local references after promotion",
                     self.agent.agent_id
                 ),
-            ]);
+            ]) {
+                eprintln!("Warning: failed to commit rewritten references: {}", e);
+            }
             // Best-effort push
             let _ = self.git_in_cache(&["push", "origin", crate::sync::HUB_BRANCH]);
         }
@@ -1572,11 +1585,12 @@ impl SharedWriter {
                         );
                         return Ok(PushOutcome::LocalOnly);
                     }
-                    // Conflict — reset our commit, pull latest, then retry
-                    // (the closure will re-read fresh state on the next iteration)
+                    // Conflict — reset commit AND working directory, pull latest,
+                    // then retry. The prepare closure re-reads fresh state on the
+                    // next iteration, so losing working dir changes is safe.
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < MAX_RETRIES - 1 {
-                            let _ = self.git_in_cache(&["reset", "HEAD~1"]);
+                            let _ = self.git_in_cache(&["reset", "--hard", "HEAD~1"]);
                             self.git_in_cache(&[
                                 "pull",
                                 "--rebase",
