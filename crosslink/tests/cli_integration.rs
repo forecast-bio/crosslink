@@ -2741,3 +2741,115 @@ fn test_integrity_hydration_skipped_without_sync() {
     assert!(success);
     assert!(stdout.contains("SKIPPED"));
 }
+
+// ==================== Kickoff Dry-Run Tests ====================
+
+/// Helper to initialize a git repo + crosslink in a temp directory
+fn init_git_and_crosslink(dir: &std::path::Path) {
+    // Initialize a git repo so kickoff can find repo_root()
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(["init", "-b", "main"])
+        .output()
+        .expect("Failed to init git repo");
+    assert!(output.status.success(), "git init failed");
+
+    // Configure git user for commits
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["config", "user.email", "test@test.com"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["config", "user.name", "Test"])
+        .output();
+
+    // Create an initial commit so HEAD exists (worktree creation needs it)
+    std::fs::write(dir.join("README.md"), "# test\n").unwrap();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["add", "README.md"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["commit", "-m", "initial", "--no-gpg-sign"])
+        .output();
+
+    init_crosslink(dir);
+}
+
+#[test]
+fn test_kickoff_dry_run_prints_prompt_and_metadata() {
+    let dir = tempdir().unwrap();
+    init_git_and_crosslink(dir.path());
+
+    let (success, stdout, stderr) = run_crosslink(
+        dir.path(),
+        &["kickoff", "run", "--dry-run", "add batch retry logic"],
+    );
+
+    assert!(success, "kickoff --dry-run failed: stderr={}", stderr);
+
+    // Prompt content
+    assert!(
+        stdout.contains("KICKOFF: add batch retry logic"),
+        "Missing KICKOFF header in output: {}",
+        stdout
+    );
+    assert!(stdout.contains("Feature Description"));
+    assert!(stdout.contains("add batch retry logic"));
+    assert!(stdout.contains("Final Steps"));
+    assert!(stdout.contains("crosslink session"));
+
+    // Metadata printed after the prompt separator
+    assert!(stdout.contains("Worktree:"));
+    assert!(stdout.contains("Branch:"));
+    assert!(stdout.contains("Agent:"));
+}
+
+#[test]
+fn test_kickoff_dry_run_creates_kickoff_md() {
+    let dir = tempdir().unwrap();
+    init_git_and_crosslink(dir.path());
+
+    let (success, stdout, _) = run_crosslink(
+        dir.path(),
+        &["kickoff", "run", "--dry-run", "test file creation"],
+    );
+    assert!(success);
+
+    // Extract worktree path from output
+    let worktree_line = stdout
+        .lines()
+        .find(|l| l.starts_with("Worktree:"))
+        .expect("No Worktree line in output");
+    let worktree_path = worktree_line.trim_start_matches("Worktree:").trim();
+
+    // KICKOFF.md should exist in the worktree
+    let kickoff_path = std::path::Path::new(worktree_path).join("KICKOFF.md");
+    assert!(
+        kickoff_path.exists(),
+        "KICKOFF.md not found at {}",
+        kickoff_path.display()
+    );
+
+    let content = std::fs::read_to_string(&kickoff_path).unwrap();
+    assert!(content.contains("test file creation"));
+}
+
+#[test]
+fn test_kickoff_dry_run_does_not_launch_agent() {
+    let dir = tempdir().unwrap();
+    init_git_and_crosslink(dir.path());
+
+    let (success, stdout, _) = run_crosslink(
+        dir.path(),
+        &["kickoff", "run", "--dry-run", "no launch test"],
+    );
+    assert!(success);
+
+    // Dry run should NOT print launch confirmation messages
+    assert!(!stdout.contains("Feature agent launched"));
+    assert!(!stdout.contains("tmux"));
+    assert!(!stdout.contains("Approve trust"));
+}
