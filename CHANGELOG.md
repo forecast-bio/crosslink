@@ -6,40 +6,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.1.3-beta.1] - 2026-03-02
+## [0.2.0] - 2026-03-03
+
+First stable release. Promotes all changes from v0.1.3-beta.1 plus major new features.
 
 ### Added
-- SSH signing foundation — agent key generation, driver key setup, per-commit signing, allowed_signers management (#71-#76)
-- Track driver signing key fingerprint in interventions and trust approvals (#88)
-- KnowledgeManager for shared research via `crosslink/knowledge` branch with page CRUD and full-text search (#62, #63)
-- House style syncing — `crosslink style set/sync/diff/show/unset` for portable project conventions (#91)
-- Interactive TUI walkthrough for `crosslink init` with `--defaults` and `--reconfigure` flags (#60)
-- Consolidated `crosslink config` command — show, get, set, list, reset, diff subcommands with typed validation
-- Managed `.gitignore` section injected by `crosslink init` for `.claude/` and `.crosslink/` directories (#135)
-- Document blocked actions and lint checks in default init templates (#100)
-- Tmux and git worktree permissions added to default `settings.json` for kickoff workflows
-- Crosslink session lifecycle and worktree awareness in `/kickoff` skill template (#33)
-- Typed comments and auto-documentation trail — comments carry `kind`, `trigger_type`, and `intervention_context` (#47)
-- Driver intervention tracking with `crosslink intervene` command (#68)
-- cpitd (code clone detection) integration with `crosslink cpitd` command (#69)
-- Scope session queries to `agent_id` for multi-agent isolation (#96)
+
+#### Terminal UI (`crosslink tui`)
+- `crosslink tui` command — read-only terminal dashboard for browsing crosslink data ([GH-152])
+- Issues tab with tree view, detail view, filtering, and sorting
+- Agents tab with active session monitoring
+- Knowledge tab with page browser and vivid syntax highlighting
+- Milestones tab and Config tab
+- Mouse support, command palette (`Ctrl-P`), and clipboard export
+- Keyboard navigation with help overlay (`?`)
+
+#### Container-Based Agent Execution
+- `crosslink container` command for isolated agent environments ([GH-110])
+- Container bootstrap command for setting up agent containers
+- Updated `/kickoff` and `/check` skills to support container backend
+
+#### Context Management
+- `crosslink context` command — context injection optimization with skills, adaptive reminders, and measurement
+
+#### Hub Layout V2
+- Compact command, `--defer-id`, lock timeout, V2 stale detection (Phase 5) ([GH-113])
+- Event-based lock confirmation protocol (Phase 3)
+- Container bootstrap command (Phase 4)
+- SharedWriter updated for v2 hub layout paths ([GH-132])
+
+#### Knowledge Management
+- Accept-both conflict resolution for knowledge branch sync/push
+- Knowledge management prompting norms for agents
+- KnowledgeManager for shared research via `crosslink/knowledge` branch with page CRUD and full-text search ([GH-62], [GH-63])
+
+#### Init Experience
+- Ratatui-based setup wizard with styled progress output for `crosslink init`
+- Confirmation screen, taller viewport, and smoother progress output
+- Inline TUI rendering with clean Esc cancel
+- Interactive TUI walkthrough with `--defaults` and `--reconfigure` flags ([GH-60])
+- Managed `.gitignore` section injected by `crosslink init`
+- Document blocked actions and lint checks in default init templates
+
+#### SSH Signing
+- SSH signing foundation — agent key generation, driver key setup, per-commit signing, allowed_signers management ([GH-71]-[GH-76])
+- Track driver signing key fingerprint in interventions and trust approvals
+
+#### Other
+- House style syncing — `crosslink style set/sync/diff/show/unset` for portable project conventions ([GH-91])
+- Consolidated `crosslink config` command — show, get, set, list, reset, diff with typed validation
+- Typed comments and auto-documentation trail — comments carry `kind`, `trigger_type`, and `intervention_context`
+- Driver intervention tracking with `crosslink intervene` command
+- cpitd (code clone detection) integration with `crosslink cpitd` command
+- Scope session queries to `agent_id` for multi-agent isolation
 - Crates.io publish CI workflow on release tags
+- GitHub Pages CD workflow for docs site
 
 ### Fixed
-- Resolve `.crosslink` directory through git worktrees so hooks work in worktree checkouts (#131)
-- Resolve `sessions_new` migration batch error from wrong pragma column name (#138)
-- Allow `agent init` to reinit when existing `agent.json` is malformed (#137)
-- Auto-claim lock in `quick`/`create --work` to match `session work` behavior (#83)
+- Address TUI adversarial review findings (C1, C2, H2-H4, M3-M7)
+- Resolve `.crosslink` directory through git worktrees so hooks work in worktree checkouts ([GH-131])
+- Make hooks resilient to invocation from non-project directories
+- Resolve container startup failures found during manual testing
+- Resolve `sessions_new` migration batch error from wrong pragma column name ([GH-138])
+- Allow `agent init` to reinit when existing `agent.json` is malformed ([GH-137])
+- Auto-claim lock in `quick`/`create --work` to match `session work` behavior
+- Configure fallback git identity in hub cache for CI environments
 - Re-check lock ownership after push conflicts in `claim_lock`
 - Guard against clock skew in stale lock detection
 - Use atomic write (temp + rename) for issue and lock files
 - Register SIGTERM/SIGINT handlers for graceful daemon shutdown
-- Log transaction rollback failures, unexpected migration errors, and datetime parse fallbacks instead of suppressing
 - Generate UUID at local issue creation time (not deferred)
-- Quote font family values in `_brand.yml` to fix docs YAML parse error (#92)
 
 ### Security
-- Enforce restrictive Unix permissions (0600) on generated SSH keys (#105)
+- Enforce restrictive Unix permissions (0600) on generated SSH keys ([GH-105])
 - Validate key type and principal format in `allowed_signers` parser
 - Parse `ssh-keygen` stderr and add timeout to signature verification
 - Prevent path traversal in knowledge page names
@@ -49,10 +88,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Stop `crosslink init` from overriding project worktree signing key
 
 ### Changed
-- Rename `crosslink review` subcommand to `crosslink workflow` (#79)
-- Untrack auto-generated `.claude` and `.crosslink` files from git (#94)
-- Refine hook-config.json defaults and `.gitignore` rules
-- Fix author typo in Cargo.toml (`forecacst.bio` → `forecast.bio`)
+- Restructure CI/CD workflows for git flow branching model (develop/feature/release/hotfix)
+- Add hotfix/release branch triggers and PRs-to-main to CI workflow
+- Decouple publish.yml from ci.yml, rely on branch protection
+- Rename `crosslink review` subcommand to `crosslink workflow`
+- Untrack auto-generated `.claude` and `.crosslink` files from git
+- Comprehensive documentation review and quarto site updates
+- Full-system adversarial review
 
 ## [0.1.2-alpha.1] - 2026-02-27
 

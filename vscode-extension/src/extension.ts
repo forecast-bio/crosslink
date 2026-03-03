@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { DaemonManager } from './daemon';
-import { validateBinaries, resolveBinaryPath } from './platform';
+import { validateBinaries, resolveBinaryPath, verifyBinaryChecksum } from './platform';
 
 let daemonManager: DaemonManager | null = null;
 let outputChannel: vscode.OutputChannel;
@@ -659,8 +659,9 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
             path.join(homeDir, 'bin'),
         ];
 
-    // Find source binary
+    // Find and verify source binary
     const sourceBinary = resolveBinaryPath(extensionPath);
+    verifyBinaryChecksum(sourceBinary);
     const targetName = isWindows ? 'crosslink.exe' : 'crosslink';
 
     // Try each candidate directory
@@ -760,7 +761,7 @@ function checkPythonForHooks(workspaceFolder: string, output: vscode.OutputChann
     let pythonFound = false;
     for (const cmd of pythonCommands) {
         try {
-            execSync(`${cmd} --version`, {
+            execFileSync(cmd, ['--version'], {
                 stdio: 'pipe',
                 timeout: 5000
             });

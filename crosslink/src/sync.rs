@@ -966,6 +966,9 @@ impl SyncManager {
 
     /// Ensure the cache worktree has a git identity configured so commits
     /// succeed even in environments without a global git config (e.g. CI).
+    ///
+    /// Uses `--worktree` scope when the cache dir is a linked worktree to
+    /// avoid leaking identity config into the shared `.git/config`.
     fn ensure_cache_git_identity(&self) -> Result<()> {
         let has_email = Command::new("git")
             .current_dir(&self.cache_dir)
@@ -974,13 +977,22 @@ impl SyncManager {
             .map(|o| o.status.success())
             .unwrap_or(false);
         if !has_email {
+            let use_worktree = signing::is_linked_worktree(&self.cache_dir);
+            if use_worktree {
+                signing::enable_worktree_config(&self.cache_dir)?;
+            }
+            let scope_flag = if use_worktree {
+                "--worktree"
+            } else {
+                "--local"
+            };
             let _ = Command::new("git")
                 .current_dir(&self.cache_dir)
-                .args(["config", "user.email", "crosslink@localhost"])
+                .args(["config", scope_flag, "user.email", "crosslink@localhost"])
                 .output();
             let _ = Command::new("git")
                 .current_dir(&self.cache_dir)
-                .args(["config", "user.name", "crosslink"])
+                .args(["config", scope_flag, "user.name", "crosslink"])
                 .output();
         }
         Ok(())

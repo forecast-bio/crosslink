@@ -190,37 +190,156 @@ pub fn read_public_key(path: &Path) -> Result<String> {
 
 // ── Git signing configuration ───────────────────────────────────────
 
+/// Check whether `repo_dir` is a linked git worktree (not the main repo).
+///
+/// Compares `git rev-parse --git-dir` vs `--git-common-dir`. When they
+/// differ, `--local` config writes leak into the shared `.git/config`.
+pub fn is_linked_worktree(repo_dir: &Path) -> bool {
+    let git_dir = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["rev-parse", "--git-dir"])
+        .output();
+    let common_dir = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["rev-parse", "--git-common-dir"])
+        .output();
+
+    let (Ok(gd), Ok(cd)) = (git_dir, common_dir) else {
+        return false;
+    };
+    if !gd.status.success() || !cd.status.success() {
+        return false;
+    }
+
+    let gd_raw = String::from_utf8_lossy(&gd.stdout).trim().to_string();
+    let cd_raw = String::from_utf8_lossy(&cd.stdout).trim().to_string();
+
+    let gd_path = if Path::new(&gd_raw).is_absolute() {
+        PathBuf::from(&gd_raw)
+    } else {
+        repo_dir.join(&gd_raw)
+    };
+    let cd_path = if Path::new(&cd_raw).is_absolute() {
+        PathBuf::from(&cd_raw)
+    } else {
+        repo_dir.join(&cd_raw)
+    };
+
+    let gd_canonical = gd_path.canonicalize().unwrap_or(gd_path);
+    let cd_canonical = cd_path.canonicalize().unwrap_or(cd_path);
+
+    gd_canonical != cd_canonical
+}
+
+/// Enable `extensions.worktreeConfig` in the shared git config.
+///
+/// Required before `git config --worktree` will work. Idempotent.
+pub fn enable_worktree_config(repo_dir: &Path) -> Result<()> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["config", "extensions.worktreeConfig", "true"])
+        .output()
+        .context("Failed to enable extensions.worktreeConfig")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "Failed to enable extensions.worktreeConfig: {}",
+            stderr.trim()
+        );
+    }
+    Ok(())
+}
+
+/// Remove agent signing keys that leaked into the shared `.git/config`.
+///
+/// Only unsets values whose path contains `.crosslink/keys/` (agent keys).
+/// User-set keys (e.g. `~/.ssh/id_ecdsa_signing`) are left untouched.
+fn cleanup_leaked_signing_config(repo_dir: &Path) -> Result<()> {
+    // Read the current user.signingkey from --local (shared config)
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["config", "--local", "user.signingkey"])
+        .output();
+
+    let Ok(output) = output else {
+        return Ok(());
+    };
+    if !output.status.success() {
+        // No signing key in shared config — nothing to clean
+        return Ok(());
+    }
+
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !value.contains(".crosslink/keys/") && !value.contains(".crosslink\\keys\\") {
+        // Not an agent key — leave it alone
+        return Ok(());
+    }
+
+    // Unset the leaked agent signing config from shared config
+    for key in &[
+        "user.signingkey",
+        "gpg.format",
+        "commit.gpgsign",
+        "gpg.ssh.allowedSignersFile",
+    ] {
+        let _ = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["config", "--local", "--unset", key])
+            .output();
+    }
+
+    Ok(())
+}
+
 /// Configure git to use SSH signing in a repository.
 ///
 /// Sets `gpg.format=ssh`, `user.signingkey`, and `commit.gpgsign=true`.
+///
+/// Automatically detects linked worktrees and uses `--worktree` scope
+/// to avoid leaking agent signing config into the shared `.git/config`.
 pub fn configure_git_ssh_signing(
     repo_dir: &Path,
     private_key_path: &Path,
     allowed_signers_path: Option<&Path>,
 ) -> Result<()> {
-    run_git_config(repo_dir, "gpg.format", "ssh")?;
+    let use_worktree = is_linked_worktree(repo_dir);
+
+    if use_worktree {
+        enable_worktree_config(repo_dir)?;
+        cleanup_leaked_signing_config(repo_dir)?;
+    }
+
+    run_git_config(repo_dir, "gpg.format", "ssh", use_worktree)?;
     run_git_config(
         repo_dir,
         "user.signingkey",
         &private_key_path.to_string_lossy(),
+        use_worktree,
     )?;
-    run_git_config(repo_dir, "commit.gpgsign", "true")?;
+    run_git_config(repo_dir, "commit.gpgsign", "true", use_worktree)?;
 
     if let Some(signers) = allowed_signers_path {
         run_git_config(
             repo_dir,
             "gpg.ssh.allowedSignersFile",
             &signers.to_string_lossy(),
+            use_worktree,
         )?;
     }
 
     Ok(())
 }
 
-fn run_git_config(repo_dir: &Path, key: &str, value: &str) -> Result<()> {
+fn run_git_config(repo_dir: &Path, key: &str, value: &str, worktree_scope: bool) -> Result<()> {
+    let scope_flag = if worktree_scope {
+        "--worktree"
+    } else {
+        "--local"
+    };
     let output = Command::new("git")
         .current_dir(repo_dir)
-        .args(["config", "--local", key, value])
+        .args(["config", scope_flag, key, value])
         .output()
         .with_context(|| format!("Failed to set git config {}", key))?;
 
@@ -910,5 +1029,145 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "true");
+    }
+
+    /// Helper to init a git repo with a dummy commit (needed for worktree creation).
+    fn init_git_repo_with_commit(path: &Path) {
+        Command::new("git")
+            .current_dir(path)
+            .args(["init", "-q"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(path)
+            .args(["config", "user.email", "test@test.com"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(path)
+            .args(["config", "user.name", "Test"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(path)
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_configure_git_ssh_signing_in_linked_worktree() {
+        let dir = tempdir().unwrap();
+        let main_root = dir.path().join("main");
+        std::fs::create_dir_all(&main_root).unwrap();
+        init_git_repo_with_commit(&main_root);
+
+        // Set a user signing key in the main repo's shared config
+        Command::new("git")
+            .current_dir(&main_root)
+            .args([
+                "config",
+                "--local",
+                "user.signingkey",
+                "~/.ssh/id_ecdsa_signing",
+            ])
+            .output()
+            .unwrap();
+
+        // Create a branch and linked worktree
+        Command::new("git")
+            .current_dir(&main_root)
+            .args(["branch", "wt-test"])
+            .output()
+            .unwrap();
+        let wt_path = dir.path().join("worktree");
+        Command::new("git")
+            .current_dir(&main_root)
+            .args(["worktree", "add", &wt_path.to_string_lossy(), "wt-test"])
+            .output()
+            .unwrap();
+
+        // Configure signing in the linked worktree with a fake agent key path
+        let agent_key = wt_path.join(".crosslink/keys/agent_ed25519");
+        std::fs::create_dir_all(agent_key.parent().unwrap()).unwrap();
+        std::fs::write(&agent_key, "fake-agent-key").unwrap();
+
+        configure_git_ssh_signing(&wt_path, &agent_key, None).unwrap();
+
+        // Verify: agent key is in the worktree-scoped config
+        let output = Command::new("git")
+            .current_dir(&wt_path)
+            .args(["config", "--worktree", "user.signingkey"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .contains(".crosslink/keys/"),
+            "agent key should be in worktree config"
+        );
+
+        // Verify: user's signing key is preserved in shared config
+        let output = Command::new("git")
+            .current_dir(&main_root)
+            .args(["config", "--local", "user.signingkey"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "~/.ssh/id_ecdsa_signing",
+            "user's signing key must not be overwritten in shared config"
+        );
+
+        // Verify: extensions.worktreeConfig was enabled
+        let output = Command::new("git")
+            .current_dir(&main_root)
+            .args(["config", "extensions.worktreeConfig"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "true",
+            "extensions.worktreeConfig should be enabled"
+        );
+    }
+
+    #[test]
+    fn test_configure_git_ssh_signing_standalone_still_uses_local() {
+        let dir = tempdir().unwrap();
+        let repo = dir.path();
+
+        Command::new("git")
+            .current_dir(repo)
+            .args(["init", "-q"])
+            .output()
+            .unwrap();
+
+        let key_path = repo.join("fake-key");
+        std::fs::write(&key_path, "fake").unwrap();
+
+        configure_git_ssh_signing(repo, &key_path, None).unwrap();
+
+        // Verify config is in --local scope
+        let output = Command::new("git")
+            .current_dir(repo)
+            .args(["config", "--local", "user.signingkey"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "signing key should be in local config for standalone repos"
+        );
+
+        // Verify extensions.worktreeConfig is NOT set
+        let output = Command::new("git")
+            .current_dir(repo)
+            .args(["config", "extensions.worktreeConfig"])
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "extensions.worktreeConfig should not be set for standalone repos"
+        );
     }
 }
