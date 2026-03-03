@@ -452,6 +452,12 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Launch an agent to implement a feature (local process or container)
+    Kickoff {
+        #[command(subcommand)]
+        action: KickoffCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -830,6 +836,60 @@ enum IntegrityCommands {
         /// Re-run migrations to update schema
         #[arg(long)]
         repair: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum KickoffCommands {
+    /// Launch a new agent to implement a feature
+    Run {
+        /// Human-readable feature description
+        description: String,
+        /// Existing issue to work on (creates one if omitted)
+        #[arg(long)]
+        issue: Option<i64>,
+        /// Container runtime: none (local process), docker, podman
+        #[arg(long, default_value = "none")]
+        container: String,
+        /// Verification level: local, ci, thorough
+        #[arg(long, default_value = "local")]
+        verify: String,
+        /// LLM model to use
+        #[arg(long, default_value = "opus")]
+        model: String,
+        /// Container image (for --container docker/podman)
+        #[arg(long, default_value = "ghcr.io/forecast-bio/crosslink-agent:latest")]
+        image: String,
+        /// Max runtime before killing agent (e.g. "1h", "30m")
+        #[arg(long, default_value = "1h")]
+        timeout: String,
+        /// Print the agent prompt without launching
+        #[arg(long)]
+        dry_run: bool,
+        /// Branch to use (auto-creates feature branch if omitted)
+        #[arg(long)]
+        branch: Option<String>,
+    },
+    /// Check status of a running kickoff agent
+    Status {
+        /// Agent ID or branch name
+        agent: String,
+    },
+    /// Tail an agent's event log
+    Logs {
+        /// Agent ID or branch name
+        agent: String,
+        /// Number of recent events to show
+        #[arg(short, long, default_value = "20")]
+        lines: usize,
+    },
+    /// Stop a running kickoff agent
+    Stop {
+        /// Agent ID or branch name
+        agent: String,
+        /// Force kill (SIGKILL instead of SIGTERM)
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -1590,6 +1650,48 @@ fn main() -> Result<()> {
                 WorkflowCommands::Trail { id, kind, json } => {
                     let db = get_db()?;
                     commands::workflow::trail(&db, id, kind.as_deref(), json)
+                }
+            }
+        }
+
+        Commands::Kickoff { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            match action {
+                KickoffCommands::Run {
+                    description,
+                    issue,
+                    container,
+                    verify,
+                    model,
+                    image,
+                    timeout,
+                    dry_run,
+                    branch,
+                } => {
+                    let writer = get_writer(&crosslink_dir);
+                    let opts = commands::kickoff::KickoffOpts {
+                        description: &description,
+                        issue,
+                        container: commands::kickoff::parse_container_mode(&container)?,
+                        verify: commands::kickoff::parse_verify_level(&verify)?,
+                        model: &model,
+                        image: &image,
+                        timeout: commands::kickoff::parse_duration(&timeout)?,
+                        dry_run,
+                        branch: branch.as_deref(),
+                        quiet: cli.quiet,
+                    };
+                    commands::kickoff::run(&crosslink_dir, &db, writer.as_ref(), &opts)
+                }
+                KickoffCommands::Status { agent } => {
+                    commands::kickoff::status(&crosslink_dir, &agent)
+                }
+                KickoffCommands::Logs { agent, lines } => {
+                    commands::kickoff::logs(&crosslink_dir, &agent, lines)
+                }
+                KickoffCommands::Stop { agent, force } => {
+                    commands::kickoff::stop(&crosslink_dir, &agent, force)
                 }
             }
         }
