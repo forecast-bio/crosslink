@@ -331,12 +331,7 @@ pub fn configure_git_ssh_signing(
     Ok(())
 }
 
-fn run_git_config(
-    repo_dir: &Path,
-    key: &str,
-    value: &str,
-    worktree_scope: bool,
-) -> Result<()> {
+fn run_git_config(repo_dir: &Path, key: &str, value: &str, worktree_scope: bool) -> Result<()> {
     let scope_flag = if worktree_scope {
         "--worktree"
     } else {
@@ -1088,12 +1083,7 @@ mod tests {
         let wt_path = dir.path().join("worktree");
         Command::new("git")
             .current_dir(&main_root)
-            .args([
-                "worktree",
-                "add",
-                &wt_path.to_string_lossy(),
-                "wt-test",
-            ])
+            .args(["worktree", "add", &wt_path.to_string_lossy(), "wt-test"])
             .output()
             .unwrap();
 
