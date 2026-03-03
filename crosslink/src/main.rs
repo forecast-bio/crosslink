@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 mod checkpoint;
+mod clock_skew;
 mod commands;
 #[allow(dead_code)]
 mod compaction;
@@ -1590,6 +1591,24 @@ fn main() -> Result<()> {
                         );
                     } else {
                         println!("  No new events to process.");
+                    }
+                    if result.git_skew_violations > 0 {
+                        eprintln!(
+                            "  Warning: {} clock skew violation(s) detected (see checkpoint/skew_warnings.json)",
+                            result.git_skew_violations
+                        );
+                        let violations =
+                            crate::clock_skew::read_skew_violations(&cache_dir).unwrap_or_default();
+                        for v in &violations {
+                            eprintln!(
+                                "    - agent={}, skew={}s, event={}, event_ts={}, commit_ts={}",
+                                v.agent_id,
+                                v.skew_seconds,
+                                v.event_description,
+                                v.event_timestamp.to_rfc3339(),
+                                v.commit_timestamp.to_rfc3339()
+                            );
+                        }
                     }
                 }
                 None => {
