@@ -838,24 +838,25 @@ pub fn run(
         create_worktree(&root, &slug, None)?
     };
 
-    // 4. Initialize crosslink + agent in worktree
-    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
-
-    // 5. Detect project conventions
+    // 4. Detect project conventions
     let conventions = detect_conventions(&root);
 
-    // 6. Build the prompt
+    // 5. Build the prompt
     let prompt = build_prompt(opts, issue_id, &branch_name, &conventions);
 
-    // 7. Write KICKOFF.md to worktree
+    // 6. Write KICKOFF.md to worktree
     std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
         .context("Failed to write KICKOFF.md")?;
 
-    // 8. Exclude kickoff files from git
+    // 7. Exclude kickoff files from git
     exclude_kickoff_files(&worktree_dir)?;
 
-    // Dry run: print prompt and exit
+    // Dry run: print prompt and exit (skip agent init — no launch needed)
     if opts.dry_run {
+        let parent_id = AgentConfig::load(crosslink_dir)?
+            .map(|c| c.agent_id)
+            .unwrap_or_else(|| "driver".to_string());
+        let agent_id = format!("{}--{}", parent_id, slug);
         println!("{}", prompt);
         println!("---");
         println!("Worktree: {}", worktree_dir.display());
@@ -863,6 +864,9 @@ pub fn run(
         println!("Agent:    {}", agent_id);
         return Ok(());
     }
+
+    // 8. Initialize crosslink + agent in worktree (only for real launches)
+    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
 
     // 9. Launch the agent
     let allowed_tools = build_allowed_tools(&conventions, &opts.verify);
