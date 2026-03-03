@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.1.3-beta.1] - 2026-03-02
 
 ### Added
+- Add knowledge page with design analysis for GH #106 and #107 (#88)
+- Add crates.io publish CD workflow and exclude __pycache__ from crate (#41)
+- Fix agent init reinit when agent.json is malformed (#44)
+- Fix sessions_new migration batch error on hub sync (#49)
+- Crosslink init: document blocked actions and lint checks in default commands (#51)
+- Improve .gitignore defaults for .claude and .crosslink directories (#53)
+- Add tmux and git worktree permissions to default kickoff skill (#59)
+- Kickoff agent for GH #88: track driver signing key (#39)
+- Track driver signing key in interventions and trust approvals (#40)
+- Add TUI walkthrough to crosslink init (#13)
+- Add house style syncing for commands, rules, and process flows across repos (#14)
+- Kickoff agent for GH #62: KnowledgeManager for shared research (#18)
+- Add KnowledgeManager for shared research knowledge branch (#19)
+- Add GitHub Pages CD workflow for docs site (#20)
+- Kickoff agent for GH #81: per-commit signing key override (#29)
+- Kickoff agent for GH #63: knowledge page CRUD commands (#30)
 - SSH signing foundation — agent key generation, driver key setup, per-commit signing, allowed_signers management (#71-#76)
 - Track driver signing key fingerprint in interventions and trust approvals (#88)
 - KnowledgeManager for shared research via `crosslink/knowledge` branch with page CRUD and full-text search (#62, #63)
@@ -26,6 +42,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Crates.io publish CI workflow on release tags
 
 ### Fixed
+- Kickoff agent for GH #60: fix crosslink quick lock claiming (#16)
+- Fix crosslink quick command to claim lock on new issue (#17)
+- Fix rustfmt formatting in knowledge.rs (#23)
+- Resolve merge conflict on feature/add-house-style-syncing (#24)
 - Resolve `.crosslink` directory through git worktrees so hooks work in worktree checkouts (#131)
 - Resolve `sessions_new` migration batch error from wrong pragma column name (#138)
 - Allow `agent init` to reinit when existing `agent.json` is malformed (#137)
@@ -39,6 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Quote font family values in `_brand.yml` to fix docs YAML parse error (#92)
 
 ### Security
+- Fix SSH key file permissions after generation (#36)
 - Enforce restrictive Unix permissions (0600) on generated SSH keys (#105)
 - Validate key type and principal format in `allowed_signers` parser
 - Parse `ssh-keygen` stderr and add timeout to signature verification
@@ -49,6 +70,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Stop `crosslink init` from overriding project worktree signing key
 
 ### Changed
+- Add /kickoff flow documentation page to quarto site (#74)
+- Documentation review and docs_src updates (#71)
+- Perform full-system adversarial review (#35)
+- Kickoff agent for GH #105: fix agent init signing key (#37)
+- Kickoff agent for GH #91 (#25)
 - Rename `crosslink review` subcommand to `crosslink workflow` (#79)
 - Untrack auto-generated `.claude` and `.crosslink` files from git (#94)
 - Refine hook-config.json defaults and `.gitignore` rules
