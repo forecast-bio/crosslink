@@ -107,7 +107,7 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
 }
 
 /// Slugify a feature description into a branch-safe name.
-fn slugify(description: &str) -> String {
+pub(crate) fn slugify(description: &str) -> String {
     let slug: String = description
         .to_lowercase()
         .chars()
@@ -143,13 +143,13 @@ fn slugify(description: &str) -> String {
 }
 
 /// Detect project conventions from the repo root.
-struct ProjectConventions {
-    test_command: Option<String>,
-    lint_commands: Vec<String>,
-    allowed_tools: Vec<String>,
+pub(crate) struct ProjectConventions {
+    pub(crate) test_command: Option<String>,
+    pub(crate) lint_commands: Vec<String>,
+    pub(crate) allowed_tools: Vec<String>,
 }
 
-fn detect_conventions(repo_root: &Path) -> ProjectConventions {
+pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     let mut conv = ProjectConventions {
         test_command: None,
         lint_commands: Vec::new(),
@@ -206,18 +206,141 @@ fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     conv
 }
 
+/// Format the verification level as a display string.
+pub(crate) fn verify_level_name(level: &VerifyLevel) -> &'static str {
+    match level {
+        VerifyLevel::Local => "local",
+        VerifyLevel::Ci => "ci",
+        VerifyLevel::Thorough => "thorough",
+    }
+}
+
+/// Build the test/lint instruction lines for the prompt.
+pub(crate) fn build_test_lint_instructions(
+    conventions: &ProjectConventions,
+    issue_id: i64,
+) -> String {
+    let mut section = String::new();
+
+    if let Some(test_cmd) = &conventions.test_command {
+        section.push_str(&format!("10. **Run tests**: `{}`\n", test_cmd));
+    } else {
+        section.push_str("10. **Run the project's test suite** to verify changes\n");
+    }
+
+    if !conventions.lint_commands.is_empty() {
+        let cmds: Vec<_> = conventions
+            .lint_commands
+            .iter()
+            .map(|c| format!("`{}`", c))
+            .collect();
+        section.push_str(&format!(
+            "11. **Run lint/format checks**: {}\n",
+            cmds.join(", ")
+        ));
+    } else {
+        section.push_str("11. **Run lint and format checks** before committing\n");
+    }
+
+    section.push_str(&format!(
+        r#"12. **Document results**: `crosslink comment {issue_id} "Result: <summary>" --kind result`
+13. Use `/commit` to commit the work when implementation is complete
+14. Review the diff and fix any issues found
+15. Use `/commit` again after any fixes
+"#,
+        issue_id = issue_id,
+    ));
+
+    section
+}
+
+/// Build the CI verification section of the prompt.
+pub(crate) fn build_ci_verification_section() -> &'static str {
+    r#"
+### CI Verification
+
+16. **Push and open draft PR**:
+    - Push the feature branch: `git push -u origin <branch>`
+    - Open a draft PR: `gh pr create --draft --title "<feature title>" --body "Automated PR from kickoff agent"`
+    - Record the PR URL for later reference.
+17. **Wait for CI to pass**:
+    - Poll CI status: `gh run list --branch <branch> --limit 1 --json status,conclusion,databaseId` every 30 seconds.
+    - If the run's `status` is `completed` and `conclusion` is `success`, CI has passed. Proceed.
+    - If the run's `status` is `completed` and `conclusion` is `failure`:
+      - Read the failure logs: `gh run view <run-id> --log-failed`
+      - Analyze the failures and fix the issues in the code.
+      - Run the local test suite again to verify fixes.
+      - Use `/commit` to commit the fixes.
+      - Push again: `git push`
+      - Wait for the new CI run to complete (repeat this loop).
+    - If no CI runs appear after 2 minutes, note this in the status and proceed (the repo may not have CI configured).
+    - Maximum 5 CI fix-and-retry cycles. If still failing after 5 attempts, write `CI_FAILED` to `.kickoff-status` and stop.
+"#
+}
+
+/// Build the adversarial self-review section of the prompt.
+pub(crate) fn build_adversarial_review_section() -> &'static str {
+    r#"
+### Adversarial Self-Review
+
+18. Before marking done, perform a thorough self-review of all changes:
+    - All tests pass locally
+    - CI is green
+    - No unintended file changes (`git diff main...HEAD --stat`)
+    - No debug/temporary code left behind (search for debugging macros and unfinished markers)
+    - No commented-out code blocks
+    - Commit messages are clean and descriptive
+    - Changes match the feature description above
+    - No new warnings in compiler/linter output
+    - Error handling is complete (no unwrap() on fallible operations in non-test code)
+    - Public API changes have appropriate documentation
+    - Use `/commit` after any fixes from the review.
+    - Push again if fixes were made: `git push`
+"#
+}
+
+/// Build the final steps section of the prompt.
+pub(crate) fn build_final_steps_section() -> &'static str {
+    r#"
+### Final Steps
+
+**Self-review checklist** (verify each before marking done):
+- All tests pass locally
+- Linter and formatter checks pass (no warnings or formatting errors)
+- No unintended file changes in the diff
+- No debug/temporary code left behind
+- Commit messages are clean and descriptive
+- Changes match the original feature description
+- All driver interventions have been logged via `crosslink intervene`
+
+Then:
+- **End session**: `crosslink session end --notes "Completed: <summary of what was delivered, any caveats or follow-ups>"`
+- **Write status**: Write the word `DONE` to a file called `.kickoff-status` in the worktree root when completely finished
+"#
+}
+
+/// Compute which patterns need adding to a git exclude file.
+///
+/// Given the existing exclude file content, returns only the patterns
+/// from `KICKOFF_EXCLUDE_PATTERNS` that are not already present.
+pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &["KICKOFF.md", ".kickoff-status"];
+
+pub(crate) fn missing_exclude_patterns(existing_content: &str) -> Vec<&'static str> {
+    KICKOFF_EXCLUDE_PATTERNS
+        .iter()
+        .filter(|pattern| !existing_content.lines().any(|l| l.trim() == **pattern))
+        .copied()
+        .collect()
+}
+
 /// Build the KICKOFF.md prompt for the agent.
-fn build_prompt(
+pub(crate) fn build_prompt(
     opts: &KickoffOpts,
     issue_id: i64,
     branch_name: &str,
     conventions: &ProjectConventions,
 ) -> String {
-    let verify_name = match opts.verify {
-        VerifyLevel::Local => "local",
-        VerifyLevel::Ci => "ci",
-        VerifyLevel::Thorough => "thorough",
-    };
+    let verify_name = verify_level_name(&opts.verify);
 
     let mut prompt = format!(
         r#"# KICKOFF: {description}
@@ -280,109 +403,26 @@ these, ask the user to run it manually:
         verify_name = verify_name,
     );
 
-    // Test/lint instructions
-    if let Some(test_cmd) = &conventions.test_command {
-        prompt.push_str(&format!("10. **Run tests**: `{}`\n", test_cmd));
-    } else {
-        prompt.push_str("10. **Run the project's test suite** to verify changes\n");
-    }
+    prompt.push_str(&build_test_lint_instructions(conventions, issue_id));
 
-    if !conventions.lint_commands.is_empty() {
-        let cmds: Vec<_> = conventions
-            .lint_commands
-            .iter()
-            .map(|c| format!("`{}`", c))
-            .collect();
-        prompt.push_str(&format!(
-            "11. **Run lint/format checks**: {}\n",
-            cmds.join(", ")
-        ));
-    } else {
-        prompt.push_str("11. **Run lint and format checks** before committing\n");
-    }
-
-    prompt.push_str(&format!(
-        r#"12. **Document results**: `crosslink comment {issue_id} "Result: <summary>" --kind result`
-13. Use `/commit` to commit the work when implementation is complete
-14. Review the diff and fix any issues found
-15. Use `/commit` again after any fixes
-"#,
-        issue_id = issue_id,
-    ));
-
-    // CI/thorough verification steps
     if opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough {
-        prompt.push_str(
-            r#"
-### CI Verification
-
-16. **Push and open draft PR**:
-    - Push the feature branch: `git push -u origin <branch>`
-    - Open a draft PR: `gh pr create --draft --title "<feature title>" --body "Automated PR from kickoff agent"`
-    - Record the PR URL for later reference.
-17. **Wait for CI to pass**:
-    - Poll CI status: `gh run list --branch <branch> --limit 1 --json status,conclusion,databaseId` every 30 seconds.
-    - If the run's `status` is `completed` and `conclusion` is `success`, CI has passed. Proceed.
-    - If the run's `status` is `completed` and `conclusion` is `failure`:
-      - Read the failure logs: `gh run view <run-id> --log-failed`
-      - Analyze the failures and fix the issues in the code.
-      - Run the local test suite again to verify fixes.
-      - Use `/commit` to commit the fixes.
-      - Push again: `git push`
-      - Wait for the new CI run to complete (repeat this loop).
-    - If no CI runs appear after 2 minutes, note this in the status and proceed (the repo may not have CI configured).
-    - Maximum 5 CI fix-and-retry cycles. If still failing after 5 attempts, write `CI_FAILED` to `.kickoff-status` and stop.
-"#,
-        );
+        prompt.push_str(build_ci_verification_section());
     }
 
     if opts.verify == VerifyLevel::Thorough {
-        prompt.push_str(
-            r#"
-### Adversarial Self-Review
-
-18. Before marking done, perform a thorough self-review of all changes:
-    - All tests pass locally
-    - CI is green
-    - No unintended file changes (`git diff main...HEAD --stat`)
-    - No debug/temporary code left behind (search for debugging macros and unfinished markers)
-    - No commented-out code blocks
-    - Commit messages are clean and descriptive
-    - Changes match the feature description above
-    - No new warnings in compiler/linter output
-    - Error handling is complete (no unwrap() on fallible operations in non-test code)
-    - Public API changes have appropriate documentation
-    - Use `/commit` after any fixes from the review.
-    - Push again if fixes were made: `git push`
-"#,
-        );
+        prompt.push_str(build_adversarial_review_section());
     }
 
-    // Final steps for all verify levels
-    prompt.push_str(
-        r#"
-### Final Steps
-
-**Self-review checklist** (verify each before marking done):
-- All tests pass locally
-- Linter and formatter checks pass (no warnings or formatting errors)
-- No unintended file changes in the diff
-- No debug/temporary code left behind
-- Commit messages are clean and descriptive
-- Changes match the original feature description
-- All driver interventions have been logged via `crosslink intervene`
-
-Then:
-- **End session**: `crosslink session end --notes "Completed: <summary of what was delivered, any caveats or follow-ups>"`
-- **Write status**: Write the word `DONE` to a file called `.kickoff-status` in the worktree root when completely finished
-"#,
-    );
+    prompt.push_str(build_final_steps_section());
 
     prompt
 }
 
 /// Build the --allowedTools string for the claude CLI.
-fn build_allowed_tools(conventions: &ProjectConventions, verify: &VerifyLevel) -> String {
+pub(crate) fn build_allowed_tools(
+    conventions: &ProjectConventions,
+    verify: &VerifyLevel,
+) -> String {
     let mut tools = vec![
         "Read",
         "Write",
@@ -426,7 +466,7 @@ fn build_allowed_tools(conventions: &ProjectConventions, verify: &VerifyLevel) -
 }
 
 /// Derive a tmux session name from the branch slug.
-fn tmux_session_name(slug: &str) -> String {
+pub(crate) fn tmux_session_name(slug: &str) -> String {
     let name = format!("feat-{}", slug);
     let sanitized: String = name
         .chars()
@@ -574,13 +614,7 @@ fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
     }
 
     let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
-
-    let mut additions = Vec::new();
-    for pattern in &["KICKOFF.md", ".kickoff-status"] {
-        if !existing.lines().any(|l| l.trim() == *pattern) {
-            additions.push(*pattern);
-        }
-    }
+    let additions = missing_exclude_patterns(&existing);
 
     if !additions.is_empty() {
         use std::io::Write;
@@ -1414,5 +1448,288 @@ mod tests {
     fn test_rand_suffix_range() {
         let s = rand_suffix();
         assert!(s < 10000);
+    }
+
+    // --- New tests for extracted pure functions ---
+
+    #[test]
+    fn test_slugify_all_special_chars() {
+        assert_eq!(slugify("!!!@@@###"), "");
+    }
+
+    #[test]
+    fn test_slugify_single_word() {
+        assert_eq!(slugify("refactor"), "refactor");
+    }
+
+    #[test]
+    fn test_slugify_unicode() {
+        // Rust's is_alphanumeric() includes Unicode letters like é
+        assert_eq!(slugify("add café support"), "add-café-support");
+    }
+
+    #[test]
+    fn test_slugify_consecutive_separators() {
+        assert_eq!(slugify("fix -- the -- bug"), "fix-the-bug");
+    }
+
+    #[test]
+    fn test_slugify_numbers() {
+        assert_eq!(slugify("add v2 api endpoint"), "add-v2-api-endpoint");
+    }
+
+    #[test]
+    fn test_slugify_empty() {
+        assert_eq!(slugify(""), "");
+    }
+
+    #[test]
+    fn test_slugify_truncation_cuts_at_word_boundary() {
+        // 61+ chars, should cut at last hyphen before 60
+        let desc = "implement-the-very-important-feature-that-does-something-really-great";
+        let slug = slugify(desc);
+        assert!(slug.len() <= 60);
+        assert!(!slug.ends_with('-'));
+    }
+
+    #[test]
+    fn test_verify_level_name() {
+        assert_eq!(verify_level_name(&VerifyLevel::Local), "local");
+        assert_eq!(verify_level_name(&VerifyLevel::Ci), "ci");
+        assert_eq!(verify_level_name(&VerifyLevel::Thorough), "thorough");
+    }
+
+    #[test]
+    fn test_build_test_lint_instructions_with_commands() {
+        let conv = ProjectConventions {
+            test_command: Some("cargo test".to_string()),
+            lint_commands: vec![
+                "cargo clippy -- -D warnings".to_string(),
+                "cargo fmt --check".to_string(),
+            ],
+            allowed_tools: vec![],
+        };
+        let section = build_test_lint_instructions(&conv, 42);
+        assert!(section.contains("`cargo test`"));
+        assert!(section.contains("`cargo clippy -- -D warnings`"));
+        assert!(section.contains("`cargo fmt --check`"));
+        assert!(section.contains("crosslink comment 42"));
+    }
+
+    #[test]
+    fn test_build_test_lint_instructions_without_commands() {
+        let conv = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let section = build_test_lint_instructions(&conv, 7);
+        assert!(section.contains("Run the project's test suite"));
+        assert!(section.contains("Run lint and format checks"));
+        assert!(section.contains("crosslink comment 7"));
+    }
+
+    #[test]
+    fn test_build_ci_verification_section_content() {
+        let section = build_ci_verification_section();
+        assert!(section.contains("CI Verification"));
+        assert!(section.contains("gh pr create"));
+        assert!(section.contains("gh run list"));
+        assert!(section.contains("CI_FAILED"));
+        assert!(section.contains("Maximum 5 CI fix-and-retry"));
+    }
+
+    #[test]
+    fn test_build_adversarial_review_section_content() {
+        let section = build_adversarial_review_section();
+        assert!(section.contains("Adversarial Self-Review"));
+        assert!(section.contains("git diff main...HEAD"));
+        assert!(section.contains("unwrap()"));
+    }
+
+    #[test]
+    fn test_build_final_steps_section_content() {
+        let section = build_final_steps_section();
+        assert!(section.contains("Self-review checklist"));
+        assert!(section.contains("crosslink session end"));
+        assert!(section.contains(".kickoff-status"));
+        assert!(section.contains("DONE"));
+    }
+
+    #[test]
+    fn test_missing_exclude_patterns_empty_file() {
+        let patterns = missing_exclude_patterns("");
+        assert_eq!(patterns, vec!["KICKOFF.md", ".kickoff-status"]);
+    }
+
+    #[test]
+    fn test_missing_exclude_patterns_one_present() {
+        let patterns = missing_exclude_patterns("KICKOFF.md\nsome-other-file\n");
+        assert_eq!(patterns, vec![".kickoff-status"]);
+    }
+
+    #[test]
+    fn test_missing_exclude_patterns_both_present() {
+        let patterns = missing_exclude_patterns("KICKOFF.md\n.kickoff-status\n");
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn test_missing_exclude_patterns_with_whitespace() {
+        let patterns = missing_exclude_patterns("  KICKOFF.md  \n  .kickoff-status  \n");
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn test_build_allowed_tools_thorough() {
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let tools = build_allowed_tools(&conventions, &VerifyLevel::Thorough);
+        assert!(tools.contains("Bash(gh *)"));
+        assert!(tools.contains("Bash(sleep *)"));
+    }
+
+    #[test]
+    fn test_build_allowed_tools_includes_project_tools() {
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec!["Bash(cargo *)".to_string(), "Bash(npm *)".to_string()],
+        };
+        let tools = build_allowed_tools(&conventions, &VerifyLevel::Local);
+        assert!(tools.contains("Bash(cargo *)"));
+        assert!(tools.contains("Bash(npm *)"));
+        assert!(!tools.contains("Bash(gh *)"));
+    }
+
+    #[test]
+    fn test_detect_conventions_python() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pyproject.toml"), "[project]").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert_eq!(conv.test_command.as_deref(), Some("uv run pytest"));
+        assert!(conv.lint_commands.contains(&"ruff check .".to_string()));
+        assert!(conv.allowed_tools.contains(&"Bash(python3 *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_go() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module example").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert_eq!(conv.test_command.as_deref(), Some("go test ./..."));
+        assert!(conv.lint_commands.contains(&"go vet ./...".to_string()));
+        assert!(conv.allowed_tools.contains(&"Bash(go *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_just() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("justfile"), "build:").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert!(conv.allowed_tools.contains(&"Bash(just *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_make() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Makefile"), "build:").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert!(conv.allowed_tools.contains(&"Bash(make *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert!(conv.test_command.is_none());
+        assert!(conv.lint_commands.is_empty());
+        assert!(conv.allowed_tools.is_empty());
+    }
+
+    #[test]
+    fn test_detect_conventions_multi_language() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        // Rust gets priority for test_command
+        assert_eq!(conv.test_command.as_deref(), Some("cargo test"));
+        // Both toolchains present
+        assert!(conv.allowed_tools.contains(&"Bash(cargo *)".to_string()));
+        assert!(conv.allowed_tools.contains(&"Bash(npm *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_requirements_txt() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("requirements.txt"), "flask\n").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert_eq!(conv.test_command.as_deref(), Some("uv run pytest"));
+        assert!(conv.allowed_tools.contains(&"Bash(uv *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_crosslink_subdir_cargo() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("crosslink")).unwrap();
+        std::fs::write(dir.path().join("crosslink/Cargo.toml"), "[package]").unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert_eq!(conv.test_command.as_deref(), Some("cargo test"));
+    }
+
+    #[test]
+    fn test_parse_duration_whitespace() {
+        assert_eq!(
+            parse_duration("  30m  ").unwrap(),
+            Duration::from_secs(1800)
+        );
+    }
+
+    #[test]
+    fn test_parse_duration_large_value() {
+        assert_eq!(parse_duration("24h").unwrap(), Duration::from_secs(86400));
+    }
+
+    #[test]
+    fn test_tmux_session_name_empty() {
+        assert_eq!(tmux_session_name(""), "feat-");
+    }
+
+    #[test]
+    fn test_build_prompt_local_has_no_ci_or_adversarial() {
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "test local",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+        };
+        let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
+
+        assert!(!prompt.contains("CI Verification"));
+        assert!(!prompt.contains("Adversarial Self-Review"));
+        assert!(prompt.contains("Final Steps"));
     }
 }
