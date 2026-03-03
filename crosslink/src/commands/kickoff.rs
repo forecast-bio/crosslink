@@ -324,7 +324,12 @@ Then:
 ///
 /// Given the existing exclude file content, returns only the patterns
 /// from `KICKOFF_EXCLUDE_PATTERNS` that are not already present.
-pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &["KICKOFF.md", ".kickoff-status"];
+pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &[
+    "KICKOFF.md",
+    ".kickoff-status",
+    "PLAN_KICKOFF.md",
+    ".kickoff-plan.json",
+];
 
 pub(crate) fn missing_exclude_patterns(existing_content: &str) -> Vec<&'static str> {
     KICKOFF_EXCLUDE_PATTERNS
@@ -1217,6 +1222,314 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
     );
 }
 
+/// Build the allowed tools string for plan mode (read-only analysis).
+pub(crate) fn build_allowed_tools_plan() -> String {
+    let tools = vec![
+        "Read",
+        "Glob",
+        "Grep",
+        "WebSearch",
+        "WebFetch",
+        "Bash(git status *)",
+        "Bash(git log *)",
+        "Bash(git diff *)",
+        "Bash(git show *)",
+        "Bash(git branch *)",
+        "Bash(ls *)",
+        "Bash(cat *)",
+        "Bash(head *)",
+        "Bash(tail *)",
+        "Bash(wc *)",
+        "Bash(crosslink *)",
+    ];
+    tools.join(",")
+}
+
+/// Build the prompt for plan mode — read-only gap analysis.
+pub(crate) fn build_plan_prompt(
+    doc: &super::design_doc::DesignDoc,
+    issue_id: Option<i64>,
+) -> String {
+    let issue_line = match issue_id {
+        Some(id) => format!("- **Issue**: #{}\n", id),
+        None => String::new(),
+    };
+
+    let mut prompt = format!(
+        r#"# KICKOFF PLAN: Gap Analysis — {}
+
+## Context
+
+{}- **Mode**: Read-only analysis (no code changes)
+
+"#,
+        doc.title, issue_line,
+    );
+
+    prompt.push_str(&super::design_doc::build_design_doc_section(doc));
+
+    if let Some(escalation) = super::design_doc::build_open_questions_escalation(doc) {
+        prompt.push_str(&escalation);
+    }
+
+    prompt.push_str(
+        r#"
+## Analysis Instructions
+
+You are in **read-only analysis mode**. Do NOT write or edit any code files. Your task is to
+analyze the design document above against the existing codebase and produce a structured gap report.
+
+### Steps
+
+1. **Explore the codebase** — find files, patterns, and existing implementations relevant to
+   each requirement in the design document.
+2. **Assess each requirement** — for each one, determine:
+   - Is it feasible with the current codebase?
+   - What existing code supports or conflicts with it?
+   - What information is missing?
+3. **Address open questions** — attempt to answer each from codebase context (existing patterns,
+   conventions, prior art).
+4. **Identify conflicts** — flag any existing code that contradicts or complicates requirements.
+5. **Estimate subtasks** — break the implementation into estimated subtasks with scope and risk.
+6. **Write the gap report** — produce `.kickoff-plan.json` in the current directory.
+
+### Output Format
+
+Write a JSON file `.kickoff-plan.json` with exactly this structure:
+
+```json
+{
+  "gaps": [
+    {
+      "section": "Requirements|Acceptance Criteria|Architecture|...",
+      "item": "REQ-1 or null",
+      "severity": "blocking|advisory",
+      "detail": "description of the gap"
+    }
+  ],
+  "assumptions": [
+    {
+      "about": "what this assumption relates to",
+      "assumption": "what we're assuming"
+    }
+  ],
+  "estimated_subtasks": [
+    {
+      "title": "subtask title",
+      "scope": "~200 lines",
+      "risk": "low|medium|high"
+    }
+  ],
+  "conflicts": [
+    {
+      "file": "src/path/to/file.rs",
+      "detail": "description of the conflict"
+    }
+  ]
+}
+```
+
+### Final Steps
+
+1. Write `.kickoff-plan.json` (valid JSON only)
+2. Write the word `DONE` to `.kickoff-status`
+"#,
+    );
+
+    prompt
+}
+
+/// Options for `crosslink kickoff plan`.
+pub struct PlanOpts<'a> {
+    pub doc: &'a super::design_doc::DesignDoc,
+    pub model: &'a str,
+    pub timeout: Duration,
+    pub dry_run: bool,
+    pub issue: Option<i64>,
+    pub quiet: bool,
+}
+
+/// Main entry point: `crosslink kickoff plan`.
+pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
+    // 1. Validate prerequisites (skip for dry-run)
+    if !opts.dry_run {
+        if !command_available("tmux") {
+            bail!("tmux is not installed. Install tmux to use kickoff plan.");
+        }
+        if !command_available("claude") {
+            bail!("claude CLI is not installed. Install it from https://claude.ai/install.sh");
+        }
+    }
+
+    let root = repo_root()?;
+    let title_slug = if opts.doc.title.is_empty() {
+        "analysis".to_string()
+    } else {
+        slugify(&opts.doc.title)
+    };
+    let slug = format!("plan-{}", title_slug);
+
+    // 2. Create or find issue (optional for plan mode)
+    let issue_id = if let Some(id) = opts.issue {
+        if db.get_issue(id)?.is_none() {
+            bail!("Issue #{} not found", id);
+        }
+        Some(id)
+    } else {
+        None
+    };
+
+    // 3. Create worktree
+    let (worktree_dir, branch_name) = create_worktree(&root, &slug, None)?;
+
+    // 4. Build prompt
+    let prompt = build_plan_prompt(opts.doc, issue_id);
+
+    // 5. Write PLAN_KICKOFF.md
+    std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
+        .context("Failed to write PLAN_KICKOFF.md")?;
+
+    // 6. Exclude files from git
+    exclude_kickoff_files(&worktree_dir)?;
+
+    // Dry run: print and exit
+    if opts.dry_run {
+        let parent_id = AgentConfig::load(crosslink_dir)?
+            .map(|c| c.agent_id)
+            .unwrap_or_else(|| "driver".to_string());
+        let agent_id = format!("{}--{}", parent_id, slug);
+        println!("{}", prompt);
+        println!("---");
+        println!("Worktree: {}", worktree_dir.display());
+        println!("Branch:   {}", branch_name);
+        println!("Agent:    {}", agent_id);
+        return Ok(());
+    }
+
+    // 7. Init worktree agent
+    let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
+
+    // 8. Launch with read-only tools
+    let allowed_tools = build_allowed_tools_plan();
+    let mut session_name = tmux_session_name(&slug);
+    if tmux_session_exists(&session_name) {
+        let suffix = rand_suffix();
+        session_name = format!("{}-{}", &session_name[..session_name.len().min(44)], suffix);
+    }
+
+    // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
+    let timeout_secs = opts.timeout.as_secs();
+    let cmd = format!(
+        "timeout {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat PLAN_KICKOFF.md)\"",
+        timeout_secs, opts.model, allowed_tools
+    );
+
+    let output = Command::new("tmux")
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session_name,
+            "-c",
+            &worktree_dir.to_string_lossy(),
+        ])
+        .output()
+        .context("Failed to create tmux session")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to create tmux session: {}", stderr.trim());
+    }
+
+    let output = Command::new("tmux")
+        .args(["send-keys", "-t", &session_name, &cmd, "Enter"])
+        .output()
+        .context("Failed to send command to tmux session")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to send keys to tmux: {}", stderr.trim());
+    }
+
+    // 9. Report
+    if !opts.quiet {
+        println!("Plan analysis agent launched (read-only mode).");
+        println!();
+        println!("  Worktree: {}", worktree_dir.display());
+        println!("  Branch:   {}", branch_name);
+        if let Some(id) = issue_id {
+            println!("  Issue:    #{}", id);
+        }
+        println!("  Agent:    {}", agent_id);
+        println!("  Session:  {}", session_name);
+        println!();
+        println!("  Approve trust:  tmux attach -t {}", session_name);
+        println!("  Check status:   crosslink kickoff status {}", agent_id);
+        println!("  View report:    crosslink kickoff show-plan {}", agent_id);
+    } else {
+        println!("{}", session_name);
+    }
+
+    Ok(())
+}
+
+/// Display a gap report from a previous plan analysis.
+pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let slug = agent
+        .strip_prefix("feature/")
+        .or_else(|| agent.strip_prefix("feat-"))
+        .unwrap_or(agent);
+    let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
+
+    let worktree_dir = root.join(".worktrees").join(wt_slug);
+    if !worktree_dir.exists() {
+        bail!(
+            "No worktree found for '{}'. Checked: {}",
+            agent,
+            worktree_dir.display()
+        );
+    }
+
+    let plan_file = worktree_dir.join(".kickoff-plan.json");
+    if !plan_file.exists() {
+        // Check status
+        let status_file = worktree_dir.join(".kickoff-status");
+        let status = if status_file.exists() {
+            std::fs::read_to_string(&status_file)
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        } else {
+            "still running".to_string()
+        };
+        bail!(
+            "No gap report found yet for '{}'. Agent status: {}",
+            agent,
+            status
+        );
+    }
+
+    let content =
+        std::fs::read_to_string(&plan_file).context("Failed to read .kickoff-plan.json")?;
+
+    // Pretty-print the JSON
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&parsed).unwrap_or(content)
+        );
+    } else {
+        // Not valid JSON — print raw
+        print!("{}", content);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1577,24 +1890,39 @@ mod tests {
     #[test]
     fn test_missing_exclude_patterns_empty_file() {
         let patterns = missing_exclude_patterns("");
-        assert_eq!(patterns, vec!["KICKOFF.md", ".kickoff-status"]);
+        assert_eq!(
+            patterns,
+            vec![
+                "KICKOFF.md",
+                ".kickoff-status",
+                "PLAN_KICKOFF.md",
+                ".kickoff-plan.json"
+            ]
+        );
     }
 
     #[test]
     fn test_missing_exclude_patterns_one_present() {
         let patterns = missing_exclude_patterns("KICKOFF.md\nsome-other-file\n");
-        assert_eq!(patterns, vec![".kickoff-status"]);
+        assert!(patterns.contains(&".kickoff-status"));
+        assert!(patterns.contains(&"PLAN_KICKOFF.md"));
+        assert!(patterns.contains(&".kickoff-plan.json"));
+        assert!(!patterns.contains(&"KICKOFF.md"));
     }
 
     #[test]
     fn test_missing_exclude_patterns_both_present() {
-        let patterns = missing_exclude_patterns("KICKOFF.md\n.kickoff-status\n");
+        let patterns = missing_exclude_patterns(
+            "KICKOFF.md\n.kickoff-status\nPLAN_KICKOFF.md\n.kickoff-plan.json\n",
+        );
         assert!(patterns.is_empty());
     }
 
     #[test]
     fn test_missing_exclude_patterns_with_whitespace() {
-        let patterns = missing_exclude_patterns("  KICKOFF.md  \n  .kickoff-status  \n");
+        let patterns = missing_exclude_patterns(
+            "  KICKOFF.md  \n  .kickoff-status  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n",
+        );
         assert!(patterns.is_empty());
     }
 
@@ -1877,6 +2205,100 @@ mod tests {
         assert!(prompt.contains("Not doing X"));
         // No open questions, so no escalation block
         assert!(!prompt.contains("Escalation Required"));
+    }
+
+    #[test]
+    fn test_build_plan_prompt_contains_essentials() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Batch Retry".to_string(),
+            summary: "Add retry logic.".to_string(),
+            requirements: vec!["REQ-1: Retry 3 times".to_string()],
+            acceptance_criteria: vec!["AC-1: Tests pass".to_string()],
+            architecture: "Middleware".to_string(),
+            open_questions: Vec::new(),
+            out_of_scope: Vec::new(),
+            unknown_sections: Vec::new(),
+        };
+        let prompt = build_plan_prompt(&doc, Some(42));
+
+        assert!(prompt.contains("KICKOFF PLAN"));
+        assert!(prompt.contains("Batch Retry"));
+        assert!(prompt.contains("#42"));
+        assert!(prompt.contains("Design Specification"));
+        assert!(prompt.contains("REQ-1: Retry 3 times"));
+        assert!(prompt.contains(".kickoff-plan.json"));
+        assert!(prompt.contains("read-only"));
+        assert!(prompt.contains("gaps"));
+        assert!(prompt.contains("assumptions"));
+        assert!(prompt.contains("estimated_subtasks"));
+        assert!(prompt.contains("conflicts"));
+    }
+
+    #[test]
+    fn test_build_plan_prompt_with_open_questions() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Auth".to_string(),
+            summary: String::new(),
+            requirements: Vec::new(),
+            acceptance_criteria: Vec::new(),
+            architecture: String::new(),
+            open_questions: vec!["Q1: OAuth or JWT?".to_string()],
+            out_of_scope: Vec::new(),
+            unknown_sections: Vec::new(),
+        };
+        let prompt = build_plan_prompt(&doc, None);
+
+        assert!(prompt.contains("Escalation Required"));
+        assert!(prompt.contains("Q1: OAuth or JWT?"));
+        // No issue line when None
+        assert!(!prompt.contains("Issue"));
+    }
+
+    #[test]
+    fn test_build_plan_prompt_without_issue() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Test".to_string(),
+            summary: "S".to_string(),
+            requirements: Vec::new(),
+            acceptance_criteria: Vec::new(),
+            architecture: String::new(),
+            open_questions: Vec::new(),
+            out_of_scope: Vec::new(),
+            unknown_sections: Vec::new(),
+        };
+        let prompt = build_plan_prompt(&doc, None);
+
+        assert!(prompt.contains("KICKOFF PLAN"));
+        // No issue line when None
+        assert!(!prompt.contains("**Issue**"));
+    }
+
+    #[test]
+    fn test_build_allowed_tools_plan_is_read_only() {
+        let tools = build_allowed_tools_plan();
+        assert!(tools.contains("Read"));
+        assert!(tools.contains("Glob"));
+        assert!(tools.contains("Grep"));
+        assert!(!tools.contains("Write"));
+        assert!(!tools.contains("Edit"));
+    }
+
+    #[test]
+    fn test_build_allowed_tools_plan_no_destructive_bash() {
+        let tools = build_allowed_tools_plan();
+        assert!(!tools.contains("Bash(mkdir"));
+        assert!(!tools.contains("Bash(touch"));
+        assert!(!tools.contains("Bash(echo"));
+        // But read-only bash is allowed
+        assert!(tools.contains("Bash(git status"));
+        assert!(tools.contains("Bash(ls"));
+    }
+
+    #[test]
+    fn test_missing_exclude_patterns_includes_plan_files() {
+        let patterns = missing_exclude_patterns("");
+        assert!(patterns.contains(&"PLAN_KICKOFF.md"));
+        assert!(patterns.contains(&".kickoff-plan.json"));
     }
 
     #[test]

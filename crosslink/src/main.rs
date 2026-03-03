@@ -983,6 +983,28 @@ enum KickoffCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Analyze a design document against the codebase (read-only)
+    Plan {
+        /// Path to design document
+        doc: PathBuf,
+        /// Existing issue to associate with
+        #[arg(long)]
+        issue: Option<i64>,
+        /// LLM model to use
+        #[arg(long, default_value = "opus")]
+        model: String,
+        /// Max runtime (e.g. "30m", "1h")
+        #[arg(long, default_value = "30m")]
+        timeout: String,
+        /// Print the analysis prompt without launching
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Display a gap report from a previous plan analysis
+    ShowPlan {
+        /// Agent ID or branch slug
+        agent: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1869,6 +1891,32 @@ fn main() -> Result<()> {
                 }
                 KickoffCommands::Stop { agent, force } => {
                     commands::kickoff::stop(&crosslink_dir, &agent, force)
+                }
+                KickoffCommands::Plan {
+                    doc,
+                    issue,
+                    model,
+                    timeout,
+                    dry_run,
+                } => {
+                    let content = std::fs::read_to_string(&doc)
+                        .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
+                    let design_doc = commands::design_doc::parse_design_doc(&content);
+                    for warning in commands::design_doc::validate_design_doc(&design_doc) {
+                        eprintln!("Warning: {}", warning);
+                    }
+                    let plan_opts = commands::kickoff::PlanOpts {
+                        doc: &design_doc,
+                        model: &model,
+                        timeout: commands::kickoff::parse_duration(&timeout)?,
+                        dry_run,
+                        issue,
+                        quiet: cli.quiet,
+                    };
+                    commands::kickoff::plan(&crosslink_dir, &db, &plan_opts)
+                }
+                KickoffCommands::ShowPlan { agent } => {
+                    commands::kickoff::show_plan(&crosslink_dir, &agent)
                 }
             }
         }
