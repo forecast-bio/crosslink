@@ -270,6 +270,10 @@ impl SharedWriter {
                     if err_str.contains("Could not resolve host")
                         || err_str.contains("Could not read from remote")
                     {
+                        eprintln!(
+                            "Warning: push failed (offline), changes saved locally only: {}",
+                            message
+                        );
                         return Ok(PushOutcome::LocalOnly);
                     }
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
@@ -283,6 +287,10 @@ impl SharedWriter {
                             ])?;
                             continue;
                         }
+                        eprintln!(
+                            "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
+                            MAX_RETRIES, message
+                        );
                         return Ok(PushOutcome::LocalOnly);
                     }
                     return Err(e);
@@ -1558,6 +1566,10 @@ impl SharedWriter {
                     if err_str.contains("Could not resolve host")
                         || err_str.contains("Could not read from remote")
                     {
+                        eprintln!(
+                            "Warning: push failed (offline), changes saved locally only: {}",
+                            message
+                        );
                         return Ok(PushOutcome::LocalOnly);
                     }
                     // Conflict — reset our commit, pull latest, then retry
@@ -1574,6 +1586,10 @@ impl SharedWriter {
                             continue;
                         }
                         // All retries exhausted — keep as local-only
+                        eprintln!(
+                            "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
+                            MAX_RETRIES, message
+                        );
                         return Ok(PushOutcome::LocalOnly);
                     }
                     // Other error — propagate

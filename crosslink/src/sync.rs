@@ -123,12 +123,22 @@ impl SyncManager {
             .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
             .unwrap_or(false);
         if !has_new_remote {
-            let _ = self.git_in_repo(&["push", "-u", "origin", HUB_BRANCH]);
+            if let Err(e) = self.git_in_repo(&["push", "-u", "origin", HUB_BRANCH]) {
+                eprintln!(
+                    "Warning: migration push failed, changes saved locally only: {}",
+                    e
+                );
+            }
         }
 
         // 4. Delete old remote branch (best-effort)
         if has_old_remote {
-            let _ = self.git_in_repo(&["push", "origin", "--delete", OLD_BRANCH]);
+            if let Err(e) = self.git_in_repo(&["push", "origin", "--delete", OLD_BRANCH]) {
+                eprintln!(
+                    "Warning: failed to delete old remote branch '{}': {}",
+                    OLD_BRANCH, e
+                );
+            }
         }
 
         // 5. Delete old local branch if still present
@@ -598,13 +608,18 @@ impl SyncManager {
             if err_str.contains("Could not resolve host")
                 || err_str.contains("Could not read from remote")
             {
-                // Offline — silently skip push
+                eprintln!("Warning: heartbeat push failed (offline), changes saved locally only");
                 return Ok(());
             }
             // If push is rejected (conflict), try pull+push once
             if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                 let _ = self.git_in_cache(&["pull", "--rebase", "origin", HUB_BRANCH]);
-                let _ = self.git_in_cache(&["push", "origin", HUB_BRANCH]);
+                if let Err(retry_err) = self.git_in_cache(&["push", "origin", HUB_BRANCH]) {
+                    eprintln!(
+                        "Warning: heartbeat push failed after retry (conflict), changes saved locally only: {}",
+                        retry_err
+                    );
+                }
             }
         }
 
