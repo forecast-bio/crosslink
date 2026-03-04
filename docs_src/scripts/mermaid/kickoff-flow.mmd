@@ -1,0 +1,49 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#00a6db', 'primaryTextColor': '#fff', 'primaryBorderColor': '#00a6db', 'lineColor': '#56cfe1', 'secondaryColor': '#f95838', 'tertiaryColor': '#1a1a2e', 'fontSize': '14px' }}}%%
+flowchart TD
+    U["👤 User: /kickoff 'add batch retry logic'"] --> S1
+
+    subgraph Setup ["Setup Phase"]
+        S1["Create feature branch"] --> S2["Create git worktree"]
+        S2 --> S3["Initialize crosslink\n+ agent identity"]
+        S3 --> S4["Detect project tools\n(cargo, npm, pytest...)"]
+        S4 --> S5["Write KICKOFF.md prompt"]
+        S5 --> S6["Launch tmux session"]
+    end
+
+    S6 --> TRUST{"User approves\ntrust?"}
+    TRUST -- Yes --> AGENT
+
+    subgraph AGENT ["Background Agent (autonomous)"]
+        A1["Start crosslink session"] --> A2["Explore codebase"]
+        A2 --> A3["Document plan via comments"]
+        A3 --> A4["Implement feature"]
+        A4 --> A5["Run tests & linters"]
+        A5 --> A6{"Tests pass?"}
+        A6 -- No --> A4
+        A6 -- Yes --> A7["Commit with /commit"]
+        A7 --> A8["Self-review checklist"]
+    end
+
+    A8 --> V{"Verify level?"}
+    V -- local --> DONE["✅ Write DONE sentinel"]
+    V -- ci --> CI
+    V -- thorough --> CI
+
+    subgraph CI ["CI Verification"]
+        CI1["Push branch"] --> CI2["Open draft PR"]
+        CI2 --> CI3["Poll CI status"]
+        CI3 --> CI4{"CI green?"}
+        CI4 -- No --> CI5["Read logs, fix, re-push"]
+        CI5 --> CI3
+        CI4 -- Yes --> CI6{"thorough?"}
+        CI6 -- Yes --> CI7["Adversarial self-review"]
+        CI7 --> DONE
+        CI6 -- No --> DONE
+    end
+
+    DONE --> END["📋 End session\nwith handoff notes"]
+
+    style U fill:#f95838,stroke:#ff6b6b,color:#fff
+    style TRUST fill:#f0a500,stroke:#ffd43b,color:#1a1a2e
+    style DONE fill:#007c35,stroke:#51cf66,color:#fff
+    style END fill:#555555,stroke:#999,color:#fff
