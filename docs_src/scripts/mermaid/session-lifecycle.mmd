@@ -1,0 +1,19 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#00a6db', 'primaryTextColor': '#fff', 'primaryBorderColor': '#00a6db', 'lineColor': '#56cfe1', 'secondaryColor': '#f95838', 'tertiaryColor': '#1a1a2e', 'noteTextColor': '#e0e0e0', 'noteBkgColor': '#2d2d44', 'fontSize': '14px' }}}%%
+flowchart LR
+    A["🟢 session start"] --> B["🎯 session work #id"]
+    B --> C["📝 session action '...'"]
+    C --> C
+    C --> D{"Context\ncompressed?"}
+    D -- Yes --> E["🔄 Hook restores\nlast breadcrumb"]
+    E --> C
+    D -- No --> F["🏁 session end\n--notes '...'"]
+    F --> G["📋 Handoff notes\nstored"]
+    G --> |"Next session"| A
+
+    style A fill:#007c35,stroke:#51cf66,color:#fff
+    style B fill:#00a6db,stroke:#74c0fc,color:#fff
+    style C fill:#00a6db,stroke:#74c0fc,color:#fff
+    style D fill:#f0a500,stroke:#ffd43b,color:#1a1a2e
+    style E fill:#c77dff,stroke:#d0a9f5,color:#1a1a2e
+    style F fill:#f95838,stroke:#ff6b6b,color:#fff
+    style G fill:#555555,stroke:#999,color:#fff
