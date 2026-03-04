@@ -1,0 +1,99 @@
+---
+title: "Kickoff Report Schema"
+---
+
+## Overview
+
+When a kickoff agent completes its work, it writes a `.kickoff-report.json` file to the worktree root. This file captures criteria verdicts, phase timing, metrics, and traceability data.
+
+## Schema (v1)
+
+```json
+{
+  "schema_version": 1,
+  "agent_id": "driver--feature-slug",
+  "issue_id": 42,
+  "status": "completed",
+  "started_at": "2026-03-03T12:00:00Z",
+  "completed_at": "2026-03-03T13:30:00Z",
+  "validated_at": "2026-03-03T13:25:00Z",
+  "phases": {
+    "exploration": { "duration_s": 120, "files_read": 34 },
+    "planning": { "duration_s": 60, "comments_added": 2 },
+    "implementation": { "duration_s": 480, "files_modified": 8, "lines_added": 340, "lines_removed": 45 },
+    "testing": { "duration_s": 90, "tests_run": 146, "tests_passed": 146, "tests_failed": 0 },
+    "validation": { "duration_s": 30, "criteria_checked": 5 },
+    "review": { "duration_s": 45, "issues_found": 1, "issues_fixed": 1 }
+  },
+  "criteria": [
+    { "id": "AC-1", "verdict": "pass", "evidence": "test_upload passes with 100MB file" },
+    { "id": "AC-2", "verdict": "partial", "evidence": "HTTP only, not WebSocket" }
+  ],
+  "summary": {
+    "total": 2, "pass": 1, "fail": 0, "partial": 1,
+    "not_applicable": 0, "needs_clarification": 0
+  },
+  "unresolved_questions": ["Should we cap the maximum backoff at 30 seconds?"],
+  "commits": ["abc1234", "def5678"],
+  "files_changed": ["src/retry.rs", "src/batch.rs"]
+}
+```
+
+## Field Reference
+
+### Required Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `validated_at` | string (ISO-8601) | Timestamp when validation completed |
+| `criteria` | array | Per-criterion verdicts (see below) |
+| `summary` | object | Verdict count totals |
+
+### Optional Fields (Phase 4)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_version` | integer | Schema version (currently `1`) |
+| `agent_id` | string | Agent identifier, e.g. `driver--batch-retry` |
+| `issue_id` | integer | Crosslink issue number |
+| `status` | string | `completed`, `failed`, or `partial` |
+| `started_at` | string (ISO-8601) | When the agent started work |
+| `completed_at` | string (ISO-8601) | When the agent finished |
+| `phases` | object | Phase-level timing breakdown |
+| `unresolved_questions` | array of strings | Open questions from the design doc |
+| `commits` | array of strings | Commit SHAs produced |
+| `files_changed` | array of strings | Files modified during implementation |
+
+### Criterion Verdict
+
+| Field | Type | Values |
+|-------|------|--------|
+| `id` | string | e.g. `AC-1` |
+| `verdict` | string | `pass`, `fail`, `partial`, `not_applicable`, `needs_clarification` |
+| `evidence` | string | Justification for the verdict |
+
+### Phase Timing
+
+Each phase object has a required `duration_s` (seconds) and optional metric fields relevant to that phase:
+
+| Phase | Typical Metrics |
+|-------|----------------|
+| `exploration` | `files_read` |
+| `planning` | `comments_added` |
+| `implementation` | `files_modified`, `lines_added`, `lines_removed` |
+| `testing` | `tests_run`, `tests_passed`, `tests_failed` |
+| `validation` | `criteria_checked` |
+| `review` | `issues_found`, `issues_fixed` |
+
+## Backward Compatibility
+
+Reports from Phase 3 (containing only `validated_at`, `criteria`, and `summary`) are fully supported. All Phase 4 fields default to `null` when absent.
+
+## Viewing Reports
+
+```bash
+crosslink kickoff report <agent-id>           # table view
+crosslink kickoff report <agent-id> --json    # raw JSON
+crosslink kickoff report <agent-id> --markdown # PR-ready format
+crosslink kickoff report --all                # aggregate all agents
+```

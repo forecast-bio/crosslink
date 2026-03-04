@@ -1010,14 +1010,17 @@ enum KickoffCommands {
     },
     /// Display the spec validation report from a completed agent
     Report {
-        /// Agent ID or branch slug
-        agent: String,
+        /// Agent ID or branch slug (required unless --all)
+        agent: Option<String>,
         /// Output as raw JSON
         #[arg(long)]
         json: bool,
         /// Output as PR-ready markdown
         #[arg(long)]
         markdown: bool,
+        /// Show aggregated reports from all agent worktrees
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -1939,6 +1942,7 @@ fn main() -> Result<()> {
                     agent,
                     json,
                     markdown,
+                    all,
                 } => {
                     let format = if json {
                         commands::kickoff::ReportFormat::Json
@@ -1947,7 +1951,13 @@ fn main() -> Result<()> {
                     } else {
                         commands::kickoff::ReportFormat::Table
                     };
-                    commands::kickoff::report(&crosslink_dir, &agent, format)
+                    if all {
+                        commands::kickoff::report_all(&crosslink_dir, format)
+                    } else {
+                        let agent = agent
+                            .ok_or_else(|| anyhow::anyhow!("Agent ID required (or use --all)"))?;
+                        commands::kickoff::report(&crosslink_dir, &agent, format)
+                    }
                 }
             }
         }

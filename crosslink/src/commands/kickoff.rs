@@ -409,24 +409,115 @@ pub struct ReportSummary {
     pub needs_clarification: usize,
 }
 
+/// Timing and metrics for a single phase of agent work.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PhaseTiming {
+    pub duration_s: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files_read: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files_modified: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines_added: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines_removed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests_run: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests_passed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests_failed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comments_added: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub criteria_checked: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issues_found: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issues_fixed: Option<u64>,
+}
+
+/// Phase-level timing breakdown for a kickoff run.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PhaseTimings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration: Option<PhaseTiming>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planning: Option<PhaseTiming>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implementation: Option<PhaseTiming>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub testing: Option<PhaseTiming>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<PhaseTiming>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<PhaseTiming>,
+}
+
 /// The `.kickoff-report.json` file contents.
+///
+/// Phase 3 fields (`validated_at`, `criteria`, `summary`) are always required.
+/// Phase 4 fields are optional with serde defaults for backward compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ValidationReport {
+pub struct KickoffReport {
+    // Phase 3 fields (backward compat — always present)
     pub validated_at: String,
     pub criteria: Vec<CriterionVerdict>,
     pub summary: ReportSummary,
+
+    // Phase 4 fields (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phases: Option<PhaseTimings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unresolved_questions: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commits: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files_changed: Option<Vec<String>>,
 }
 
-/// Build the spec validation section of the prompt.
+/// Check a kickoff report for missing recommended fields.
+pub(crate) fn validate_kickoff_report(report: &KickoffReport) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if report.schema_version.is_none() {
+        warnings.push("Missing schema_version field".to_string());
+    }
+    if report.agent_id.is_none() {
+        warnings.push("Missing agent_id field".to_string());
+    }
+    if report.issue_id.is_none() {
+        warnings.push("Missing issue_id field".to_string());
+    }
+    if report.criteria.is_empty() {
+        warnings.push("No criteria results in report".to_string());
+    }
+    warnings
+}
+
+/// Build the reporting and validation section of the prompt.
 ///
-/// Instructs the agent to validate each acceptance criterion and write
-/// a structured report to `.kickoff-report.json`.
-pub(crate) fn build_spec_validation_section() -> &'static str {
+/// Instructs the agent to validate acceptance criteria, capture timing and
+/// metrics, and write a structured `.kickoff-report.json`.
+pub(crate) fn build_reporting_section() -> &'static str {
     r#"
-### Spec Validation
+### Spec Validation & Reporting
 
 Before marking the implementation complete, validate every acceptance criterion from
-`.kickoff-criteria.json`:
+`.kickoff-criteria.json` and produce a structured build report.
+
+#### Criteria Validation
 
 1. **Read the criteria file**: `cat .kickoff-criteria.json`
 2. **For each criterion**, evaluate the implementation:
@@ -437,32 +528,53 @@ Before marking the implementation complete, validate every acceptance criterion 
    - **needs_clarification**: The criterion is ambiguous and cannot be evaluated. Explain the ambiguity.
 3. **Be strict**: Do NOT mark a criterion as `pass` without citing concrete evidence (a test name, a
    code path, or an observable behavior).
-4. **Write the report**: Create `.kickoff-report.json` with this structure:
+4. If any criterion is `fail`, attempt to fix the implementation before proceeding.
+   After fixes, re-evaluate the criteria.
 
-   ```json
-   {
-     "validated_at": "ISO-8601 timestamp",
-     "criteria": [
-       {
-         "id": "AC-1",
-         "verdict": "pass|fail|partial|not_applicable|needs_clarification",
-         "evidence": "Description of evidence or reason for verdict"
-       }
-     ],
-     "summary": {
-       "total": 5,
-       "pass": 3,
-       "fail": 1,
-       "partial": 1,
-       "not_applicable": 0,
-       "needs_clarification": 0
-     }
-   }
-   ```
+#### Build Metrics
 
-5. If any criterion is `fail`, attempt to fix the implementation before proceeding.
-   After fixes, re-evaluate and update `.kickoff-report.json`.
-6. If fixes are not possible, document the reason in the evidence field and proceed.
+Gather the following data for the report:
+- **Phase timing**: Estimate seconds spent on each phase (exploration, planning, implementation, testing, validation, review).
+  Use `crosslink session action "Phase: <name>"` breadcrumbs to track transitions.
+- **Test results**: Record total tests run, passed, and failed from the test suite output.
+- **Files changed**: List files you modified (from `git diff --name-only`).
+- **Commits**: List commit SHAs you created (from `git log --oneline`).
+- **Unresolved questions**: List any open questions from the design doc that remain unanswered.
+
+#### Write the Report
+
+Create `.kickoff-report.json` with this structure:
+
+```json
+{
+  "schema_version": 1,
+  "agent_id": "<your agent ID>",
+  "issue_id": <issue number>,
+  "status": "completed|failed|partial",
+  "started_at": "ISO-8601 when you started",
+  "completed_at": "ISO-8601 now",
+  "validated_at": "ISO-8601 now",
+  "phases": {
+    "exploration": { "duration_s": 120, "files_read": 34 },
+    "implementation": { "duration_s": 480, "files_modified": 8, "lines_added": 340, "lines_removed": 45 },
+    "testing": { "duration_s": 90, "tests_run": 146, "tests_passed": 146, "tests_failed": 0 },
+    "validation": { "duration_s": 30, "criteria_checked": 5 }
+  },
+  "criteria": [
+    { "id": "AC-1", "verdict": "pass", "evidence": "test_upload passes with 100MB" }
+  ],
+  "summary": {
+    "total": 1, "pass": 1, "fail": 0, "partial": 0,
+    "not_applicable": 0, "needs_clarification": 0
+  },
+  "unresolved_questions": [],
+  "commits": ["abc1234"],
+  "files_changed": ["src/retry.rs"]
+}
+```
+
+Required fields: `validated_at`, `criteria`, `summary`. All other fields are recommended but optional.
+Write this file as the second-to-last step, just before writing `DONE` to `.kickoff-status`.
 "#
 }
 
@@ -598,7 +710,7 @@ these, ask the user to run it manually:
     // Spec validation: only when design doc has acceptance criteria
     if let Some(doc) = opts.design_doc {
         if !doc.acceptance_criteria.is_empty() {
-            prompt.push_str(build_spec_validation_section());
+            prompt.push_str(build_reporting_section());
         }
     }
 
@@ -1728,67 +1840,293 @@ pub enum ReportFormat {
     Markdown,
 }
 
-/// Format a validation report as a human-readable table.
-pub(crate) fn format_report_table(report: &ValidationReport) -> String {
+/// Format seconds as a human-readable duration string.
+pub(crate) fn format_duration(secs: u64) -> String {
+    if secs >= 3600 {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        if m > 0 {
+            format!("{}h {}m", h, m)
+        } else {
+            format!("{}h", h)
+        }
+    } else if secs >= 60 {
+        let m = secs / 60;
+        let s = secs % 60;
+        if s > 0 {
+            format!("{}m {}s", m, s)
+        } else {
+            format!("{}m", m)
+        }
+    } else {
+        format!("{}s", secs)
+    }
+}
+
+/// Format a phase timing line with optional metrics.
+fn format_phase_line(name: &str, timing: &PhaseTiming) -> String {
+    let dur = format_duration(timing.duration_s);
+    let mut detail = String::new();
+    if let Some(n) = timing.files_read {
+        detail.push_str(&format!("{} files read", n));
+    }
+    if let Some(n) = timing.files_modified {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} files", n));
+        if let (Some(a), Some(r)) = (timing.lines_added, timing.lines_removed) {
+            detail.push_str(&format!(", +{}/-{} lines", a, r));
+        }
+    }
+    if let Some(run) = timing.tests_run {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        let passed = timing.tests_passed.unwrap_or(0);
+        detail.push_str(&format!("{}/{} passed", passed, run));
+    }
+    if let Some(n) = timing.criteria_checked {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} criteria", n));
+    }
+    if let (Some(found), Some(fixed)) = (timing.issues_found, timing.issues_fixed) {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} found/{} fixed", found, fixed));
+    }
+    if detail.is_empty() {
+        format!("  {:<16}{}\n", name, dur)
+    } else {
+        format!("  {:<16}{}  ({})\n", name, dur, detail)
+    }
+}
+
+/// Format a kickoff report as a human-readable table.
+pub(crate) fn format_report_table(report: &KickoffReport) -> String {
     let mut out = String::new();
-    out.push_str("Spec Validation Report\n");
-    out.push_str("======================\n\n");
-
-    for c in &report.criteria {
-        let symbol = match c.verdict.as_str() {
-            "pass" => "\u{2713}",
-            "partial" => "~",
-            "fail" => "\u{2717}",
-            "not_applicable" => "-",
-            _ => "?",
-        };
-        out.push_str(&format!("  {} {}  {}\n", symbol, c.id, c.evidence));
-    }
-
-    out.push('\n');
-    let s = &report.summary;
-    out.push_str(&format!(
-        "{} criteria: {} pass, {} partial, {} fail",
-        s.total, s.pass, s.partial, s.fail
-    ));
-    if s.not_applicable > 0 {
-        out.push_str(&format!(", {} n/a", s.not_applicable));
-    }
-    if s.needs_clarification > 0 {
-        out.push_str(&format!(", {} unclear", s.needs_clarification));
+    out.push_str("Kickoff Report");
+    if let Some(ref id) = report.agent_id {
+        out.push_str(&format!(": {}", id));
     }
     out.push('\n');
+
+    // Metadata line
+    let mut meta = Vec::new();
+    if let Some(id) = report.issue_id {
+        meta.push(format!("Issue: #{}", id));
+    }
+    if let Some(ref s) = report.status {
+        meta.push(format!("Status: {}", s));
+    }
+    if let Some(ref phases) = report.phases {
+        let total: u64 = [
+            &phases.exploration,
+            &phases.planning,
+            &phases.implementation,
+            &phases.testing,
+            &phases.validation,
+            &phases.review,
+        ]
+        .iter()
+        .filter_map(|p| p.as_ref().map(|t| t.duration_s))
+        .sum();
+        if total > 0 {
+            meta.push(format!("Duration: {}", format_duration(total)));
+        }
+    }
+    if !meta.is_empty() {
+        out.push_str(&meta.join(" | "));
+        out.push('\n');
+    }
+    out.push('\n');
+
+    // Phase timing
+    if let Some(ref phases) = report.phases {
+        out.push_str("Phase Timing:\n");
+        let phase_list: &[(&str, &Option<PhaseTiming>)] = &[
+            ("exploration", &phases.exploration),
+            ("planning", &phases.planning),
+            ("implementation", &phases.implementation),
+            ("testing", &phases.testing),
+            ("validation", &phases.validation),
+            ("review", &phases.review),
+        ];
+        for (name, timing) in phase_list {
+            if let Some(t) = timing {
+                out.push_str(&format_phase_line(name, t));
+            }
+        }
+        out.push('\n');
+    }
+
+    // Criteria
+    if !report.criteria.is_empty() {
+        out.push_str("Acceptance Criteria:\n");
+        for c in &report.criteria {
+            let symbol = match c.verdict.as_str() {
+                "pass" => "\u{2713}",
+                "partial" => "~",
+                "fail" => "\u{2717}",
+                "not_applicable" => "-",
+                _ => "?",
+            };
+            out.push_str(&format!("  {} {}  {}\n", symbol, c.id, c.evidence));
+        }
+        out.push('\n');
+        let s = &report.summary;
+        out.push_str(&format!(
+            "{} criteria: {} pass, {} partial, {} fail",
+            s.total, s.pass, s.partial, s.fail
+        ));
+        if s.not_applicable > 0 {
+            out.push_str(&format!(", {} n/a", s.not_applicable));
+        }
+        if s.needs_clarification > 0 {
+            out.push_str(&format!(", {} unclear", s.needs_clarification));
+        }
+        out.push('\n');
+    }
+
+    // Files and commits
+    if let Some(ref files) = report.files_changed {
+        if !files.is_empty() {
+            out.push_str(&format!("\nFiles changed: {}\n", files.join(", ")));
+        }
+    }
+    if let Some(ref commits) = report.commits {
+        if !commits.is_empty() {
+            out.push_str(&format!("Commits: {}\n", commits.join(", ")));
+        }
+    }
+
     out
 }
 
-/// Format a validation report as PR-ready markdown.
-pub(crate) fn format_report_markdown(report: &ValidationReport) -> String {
+/// Format a kickoff report as PR-ready markdown.
+pub(crate) fn format_report_markdown(report: &KickoffReport) -> String {
     let mut out = String::new();
-    out.push_str("## Spec Validation Report\n\n");
-    out.push_str("| ID | Verdict | Evidence |\n");
-    out.push_str("|---|---|---|\n");
+    out.push_str("## Kickoff Report\n\n");
 
-    for c in &report.criteria {
-        let verdict_display = match c.verdict.as_str() {
-            "pass" => "\u{2713} pass",
-            "partial" => "~ partial",
-            "fail" => "\u{2717} fail",
-            "not_applicable" => "- n/a",
-            "needs_clarification" => "? unclear",
-            _ => &c.verdict,
-        };
-        let evidence = c.evidence.replace('|', "\\|");
+    // Metadata
+    if let Some(ref id) = report.agent_id {
+        out.push_str(&format!("**Agent**: {}\n", id));
+    }
+    if let Some(id) = report.issue_id {
+        out.push_str(&format!("**Issue**: #{}\n", id));
+    }
+    if let Some(ref s) = report.status {
+        out.push_str(&format!("**Status**: {}\n", s));
+    }
+    out.push('\n');
+
+    // Criteria table
+    if !report.criteria.is_empty() {
+        out.push_str("| ID | Verdict | Evidence |\n");
+        out.push_str("|---|---|---|\n");
+        for c in &report.criteria {
+            let verdict_display = match c.verdict.as_str() {
+                "pass" => "\u{2713} pass",
+                "partial" => "~ partial",
+                "fail" => "\u{2717} fail",
+                "not_applicable" => "- n/a",
+                "needs_clarification" => "? unclear",
+                _ => &c.verdict,
+            };
+            let evidence = c.evidence.replace('|', "\\|");
+            out.push_str(&format!(
+                "| {} | {} | {} |\n",
+                c.id, verdict_display, evidence
+            ));
+        }
+        out.push('\n');
+        let s = &report.summary;
         out.push_str(&format!(
-            "| {} | {} | {} |\n",
-            c.id, verdict_display, evidence
+            "**{} criteria**: {} pass, {} partial, {} fail\n",
+            s.total, s.pass, s.partial, s.fail
         ));
     }
 
-    out.push('\n');
-    let s = &report.summary;
+    out
+}
+
+/// Format an aggregated summary of all agent reports.
+pub(crate) fn format_report_all_table(reports: &[(&str, KickoffReport)]) -> String {
+    let mut out = String::new();
     out.push_str(&format!(
-        "**{} criteria**: {} pass, {} partial, {} fail\n",
-        s.total, s.pass, s.partial, s.fail
+        "Agent Kickoff Summary ({} agents)\n\n",
+        reports.len()
+    ));
+    out.push_str(&format!(
+        "{:<32} {:<12} {:<10} {:<14} {}\n",
+        "Agent", "Status", "Tests", "Criteria", "Duration"
+    ));
+
+    let mut completed = 0u32;
+    let mut failed = 0u32;
+
+    for (slug, r) in reports {
+        let status = r.status.as_deref().unwrap_or("unknown");
+        match status {
+            "completed" => completed += 1,
+            "failed" => failed += 1,
+            _ => {}
+        }
+
+        // Tests
+        let tests = if let Some(ref phases) = r.phases {
+            if let Some(ref t) = phases.testing {
+                let run = t.tests_run.unwrap_or(0);
+                let passed = t.tests_passed.unwrap_or(0);
+                format!("{}/{}", passed, run)
+            } else {
+                "-".to_string()
+            }
+        } else {
+            "-".to_string()
+        };
+
+        // Criteria
+        let criteria_str = if r.summary.total > 0 {
+            format!("{}/{} pass", r.summary.pass, r.summary.total)
+        } else {
+            "-".to_string()
+        };
+
+        // Duration
+        let duration = if let Some(ref phases) = r.phases {
+            let total: u64 = [
+                &phases.exploration,
+                &phases.planning,
+                &phases.implementation,
+                &phases.testing,
+                &phases.validation,
+                &phases.review,
+            ]
+            .iter()
+            .filter_map(|p| p.as_ref().map(|t| t.duration_s))
+            .sum();
+            if total > 0 {
+                format_duration(total)
+            } else {
+                "-".to_string()
+            }
+        } else {
+            "-".to_string()
+        };
+
+        out.push_str(&format!(
+            "{:<32} {:<12} {:<10} {:<14} {}\n",
+            slug, status, tests, criteria_str, duration
+        ));
+    }
+
+    out.push_str(&format!(
+        "\nTotal: {} completed, {} failed\n",
+        completed, failed
     ));
     out
 }
@@ -1847,14 +2185,79 @@ pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result
             }
         }
         ReportFormat::Table => {
-            let r: ValidationReport =
+            let r: KickoffReport =
                 serde_json::from_str(&content).context("Failed to parse .kickoff-report.json")?;
+            for w in validate_kickoff_report(&r) {
+                eprintln!("Warning: {}", w);
+            }
             print!("{}", format_report_table(&r));
         }
         ReportFormat::Markdown => {
-            let r: ValidationReport =
+            let r: KickoffReport =
                 serde_json::from_str(&content).context("Failed to parse .kickoff-report.json")?;
             print!("{}", format_report_markdown(&r));
+        }
+    }
+
+    Ok(())
+}
+
+/// Display aggregated reports from all agent worktrees.
+pub fn report_all(crosslink_dir: &Path, format: ReportFormat) -> Result<()> {
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let worktrees_dir = root.join(".worktrees");
+    if !worktrees_dir.is_dir() {
+        bail!("No .worktrees directory found");
+    }
+
+    let mut reports: Vec<(String, KickoffReport)> = Vec::new();
+
+    for entry in std::fs::read_dir(&worktrees_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let report_file = entry.path().join(".kickoff-report.json");
+        if !report_file.exists() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&report_file) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let r: KickoffReport = match serde_json::from_str(&content) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let slug = entry.file_name().to_string_lossy().to_string();
+        reports.push((slug, r));
+    }
+
+    if reports.is_empty() {
+        bail!("No kickoff reports found in any worktree");
+    }
+
+    match format {
+        ReportFormat::Json => {
+            let json_reports: Vec<_> = reports.iter().map(|(_, r)| r).collect();
+            println!("{}", serde_json::to_string_pretty(&json_reports)?);
+        }
+        ReportFormat::Table => {
+            let refs: Vec<(&str, KickoffReport)> = reports
+                .iter()
+                .map(|(s, r)| (s.as_str(), r.clone()))
+                .collect();
+            print!("{}", format_report_all_table(&refs));
+        }
+        ReportFormat::Markdown => {
+            let refs: Vec<(&str, KickoffReport)> = reports
+                .iter()
+                .map(|(s, r)| (s.as_str(), r.clone()))
+                .collect();
+            print!("{}", format_report_all_table(&refs));
         }
     }
 
@@ -2785,8 +3188,9 @@ mod tests {
     // --- Round 2: Validation prompt tests ---
 
     #[test]
-    fn test_build_spec_validation_section_content() {
-        let section = build_spec_validation_section();
+    fn test_build_reporting_section_has_full_schema() {
+        let section = build_reporting_section();
+        // Phase 3 validation content
         assert!(section.contains("Spec Validation"));
         assert!(section.contains(".kickoff-criteria.json"));
         assert!(section.contains(".kickoff-report.json"));
@@ -2794,6 +3198,22 @@ mod tests {
         assert!(section.contains("fail"));
         assert!(section.contains("partial"));
         assert!(section.contains("evidence"));
+        // Phase 4 schema elements
+        assert!(section.contains("schema_version"));
+        assert!(section.contains("agent_id"));
+        assert!(section.contains("phases"));
+        assert!(section.contains("commits"));
+        assert!(section.contains("files_changed"));
+        assert!(section.contains("duration_s"));
+    }
+
+    #[test]
+    fn test_build_reporting_section_has_validation_instructions() {
+        let section = build_reporting_section();
+        assert!(section.contains("not_applicable"));
+        assert!(section.contains("needs_clarification"));
+        assert!(section.contains("Be strict"));
+        assert!(section.contains("concrete evidence"));
     }
 
     #[test]
@@ -2830,6 +3250,8 @@ mod tests {
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
         assert!(prompt.contains("Spec Validation"));
         assert!(prompt.contains(".kickoff-criteria.json"));
+        assert!(prompt.contains("schema_version"));
+        assert!(prompt.contains("phases"));
     }
 
     #[test]
@@ -2916,8 +3338,8 @@ mod tests {
 
     // --- Round 3: Report command tests ---
 
-    fn sample_report() -> ValidationReport {
-        ValidationReport {
+    fn sample_report() -> KickoffReport {
+        KickoffReport {
             validated_at: "2026-03-03T12:00:00Z".to_string(),
             criteria: vec![
                 CriterionVerdict {
@@ -2944,6 +3366,16 @@ mod tests {
                 not_applicable: 0,
                 needs_clarification: 0,
             },
+            schema_version: None,
+            agent_id: None,
+            issue_id: None,
+            status: None,
+            started_at: None,
+            completed_at: None,
+            phases: None,
+            unresolved_questions: None,
+            commits: None,
+            files_changed: None,
         }
     }
 
@@ -2973,10 +3405,10 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_report_deserialization() {
+    fn test_kickoff_report_deserialization() {
         let report = sample_report();
         let json = serde_json::to_string(&report).unwrap();
-        let parsed: ValidationReport = serde_json::from_str(&json).unwrap();
+        let parsed: KickoffReport = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, report);
     }
 
@@ -2985,5 +3417,204 @@ mod tests {
         let patterns = missing_exclude_patterns("");
         assert!(patterns.contains(&".kickoff-criteria.json"));
         assert!(patterns.contains(&".kickoff-report.json"));
+    }
+
+    // --- Round 1 (Phase 4): KickoffReport schema tests ---
+
+    #[test]
+    fn test_kickoff_report_backward_compat() {
+        // Old Phase 3 JSON with only validated_at, criteria, summary
+        let old_json = r#"{
+            "validated_at": "2026-03-03T12:00:00Z",
+            "criteria": [
+                { "id": "AC-1", "verdict": "pass", "evidence": "test passes" }
+            ],
+            "summary": {
+                "total": 1, "pass": 1, "fail": 0,
+                "partial": 0, "not_applicable": 0, "needs_clarification": 0
+            }
+        }"#;
+        let report: KickoffReport = serde_json::from_str(old_json).unwrap();
+        assert_eq!(report.criteria.len(), 1);
+        assert!(report.schema_version.is_none());
+        assert!(report.agent_id.is_none());
+        assert!(report.phases.is_none());
+        assert!(report.commits.is_none());
+        assert!(report.files_changed.is_none());
+    }
+
+    #[test]
+    fn test_kickoff_report_full_roundtrip() {
+        let report = KickoffReport {
+            validated_at: "2026-03-03T14:00:00Z".to_string(),
+            criteria: vec![CriterionVerdict {
+                id: "AC-1".to_string(),
+                verdict: "pass".to_string(),
+                evidence: "all tests green".to_string(),
+            }],
+            summary: ReportSummary {
+                total: 1,
+                pass: 1,
+                fail: 0,
+                partial: 0,
+                not_applicable: 0,
+                needs_clarification: 0,
+            },
+            schema_version: Some(1),
+            agent_id: Some("driver--batch-retry".to_string()),
+            issue_id: Some(42),
+            status: Some("completed".to_string()),
+            started_at: Some("2026-03-03T12:00:00Z".to_string()),
+            completed_at: Some("2026-03-03T14:00:00Z".to_string()),
+            phases: Some(PhaseTimings {
+                exploration: Some(PhaseTiming {
+                    duration_s: 120,
+                    files_read: Some(34),
+                    ..Default::default()
+                }),
+                testing: Some(PhaseTiming {
+                    duration_s: 90,
+                    tests_run: Some(146),
+                    tests_passed: Some(146),
+                    tests_failed: Some(0),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            unresolved_questions: Some(vec!["Max backoff?".to_string()]),
+            commits: Some(vec!["abc1234".to_string(), "def5678".to_string()]),
+            files_changed: Some(vec!["src/retry.rs".to_string()]),
+        };
+        let json = serde_json::to_string_pretty(&report).unwrap();
+        let parsed: KickoffReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, report);
+    }
+
+    #[test]
+    fn test_phase_timing_partial_fields() {
+        let json = r#"{ "duration_s": 60 }"#;
+        let timing: PhaseTiming = serde_json::from_str(json).unwrap();
+        assert_eq!(timing.duration_s, 60);
+        assert!(timing.files_read.is_none());
+        assert!(timing.tests_run.is_none());
+    }
+
+    #[test]
+    fn test_validate_kickoff_report_warnings() {
+        let report = sample_report();
+        let warnings = validate_kickoff_report(&report);
+        assert!(warnings.iter().any(|w| w.contains("schema_version")));
+        assert!(warnings.iter().any(|w| w.contains("agent_id")));
+    }
+
+    // --- Round 3 (Phase 4): Report formatting + --all tests ---
+
+    #[test]
+    fn test_format_duration() {
+        assert_eq!(format_duration(30), "30s");
+        assert_eq!(format_duration(60), "1m");
+        assert_eq!(format_duration(90), "1m 30s");
+        assert_eq!(format_duration(3600), "1h");
+        assert_eq!(format_duration(5400), "1h 30m");
+        assert_eq!(format_duration(7200), "2h");
+    }
+
+    #[test]
+    fn test_format_report_table_with_phases() {
+        let mut report = sample_report();
+        report.agent_id = Some("driver--batch-retry".to_string());
+        report.issue_id = Some(42);
+        report.status = Some("completed".to_string());
+        report.phases = Some(PhaseTimings {
+            exploration: Some(PhaseTiming {
+                duration_s: 120,
+                files_read: Some(34),
+                ..Default::default()
+            }),
+            testing: Some(PhaseTiming {
+                duration_s: 90,
+                tests_run: Some(146),
+                tests_passed: Some(146),
+                tests_failed: Some(0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let output = format_report_table(&report);
+        assert!(output.contains("driver--batch-retry"));
+        assert!(output.contains("Issue: #42"));
+        assert!(output.contains("Phase Timing:"));
+        assert!(output.contains("exploration"));
+        assert!(output.contains("34 files read"));
+        assert!(output.contains("146/146 passed"));
+    }
+
+    #[test]
+    fn test_format_report_table_without_phases() {
+        let report = sample_report();
+        let output = format_report_table(&report);
+        assert!(!output.contains("Phase Timing:"));
+        assert!(output.contains("Acceptance Criteria:"));
+    }
+
+    #[test]
+    fn test_format_report_markdown_with_metadata() {
+        let mut report = sample_report();
+        report.agent_id = Some("driver--test".to_string());
+        report.issue_id = Some(10);
+        report.status = Some("completed".to_string());
+        let output = format_report_markdown(&report);
+        assert!(output.contains("**Agent**: driver--test"));
+        assert!(output.contains("**Issue**: #10"));
+        assert!(output.contains("**Status**: completed"));
+        assert!(output.contains("| ID | Verdict | Evidence |"));
+    }
+
+    #[test]
+    fn test_format_report_all_table() {
+        let r1 = KickoffReport {
+            validated_at: "2026-03-03T12:00:00Z".to_string(),
+            criteria: vec![CriterionVerdict {
+                id: "AC-1".to_string(),
+                verdict: "pass".to_string(),
+                evidence: "ok".to_string(),
+            }],
+            summary: ReportSummary {
+                total: 1,
+                pass: 1,
+                fail: 0,
+                partial: 0,
+                not_applicable: 0,
+                needs_clarification: 0,
+            },
+            schema_version: Some(1),
+            agent_id: Some("driver--alpha".to_string()),
+            issue_id: Some(1),
+            status: Some("completed".to_string()),
+            started_at: None,
+            completed_at: None,
+            phases: Some(PhaseTimings {
+                testing: Some(PhaseTiming {
+                    duration_s: 60,
+                    tests_run: Some(50),
+                    tests_passed: Some(50),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            unresolved_questions: None,
+            commits: None,
+            files_changed: None,
+        };
+        let r2 = KickoffReport {
+            status: Some("failed".to_string()),
+            ..r1.clone()
+        };
+        let reports = vec![("alpha", r1), ("beta", r2)];
+        let output = format_report_all_table(&reports);
+        assert!(output.contains("2 agents"));
+        assert!(output.contains("alpha"));
+        assert!(output.contains("beta"));
+        assert!(output.contains("1 completed, 1 failed"));
     }
 }
