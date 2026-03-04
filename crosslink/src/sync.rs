@@ -663,7 +663,7 @@ impl SyncManager {
         Ok(())
     }
 
-    /// Read all heartbeat files from the cache.
+    /// Read all heartbeat files from the V1 cache (`heartbeats/` directory).
     pub fn read_heartbeats(&self) -> Result<Vec<Heartbeat>> {
         let dir = self.cache_dir.join("heartbeats");
         if !dir.exists() {
@@ -679,6 +679,84 @@ impl SyncManager {
                     heartbeats.push(hb);
                 }
             }
+        }
+        Ok(heartbeats)
+    }
+
+    /// Read heartbeats from the V2 layout (`agents/{id}/heartbeat.json`).
+    ///
+    /// V2 heartbeat files use `timestamp` (RFC 3339) instead of `last_heartbeat`,
+    /// and may lack `active_issue_id` / `machine_id`. This method converts them
+    /// into the common `Heartbeat` struct.
+    pub fn read_heartbeats_v2(&self) -> Result<Vec<Heartbeat>> {
+        let agents_dir = self.cache_dir.join("agents");
+        if !agents_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut heartbeats = Vec::new();
+        for entry in std::fs::read_dir(&agents_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let agent_id = entry.file_name().to_string_lossy().to_string();
+            let hb_path = entry.path().join("heartbeat.json");
+            if !hb_path.exists() {
+                continue;
+            }
+            let content = match std::fs::read_to_string(&hb_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            // Try native Heartbeat format first, then V2 JSON format
+            if let Ok(hb) = serde_json::from_str::<Heartbeat>(&content) {
+                heartbeats.push(hb);
+            } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                let timestamp = val
+                    .get("timestamp")
+                    .and_then(|t| t.as_str())
+                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(Utc::now);
+                let active_issue_id = val.get("active_issue_id").and_then(|v| v.as_i64());
+                let machine_id = val
+                    .get("machine_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                heartbeats.push(Heartbeat {
+                    agent_id,
+                    last_heartbeat: timestamp,
+                    active_issue_id,
+                    machine_id,
+                });
+            }
+        }
+        Ok(heartbeats)
+    }
+
+    /// Read heartbeats using the appropriate method based on hub layout version.
+    ///
+    /// V1: reads `heartbeats/*.json`
+    /// V2: reads `agents/*/heartbeat.json`, merged with any V1 heartbeats
+    pub fn read_heartbeats_auto(&self) -> Result<Vec<Heartbeat>> {
+        let mut heartbeats = self.read_heartbeats()?;
+        if self.is_v2_layout() {
+            let v2 = self.read_heartbeats_v2()?;
+            // Merge V2 heartbeats, preferring the one with the most recent timestamp
+            use std::collections::HashMap;
+            let mut by_agent: HashMap<String, Heartbeat> = HashMap::new();
+            for hb in heartbeats.into_iter().chain(v2) {
+                by_agent
+                    .entry(hb.agent_id.clone())
+                    .and_modify(|existing| {
+                        if hb.last_heartbeat > existing.last_heartbeat {
+                            *existing = hb.clone();
+                        }
+                    })
+                    .or_insert(hb);
+            }
+            heartbeats = by_agent.into_values().collect();
         }
         Ok(heartbeats)
     }
@@ -1258,6 +1336,123 @@ mod tests {
         assert_eq!(heartbeats.len(), 1);
         assert_eq!(heartbeats[0].agent_id, "worker-1");
         assert_eq!(heartbeats[0].active_issue_id, Some(5));
+    }
+
+    #[test]
+    fn test_read_heartbeats_v2_no_dir() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        let manager = SyncManager::new(&crosslink_dir).unwrap();
+        std::fs::create_dir_all(&manager.cache_dir).unwrap();
+        let heartbeats = manager.read_heartbeats_v2().unwrap();
+        assert!(heartbeats.is_empty());
+    }
+
+    #[test]
+    fn test_read_heartbeats_v2_with_native_format() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+        let agent_dir = cache_dir.join("agents").join("worker-v2");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        // Write a native Heartbeat format file in the V2 location
+        let hb = Heartbeat {
+            agent_id: "worker-v2".to_string(),
+            last_heartbeat: Utc::now(),
+            active_issue_id: Some(10),
+            machine_id: "host-v2".to_string(),
+        };
+        std::fs::write(
+            agent_dir.join("heartbeat.json"),
+            serde_json::to_string_pretty(&hb).unwrap(),
+        )
+        .unwrap();
+
+        let manager = SyncManager::new(&crosslink_dir).unwrap();
+        let heartbeats = manager.read_heartbeats_v2().unwrap();
+        assert_eq!(heartbeats.len(), 1);
+        assert_eq!(heartbeats[0].agent_id, "worker-v2");
+        assert_eq!(heartbeats[0].active_issue_id, Some(10));
+    }
+
+    #[test]
+    fn test_read_heartbeats_v2_with_v2_json_format() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+        let agent_dir = cache_dir.join("agents").join("worker-v2b");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        // Write V2 format: { agent_id, timestamp, status }
+        let heartbeat = serde_json::json!({
+            "agent_id": "worker-v2b",
+            "timestamp": Utc::now().to_rfc3339(),
+            "status": "active"
+        });
+        std::fs::write(
+            agent_dir.join("heartbeat.json"),
+            serde_json::to_string_pretty(&heartbeat).unwrap(),
+        )
+        .unwrap();
+
+        let manager = SyncManager::new(&crosslink_dir).unwrap();
+        let heartbeats = manager.read_heartbeats_v2().unwrap();
+        assert_eq!(heartbeats.len(), 1);
+        assert_eq!(heartbeats[0].agent_id, "worker-v2b");
+        assert!(heartbeats[0].active_issue_id.is_none());
+    }
+
+    #[test]
+    fn test_read_heartbeats_auto_merges_v1_and_v2() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+
+        // Set up V2 layout marker
+        let meta_dir = cache_dir.join("meta");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
+
+        // Write V1 heartbeat
+        let hb_dir = cache_dir.join("heartbeats");
+        std::fs::create_dir_all(&hb_dir).unwrap();
+        let hb1 = Heartbeat {
+            agent_id: "worker-v1".to_string(),
+            last_heartbeat: Utc::now(),
+            active_issue_id: Some(1),
+            machine_id: "host-1".to_string(),
+        };
+        std::fs::write(
+            hb_dir.join("worker-v1.json"),
+            serde_json::to_string_pretty(&hb1).unwrap(),
+        )
+        .unwrap();
+
+        // Write V2 heartbeat
+        let agent_dir = cache_dir.join("agents").join("worker-v2");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+        let heartbeat = serde_json::json!({
+            "agent_id": "worker-v2",
+            "timestamp": Utc::now().to_rfc3339(),
+            "status": "active"
+        });
+        std::fs::write(
+            agent_dir.join("heartbeat.json"),
+            serde_json::to_string_pretty(&heartbeat).unwrap(),
+        )
+        .unwrap();
+
+        let manager = SyncManager::new(&crosslink_dir).unwrap();
+        let heartbeats = manager.read_heartbeats_auto().unwrap();
+        assert_eq!(heartbeats.len(), 2);
+
+        let ids: std::collections::HashSet<String> =
+            heartbeats.iter().map(|h| h.agent_id.clone()).collect();
+        assert!(ids.contains("worker-v1"));
+        assert!(ids.contains("worker-v2"));
     }
 
     #[test]

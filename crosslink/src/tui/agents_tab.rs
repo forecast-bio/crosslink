@@ -132,8 +132,8 @@ impl AgentsTab {
             }
         };
 
-        // Read heartbeats
-        let heartbeats = sync.read_heartbeats().unwrap_or_default();
+        // Read heartbeats (auto-dispatches V1/V2)
+        let heartbeats = sync.read_heartbeats_auto().unwrap_or_default();
 
         // Find stale locks
         let stale = sync.find_stale_locks().unwrap_or_default();
@@ -924,8 +924,9 @@ impl Tab for AgentsTab {
         }
     }
 
-    // Data is loaded eagerly in new() and refreshed on 'r' keypress.
-    fn on_enter(&mut self) {}
+    fn on_enter(&mut self) {
+        self.refresh();
+    }
     fn on_leave(&mut self) {}
 }
 
