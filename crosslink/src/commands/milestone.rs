@@ -1,8 +1,26 @@
 use anyhow::{bail, Result};
+use std::path::Path;
 
 use crate::db::Database;
 use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
+use crate::MilestoneCommands;
+
+pub fn run(command: MilestoneCommands, db: &Database, crosslink_dir: &Path) -> Result<()> {
+    let shared = SharedWriter::new(crosslink_dir)?;
+    let shared_ref = shared.as_ref();
+    match command {
+        MilestoneCommands::Create { name, description } => {
+            create(db, shared_ref, &name, description.as_deref())
+        }
+        MilestoneCommands::List { status } => list(db, Some(&status)),
+        MilestoneCommands::Show { id } => show(db, id),
+        MilestoneCommands::Add { id, issues } => add(db, shared_ref, id, &issues),
+        MilestoneCommands::Remove { id, issue } => remove(db, shared_ref, id, issue),
+        MilestoneCommands::Close { id } => close(db, shared_ref, id),
+        MilestoneCommands::Delete { id } => delete(db, shared_ref, id),
+    }
+}
 
 pub fn create(
     db: &Database,

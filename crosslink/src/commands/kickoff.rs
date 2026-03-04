@@ -9,6 +9,105 @@ use std::time::Duration;
 use crate::db::Database;
 use crate::identity::AgentConfig;
 use crate::shared_writer::SharedWriter;
+use crate::KickoffCommands;
+
+pub fn dispatch(
+    command: KickoffCommands,
+    crosslink_dir: &Path,
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    quiet: bool,
+) -> Result<()> {
+    match command {
+        KickoffCommands::Run {
+            description,
+            issue,
+            container,
+            verify,
+            model,
+            image,
+            timeout,
+            dry_run,
+            branch,
+            doc,
+        } => {
+            let parsed_doc = if let Some(ref path) = doc {
+                let content = std::fs::read_to_string(path)
+                    .with_context(|| format!("Failed to read design doc: {}", path.display()))?;
+                let d = super::design_doc::parse_design_doc(&content);
+                for warning in super::design_doc::validate_design_doc(&d) {
+                    eprintln!("Warning: {}", warning);
+                }
+                Some(d)
+            } else {
+                None
+            };
+            let opts = KickoffOpts {
+                description: &description,
+                issue,
+                container: parse_container_mode(&container)?,
+                verify: parse_verify_level(&verify)?,
+                model: &model,
+                image: &image,
+                timeout: parse_duration(&timeout)?,
+                dry_run,
+                branch: branch.as_deref(),
+                quiet,
+                design_doc: parsed_doc.as_ref(),
+                doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
+            };
+            run(crosslink_dir, db, writer, &opts)
+        }
+        KickoffCommands::Status { agent } => status(crosslink_dir, &agent),
+        KickoffCommands::Logs { agent, lines } => logs(crosslink_dir, &agent, lines),
+        KickoffCommands::Stop { agent, force } => stop(crosslink_dir, &agent, force),
+        KickoffCommands::Plan {
+            doc,
+            issue,
+            model,
+            timeout,
+            dry_run,
+        } => {
+            let content = std::fs::read_to_string(&doc)
+                .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
+            let design_doc = super::design_doc::parse_design_doc(&content);
+            for warning in super::design_doc::validate_design_doc(&design_doc) {
+                eprintln!("Warning: {}", warning);
+            }
+            let plan_opts = PlanOpts {
+                doc: &design_doc,
+                model: &model,
+                timeout: parse_duration(&timeout)?,
+                dry_run,
+                issue,
+                quiet,
+            };
+            plan(crosslink_dir, db, &plan_opts)
+        }
+        KickoffCommands::ShowPlan { agent } => show_plan(crosslink_dir, &agent),
+        KickoffCommands::Report {
+            agent,
+            json,
+            markdown,
+            all,
+        } => {
+            let format = if json {
+                ReportFormat::Json
+            } else if markdown {
+                ReportFormat::Markdown
+            } else {
+                ReportFormat::Table
+            };
+            if all {
+                report_all(crosslink_dir, format)
+            } else {
+                let agent =
+                    agent.ok_or_else(|| anyhow::anyhow!("Agent ID required (or use --all)"))?;
+                report(crosslink_dir, &agent, format)
+            }
+        }
+    }
+}
 
 /// Container runtime for agent execution.
 #[derive(Debug, Clone, PartialEq)]

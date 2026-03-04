@@ -5,6 +5,17 @@ use std::path::Path;
 
 use crate::identity::resolve_driver_fingerprint;
 use crate::signing::{AllowedSignerEntry, AllowedSigners};
+use crate::TrustCommands;
+
+pub fn run(command: TrustCommands, crosslink_dir: &Path) -> Result<()> {
+    match command {
+        TrustCommands::Approve { agent_id } => approve(crosslink_dir, &agent_id),
+        TrustCommands::Revoke { agent_id } => revoke(crosslink_dir, &agent_id),
+        TrustCommands::List => list(crosslink_dir),
+        TrustCommands::Pending => pending(crosslink_dir),
+        TrustCommands::Check { agent_id } => check(crosslink_dir, &agent_id),
+    }
+}
 
 /// Metadata for a trust approval decision, stored in `trust/approvals/<agent-id>.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod archive;
 pub mod comment;
+pub mod compact;
 pub mod config;
 pub mod container;
 pub mod context;

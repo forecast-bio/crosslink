@@ -2,6 +2,41 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::ContainerCommands;
+
+pub fn run(command: ContainerCommands) -> Result<()> {
+    match command {
+        ContainerCommands::Build {
+            force,
+            tag,
+            dockerfile,
+        } => build(force, tag.as_deref(), dockerfile.as_deref()),
+        ContainerCommands::Start {
+            worktree,
+            name,
+            prompt,
+            issue,
+            memory,
+        } => {
+            let path = PathBuf::from(&worktree);
+            start(
+                &path,
+                name.as_deref(),
+                prompt.as_deref(),
+                issue,
+                memory.as_deref(),
+            )
+        }
+        ContainerCommands::Ps => ps(),
+        ContainerCommands::Logs { name, follow, tail } => logs(&name, follow, tail),
+        ContainerCommands::Stop { name } => stop(&name),
+        ContainerCommands::Rm { name } => rm(&name),
+        ContainerCommands::Kill { name } => kill(&name),
+        ContainerCommands::Shell { name } => shell(&name),
+        ContainerCommands::Snapshot { name, tag } => snapshot(&name, tag.as_deref()),
+    }
+}
+
 const IMAGE_NAME: &str = "crosslink-agent";
 const IMAGE_TAG: &str = "latest";
 const CONTAINER_PREFIX: &str = "crosslink-task-";

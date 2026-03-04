@@ -1,8 +1,21 @@
 use anyhow::{bail, Result};
 use chrono::Utc;
+use std::path::Path;
 
 use crate::db::Database;
 use crate::utils::format_issue_id;
+use crate::SessionCommands;
+
+pub fn run(command: SessionCommands, db: &Database, crosslink_dir: &Path) -> Result<()> {
+    match command {
+        SessionCommands::Start => start(db, crosslink_dir),
+        SessionCommands::End { notes } => end(db, notes.as_deref(), crosslink_dir),
+        SessionCommands::Status => status(db, crosslink_dir),
+        SessionCommands::Work { id } => work(db, id, crosslink_dir),
+        SessionCommands::LastHandoff => last_handoff(db, crosslink_dir),
+        SessionCommands::Action { text } => action(db, &text, crosslink_dir),
+    }
+}
 
 /// Load the current agent_id from .crosslink/agent.json (best-effort).
 fn load_agent_id(crosslink_dir: &std::path::Path) -> Option<String> {

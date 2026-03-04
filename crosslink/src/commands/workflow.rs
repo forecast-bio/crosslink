@@ -1,10 +1,31 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
 use super::init;
 use crate::db::Database;
 use crate::utils::format_issue_id;
+use crate::WorkflowCommands;
+
+pub fn run(
+    command: WorkflowCommands,
+    crosslink_dir: &Path,
+    get_db: impl FnOnce() -> Result<Database>,
+) -> Result<()> {
+    let claude_dir = crosslink_dir
+        .parent()
+        .context("Cannot determine project root")?
+        .join(".claude");
+    match command {
+        WorkflowCommands::Diff { section, check } => {
+            diff(crosslink_dir, &claude_dir, section.as_deref(), check)
+        }
+        WorkflowCommands::Trail { id, kind, json } => {
+            let db = get_db()?;
+            trail(&db, id, kind.as_deref(), json)
+        }
+    }
+}
 
 /// Hook files to compare: (deployed filename, embedded default)
 const HOOK_FILES: &[(&str, &str)] = &[
