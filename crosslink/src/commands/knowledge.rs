@@ -173,6 +173,8 @@ pub fn list(
     crosslink_dir: &Path,
     tag_filter: Option<&str>,
     contributor_filter: Option<&str>,
+    since: Option<&str>,
+    json: bool,
 ) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
@@ -194,9 +196,19 @@ pub fn list(
                     return false;
                 }
             }
+            if let Some(since) = since {
+                if p.frontmatter.updated.as_str() < since {
+                    return false;
+                }
+            }
             true
         })
         .collect();
+
+    if json {
+        print_list_json(&filtered);
+        return Ok(());
+    }
 
     if filtered.is_empty() {
         println!("No knowledge pages found.");
@@ -377,6 +389,218 @@ pub fn sync(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn import(
+    crosslink_dir: &Path,
+    directory: &Path,
+    extra_tags: &[String],
+    overwrite: bool,
+    dry_run: bool,
+) -> Result<()> {
+    if !directory.is_dir() {
+        bail!("'{}' is not a directory", directory.display());
+    }
+
+    let km = KnowledgeManager::new(crosslink_dir)?;
+    ensure_initialized(&km)?;
+    let sync_outcome = km.sync()?;
+    warn_resolved_conflicts(&sync_outcome);
+
+    let files = collect_md_files(directory)?;
+    if files.is_empty() {
+        println!("No .md files found in '{}'.", directory.display());
+        return Ok(());
+    }
+
+    let agent_id = current_agent_id(crosslink_dir);
+    let now = Utc::now().format("%Y-%m-%d").to_string();
+
+    let mut imported = 0u32;
+    let mut skipped = 0u32;
+    let mut errors = 0u32;
+
+    for file_path in &files {
+        let rel = file_path
+            .strip_prefix(directory)
+            .unwrap_or(file_path.as_path());
+        let slug = infer_slug(rel);
+        let path_tags = infer_tags_from_path(rel);
+
+        if km.page_exists(&slug) && !overwrite {
+            if dry_run {
+                println!("[skip] {} (exists)", slug);
+            }
+            skipped += 1;
+            continue;
+        }
+
+        if dry_run {
+            let action = if km.page_exists(&slug) {
+                "overwrite"
+            } else {
+                "import"
+            };
+            println!("[{}] {} <- {}", action, slug, rel.display());
+            imported += 1;
+            continue;
+        }
+
+        match import_single_file(
+            &km, file_path, &slug, &path_tags, extra_tags, &agent_id, &now,
+        ) {
+            Ok(()) => imported += 1,
+            Err(e) => {
+                eprintln!("Error importing {}: {}", rel.display(), e);
+                errors += 1;
+            }
+        }
+    }
+
+    if !dry_run && imported > 0 {
+        km.commit(&format!("knowledge: import {} page(s)", imported))?;
+        let push_outcome = km.push()?;
+        warn_resolved_conflicts(&push_outcome);
+    }
+
+    println!(
+        "Imported: {} | Skipped: {} | Errors: {}",
+        imported, skipped, errors
+    );
+    Ok(())
+}
+
+/// Recursively collect .md files from a directory, sorted by path.
+fn collect_md_files(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
+    let mut files = Vec::new();
+    collect_md_files_recursive(dir, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_md_files_recursive(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_md_files_recursive(&path, files)?;
+        } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Infer a slug from a relative path. Subdirectory components become prefixes.
+/// e.g. `api/design.md` → `api-design`, `readme.md` → `readme`
+fn infer_slug(rel_path: &Path) -> String {
+    let stem = rel_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let parent = rel_path.parent().unwrap_or(Path::new(""));
+    if parent == Path::new("") || parent == Path::new(".") {
+        slug_sanitize(&stem)
+    } else {
+        let prefix = parent
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("-");
+        slug_sanitize(&format!("{}-{}", prefix, stem))
+    }
+}
+
+/// Infer tags from directory components of a path.
+/// e.g. `arch/api/design.md` → `["arch", "api"]`
+fn infer_tags_from_path(rel_path: &Path) -> Vec<String> {
+    let parent = rel_path.parent().unwrap_or(Path::new(""));
+    parent
+        .components()
+        .filter_map(|c| {
+            let s = c.as_os_str().to_string_lossy().to_string();
+            if s == "." {
+                None
+            } else {
+                Some(s)
+            }
+        })
+        .collect()
+}
+
+/// Sanitize a string into a valid slug (lowercase, alphanumeric + hyphens).
+fn slug_sanitize(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+/// Import a single file as a knowledge page.
+fn import_single_file(
+    km: &KnowledgeManager,
+    file_path: &Path,
+    slug: &str,
+    path_tags: &[String],
+    extra_tags: &[String],
+    agent_id: &str,
+    now: &str,
+) -> Result<()> {
+    let raw = std::fs::read_to_string(file_path)
+        .with_context(|| format!("reading {}", file_path.display()))?;
+
+    let page_content = if let Some(mut fm) = parse_frontmatter(&raw) {
+        // File has frontmatter — preserve it, merge tags
+        for tag in path_tags.iter().chain(extra_tags.iter()) {
+            if !fm.tags.iter().any(|t| t == tag) {
+                fm.tags.push(tag.clone());
+            }
+        }
+        if !fm.contributors.iter().any(|c| c == agent_id) {
+            fm.contributors.push(agent_id.to_string());
+        }
+        let body = extract_body(&raw);
+        let mut content = serialize_frontmatter(&fm);
+        content.push('\n');
+        content.push_str(body);
+        content
+    } else {
+        // No frontmatter — generate it
+        let title = slug.replace('-', " ");
+        let mut all_tags: Vec<String> = path_tags.to_vec();
+        for tag in extra_tags {
+            if !all_tags.iter().any(|t| t == tag) {
+                all_tags.push(tag.clone());
+            }
+        }
+        let fm = PageFrontmatter {
+            title,
+            tags: all_tags,
+            sources: Vec::new(),
+            contributors: vec![agent_id.to_string()],
+            created: now.to_string(),
+            updated: now.to_string(),
+        };
+        let mut content = serialize_frontmatter(&fm);
+        content.push('\n');
+        content.push_str(&raw);
+        if !raw.ends_with('\n') {
+            content.push('\n');
+        }
+        content
+    };
+
+    km.write_page(slug, &page_content)?;
+    Ok(())
+}
+
 /// Extract the body content after frontmatter.
 fn extract_body(content: &str) -> &str {
     let trimmed = content.trim_start();
@@ -400,12 +624,16 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// Run knowledge search: content search, source search, or both.
+#[allow(clippy::too_many_arguments)]
 pub fn search(
     crosslink_dir: &Path,
     query: Option<&str>,
     context: usize,
     source: Option<&str>,
     json: bool,
+    tag: Option<&str>,
+    since: Option<&str>,
+    contributor: Option<&str>,
 ) -> Result<()> {
     if query.is_none() && source.is_none() {
         bail!("Provide a search query or --source domain");
@@ -430,6 +658,7 @@ pub fn search(
         bail!("Provide a search query or --source domain");
     };
     let matches = manager.search_content(query, context)?;
+    let matches = filter_by_metadata(&manager, matches, tag, since, contributor)?;
 
     if json {
         print_content_json(&matches);
@@ -455,6 +684,48 @@ pub fn search(
     }
 
     Ok(())
+}
+
+/// Post-filter search matches by frontmatter metadata.
+fn filter_by_metadata(
+    manager: &KnowledgeManager,
+    matches: Vec<crate::knowledge::SearchMatch>,
+    tag: Option<&str>,
+    since: Option<&str>,
+    contributor: Option<&str>,
+) -> Result<Vec<crate::knowledge::SearchMatch>> {
+    if tag.is_none() && since.is_none() && contributor.is_none() {
+        return Ok(matches);
+    }
+
+    let mut filtered = Vec::new();
+    for m in matches {
+        let content = match manager.read_page(&m.slug) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let fm = match parse_frontmatter(&content) {
+            Some(fm) => fm,
+            None => continue,
+        };
+        if let Some(tag) = tag {
+            if !fm.tags.iter().any(|t| t == tag) {
+                continue;
+            }
+        }
+        if let Some(since) = since {
+            if fm.updated.as_str() < since {
+                continue;
+            }
+        }
+        if let Some(contributor) = contributor {
+            if !fm.contributors.iter().any(|c| c == contributor) {
+                continue;
+            }
+        }
+        filtered.push(m);
+    }
+    Ok(filtered)
 }
 
 fn search_sources(manager: &KnowledgeManager, domain: &str, json: bool) -> Result<()> {
@@ -542,6 +813,36 @@ fn print_sources_json(pages: &[crate::knowledge::PageInfo]) {
                 serde_json_string(&page.slug),
                 serde_json_string(&page.frontmatter.title),
                 sources.join(",")
+            )
+        })
+        .collect();
+    println!("[{}]", entries.join(","));
+}
+
+fn print_list_json(pages: &[&crate::knowledge::PageInfo]) {
+    let entries: Vec<String> = pages
+        .iter()
+        .map(|page| {
+            let tags: Vec<String> = page
+                .frontmatter
+                .tags
+                .iter()
+                .map(|t| serde_json_string(t))
+                .collect();
+            let contributors: Vec<String> = page
+                .frontmatter
+                .contributors
+                .iter()
+                .map(|c| serde_json_string(c))
+                .collect();
+            format!(
+                "{{\"slug\":{},\"title\":{},\"tags\":[{}],\"contributors\":[{}],\"created\":{},\"updated\":{}}}",
+                serde_json_string(&page.slug),
+                serde_json_string(&page.frontmatter.title),
+                tags.join(","),
+                contributors.join(","),
+                serde_json_string(&page.frontmatter.created),
+                serde_json_string(&page.frontmatter.updated),
             )
         })
         .collect();
@@ -976,5 +1277,212 @@ mod tests {
             doc.title.clone()
         };
         assert_eq!(display_title, "Explicit Title");
+    }
+
+    // ==================== Round 1: Structured Queries Tests ====================
+
+    #[test]
+    fn test_search_filter_by_tag() {
+        let (km, _dir) = setup_km();
+
+        let page_a = "---\ntitle: Alpha\ntags: [rust]\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nshared keyword here\n";
+        let page_b = "---\ntitle: Beta\ntags: [python]\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nshared keyword here\n";
+
+        km.write_page("alpha", page_a).unwrap();
+        km.write_page("beta", page_b).unwrap();
+
+        let matches = km.search_content("shared keyword", 0).unwrap();
+        assert_eq!(matches.len(), 2);
+
+        let filtered = filter_by_metadata(&km, matches, Some("rust"), None, None).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].slug, "alpha");
+    }
+
+    #[test]
+    fn test_search_filter_by_since() {
+        let (km, _dir) = setup_km();
+
+        let page_old = "---\ntitle: Old\ntags: []\nsources: []\ncontributors: []\ncreated: 2025-01-01\nupdated: 2025-06-01\n---\n\ncommon text\n";
+        let page_new = "---\ntitle: New\ntags: []\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-02-01\n---\n\ncommon text\n";
+
+        km.write_page("old-page", page_old).unwrap();
+        km.write_page("new-page", page_new).unwrap();
+
+        let matches = km.search_content("common text", 0).unwrap();
+        assert_eq!(matches.len(), 2);
+
+        let filtered = filter_by_metadata(&km, matches, None, Some("2026-01-01"), None).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].slug, "new-page");
+    }
+
+    #[test]
+    fn test_search_filter_by_contributor() {
+        let (km, _dir) = setup_km();
+
+        let page_a = "---\ntitle: A\ntags: []\nsources: []\ncontributors: [alice]\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nfindme\n";
+        let page_b = "---\ntitle: B\ntags: []\nsources: []\ncontributors: [bob]\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nfindme\n";
+
+        km.write_page("a-page", page_a).unwrap();
+        km.write_page("b-page", page_b).unwrap();
+
+        let matches = km.search_content("findme", 0).unwrap();
+        assert_eq!(matches.len(), 2);
+
+        let filtered = filter_by_metadata(&km, matches, None, None, Some("bob")).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].slug, "b-page");
+    }
+
+    #[test]
+    fn test_list_filter_by_since() {
+        let (km, _dir) = setup_km();
+
+        let page_old = "---\ntitle: Old\ntags: []\nsources: []\ncontributors: []\ncreated: 2025-01-01\nupdated: 2025-06-01\n---\n\nold\n";
+        let page_new = "---\ntitle: New\ntags: []\nsources: []\ncontributors: []\ncreated: 2026-01-01\nupdated: 2026-03-01\n---\n\nnew\n";
+
+        km.write_page("old", page_old).unwrap();
+        km.write_page("new", page_new).unwrap();
+
+        let pages = km.list_pages().unwrap();
+        let filtered: Vec<_> = pages
+            .iter()
+            .filter(|p| p.frontmatter.updated.as_str() >= "2026-01-01")
+            .collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].slug, "new");
+    }
+
+    // ==================== Round 2: Import Helper Tests ====================
+
+    #[test]
+    fn test_infer_slug_simple() {
+        assert_eq!(infer_slug(Path::new("readme.md")), "readme");
+        assert_eq!(infer_slug(Path::new("my-design.md")), "my-design");
+    }
+
+    #[test]
+    fn test_infer_slug_with_parent() {
+        assert_eq!(infer_slug(Path::new("api/design.md")), "api-design");
+        assert_eq!(
+            infer_slug(Path::new("arch/api/overview.md")),
+            "arch-api-overview"
+        );
+    }
+
+    #[test]
+    fn test_infer_tags_from_path() {
+        let tags = infer_tags_from_path(Path::new("arch/api/design.md"));
+        assert_eq!(tags, vec!["arch", "api"]);
+    }
+
+    #[test]
+    fn test_infer_tags_root_file() {
+        let tags = infer_tags_from_path(Path::new("readme.md"));
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn test_import_preserves_existing_frontmatter() {
+        let (km, _dir) = setup_km();
+
+        let raw = "---\ntitle: Existing Title\ntags: [original]\nsources: []\ncontributors: [alice]\ncreated: 2026-01-01\nupdated: 2026-01-15\n---\n\nBody content.\n";
+
+        import_single_file(
+            &km,
+            // We need to write a temp file to import from
+            &{
+                let p = _dir.path().join("test.md");
+                std::fs::write(&p, raw).unwrap();
+                p
+            },
+            "test-import",
+            &["docs".to_string()],
+            &["extra".to_string()],
+            "bot",
+            "2026-03-01",
+        )
+        .unwrap();
+
+        let content = km.read_page("test-import").unwrap();
+        let fm = parse_frontmatter(&content).unwrap();
+        assert_eq!(fm.title, "Existing Title");
+        assert!(fm.tags.contains(&"original".to_string()));
+        assert!(fm.tags.contains(&"docs".to_string()));
+        assert!(fm.tags.contains(&"extra".to_string()));
+        assert!(fm.contributors.contains(&"alice".to_string()));
+        assert!(fm.contributors.contains(&"bot".to_string()));
+        assert!(content.contains("Body content."));
+    }
+
+    #[test]
+    fn test_import_generates_frontmatter() {
+        let (km, _dir) = setup_km();
+
+        let raw = "# Just a heading\n\nSome body text.\n";
+
+        import_single_file(
+            &km,
+            &{
+                let p = _dir.path().join("my-doc.md");
+                std::fs::write(&p, raw).unwrap();
+                p
+            },
+            "my-doc",
+            &[],
+            &["imported".to_string()],
+            "bot",
+            "2026-03-01",
+        )
+        .unwrap();
+
+        let content = km.read_page("my-doc").unwrap();
+        let fm = parse_frontmatter(&content).unwrap();
+        assert_eq!(fm.title, "my doc");
+        assert!(fm.tags.contains(&"imported".to_string()));
+        assert_eq!(fm.contributors, vec!["bot"]);
+        assert_eq!(fm.created, "2026-03-01");
+        assert!(content.contains("# Just a heading"));
+    }
+
+    // ==================== Round 1: List JSON Test ====================
+
+    #[test]
+    fn test_list_json_output() {
+        let (km, _dir) = setup_km();
+
+        let page = "---\ntitle: Test Page\ntags: [rust, cli]\nsources: []\ncontributors: [alice]\ncreated: 2026-01-15\nupdated: 2026-02-20\n---\n\nbody\n";
+        km.write_page("test-page", page).unwrap();
+
+        let pages = km.list_pages().unwrap();
+        let refs: Vec<&crate::knowledge::PageInfo> = pages.iter().collect();
+
+        // Capture what print_list_json would output
+        let entries: Vec<String> = refs
+            .iter()
+            .map(|p| {
+                format!(
+                    "{{\"slug\":{},\"title\":{},\"tags\":[{}],\"contributors\":[{}],\"created\":{},\"updated\":{}}}",
+                    serde_json_string(&p.slug),
+                    serde_json_string(&p.frontmatter.title),
+                    p.frontmatter.tags.iter().map(|t| serde_json_string(t)).collect::<Vec<_>>().join(","),
+                    p.frontmatter.contributors.iter().map(|c| serde_json_string(c)).collect::<Vec<_>>().join(","),
+                    serde_json_string(&p.frontmatter.created),
+                    serde_json_string(&p.frontmatter.updated),
+                )
+            })
+            .collect();
+        let json_str = format!("[{}]", entries.join(","));
+
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        let arr = parsed.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["slug"], "test-page");
+        assert_eq!(arr[0]["title"], "Test Page");
+        assert_eq!(arr[0]["tags"], serde_json::json!(["rust", "cli"]));
+        assert_eq!(arr[0]["contributors"], serde_json::json!(["alice"]));
+        assert_eq!(arr[0]["created"], "2026-01-15");
+        assert_eq!(arr[0]["updated"], "2026-02-20");
     }
 }

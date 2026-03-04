@@ -865,6 +865,12 @@ enum KnowledgeCommands {
         /// Filter by contributor
         #[arg(long)]
         contributor: Option<String>,
+        /// Filter pages updated since date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Update an existing knowledge page
     Edit {
@@ -890,6 +896,20 @@ enum KnowledgeCommands {
     },
     /// Manually sync from remote
     Sync,
+    /// Bulk import markdown files as knowledge pages
+    Import {
+        /// Directory containing .md files to import
+        directory: PathBuf,
+        /// Extra tags to apply to all imports (repeatable)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Overwrite existing pages
+        #[arg(long)]
+        overwrite: bool,
+        /// Preview imports without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Search knowledge page content
     Search {
         /// Search query (case-insensitive substring match)
@@ -900,6 +920,15 @@ enum KnowledgeCommands {
         /// Search by source URL domain instead of content
         #[arg(long)]
         source: Option<String>,
+        /// Filter results by tag
+        #[arg(long)]
+        tag: Option<String>,
+        /// Filter results updated since date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+        /// Filter results by contributor
+        #[arg(long)]
+        contributor: Option<String>,
     },
 }
 
@@ -1796,10 +1825,17 @@ fn main() -> Result<()> {
                 KnowledgeCommands::Show { slug } => {
                     commands::knowledge::show(&crosslink_dir, &slug, cli.json)
                 }
-                KnowledgeCommands::List { tag, contributor } => commands::knowledge::list(
+                KnowledgeCommands::List {
+                    tag,
+                    contributor,
+                    since,
+                    json,
+                } => commands::knowledge::list(
                     &crosslink_dir,
                     tag.as_deref(),
                     contributor.as_deref(),
+                    since.as_deref(),
+                    json,
                 ),
                 KnowledgeCommands::Edit {
                     slug,
@@ -1818,17 +1854,35 @@ fn main() -> Result<()> {
                 KnowledgeCommands::Remove { slug } => {
                     commands::knowledge::remove(&crosslink_dir, &slug)
                 }
+                KnowledgeCommands::Import {
+                    directory,
+                    tag,
+                    overwrite,
+                    dry_run,
+                } => commands::knowledge::import(
+                    &crosslink_dir,
+                    &directory,
+                    &tag,
+                    overwrite,
+                    dry_run,
+                ),
                 KnowledgeCommands::Sync => commands::knowledge::sync(&crosslink_dir),
                 KnowledgeCommands::Search {
                     query,
                     context,
                     source,
+                    tag,
+                    since,
+                    contributor,
                 } => commands::knowledge::search(
                     &crosslink_dir,
                     query.as_deref(),
                     context,
                     source.as_deref(),
                     cli.json,
+                    tag.as_deref(),
+                    since.as_deref(),
+                    contributor.as_deref(),
                 ),
             }
         }

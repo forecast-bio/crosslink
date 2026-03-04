@@ -3,6 +3,10 @@
     "crosslink-safe-fetch": {
       "command": "uv",
       "args": ["run", ".claude/mcp/safe-fetch-server.py"]
+    },
+    "crosslink-knowledge": {
+      "command": "uv",
+      "args": ["run", ".claude/mcp/knowledge-server.py"]
     }
   }
 }
