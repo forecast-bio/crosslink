@@ -9,7 +9,22 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
+use crate::CpitdCommands;
+
 use crate::db::Database;
+
+pub fn run(command: CpitdCommands, db: &Database, quiet: bool) -> Result<()> {
+    match command {
+        CpitdCommands::Scan {
+            paths,
+            min_tokens,
+            ignore,
+            dry_run,
+        } => scan(db, &paths, min_tokens, &ignore, dry_run, quiet),
+        CpitdCommands::Status => status(db),
+        CpitdCommands::Clear => clear(db),
+    }
+}
 use crate::utils::format_issue_id;
 
 // ---------------------------------------------------------------------------

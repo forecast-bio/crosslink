@@ -3,6 +3,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+use crate::StyleCommands;
+
+pub fn run(command: StyleCommands, crosslink_dir: &Path) -> Result<()> {
+    match command {
+        StyleCommands::Set { url, ref_name } => set(crosslink_dir, &url, ref_name.as_deref()),
+        StyleCommands::Sync { dry_run } => sync(crosslink_dir, dry_run),
+        StyleCommands::Diff => diff(crosslink_dir),
+        StyleCommands::Show => show(crosslink_dir),
+        StyleCommands::Unset => unset(crosslink_dir),
+    }
+}
+
 /// The marker comment that acknowledges intentional customization.
 const CUSTOM_MARKER: &str = "# crosslink:custom";
 

@@ -2,6 +2,16 @@ use anyhow::{bail, Result};
 
 use crate::db::Database;
 use crate::utils::format_issue_id;
+use crate::ArchiveCommands;
+
+pub fn run(command: ArchiveCommands, db: &Database) -> Result<()> {
+    match command {
+        ArchiveCommands::Add { id } => archive(db, id),
+        ArchiveCommands::Remove { id } => unarchive(db, id),
+        ArchiveCommands::List => list(db),
+        ArchiveCommands::Older { days } => archive_older(db, days),
+    }
+}
 
 pub fn archive(db: &Database, id: i64) -> Result<()> {
     let issue = match db.get_issue(id)? {

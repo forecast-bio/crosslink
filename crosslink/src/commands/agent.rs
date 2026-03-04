@@ -4,7 +4,51 @@ use std::process::Command;
 
 use crate::identity::AgentConfig;
 use crate::signing;
+use crate::sync;
 use crate::utils::format_issue_id;
+use crate::AgentCommands;
+
+pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
+    match command {
+        AgentCommands::Init {
+            agent_id,
+            description,
+            no_key,
+            force,
+        } => init(
+            crosslink_dir,
+            &agent_id,
+            description.as_deref(),
+            no_key,
+            force,
+        ),
+        AgentCommands::Status => status(crosslink_dir),
+        AgentCommands::Bootstrap {
+            repo,
+            identity,
+            branch,
+            description,
+            no_key,
+            target,
+        } => {
+            let target_path = std::path::PathBuf::from(&target);
+            bootstrap(
+                &target_path,
+                &repo,
+                &identity,
+                branch.as_deref(),
+                description.as_deref(),
+                no_key,
+            )?;
+            // Ensure the agent directory exists on the hub branch
+            let cl_dir = target_path.join(".crosslink");
+            if let Ok(s) = sync::SyncManager::new(&cl_dir) {
+                let _ = s.ensure_agent_dir(&identity);
+            }
+            Ok(())
+        }
+    }
+}
 
 /// `crosslink agent init <agent-id> [-d "description"] [--no-key] [--force]`
 pub fn init(
