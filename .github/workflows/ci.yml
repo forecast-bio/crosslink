@@ -132,6 +132,7 @@ jobs:
     needs: test
     name: Property Tests
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
     defaults:
       run:
         working-directory: crosslink
