@@ -1,0 +1,11 @@
+{
+  "uuid": "9b04204c-9ca8-4dc5-8359-04500cc6766d",
+  "display_id": 133,
+  "title": "Fix TUI agents tab list rendering",
+  "description": "GH #172: TUI agents tab not forming agent list properly. The agents tab should display all registered agents with their session status, current working issue, and heartbeat info.",
+  "status": "open",
+  "priority": "high",
+  "created_by": "maxine-at-forecast--noether",
+  "created_at": "2026-03-04T19:51:38.222403Z",
+  "updated_at": "2026-03-04T19:51:38.222403Z"
+}
