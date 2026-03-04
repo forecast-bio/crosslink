@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--config-tracker-remote",
   "created_at": "2026-03-04T20:28:39.172487Z",
-  "updated_at": "2026-03-04T20:28:41.171936Z",
+  "updated_at": "2026-03-04T23:37:20.716841Z",
   "labels": [
     "admin"
+  ],
+  "comments": [
+    {
+      "id": 227,
+      "author": "maxine-at-forecast--noether--fix-signing",
+      "content": "Completed: Fixed agent signing chicken-and-egg during init. Three fixes: (1) Added SyncManager::ensure_agent_key_published() called from sync_cmd to auto-publish keys deferred from agent init. (2) Swapped bootstrap ordering so publish_agent_key runs before configure_signing. (3) Key-publishing commits use unsigned path to avoid requiring signing before it's configured. All 149 tests pass, clippy/fmt clean. Branch: feature/fix-agent-signing-init, ready for push+PR.",
+      "created_at": "2026-03-04T23:37:20.716841Z",
+      "kind": "handoff"
+    }
   ]
 }
