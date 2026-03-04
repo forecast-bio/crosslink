@@ -1,5 +1,7 @@
 // E-ana tablet — kickoff command: launch agents to implement features
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -30,6 +32,23 @@ pub enum VerifyLevel {
     Thorough,
 }
 
+/// A single acceptance criterion extracted from a design document.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Criterion {
+    pub id: String,
+    pub text: String,
+    #[serde(rename = "type")]
+    pub criterion_type: String,
+}
+
+/// Machine-readable acceptance criteria file (`.kickoff-criteria.json`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CriteriaFile {
+    pub source_doc: String,
+    pub extracted_at: String,
+    pub criteria: Vec<Criterion>,
+}
+
 /// Options for `crosslink kickoff run`.
 pub struct KickoffOpts<'a> {
     pub description: &'a str,
@@ -43,6 +62,7 @@ pub struct KickoffOpts<'a> {
     pub branch: Option<&'a str>,
     pub quiet: bool,
     pub design_doc: Option<&'a super::design_doc::DesignDoc>,
+    pub doc_path: Option<&'a str>,
 }
 
 /// Parse a container mode string into the enum.
@@ -140,6 +160,76 @@ pub(crate) fn slugify(description: &str) -> String {
         }
     } else {
         trimmed.to_string()
+    }
+}
+
+/// Parse an optional `AC-N:` prefix from a criterion string.
+///
+/// Returns `(id, remaining_text)`. If no prefix found, id is empty.
+fn parse_criterion_id(text: &str) -> (String, String) {
+    let trimmed = text.trim();
+    let upper = trimmed.to_uppercase();
+    if let Some(rest) = upper.strip_prefix("AC-") {
+        if let Some(colon_pos) = rest.find(':') {
+            let digits = &rest[..colon_pos];
+            if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+                let id = format!("AC-{}", digits);
+                let remaining = trimmed[3 + colon_pos + 1..].trim().to_string();
+                return (id, remaining);
+            }
+        }
+    }
+    (String::new(), trimmed.to_string())
+}
+
+/// Extract acceptance criteria from a parsed design doc into a structured format.
+///
+/// Criteria with `AC-N:` prefixes keep their explicit IDs; others get
+/// sequential IDs assigned, skipping any numbers already claimed by explicit IDs.
+pub(crate) fn extract_criteria(
+    doc: &super::design_doc::DesignDoc,
+    source_filename: &str,
+) -> CriteriaFile {
+    let explicit_ids: HashSet<String> = doc
+        .acceptance_criteria
+        .iter()
+        .filter_map(|raw| {
+            let (id, _) = parse_criterion_id(raw);
+            if id.is_empty() {
+                None
+            } else {
+                Some(id)
+            }
+        })
+        .collect();
+
+    let mut auto_counter = 0u32;
+    let mut criteria = Vec::new();
+
+    for raw in &doc.acceptance_criteria {
+        let (parsed_id, text) = parse_criterion_id(raw);
+        let id = if !parsed_id.is_empty() {
+            parsed_id
+        } else {
+            loop {
+                auto_counter += 1;
+                let candidate = format!("AC-{}", auto_counter);
+                if !explicit_ids.contains(&candidate) {
+                    break candidate;
+                }
+            }
+        };
+        criteria.push(Criterion {
+            id,
+            text,
+            criterion_type: "functional".to_string(),
+        });
+    }
+
+    CriteriaFile {
+        source_doc: source_filename.to_string(),
+        extracted_at: chrono::Utc::now().to_rfc3339(),
+        criteria,
     }
 }
 
@@ -300,6 +390,82 @@ pub(crate) fn build_adversarial_review_section() -> &'static str {
 "#
 }
 
+/// A single criterion verdict in the validation report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CriterionVerdict {
+    pub id: String,
+    pub verdict: String,
+    pub evidence: String,
+}
+
+/// Summary counts in the validation report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReportSummary {
+    pub total: usize,
+    pub pass: usize,
+    pub fail: usize,
+    pub partial: usize,
+    pub not_applicable: usize,
+    pub needs_clarification: usize,
+}
+
+/// The `.kickoff-report.json` file contents.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ValidationReport {
+    pub validated_at: String,
+    pub criteria: Vec<CriterionVerdict>,
+    pub summary: ReportSummary,
+}
+
+/// Build the spec validation section of the prompt.
+///
+/// Instructs the agent to validate each acceptance criterion and write
+/// a structured report to `.kickoff-report.json`.
+pub(crate) fn build_spec_validation_section() -> &'static str {
+    r#"
+### Spec Validation
+
+Before marking the implementation complete, validate every acceptance criterion from
+`.kickoff-criteria.json`:
+
+1. **Read the criteria file**: `cat .kickoff-criteria.json`
+2. **For each criterion**, evaluate the implementation:
+   - **pass**: The criterion is fully satisfied. Cite specific evidence (test name, file:line, behavior observed).
+   - **fail**: The criterion is not satisfied. Explain what is missing or broken.
+   - **partial**: Partially implemented. Describe what works and what does not.
+   - **not_applicable**: The criterion does not apply to this implementation (e.g., environment-specific).
+   - **needs_clarification**: The criterion is ambiguous and cannot be evaluated. Explain the ambiguity.
+3. **Be strict**: Do NOT mark a criterion as `pass` without citing concrete evidence (a test name, a
+   code path, or an observable behavior).
+4. **Write the report**: Create `.kickoff-report.json` with this structure:
+
+   ```json
+   {
+     "validated_at": "ISO-8601 timestamp",
+     "criteria": [
+       {
+         "id": "AC-1",
+         "verdict": "pass|fail|partial|not_applicable|needs_clarification",
+         "evidence": "Description of evidence or reason for verdict"
+       }
+     ],
+     "summary": {
+       "total": 5,
+       "pass": 3,
+       "fail": 1,
+       "partial": 1,
+       "not_applicable": 0,
+       "needs_clarification": 0
+     }
+   }
+   ```
+
+5. If any criterion is `fail`, attempt to fix the implementation before proceeding.
+   After fixes, re-evaluate and update `.kickoff-report.json`.
+6. If fixes are not possible, document the reason in the evidence field and proceed.
+"#
+}
+
 /// Build the final steps section of the prompt.
 pub(crate) fn build_final_steps_section() -> &'static str {
     r#"
@@ -329,6 +495,8 @@ pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &[
     ".kickoff-status",
     "PLAN_KICKOFF.md",
     ".kickoff-plan.json",
+    ".kickoff-criteria.json",
+    ".kickoff-report.json",
 ];
 
 pub(crate) fn missing_exclude_patterns(existing_content: &str) -> Vec<&'static str> {
@@ -425,6 +593,13 @@ these, ask the user to run it manually:
 
     if opts.verify == VerifyLevel::Thorough {
         prompt.push_str(build_adversarial_review_section());
+    }
+
+    // Spec validation: only when design doc has acceptance criteria
+    if let Some(doc) = opts.design_doc {
+        if !doc.acceptance_criteria.is_empty() {
+            prompt.push_str(build_spec_validation_section());
+        }
     }
 
     prompt.push_str(build_final_steps_section());
@@ -861,6 +1036,18 @@ pub fn run(
     // 6. Write KICKOFF.md to worktree
     std::fs::write(worktree_dir.join("KICKOFF.md"), &prompt)
         .context("Failed to write KICKOFF.md")?;
+
+    // 6b. Extract and write criteria if design doc has acceptance criteria
+    if let Some(doc) = opts.design_doc {
+        if !doc.acceptance_criteria.is_empty() {
+            let source = opts.doc_path.unwrap_or("unknown");
+            let criteria_file = extract_criteria(doc, source);
+            let json = serde_json::to_string_pretty(&criteria_file)
+                .context("Failed to serialize criteria")?;
+            std::fs::write(worktree_dir.join(".kickoff-criteria.json"), &json)
+                .context("Failed to write .kickoff-criteria.json")?;
+        }
+    }
 
     // 7. Exclude kickoff files from git
     exclude_kickoff_files(&worktree_dir)?;
@@ -1530,6 +1717,150 @@ pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
     Ok(())
 }
 
+/// Output format for the kickoff report command.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReportFormat {
+    /// Human-readable table with symbols.
+    Table,
+    /// Raw JSON output.
+    Json,
+    /// PR-ready markdown format.
+    Markdown,
+}
+
+/// Format a validation report as a human-readable table.
+pub(crate) fn format_report_table(report: &ValidationReport) -> String {
+    let mut out = String::new();
+    out.push_str("Spec Validation Report\n");
+    out.push_str("======================\n\n");
+
+    for c in &report.criteria {
+        let symbol = match c.verdict.as_str() {
+            "pass" => "\u{2713}",
+            "partial" => "~",
+            "fail" => "\u{2717}",
+            "not_applicable" => "-",
+            _ => "?",
+        };
+        out.push_str(&format!("  {} {}  {}\n", symbol, c.id, c.evidence));
+    }
+
+    out.push('\n');
+    let s = &report.summary;
+    out.push_str(&format!(
+        "{} criteria: {} pass, {} partial, {} fail",
+        s.total, s.pass, s.partial, s.fail
+    ));
+    if s.not_applicable > 0 {
+        out.push_str(&format!(", {} n/a", s.not_applicable));
+    }
+    if s.needs_clarification > 0 {
+        out.push_str(&format!(", {} unclear", s.needs_clarification));
+    }
+    out.push('\n');
+    out
+}
+
+/// Format a validation report as PR-ready markdown.
+pub(crate) fn format_report_markdown(report: &ValidationReport) -> String {
+    let mut out = String::new();
+    out.push_str("## Spec Validation Report\n\n");
+    out.push_str("| ID | Verdict | Evidence |\n");
+    out.push_str("|---|---|---|\n");
+
+    for c in &report.criteria {
+        let verdict_display = match c.verdict.as_str() {
+            "pass" => "\u{2713} pass",
+            "partial" => "~ partial",
+            "fail" => "\u{2717} fail",
+            "not_applicable" => "- n/a",
+            "needs_clarification" => "? unclear",
+            _ => &c.verdict,
+        };
+        let evidence = c.evidence.replace('|', "\\|");
+        out.push_str(&format!(
+            "| {} | {} | {} |\n",
+            c.id, verdict_display, evidence
+        ));
+    }
+
+    out.push('\n');
+    let s = &report.summary;
+    out.push_str(&format!(
+        "**{} criteria**: {} pass, {} partial, {} fail\n",
+        s.total, s.pass, s.partial, s.fail
+    ));
+    out
+}
+
+/// Display the spec validation report for a kickoff agent.
+pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result<()> {
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let slug = agent
+        .strip_prefix("feature/")
+        .or_else(|| agent.strip_prefix("feat-"))
+        .unwrap_or(agent);
+    let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
+
+    let worktree_dir = root.join(".worktrees").join(wt_slug);
+    if !worktree_dir.exists() {
+        bail!(
+            "No worktree found for '{}'. Checked: {}",
+            agent,
+            worktree_dir.display()
+        );
+    }
+
+    let report_file = worktree_dir.join(".kickoff-report.json");
+    if !report_file.exists() {
+        let status_file = worktree_dir.join(".kickoff-status");
+        let status = if status_file.exists() {
+            std::fs::read_to_string(&status_file)
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        } else {
+            "still running".to_string()
+        };
+        bail!(
+            "No validation report found for '{}'. Agent status: {}",
+            agent,
+            status
+        );
+    }
+
+    let content =
+        std::fs::read_to_string(&report_file).context("Failed to read .kickoff-report.json")?;
+
+    match format {
+        ReportFormat::Json => {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&parsed).unwrap_or(content)
+                );
+            } else {
+                print!("{}", content);
+            }
+        }
+        ReportFormat::Table => {
+            let r: ValidationReport =
+                serde_json::from_str(&content).context("Failed to parse .kickoff-report.json")?;
+            print!("{}", format_report_table(&r));
+        }
+        ReportFormat::Markdown => {
+            let r: ValidationReport =
+                serde_json::from_str(&content).context("Failed to parse .kickoff-report.json")?;
+            print!("{}", format_report_markdown(&r));
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1666,6 +1997,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -1696,6 +2028,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -1723,6 +2056,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -1896,7 +2230,9 @@ mod tests {
                 "KICKOFF.md",
                 ".kickoff-status",
                 "PLAN_KICKOFF.md",
-                ".kickoff-plan.json"
+                ".kickoff-plan.json",
+                ".kickoff-criteria.json",
+                ".kickoff-report.json",
             ]
         );
     }
@@ -1907,13 +2243,15 @@ mod tests {
         assert!(patterns.contains(&".kickoff-status"));
         assert!(patterns.contains(&"PLAN_KICKOFF.md"));
         assert!(patterns.contains(&".kickoff-plan.json"));
+        assert!(patterns.contains(&".kickoff-criteria.json"));
+        assert!(patterns.contains(&".kickoff-report.json"));
         assert!(!patterns.contains(&"KICKOFF.md"));
     }
 
     #[test]
-    fn test_missing_exclude_patterns_both_present() {
+    fn test_missing_exclude_patterns_all_present() {
         let patterns = missing_exclude_patterns(
-            "KICKOFF.md\n.kickoff-status\nPLAN_KICKOFF.md\n.kickoff-plan.json\n",
+            "KICKOFF.md\n.kickoff-status\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
         );
         assert!(patterns.is_empty());
     }
@@ -1921,7 +2259,7 @@ mod tests {
     #[test]
     fn test_missing_exclude_patterns_with_whitespace() {
         let patterns = missing_exclude_patterns(
-            "  KICKOFF.md  \n  .kickoff-status  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n",
+            "  KICKOFF.md  \n  .kickoff-status  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
         );
         assert!(patterns.is_empty());
     }
@@ -2072,6 +2410,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -2099,6 +2438,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -2127,6 +2467,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -2155,6 +2496,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: None,
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -2194,6 +2536,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: Some(&doc),
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
 
@@ -2333,6 +2676,7 @@ mod tests {
             branch: None,
             quiet: false,
             design_doc: Some(&doc),
+            doc_path: None,
         };
         let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
 
@@ -2341,5 +2685,305 @@ mod tests {
         assert!(prompt.contains("Q1: OAuth or JWT?"));
         assert!(prompt.contains("Q2: Session duration?"));
         assert!(prompt.contains("crosslink comment"));
+    }
+
+    // --- Round 1: Criteria extraction tests ---
+
+    #[test]
+    fn test_parse_criterion_id_with_prefix() {
+        let (id, text) = parse_criterion_id("AC-1: Tests pass");
+        assert_eq!(id, "AC-1");
+        assert_eq!(text, "Tests pass");
+    }
+
+    #[test]
+    fn test_parse_criterion_id_without_prefix() {
+        let (id, text) = parse_criterion_id("Tests pass");
+        assert_eq!(id, "");
+        assert_eq!(text, "Tests pass");
+    }
+
+    #[test]
+    fn test_parse_criterion_id_multidigit() {
+        let (id, text) = parse_criterion_id("AC-12: Complex thing");
+        assert_eq!(id, "AC-12");
+        assert_eq!(text, "Complex thing");
+    }
+
+    #[test]
+    fn test_parse_criterion_id_lowercase() {
+        let (id, text) = parse_criterion_id("ac-3: Lower case");
+        assert_eq!(id, "AC-3");
+        assert_eq!(text, "Lower case");
+    }
+
+    #[test]
+    fn test_extract_criteria_all_explicit() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: String::new(),
+            summary: String::new(),
+            requirements: vec![],
+            acceptance_criteria: vec!["AC-1: First".to_string(), "AC-2: Second".to_string()],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let result = extract_criteria(&doc, "test.md");
+        assert_eq!(result.criteria.len(), 2);
+        assert_eq!(result.criteria[0].id, "AC-1");
+        assert_eq!(result.criteria[0].text, "First");
+        assert_eq!(result.criteria[1].id, "AC-2");
+        assert_eq!(result.criteria[1].text, "Second");
+        assert_eq!(result.source_doc, "test.md");
+    }
+
+    #[test]
+    fn test_extract_criteria_all_auto() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: String::new(),
+            summary: String::new(),
+            requirements: vec![],
+            acceptance_criteria: vec!["First item".to_string(), "Second item".to_string()],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let result = extract_criteria(&doc, "test.md");
+        assert_eq!(result.criteria[0].id, "AC-1");
+        assert_eq!(result.criteria[0].text, "First item");
+        assert_eq!(result.criteria[1].id, "AC-2");
+        assert_eq!(result.criteria[1].text, "Second item");
+        assert_eq!(result.criteria[0].criterion_type, "functional");
+    }
+
+    #[test]
+    fn test_extract_criteria_mixed_ids_skip_collisions() {
+        let doc = super::super::design_doc::DesignDoc {
+            title: String::new(),
+            summary: String::new(),
+            requirements: vec![],
+            acceptance_criteria: vec![
+                "AC-1: Explicit first".to_string(),
+                "Auto assigned".to_string(),
+                "AC-3: Explicit third".to_string(),
+                "Another auto".to_string(),
+            ],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let result = extract_criteria(&doc, "design.md");
+        assert_eq!(result.criteria[0].id, "AC-1");
+        assert_eq!(result.criteria[1].id, "AC-2"); // skips AC-1, takes AC-2
+        assert_eq!(result.criteria[2].id, "AC-3");
+        assert_eq!(result.criteria[3].id, "AC-4"); // skips AC-3, takes AC-4
+    }
+
+    // --- Round 2: Validation prompt tests ---
+
+    #[test]
+    fn test_build_spec_validation_section_content() {
+        let section = build_spec_validation_section();
+        assert!(section.contains("Spec Validation"));
+        assert!(section.contains(".kickoff-criteria.json"));
+        assert!(section.contains(".kickoff-report.json"));
+        assert!(section.contains("pass"));
+        assert!(section.contains("fail"));
+        assert!(section.contains("partial"));
+        assert!(section.contains("evidence"));
+    }
+
+    #[test]
+    fn test_build_prompt_with_criteria_includes_validation() {
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Test".to_string(),
+            summary: "Summary".to_string(),
+            requirements: vec![],
+            acceptance_criteria: vec!["Users can log in".to_string()],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "test feature",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+            doc_path: None,
+        };
+        let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
+        assert!(prompt.contains("Spec Validation"));
+        assert!(prompt.contains(".kickoff-criteria.json"));
+    }
+
+    #[test]
+    fn test_build_prompt_without_criteria_no_validation() {
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Test".to_string(),
+            summary: "Summary".to_string(),
+            requirements: vec![],
+            acceptance_criteria: vec![],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "test feature",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+            doc_path: None,
+        };
+        let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
+        assert!(!prompt.contains("Spec Validation"));
+    }
+
+    #[test]
+    fn test_build_prompt_validation_ordering() {
+        let conventions = ProjectConventions {
+            test_command: Some("cargo test".to_string()),
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Test".to_string(),
+            summary: "Summary".to_string(),
+            requirements: vec![],
+            acceptance_criteria: vec!["Criterion one".to_string()],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "test feature",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+            doc_path: None,
+        };
+        let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
+        let test_pos = prompt.find("Run tests").expect("should have test section");
+        let validation_pos = prompt
+            .find("Spec Validation")
+            .expect("should have validation");
+        let final_pos = prompt.find("Final Steps").expect("should have final steps");
+        assert!(
+            test_pos < validation_pos,
+            "validation should come after tests"
+        );
+        assert!(
+            validation_pos < final_pos,
+            "validation should come before final steps"
+        );
+    }
+
+    // --- Round 3: Report command tests ---
+
+    fn sample_report() -> ValidationReport {
+        ValidationReport {
+            validated_at: "2026-03-03T12:00:00Z".to_string(),
+            criteria: vec![
+                CriterionVerdict {
+                    id: "AC-1".to_string(),
+                    verdict: "pass".to_string(),
+                    evidence: "test_login passes".to_string(),
+                },
+                CriterionVerdict {
+                    id: "AC-2".to_string(),
+                    verdict: "partial".to_string(),
+                    evidence: "HTTP only, not WebSocket".to_string(),
+                },
+                CriterionVerdict {
+                    id: "AC-3".to_string(),
+                    verdict: "fail".to_string(),
+                    evidence: "not implemented".to_string(),
+                },
+            ],
+            summary: ReportSummary {
+                total: 3,
+                pass: 1,
+                fail: 1,
+                partial: 1,
+                not_applicable: 0,
+                needs_clarification: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn test_format_report_table_symbols() {
+        let report = sample_report();
+        let output = format_report_table(&report);
+        assert!(output.contains("\u{2713} AC-1"));
+        assert!(output.contains("~ AC-2"));
+        assert!(output.contains("\u{2717} AC-3"));
+    }
+
+    #[test]
+    fn test_format_report_table_summary_line() {
+        let report = sample_report();
+        let output = format_report_table(&report);
+        assert!(output.contains("3 criteria: 1 pass, 1 partial, 1 fail"));
+    }
+
+    #[test]
+    fn test_format_report_markdown_has_table_header() {
+        let report = sample_report();
+        let output = format_report_markdown(&report);
+        assert!(output.contains("| ID | Verdict | Evidence |"));
+        assert!(output.contains("|---|---|---|"));
+        assert!(output.contains("| AC-1 |"));
+    }
+
+    #[test]
+    fn test_validation_report_deserialization() {
+        let report = sample_report();
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: ValidationReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, report);
+    }
+
+    #[test]
+    fn test_exclude_patterns_includes_report_files() {
+        let patterns = missing_exclude_patterns("");
+        assert!(patterns.contains(&".kickoff-criteria.json"));
+        assert!(patterns.contains(&".kickoff-report.json"));
     }
 }

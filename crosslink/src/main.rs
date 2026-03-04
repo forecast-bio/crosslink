@@ -1008,6 +1008,17 @@ enum KickoffCommands {
         /// Agent ID or branch slug
         agent: String,
     },
+    /// Display the spec validation report from a completed agent
+    Report {
+        /// Agent ID or branch slug
+        agent: String,
+        /// Output as raw JSON
+        #[arg(long)]
+        json: bool,
+        /// Output as PR-ready markdown
+        #[arg(long)]
+        markdown: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1885,6 +1896,7 @@ fn main() -> Result<()> {
                         branch: branch.as_deref(),
                         quiet: cli.quiet,
                         design_doc: parsed_doc.as_ref(),
+                        doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
                     };
                     commands::kickoff::run(&crosslink_dir, &db, writer.as_ref(), &opts)
                 }
@@ -1922,6 +1934,20 @@ fn main() -> Result<()> {
                 }
                 KickoffCommands::ShowPlan { agent } => {
                     commands::kickoff::show_plan(&crosslink_dir, &agent)
+                }
+                KickoffCommands::Report {
+                    agent,
+                    json,
+                    markdown,
+                } => {
+                    let format = if json {
+                        commands::kickoff::ReportFormat::Json
+                    } else if markdown {
+                        commands::kickoff::ReportFormat::Markdown
+                    } else {
+                        commands::kickoff::ReportFormat::Table
+                    };
+                    commands::kickoff::report(&crosslink_dir, &agent, format)
                 }
             }
         }
