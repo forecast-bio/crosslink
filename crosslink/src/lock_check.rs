@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use std::path::Path;
 
+use crate::db::Database;
 use crate::identity::AgentConfig;
 use crate::sync::SyncManager;
 
@@ -71,14 +72,119 @@ pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
     }
 }
 
+/// Read the `auto_steal_stale_locks` setting from hook-config.json.
+///
+/// Returns `None` if disabled or missing, `Some(multiplier)` if enabled.
+fn read_auto_steal_config(crosslink_dir: &Path) -> Option<u64> {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    match parsed.get("auto_steal_stale_locks")? {
+        serde_json::Value::Bool(false) => None,
+        serde_json::Value::Number(n) => n.as_u64().filter(|&v| v > 0),
+        serde_json::Value::String(s) if s == "false" => None,
+        serde_json::Value::String(s) => s.parse::<u64>().ok().filter(|&v| v > 0),
+        _ => None,
+    }
+}
+
+/// Attempt to auto-steal a stale lock if configured.
+///
+/// Returns `Ok(true)` if the lock was auto-stolen, `Ok(false)` if not eligible.
+fn auto_steal_if_configured(
+    crosslink_dir: &Path,
+    issue_id: i64,
+    stale_agent_id: &str,
+    db: &Database,
+) -> Result<bool> {
+    let multiplier = match read_auto_steal_config(crosslink_dir) {
+        Some(m) => m,
+        None => return Ok(false),
+    };
+
+    let sync = match SyncManager::new(crosslink_dir) {
+        Ok(s) => s,
+        Err(_) => return Ok(false),
+    };
+
+    if !sync.is_initialized() {
+        return Ok(false);
+    }
+
+    let stale_locks = sync.find_stale_locks_with_age()?;
+    let stale_minutes = match stale_locks.iter().find(|(id, _, _)| *id == issue_id) {
+        Some((_, _, mins)) => *mins,
+        None => return Ok(false),
+    };
+
+    // Threshold = multiplier × stale_timeout
+    let stale_timeout = if sync.is_v2_layout() {
+        30u64
+    } else {
+        sync.read_locks_auto()
+            .map(|l| l.settings.stale_lock_timeout_minutes)
+            .unwrap_or(60)
+    };
+    let auto_steal_threshold = multiplier.saturating_mul(stale_timeout);
+
+    if stale_minutes < auto_steal_threshold {
+        return Ok(false);
+    }
+
+    // Perform the steal
+    if sync.is_v2_layout() {
+        if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
+            writer.steal_lock_v2(issue_id, stale_agent_id, None)?;
+            let comment = format!(
+                "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
+                stale_agent_id, stale_minutes, auto_steal_threshold
+            );
+            let _ = writer.add_comment(db, issue_id, &comment, "system");
+        } else {
+            return Ok(false);
+        }
+    } else {
+        let agent = match AgentConfig::load(crosslink_dir)? {
+            Some(a) => a,
+            None => return Ok(false),
+        };
+        sync.claim_lock(&agent, issue_id, None, true)?;
+        let comment = format!(
+            "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
+            stale_agent_id, stale_minutes, auto_steal_threshold
+        );
+        let _ = db.add_comment(issue_id, &comment, "system");
+    }
+
+    Ok(true)
+}
+
 /// Enforce lock check. Bails if another agent holds the lock (unless stale).
 ///
-/// Use this in commands that set the active work item (session work, create --work, quick).
-pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
+/// When `auto_steal_stale_locks` is configured in hook-config.json and the lock
+/// has been stale long enough, automatically steals it and records an audit comment.
+pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Result<()> {
     match check_lock(crosslink_dir, issue_id)? {
         LockStatus::NotConfigured | LockStatus::Available | LockStatus::LockedBySelf => Ok(()),
         LockStatus::LockedByOther { agent_id, stale } => {
             if stale {
+                match auto_steal_if_configured(crosslink_dir, issue_id, &agent_id, db) {
+                    Ok(true) => {
+                        eprintln!(
+                            "Auto-stole stale lock on issue #{} from '{}'.",
+                            issue_id, agent_id
+                        );
+                        return Ok(());
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Auto-steal of stale lock on #{} failed: {}. Proceeding.",
+                            issue_id, e
+                        );
+                    }
+                }
+
                 eprintln!(
                     "Warning: Issue #{} is locked by '{}' but the lock appears STALE. Proceeding.",
                     issue_id, agent_id
@@ -103,6 +209,10 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn temp_db() -> Database {
+        Database::open(std::path::Path::new(":memory:")).unwrap()
+    }
+
     #[test]
     fn test_no_agent_config_returns_not_configured() {
         let dir = tempdir().unwrap();
@@ -119,8 +229,9 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
+        let db = temp_db();
         // No agent.json → NotConfigured → allowed
-        assert!(enforce_lock(&crosslink_dir, 1).is_ok());
+        assert!(enforce_lock(&crosslink_dir, 1, &db).is_ok());
     }
 
     #[test]
@@ -134,7 +245,6 @@ mod tests {
 
     #[test]
     fn test_lock_status_debug() {
-        // Ensure all variants are debuggable
         let statuses = vec![
             LockStatus::NotConfigured,
             LockStatus::Available,
@@ -179,5 +289,75 @@ mod tests {
                 stale: false
             }
         );
+    }
+
+    // --- read_auto_steal_config tests ---
+
+    #[test]
+    fn test_auto_steal_config_disabled() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"auto_steal_stale_locks": false}"#,
+        )
+        .unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), None);
+    }
+
+    #[test]
+    fn test_auto_steal_config_enabled_int() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"auto_steal_stale_locks": 2}"#,
+        )
+        .unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), Some(2));
+    }
+
+    #[test]
+    fn test_auto_steal_config_enabled_string() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"auto_steal_stale_locks": "3"}"#,
+        )
+        .unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), Some(3));
+    }
+
+    #[test]
+    fn test_auto_steal_config_string_false() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"auto_steal_stale_locks": "false"}"#,
+        )
+        .unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), None);
+    }
+
+    #[test]
+    fn test_auto_steal_config_missing_key() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("hook-config.json"), r#"{}"#).unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), None);
+    }
+
+    #[test]
+    fn test_auto_steal_config_no_file() {
+        let dir = tempdir().unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), None);
+    }
+
+    #[test]
+    fn test_auto_steal_config_zero_disabled() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"auto_steal_stale_locks": 0}"#,
+        )
+        .unwrap();
+        assert_eq!(read_auto_steal_config(dir.path()), None);
     }
 }

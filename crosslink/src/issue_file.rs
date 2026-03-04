@@ -82,6 +82,7 @@ const KNOWN_COMMENT_KINDS: &[&str] = &[
     "handoff",
     "human",
     "intervention",
+    "system",
 ];
 
 pub fn validate_comment_kind(kind: &str) -> bool {

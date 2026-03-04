@@ -770,6 +770,95 @@ impl SyncManager {
         Ok(stale)
     }
 
+    /// Find stale locks with their age in minutes.
+    ///
+    /// Returns `(issue_id, agent_id, stale_minutes)` for each stale lock.
+    /// Auto-dispatches based on hub layout version.
+    pub fn find_stale_locks_with_age(&self) -> Result<Vec<(i64, String, u64)>> {
+        if self.is_v2_layout() {
+            return self.find_stale_locks_with_age_v2();
+        }
+
+        let locks = self.read_locks_auto()?;
+        let heartbeats = self.read_heartbeats()?;
+        let timeout = chrono::Duration::minutes(locks.settings.stale_lock_timeout_minutes as i64);
+        let now = Utc::now();
+
+        let mut stale = Vec::new();
+        for (issue_id_str, lock) in &locks.locks {
+            let latest_heartbeat = heartbeats
+                .iter()
+                .filter(|hb| hb.agent_id == lock.agent_id)
+                .map(|hb| hb.last_heartbeat)
+                .max();
+
+            let age = match latest_heartbeat {
+                Some(hb_time) => now
+                    .signed_duration_since(hb_time)
+                    .max(chrono::Duration::zero()),
+                None => now
+                    .signed_duration_since(lock.claimed_at)
+                    .max(chrono::Duration::zero()),
+            };
+
+            if age >= timeout {
+                if let Ok(id) = issue_id_str.parse::<i64>() {
+                    stale.push((id, lock.agent_id.clone(), age.num_minutes() as u64));
+                }
+            }
+        }
+        Ok(stale)
+    }
+
+    fn find_stale_locks_with_age_v2(&self) -> Result<Vec<(i64, String, u64)>> {
+        let locks = self.read_locks_v2()?;
+        let now = Utc::now();
+        let threshold = chrono::Duration::minutes(30);
+        let mut stale = Vec::new();
+
+        for (issue_id_str, lock) in &locks.locks {
+            let heartbeat_path = self
+                .cache_dir
+                .join("agents")
+                .join(&lock.agent_id)
+                .join("heartbeat.json");
+
+            let age_minutes = if heartbeat_path.exists() {
+                match std::fs::read_to_string(&heartbeat_path) {
+                    Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                        Ok(val) => match val.get("timestamp").and_then(|t| t.as_str()) {
+                            Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
+                                Ok(hb_time) => {
+                                    let age = now
+                                        .signed_duration_since(hb_time)
+                                        .max(chrono::Duration::zero());
+                                    if age > threshold {
+                                        Some(age.num_minutes() as u64)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Err(_) => Some(u64::MAX),
+                            },
+                            None => Some(u64::MAX),
+                        },
+                        Err(_) => Some(u64::MAX),
+                    },
+                    Err(_) => Some(u64::MAX),
+                }
+            } else {
+                Some(u64::MAX)
+            };
+
+            if let Some(mins) = age_minutes {
+                if let Ok(id) = issue_id_str.parse::<i64>() {
+                    stale.push((id, lock.agent_id.clone(), mins));
+                }
+            }
+        }
+        Ok(stale)
+    }
+
     /// Claim a lock on an issue for the given agent.
     ///
     /// Writes the lock to `locks.json`, commits, and pushes with retry.

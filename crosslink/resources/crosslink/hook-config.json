@@ -5,6 +5,7 @@
   "comment_discipline": "encouraged",
   "kickoff_verification": "local",
   "signing_enforcement": "audit",
+  "auto_steal_stale_locks": false,
   "blocked_git_commands": [
     "git push", "git merge", "git rebase", "git cherry-pick",
     "git reset", "git checkout .", "git restore .", "git clean",

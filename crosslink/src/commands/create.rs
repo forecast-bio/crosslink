@@ -176,7 +176,7 @@ pub fn run(
     if opts.work {
         // Check lock status before allowing work on this issue
         if let Some(dir) = opts.crosslink_dir {
-            crate::lock_check::enforce_lock(dir, id)?;
+            crate::lock_check::enforce_lock(dir, id, db)?;
 
             // Auto-claim lock in multi-agent mode (same as session work)
             if let Ok(Some(agent)) = crate::identity::AgentConfig::load(dir) {
@@ -297,7 +297,7 @@ pub fn run_subissue(
     if opts.work {
         // Check lock status before allowing work on this issue
         if let Some(dir) = opts.crosslink_dir {
-            crate::lock_check::enforce_lock(dir, id)?;
+            crate::lock_check::enforce_lock(dir, id, db)?;
 
             // Auto-claim lock in multi-agent mode (same as session work)
             if let Ok(Some(agent)) = crate::identity::AgentConfig::load(dir) {

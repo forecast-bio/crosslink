@@ -180,7 +180,7 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
     };
 
     // Check lock status before allowing work
-    crate::lock_check::enforce_lock(crosslink_dir, issue_id)?;
+    crate::lock_check::enforce_lock(crosslink_dir, issue_id, db)?;
 
     // Auto-claim lock in multi-agent mode
     if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {

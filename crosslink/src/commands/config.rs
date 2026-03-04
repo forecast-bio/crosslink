@@ -59,6 +59,11 @@ static REGISTRY: &[ConfigKey] = &[
         description: "Prompts without crosslink usage before re-injecting reminder (0 = always)",
     },
     ConfigKey {
+        key: "auto_steal_stale_locks",
+        config_type: ConfigType::Enum(&["false", "2", "3", "5", "10"]),
+        description: "Auto-steal stale locks after N * stale_timeout minutes (false = disabled)",
+    },
+    ConfigKey {
         key: "blocked_git_commands",
         config_type: ConfigType::StringArray,
         description: "Git mutation commands blocked in all tracking modes",
