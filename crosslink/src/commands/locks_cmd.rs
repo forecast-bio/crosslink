@@ -312,6 +312,15 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     sync.init_cache()?;
     sync.fetch()?;
 
+    // Ensure the agent's key is published (may have been skipped during
+    // agent init if the hub cache didn't exist yet). Must happen before
+    // configure_signing to avoid the chicken-and-egg signing problem.
+    match sync.ensure_agent_key_published(crosslink_dir) {
+        Ok(true) => println!("Published agent key to hub (deferred from agent init)."),
+        Ok(false) => {}
+        Err(e) => eprintln!("Warning: could not publish agent key: {}", e),
+    }
+
     // Configure SSH signing in the cache worktree (if agent has a key)
     let _ = sync.configure_signing(crosslink_dir);
 

@@ -265,6 +265,19 @@ pub fn check(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
 
 /// Stage trust files, commit, and push (best-effort).
 fn commit_trust_change(cache_dir: &Path, message: &str) -> Result<()> {
+    commit_trust_change_impl(cache_dir, message, false)
+}
+
+/// Stage trust files, commit without signing, and push (best-effort).
+///
+/// Used for key publishing during agent init bootstrap, where signing
+/// is not yet configured and would cause a chicken-and-egg failure.
+fn commit_trust_change_unsigned(cache_dir: &Path, message: &str) -> Result<()> {
+    commit_trust_change_impl(cache_dir, message, true)
+}
+
+/// Shared implementation for trust change commits.
+fn commit_trust_change_impl(cache_dir: &Path, message: &str, unsigned: bool) -> Result<()> {
     let git = |args: &[&str]| -> Result<()> {
         let output = std::process::Command::new("git")
             .current_dir(cache_dir)
@@ -280,7 +293,12 @@ fn commit_trust_change(cache_dir: &Path, message: &str) -> Result<()> {
     };
 
     git(&["add", "trust/"])?;
-    git(&["commit", "-m", message])?;
+
+    if unsigned {
+        git(&["-c", "commit.gpgsign=false", "commit", "-m", message])?;
+    } else {
+        git(&["commit", "-m", message])?;
+    }
 
     // Best-effort push
     let _ = std::process::Command::new("git")
@@ -293,11 +311,14 @@ fn commit_trust_change(cache_dir: &Path, message: &str) -> Result<()> {
 
 /// Publish an agent's public key to `trust/keys/<id>.pub` on the hub branch.
 ///
-/// Called during `agent init` after key generation.
+/// Called during `agent init` after key generation. Uses an unsigned commit
+/// to avoid the chicken-and-egg problem where signing must be configured
+/// before the key can be published.
 pub fn publish_agent_key(crosslink_dir: &Path, agent_id: &str, public_key: &str) -> Result<()> {
     let sync = crate::sync::SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
-        // Hub not set up yet — skip publishing, will happen on next sync
+        // Hub not set up yet — will be published on next `crosslink sync`
+        // via ensure_agent_key_published()
         return Ok(());
     }
     let cache = sync.cache_path();
@@ -308,7 +329,9 @@ pub fn publish_agent_key(crosslink_dir: &Path, agent_id: &str, public_key: &str)
     let path = keys_dir.join(format!("{}.pub", agent_id));
     std::fs::write(&path, format!("{}\n", public_key))?;
 
-    commit_trust_change(
+    // Use unsigned commit for key publishing — signing may not be
+    // configured yet during agent init bootstrap.
+    commit_trust_change_unsigned(
         cache,
         &format!("trust: publish key for agent '{}'", agent_id),
     )?;

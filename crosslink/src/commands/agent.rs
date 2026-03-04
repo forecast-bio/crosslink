@@ -98,7 +98,7 @@ pub fn init(
                     super::trust::publish_agent_key(crosslink_dir, agent_id, &keypair.public_key)
                 {
                     println!("  Note: Could not publish key to hub: {}", e);
-                    println!("  The driver can manually copy your public key.");
+                    println!("  Key will be auto-published on next `crosslink sync`.");
                 }
 
                 // Configure signing on the hub cache worktree
@@ -273,16 +273,17 @@ pub fn bootstrap(
         .args(["push", "origin", crate::sync::HUB_BRANCH])
         .output();
 
-    // Step 8: Configure signing
-    let _ = sync.configure_signing(&crosslink_dir);
-
-    // Step 9: Publish key to hub
+    // Step 8: Publish key to hub (before configuring signing to avoid
+    // the chicken-and-egg where signing is required for the publish commit)
     if let Some(pub_key) = &config.ssh_public_key {
         if let Err(e) = super::trust::publish_agent_key(&crosslink_dir, agent_id, pub_key) {
             println!("  Note: Could not publish key to hub: {}", e);
-            println!("  The driver can manually copy your public key.");
+            println!("  Key will be auto-published on next `crosslink sync`.");
         }
     }
+
+    // Step 9: Configure signing (after key is published)
+    let _ = sync.configure_signing(&crosslink_dir);
 
     // Step 10: Print summary
     println!("Bootstrap complete:");

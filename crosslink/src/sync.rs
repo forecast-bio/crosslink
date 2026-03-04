@@ -195,6 +195,69 @@ impl SyncManager {
         Ok(())
     }
 
+    /// Ensure the agent's public key is published to `trust/keys/` on the hub.
+    ///
+    /// During `agent init`, key publishing is skipped if the hub cache doesn't
+    /// exist yet. This method re-checks and publishes the key if needed, using
+    /// an unsigned commit to avoid the chicken-and-egg problem where signing
+    /// must be configured before the key can be published.
+    ///
+    /// Safe to call multiple times — no-ops if the key is already published.
+    pub fn ensure_agent_key_published(&self, crosslink_dir: &Path) -> Result<bool> {
+        if !self.cache_dir.exists() {
+            return Ok(false);
+        }
+
+        let agent = match AgentConfig::load(crosslink_dir)? {
+            Some(a) => a,
+            None => return Ok(false),
+        };
+
+        let public_key = match &agent.ssh_public_key {
+            Some(k) => k.clone(),
+            None => return Ok(false),
+        };
+
+        let key_file = self
+            .cache_dir
+            .join("trust")
+            .join("keys")
+            .join(format!("{}.pub", agent.agent_id));
+
+        if key_file.exists() {
+            return Ok(false); // Already published
+        }
+
+        // Publish the key using an unsigned commit to avoid the signing
+        // chicken-and-egg: we need to publish before signing is configured.
+        let keys_dir = self.cache_dir.join("trust").join("keys");
+        std::fs::create_dir_all(&keys_dir)?;
+        std::fs::write(&key_file, format!("{}\n", public_key))?;
+
+        self.git_in_cache(&["add", "trust/"])?;
+        // Use -c commit.gpgsign=false to bypass signing for key publishing
+        let output = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                &format!("trust: publish key for agent '{}'", agent.agent_id),
+            ])
+            .output()
+            .context("Failed to commit key publication")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.contains("nothing to commit") {
+                bail!("git commit for key publication failed: {}", stderr);
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Initialize the hub cache directory.
     ///
     /// If the `crosslink/hub` branch exists on the remote, fetches it and
