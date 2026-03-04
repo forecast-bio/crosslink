@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-04T19:59:55.635149Z",
-  "updated_at": "2026-03-04T20:04:44.351320Z",
+  "updated_at": "2026-03-04T20:05:11.950813Z",
   "labels": [
     "feature"
   ],
@@ -24,6 +24,13 @@
       "content": "Plan: Add if condition to proptest job to only run on release/** branches or PRs targeting main. Single line change at line 131-134 in .github/workflows/ci.yml. The test job's smoke proptests (PROPTEST_CASES=10) remain unchanged.",
       "created_at": "2026-03-04T20:04:44.351320Z",
       "kind": "plan"
+    },
+    {
+      "id": 211,
+      "author": "maxine-at-forecast--noether--restrict-proptests",
+      "content": "Decision: Added 'if' condition to proptest job at line 135. Runs only on release/** pushes or PRs targeting main. This gates expensive 1000-case proptests to release gates while the test job's 10-case smoke run continues on all branches.",
+      "created_at": "2026-03-04T20:05:11.950812Z",
+      "kind": "decision"
     }
   ]
 }
