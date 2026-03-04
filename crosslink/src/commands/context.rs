@@ -88,9 +88,24 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     // Detect active languages
     let active_langs = detect_active_languages(project_root);
 
+    let rules_local_dir = crosslink_dir.join("rules.local");
+
     println!("\n## Rule files (.crosslink/rules/)");
     println!("{:<35} {:>8} {:>8}  STATUS", "FILE", "BYTES", "~TOKENS");
     println!("{}", "-".repeat(65));
+
+    // Collect overridden filenames from rules.local/
+    let local_overrides: std::collections::HashSet<String> = if rules_local_dir.is_dir() {
+        fs::read_dir(&rules_local_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
 
     if rules_dir.is_dir() {
         let mut entries: Vec<_> = fs::read_dir(&rules_dir)
@@ -108,7 +123,18 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         for entry in &entries {
             let path = entry.path();
             let filename = entry.file_name().to_string_lossy().to_string();
-            let size = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+
+            // If overridden by rules.local/, show the local version's size
+            let (size, suffix) = if local_overrides.contains(&filename) {
+                let local_path = rules_local_dir.join(&filename);
+                let s = fs::metadata(&local_path)
+                    .map(|m| m.len() as usize)
+                    .unwrap_or(0);
+                (s, " (local)")
+            } else {
+                let s = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+                (s, "")
+            };
             let tokens = size / 4;
             total_rules += size;
 
@@ -121,7 +147,52 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
                 "dormant"
             };
 
-            println!("{:<35} {:>8} {:>8}  {}", filename, size, tokens, status);
+            println!(
+                "{:<35} {:>8} {:>8}  {}{}",
+                filename, size, tokens, status, suffix
+            );
+        }
+    }
+
+    // Show additive rules from rules.local/ (files not present in rules/)
+    if rules_local_dir.is_dir() {
+        let base_files: std::collections::HashSet<String> = if rules_dir.is_dir() {
+            fs::read_dir(&rules_dir)
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        let mut local_entries: Vec<_> = fs::read_dir(&rules_local_dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                !base_files.contains(&name)
+                    && e.path()
+                        .extension()
+                        .map(|ext| ext == "md" || ext == "txt")
+                        .unwrap_or(false)
+            })
+            .collect();
+        local_entries.sort_by_key(|e| e.file_name());
+
+        for entry in &local_entries {
+            let path = entry.path();
+            let filename = entry.file_name().to_string_lossy().to_string();
+            let size = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+            let tokens = size / 4;
+            total_rules += size;
+            active_rules += size;
+
+            println!("{:<35} {:>8} {:>8}  active (local)", filename, size, tokens);
         }
     }
 

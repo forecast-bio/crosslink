@@ -153,7 +153,17 @@ pub fn diff(
             println!("=== Rules ===");
         }
         let rules_dir = crosslink_dir.join("rules");
+        let rules_local_dir = crosslink_dir.join("rules.local");
         for (filename, default_content) in init::RULE_FILES {
+            // Check if this rule is overridden by rules.local/
+            let local_path = rules_local_dir.join(filename);
+            if local_path.exists() {
+                if !check {
+                    println!("  rules/{}: overridden by rules.local/", filename);
+                }
+                // Don't flag drift for files that have a local override
+                continue;
+            }
             let path = rules_dir.join(filename);
             let result = compare_file(&path, default_content);
             if !check {
@@ -162,6 +172,24 @@ pub fn diff(
             if let CompareResult::Customized(_) = result {
                 if check && !has_custom_marker(&path) {
                     drifted.push(format!(".crosslink/rules/{}", filename));
+                }
+            }
+        }
+        // Show additive local rules
+        if rules_local_dir.is_dir() {
+            let standard_files: std::collections::HashSet<&str> =
+                init::RULE_FILES.iter().map(|(f, _)| *f).collect();
+            if let Ok(entries) = std::fs::read_dir(&rules_local_dir) {
+                let mut local_only: Vec<_> = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| !standard_files.contains(e.file_name().to_str().unwrap_or("")))
+                    .collect();
+                local_only.sort_by_key(|e| e.file_name());
+                for entry in &local_only {
+                    let name = entry.file_name();
+                    if !check {
+                        println!("  rules.local/{}: additive", name.to_string_lossy());
+                    }
                 }
             }
         }

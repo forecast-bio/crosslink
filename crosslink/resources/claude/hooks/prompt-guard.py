@@ -28,10 +28,19 @@ from crosslink_config import (
 )
 
 
-def load_rule_file(rules_dir, filename):
-    """Load a rule file and return its content, or empty string if not found."""
+def load_rule_file(rules_dir, filename, rules_local_dir=None):
+    """Load a rule file, preferring rules.local/ override if present."""
     if not rules_dir:
         return ""
+    # Check rules.local/ first for an override
+    if rules_local_dir:
+        local_path = os.path.join(rules_local_dir, filename)
+        try:
+            with open(local_path, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except (OSError, IOError):
+            pass
+    # Fall back to rules/
     path = os.path.join(rules_dir, filename)
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -41,19 +50,24 @@ def load_rule_file(rules_dir, filename):
 
 
 def load_all_rules(crosslink_dir):
-    """Load all rule files from .crosslink/rules/."""
+    """Load all rule files from .crosslink/rules/, with .crosslink/rules.local/ overrides."""
     if not crosslink_dir:
         return {}, "", ""
 
     rules_dir = os.path.join(crosslink_dir, 'rules')
-    if not os.path.isdir(rules_dir):
+    rules_local_dir = os.path.join(crosslink_dir, 'rules.local')
+    if not os.path.isdir(rules_dir) and not os.path.isdir(rules_local_dir):
         return {}, "", ""
 
+    # Make rules_local_dir None if it doesn't exist, so load_rule_file skips it
+    if not os.path.isdir(rules_local_dir):
+        rules_local_dir = None
+
     # Load global rules
-    global_rules = load_rule_file(rules_dir, 'global.md')
+    global_rules = load_rule_file(rules_dir, 'global.md', rules_local_dir)
 
     # Load project rules
-    project_rules = load_rule_file(rules_dir, 'project.md')
+    project_rules = load_rule_file(rules_dir, 'project.md', rules_local_dir)
 
     # Load language-specific rules
     language_rules = {}
@@ -79,9 +93,27 @@ def load_all_rules(crosslink_dir):
     ]
 
     for filename, lang_name in language_files:
-        content = load_rule_file(rules_dir, filename)
+        content = load_rule_file(rules_dir, filename, rules_local_dir)
         if content:
             language_rules[lang_name] = content
+
+    # Load additive rules from rules.local/ (files not in the standard set)
+    if rules_local_dir:
+        standard_files = {f for f, _ in language_files}
+        standard_files.update({'global.md', 'project.md', 'knowledge.md',
+                               'sanitize-patterns.txt', 'web.md',
+                               'tracking-strict.md', 'tracking-normal.md',
+                               'tracking-relaxed.md'})
+        try:
+            for entry in os.listdir(rules_local_dir):
+                if entry not in standard_files and entry.endswith('.md'):
+                    content = load_rule_file(rules_local_dir, entry)
+                    if content:
+                        # Use filename without extension as language name
+                        lang_name = os.path.splitext(entry)[0].replace('-', '/').title()
+                        language_rules[lang_name] = content
+        except OSError:
+            pass
 
     return language_rules, global_rules, project_rules
 
@@ -520,12 +552,22 @@ def mark_full_guard_sent(crosslink_dir):
 
 
 def load_tracking_rules(crosslink_dir, tracking_mode):
-    """Load the tracking rules markdown file for the given mode."""
+    """Load the tracking rules markdown file for the given mode.
+
+    Checks rules.local/ first for a local override, then falls back to rules/.
+    """
     if not crosslink_dir:
         return ""
-    rules_dir = os.path.join(crosslink_dir, "rules")
     filename = f"tracking-{tracking_mode}.md"
-    path = os.path.join(rules_dir, filename)
+    # Check rules.local/ first
+    local_path = os.path.join(crosslink_dir, "rules.local", filename)
+    try:
+        with open(local_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except (OSError, IOError):
+        pass
+    # Fall back to rules/
+    path = os.path.join(crosslink_dir, "rules", filename)
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()

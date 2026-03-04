@@ -47,10 +47,19 @@ def find_crosslink_dir():
 
 
 def load_web_rules(crosslink_dir):
-    """Load web.md rules from .crosslink/rules/."""
+    """Load web.md rules, preferring .crosslink/rules.local/ override."""
     if not crosslink_dir:
         return get_fallback_rules()
 
+    # Check rules.local/ first for a local override
+    local_path = os.path.join(crosslink_dir, 'rules.local', 'web.md')
+    try:
+        with open(local_path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except (OSError, IOError):
+        pass
+
+    # Fall back to rules/
     rules_path = os.path.join(crosslink_dir, 'rules', 'web.md')
     try:
         with open(rules_path, 'r', encoding='utf-8') as f:

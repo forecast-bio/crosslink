@@ -415,6 +415,7 @@ const GITIGNORE_MANAGED_SECTION: &str = "\
 .crosslink/.cache/
 .crosslink/hook-config.local.json
 .crosslink/integrations/
+.crosslink/rules.local/
 
 # .crosslink/ — DO track these (project-level policy):
 #   .crosslink/hook-config.json   — shared team configuration
@@ -1363,8 +1364,9 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
              keys/\n\
              integrations/\n\
              \n\
-             # Machine-local hook overrides\n\
-             hook-config.local.json\n",
+             # Machine-local overrides\n\
+             hook-config.local.json\n\
+             rules.local/\n",
         )
         .context("Failed to write .crosslink/.gitignore")?;
     }
@@ -1390,6 +1392,13 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         } else {
             ui.step_ok(Some(&format!("{} files", RULE_FILES.len())));
         }
+    }
+
+    // Create rules.local directory for machine-local rule overrides
+    let rules_local_dir = crosslink_dir.join("rules.local");
+    if !rules_local_dir.exists() {
+        fs::create_dir_all(&rules_local_dir)
+            .context("Failed to create .crosslink/rules.local directory")?;
     }
 
     // Detect or use provided Python prefix (needed for settings.json and cpitd install)
