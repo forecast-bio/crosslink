@@ -296,8 +296,9 @@ pub(crate) const WORK_CHECK_PY: &str = include_str!("../../resources/claude/hook
 pub(crate) const CROSSLINK_CONFIG_PY: &str =
     include_str!("../../resources/claude/hooks/crosslink_config.py");
 
-// Embed MCP server for safe web fetching
+// Embed MCP servers
 const SAFE_FETCH_SERVER_PY: &str = include_str!("../../resources/claude/mcp/safe-fetch-server.py");
+const KNOWLEDGE_SERVER_PY: &str = include_str!("../../resources/claude/mcp/knowledge-server.py");
 const MCP_JSON: &str = include_str!("../../resources/mcp.json");
 
 // Embed slash commands
@@ -1420,6 +1421,8 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         fs::create_dir_all(&mcp_dir).context("Failed to create .claude/mcp directory")?;
         fs::write(mcp_dir.join("safe-fetch-server.py"), SAFE_FETCH_SERVER_PY)
             .context("Failed to write safe-fetch-server.py")?;
+        fs::write(mcp_dir.join("knowledge-server.py"), KNOWLEDGE_SERVER_PY)
+            .context("Failed to write knowledge-server.py")?;
 
         let commands_dir = claude_dir.join("commands");
         fs::create_dir_all(&commands_dir).context("Failed to create .claude/commands directory")?;
@@ -1534,6 +1537,7 @@ mod tests {
             .join(".claude/hooks/crosslink_config.py")
             .exists());
         assert!(dir.path().join(".claude/mcp/safe-fetch-server.py").exists());
+        assert!(dir.path().join(".claude/mcp/knowledge-server.py").exists());
         assert!(dir.path().join(".mcp.json").exists());
     }
 
@@ -1800,6 +1804,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(parsed["someOtherKey"], true);
         assert!(parsed["mcpServers"]["crosslink-safe-fetch"].is_object());
+        assert!(parsed["mcpServers"]["crosslink-knowledge"].is_object());
     }
 
     #[test]
