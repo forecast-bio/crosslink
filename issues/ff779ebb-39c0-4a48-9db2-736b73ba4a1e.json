@@ -6,8 +6,17 @@
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-04T19:59:55.635149Z",
-  "updated_at": "2026-03-04T19:59:57.572928Z",
+  "updated_at": "2026-03-04T20:04:17.431264Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 209,
+      "author": "maxine-at-forecast--noether--restrict-proptests",
+      "content": "[auto] Session resumed after context compression.",
+      "created_at": "2026-03-04T20:04:17.431264Z",
+      "kind": "note"
+    }
   ]
 }
