@@ -1,17 +1,23 @@
 {
   "version": 1,
   "locks": {
-    "119": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-04T00:46:34.132289Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
     "120": {
       "agent_id": "driver--create-maintain-claude-skill-for-codebase-maintenance",
       "branch": null,
       "claimed_at": "2026-03-03T17:54:58.988925178Z",
       "signed_by": "driver--create-maintain-claude-skill-for-codebase-maintenance"
+    },
+    "110": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-04T02:53:24.851429Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "119": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-04T00:46:34.132289Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     }
   },
   "settings": {
