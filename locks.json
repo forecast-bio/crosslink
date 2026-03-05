@@ -1,18 +1,6 @@
 {
   "version": 1,
   "locks": {
-    "145": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-05T19:02:28.930988Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "4": {
-      "agent_id": "maxine-at-forecast--noether--fix-signing",
-      "branch": null,
-      "claimed_at": "2026-03-04T23:37:34.381488Z",
-      "signed_by": "SHA256:j3VCr0hopNx+W4ixYDxgO+N+D1nxcMaJiyMA3cwqRrU"
-    },
     "137": {
       "agent_id": "maxine-at-forecast--noether--fix-tui-agents-tab",
       "branch": null,
@@ -25,17 +13,23 @@
       "claimed_at": "2026-03-04T20:16:31.144110Z",
       "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     },
-    "119": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-04T00:46:34.132289Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
     "142": {
       "agent_id": "maxine-at-forecast--noether--rules-local",
       "branch": null,
       "claimed_at": "2026-03-04T20:42:29.819041Z",
       "signed_by": "SHA256:qIlXOe39DHA/p6xEYXrKVfflp4QoNggBIK8j7FpHfbQ"
+    },
+    "145": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-05T19:02:28.930988Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "119": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-04T00:46:34.132289Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     }
   },
   "settings": {
