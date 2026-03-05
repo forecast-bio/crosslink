@@ -2,11 +2,12 @@
   "uuid": "75d0c174-e402-4485-8b91-fda8592be5eb",
   "display_id": 147,
   "title": "Create GitHub issue for automating smoke tests into CI pipeline",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-05T20:01:32.900342Z",
-  "updated_at": "2026-03-05T21:00:28.552547Z",
+  "updated_at": "2026-03-05T21:00:33.582588Z",
+  "closed_at": "2026-03-05T21:00:33.582588Z",
   "labels": [
     "enhancement"
   ],
