@@ -1,41 +1,11 @@
 {
   "version": 1,
   "locks": {
-    "119": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-04T00:46:34.132289Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "145": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-05T19:02:28.930988Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "135": {
-      "agent_id": "maxine-at-forecast--noether--restrict-proptests",
-      "branch": null,
-      "claimed_at": "2026-03-04T20:09:07.342479Z",
-      "signed_by": "SHA256:fOFVCPmCB9csNu24oWJj3PWy3qj4tbnI8cj3tkCCYss"
-    },
     "142": {
       "agent_id": "maxine-at-forecast--noether--rules-local",
       "branch": null,
       "claimed_at": "2026-03-04T20:42:29.819041Z",
       "signed_by": "SHA256:qIlXOe39DHA/p6xEYXrKVfflp4QoNggBIK8j7FpHfbQ"
-    },
-    "136": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-04T20:16:31.144110Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "131": {
-      "agent_id": "maxine-at-forecast--noether",
-      "branch": null,
-      "claimed_at": "2026-03-04T02:56:36.601747Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     },
     "144": {
       "agent_id": "maxine-at-forecast--noether--fix-signing",
@@ -49,17 +19,47 @@
       "claimed_at": "2026-03-04T20:46:27.834631Z",
       "signed_by": "SHA256:qIlXOe39DHA/p6xEYXrKVfflp4QoNggBIK8j7FpHfbQ"
     },
+    "136": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-04T20:16:31.144110Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "141": {
+      "agent_id": "maxine-at-forecast--noether--config-tracker-remote",
+      "branch": null,
+      "claimed_at": "2026-03-04T20:36:20.766482Z",
+      "signed_by": "SHA256:kZZ0SFSK2FUdOykBWuChjaFwiTpeJoc5NFOjQDmM2lI"
+    },
     "140": {
       "agent_id": "maxine-at-forecast--noether--config-tracker-remote",
       "branch": null,
       "claimed_at": "2026-03-04T20:28:46.276320Z",
       "signed_by": "SHA256:kZZ0SFSK2FUdOykBWuChjaFwiTpeJoc5NFOjQDmM2lI"
     },
-    "139": {
-      "agent_id": "maxine-at-forecast--noether--config-tracker-remote",
+    "132": {
+      "agent_id": "maxine-at-forecast--noether--design-skill",
       "branch": null,
-      "claimed_at": "2026-03-04T23:25:51.444499Z",
-      "signed_by": "SHA256:kZZ0SFSK2FUdOykBWuChjaFwiTpeJoc5NFOjQDmM2lI"
+      "claimed_at": "2026-03-04T19:41:53.050491Z",
+      "signed_by": "SHA256:Q+Ok0tLqXRohinO45/dhDQZu+MSbdhKWAfzrpvZpweQ"
+    },
+    "138": {
+      "agent_id": "maxine-at-forecast--noether--fix-tui-agents-tab",
+      "branch": null,
+      "claimed_at": "2026-03-04T20:24:36.676500Z",
+      "signed_by": "SHA256:soDWqmS98dr5p67E92U80xSrTpq13Gc+3xaoWIlVcW4"
+    },
+    "119": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-04T00:46:34.132289Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "135": {
+      "agent_id": "maxine-at-forecast--noether--restrict-proptests",
+      "branch": null,
+      "claimed_at": "2026-03-04T20:09:07.342479Z",
+      "signed_by": "SHA256:fOFVCPmCB9csNu24oWJj3PWy3qj4tbnI8cj3tkCCYss"
     },
     "121": {
       "agent_id": "maxine-at-forecast--noether",
@@ -73,41 +73,47 @@
       "claimed_at": "2026-03-04T23:37:34.381488Z",
       "signed_by": "SHA256:j3VCr0hopNx+W4ixYDxgO+N+D1nxcMaJiyMA3cwqRrU"
     },
-    "138": {
-      "agent_id": "maxine-at-forecast--noether--fix-tui-agents-tab",
-      "branch": null,
-      "claimed_at": "2026-03-04T20:24:36.676500Z",
-      "signed_by": "SHA256:soDWqmS98dr5p67E92U80xSrTpq13Gc+3xaoWIlVcW4"
-    },
-    "132": {
-      "agent_id": "maxine-at-forecast--noether--design-skill",
-      "branch": null,
-      "claimed_at": "2026-03-04T19:41:53.050491Z",
-      "signed_by": "SHA256:Q+Ok0tLqXRohinO45/dhDQZu+MSbdhKWAfzrpvZpweQ"
-    },
     "137": {
       "agent_id": "maxine-at-forecast--noether--fix-tui-agents-tab",
       "branch": null,
       "claimed_at": "2026-03-04T20:24:04.045442Z",
       "signed_by": "SHA256:soDWqmS98dr5p67E92U80xSrTpq13Gc+3xaoWIlVcW4"
     },
-    "141": {
+    "120": {
+      "agent_id": "driver--create-maintain-claude-skill-for-codebase-maintenance",
+      "branch": null,
+      "claimed_at": "2026-03-03T17:54:58.988925178Z",
+      "signed_by": "driver--create-maintain-claude-skill-for-codebase-maintenance"
+    },
+    "145": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-05T19:02:28.930988Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "139": {
       "agent_id": "maxine-at-forecast--noether--config-tracker-remote",
       "branch": null,
-      "claimed_at": "2026-03-04T20:36:20.766482Z",
+      "claimed_at": "2026-03-04T23:25:51.444499Z",
       "signed_by": "SHA256:kZZ0SFSK2FUdOykBWuChjaFwiTpeJoc5NFOjQDmM2lI"
+    },
+    "131": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-04T02:56:36.601747Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+    },
+    "147": {
+      "agent_id": "maxine-at-forecast--noether",
+      "branch": null,
+      "claimed_at": "2026-03-05T21:10:39.927261Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     },
     "110": {
       "agent_id": "maxine-at-forecast--noether",
       "branch": null,
       "claimed_at": "2026-03-04T02:53:24.851429Z",
       "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
-    },
-    "120": {
-      "agent_id": "driver--create-maintain-claude-skill-for-codebase-maintenance",
-      "branch": null,
-      "claimed_at": "2026-03-03T17:54:58.988925178Z",
-      "signed_by": "driver--create-maintain-claude-skill-for-codebase-maintenance"
     }
   },
   "settings": {
