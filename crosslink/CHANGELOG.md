@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-05
+
+### Added
+- Kickoff CLI command with local and container agent execution
+- Design document parser and `--doc` flag for kickoff
+- Kickoff plan subcommand for read-only gap analysis
+- Spec validation loop and structured build reports for kickoff agents
+- Knowledge integration — structured queries, bulk import, MCP server, auto-inject
+- `/design` skill for interactive design document authoring
+- `/maintain` skill for codebase maintenance
+- Configurable auto-steal for stale locks
+- Atomic lock claims in `session work`
+- `rules.local/` directory for gitignored local rule overrides
+- Configurable git remote for hub/knowledge branches
+- Clock skew detection using git commit timestamps
+- Module dispatch refactor — per-module `run()` functions
+- Dry-run integration tests and kickoff unit tests
+- Unit tests for shared writer lock operations
+
+### Fixed
+- Agent signing chicken-and-egg during init
+- TUI agents tab V2 heartbeat reading
+- Milestone persistence to coordination branch
+- Hub cache hook propagation on init
+- Hub sync dirty state and deduplication
+- Hub sync push fallback warnings
+- Worktree-scoped agent signing config
+
+### Security
+- VS Code extension hardening (E1-E3)
+- CI/CD fuzz testing improvements (T1-T5)
+
+### Changed
+- Restrict proptest CI job to release branches
+
 ## [0.1.1-alpha.1] - 2026-02-26
 
 ### Added

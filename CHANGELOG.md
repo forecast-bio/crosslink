@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-05
+
+### Added
+
+#### Kickoff & Agent Orchestration
+- `crosslink kickoff` CLI command with local and container agent execution ([GH-175])
+- Design document parser and `--doc` flag for kickoff, importing design docs to knowledge ([GH-215], [GH-216])
+- `crosslink kickoff plan` subcommand for read-only gap analysis
+- Spec validation loop for structured validation of kickoff agents ([GH-217])
+- Structured machine-readable build reports for kickoff agents ([GH-219])
+
+#### Knowledge Integration
+- Structured queries, bulk import, MCP server, and auto-inject for knowledge branch ([GH-221])
+- `--from-doc` flag on `knowledge add` for design doc import
+
+#### CLI & Workflow
+- `/design` skill for interactive design document authoring ([GH-225])
+- `/maintain` skill for codebase maintenance ([GH-205])
+- Configurable auto-steal for stale locks ([GH-223])
+- Atomic lock claims — bail on contended lock claims in `session work` to close timing race ([GH-224])
+- `rules.local/` directory for gitignored local rule overrides ([GH-234])
+- Configurable git remote for hub/knowledge branches via `tracker_remote` setting ([GH-235])
+- VHS tape files and screenshot scripts for docs visuals ([GH-227])
+
+#### Code Quality
+- Module dispatch refactor — extract monolithic dispatch from `main.rs` into module-level `run()` functions ([GH-222])
+- Extract pure functions from kickoff module for testability ([GH-209])
+- Dry-run integration tests and `build_prompt` unit tests for kickoff ([GH-214])
+- Unit tests for shared writer lock claim, release, and contention ([GH-208])
+- Clock skew detection using git commit timestamps as witness ([GH-173])
+
+### Fixed
+- Agent signing chicken-and-egg during init — defer key publish and use unsigned bootstrap commits ([GH-237])
+- TUI agents tab not forming agent list — read V2 heartbeats and refresh data on tab focus ([GH-232])
+- Milestone add/remove now persists to coordination branch ([GH-174])
+- Hub cache hooks — propagate `.claude/hooks` into hub cache worktree on init ([GH-213])
+- Hub sync dirty state — deduplicate hub cache issues during hydration, prevent vicious sync loop ([GH-210])
+- Hub sync push warnings — surface visible warnings when push falls back to local-only ([GH-206])
+- Use `--worktree` scope for agent signing config in linked worktrees ([GH-167])
+- Skip worktree agent init and tmux/claude prerequisite checks in dry-run mode
+
+### Security
+- VS Code extension security hardening (E1-E3) ([GH-169], [GH-175])
+- CI/CD fuzz testing improvements (T1-T5) ([GH-168])
+
+### Changed
+- Restrict proptest CI job to release branches and PRs to main to reduce CI minutes ([GH-228])
+
 ## [0.2.0] - 2026-03-03
 
 First stable release. Promotes all changes from v0.1.3-beta.1 plus major new features.
