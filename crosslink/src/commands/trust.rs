@@ -280,7 +280,11 @@ fn commit_trust_change(cache_dir: &Path, crosslink_dir: &Path, message: &str) ->
 ///
 /// Used for key publishing during agent init bootstrap, where signing
 /// is not yet configured and would cause a chicken-and-egg failure.
-fn commit_trust_change_unsigned(cache_dir: &Path, crosslink_dir: &Path, message: &str) -> Result<()> {
+fn commit_trust_change_unsigned(
+    cache_dir: &Path,
+    crosslink_dir: &Path,
+    message: &str,
+) -> Result<()> {
     commit_trust_change_impl(cache_dir, crosslink_dir, message, true)
 }
 
