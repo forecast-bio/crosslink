@@ -136,6 +136,50 @@ pub struct TestResult {
     pub failed: u64,
 }
 
+/// Budget configuration stored at `swarm/budget.json` on the hub branch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BudgetConfig {
+    pub budget_window_s: u64,
+    pub model: String,
+}
+
+/// Historical cost log stored at `swarm/history/cost-log.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CostLog {
+    #[serde(default)]
+    pub observations: Vec<CostObservation>,
+    #[serde(default)]
+    pub model_estimates: std::collections::HashMap<String, ModelEstimate>,
+}
+
+/// A single historical observation from a completed agent run.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostObservation {
+    pub agent_id: String,
+    pub model: String,
+    pub duration_s: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files_changed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines_added: Option<u64>,
+}
+
+/// Aggregate duration estimates for a model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelEstimate {
+    pub median_duration_s: u64,
+    pub p90_duration_s: u64,
+}
+
+/// Budget estimation result for a phase.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BudgetRecommendation {
+    Proceed,
+    ProceedWithCaution,
+    Split { recommended_count: usize },
+    Block { reason: String },
+}
+
 // ---------------------------------------------------------------------------
 // Hub branch I/O helpers
 // ---------------------------------------------------------------------------
@@ -1214,6 +1258,442 @@ pub fn checkpoint(
 // Helpers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// swarm config (budget)
+// ---------------------------------------------------------------------------
+
+/// Set budget parameters for the swarm.
+pub fn config_budget(crosslink_dir: &Path, budget_window: &str, model: &str) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let budget_window_s = kickoff::parse_duration(budget_window)?.as_secs();
+
+    let config = BudgetConfig {
+        budget_window_s,
+        model: model.to_string(),
+    };
+
+    write_hub_json(&sync, "swarm/budget.json", &config)?;
+    commit_hub_files(
+        &sync,
+        &["swarm/budget.json"],
+        &format!("swarm: set budget {}  model={}", budget_window, model),
+    )?;
+
+    println!(
+        "Budget configured: {} window, model={}",
+        kickoff::format_duration(budget_window_s),
+        model
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// swarm estimate
+// ---------------------------------------------------------------------------
+
+/// Default per-agent duration estimates when no historical data exists.
+fn default_agent_duration(model: &str) -> u64 {
+    match model {
+        "opus" => 5400,   // 90 minutes
+        "sonnet" => 2700, // 45 minutes
+        _ => 3600,        // 60 minutes fallback
+    }
+}
+
+/// Overhead per agent for merging (seconds).
+const MERGE_OVERHEAD_PER_AGENT_S: u64 = 300; // 5 minutes
+/// Overhead for running the gate (seconds).
+const GATE_OVERHEAD_S: u64 = 600; // 10 minutes
+
+/// Estimate wall-clock cost for a phase.
+fn estimate_phase_cost(
+    phase: &PhaseDefinition,
+    cost_log: &CostLog,
+    model: &str,
+) -> (u64, Vec<(String, u64)>) {
+    let mut agent_estimates: Vec<(String, u64)> = Vec::new();
+
+    let model_est = cost_log.model_estimates.get(model);
+
+    for agent in &phase.agents {
+        if agent.status != AgentStatus::Planned {
+            continue; // already running/done
+        }
+
+        let duration = if let Some(est) = model_est {
+            est.p90_duration_s
+        } else {
+            default_agent_duration(model)
+        };
+
+        agent_estimates.push((agent.slug.clone(), duration));
+    }
+
+    let agent_total: u64 = agent_estimates.iter().map(|(_, d)| *d).sum();
+    let overhead = agent_estimates.len() as u64 * MERGE_OVERHEAD_PER_AGENT_S + GATE_OVERHEAD_S;
+    let total = agent_total + overhead;
+
+    (total, agent_estimates)
+}
+
+/// Compute a budget recommendation.
+fn budget_recommendation(
+    phase_cost: u64,
+    remaining_budget: u64,
+    agent_count: usize,
+) -> BudgetRecommendation {
+    let overhead = agent_count as u64 * MERGE_OVERHEAD_PER_AGENT_S + GATE_OVERHEAD_S;
+
+    if remaining_budget < overhead {
+        return BudgetRecommendation::Block {
+            reason: format!(
+                "Remaining budget ({}) is less than coordinator overhead ({})",
+                kickoff::format_duration(remaining_budget),
+                kickoff::format_duration(overhead)
+            ),
+        };
+    }
+
+    if phase_cost > remaining_budget {
+        // How many agents can we afford?
+        let per_agent = if agent_count > 0 {
+            (phase_cost - overhead) / agent_count as u64
+        } else {
+            0
+        };
+        let affordable = if per_agent > 0 {
+            ((remaining_budget - overhead) / per_agent) as usize
+        } else {
+            0
+        };
+        return BudgetRecommendation::Split {
+            recommended_count: affordable.max(1),
+        };
+    }
+
+    let threshold = (remaining_budget as f64 * 0.8) as u64;
+    if phase_cost < threshold {
+        BudgetRecommendation::Proceed
+    } else {
+        BudgetRecommendation::ProceedWithCaution
+    }
+}
+
+/// Estimate cost for a phase and display the breakdown.
+pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let (phase, _) = load_phase(&sync, phase_slug)?;
+
+    let budget_config: BudgetConfig =
+        read_hub_json(&sync, "swarm/budget.json").unwrap_or(BudgetConfig {
+            budget_window_s: 18000, // default 5h
+            model: "opus".to_string(),
+        });
+
+    let cost_log: CostLog = read_hub_json(&sync, "swarm/history/cost-log.json").unwrap_or_default();
+
+    let (total_cost, agent_estimates) =
+        estimate_phase_cost(&phase, &cost_log, &budget_config.model);
+
+    println!("Estimate for: {}", phase.name);
+    println!("  Model: {}", budget_config.model);
+    println!(
+        "  Budget window: {}",
+        kickoff::format_duration(budget_config.budget_window_s)
+    );
+    println!();
+
+    for (slug, duration) in &agent_estimates {
+        println!("  {:<35} {}", slug, kickoff::format_duration(*duration));
+    }
+
+    let agent_count = agent_estimates.len();
+    let overhead = agent_count as u64 * MERGE_OVERHEAD_PER_AGENT_S + GATE_OVERHEAD_S;
+
+    println!();
+    println!(
+        "  Agent time:       {}",
+        kickoff::format_duration(total_cost - overhead)
+    );
+    println!(
+        "  Coordinator overhead: {}",
+        kickoff::format_duration(overhead)
+    );
+    println!(
+        "  Total estimate:   {}",
+        kickoff::format_duration(total_cost)
+    );
+    println!();
+
+    let recommendation =
+        budget_recommendation(total_cost, budget_config.budget_window_s, agent_count);
+
+    match &recommendation {
+        BudgetRecommendation::Proceed => {
+            println!("Recommendation: PROCEED — fits comfortably within budget.");
+        }
+        BudgetRecommendation::ProceedWithCaution => {
+            println!("Recommendation: PROCEED WITH CAUTION — tight fit.");
+        }
+        BudgetRecommendation::Split { recommended_count } => {
+            println!(
+                "Recommendation: SPLIT — budget supports ~{} of {} agents.",
+                recommended_count, agent_count
+            );
+            println!(
+                "  Suggest: launch first {} agents, checkpoint, then launch the rest.",
+                recommended_count
+            );
+        }
+        BudgetRecommendation::Block { reason } => {
+            println!("Recommendation: BLOCK — {}", reason);
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Budget-aware launch wrapper
+// ---------------------------------------------------------------------------
+
+/// Launch with budget awareness: estimate first, warn/block if over budget.
+pub fn launch_budget_aware(
+    crosslink_dir: &Path,
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    phase_slug: &str,
+    quiet: bool,
+) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let (phase, _) = load_phase(&sync, phase_slug)?;
+
+    let budget_config: BudgetConfig =
+        read_hub_json(&sync, "swarm/budget.json").unwrap_or(BudgetConfig {
+            budget_window_s: 18000,
+            model: "opus".to_string(),
+        });
+
+    let cost_log: CostLog = read_hub_json(&sync, "swarm/history/cost-log.json").unwrap_or_default();
+
+    let planned_count = phase
+        .agents
+        .iter()
+        .filter(|a| a.status == AgentStatus::Planned)
+        .count();
+
+    let (total_cost, _) = estimate_phase_cost(&phase, &cost_log, &budget_config.model);
+    let recommendation =
+        budget_recommendation(total_cost, budget_config.budget_window_s, planned_count);
+
+    match &recommendation {
+        BudgetRecommendation::Block { reason } => {
+            bail!(
+                "Budget check BLOCKED launch: {}\n\
+                 Use `crosslink swarm launch {}` (without --budget-aware) to override.",
+                reason,
+                phase_slug
+            );
+        }
+        BudgetRecommendation::Split { recommended_count } => {
+            eprintln!(
+                "Warning: Budget supports ~{} of {} agents. Consider splitting the phase.",
+                recommended_count, planned_count
+            );
+            eprintln!(
+                "Launching all {} agents anyway. Use `crosslink swarm estimate {}` for details.",
+                planned_count, phase_slug
+            );
+            eprintln!();
+        }
+        BudgetRecommendation::ProceedWithCaution => {
+            if !quiet {
+                eprintln!("Note: Budget is tight. Proceeding with caution.");
+                eprintln!();
+            }
+        }
+        BudgetRecommendation::Proceed => {}
+    }
+
+    // Delegate to the regular launch
+    launch(crosslink_dir, db, writer, phase_slug, quiet)
+}
+
+// ---------------------------------------------------------------------------
+// Cost log harvesting
+// ---------------------------------------------------------------------------
+
+/// Scan completed agent worktrees and update the cost log with observations.
+pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let worktrees_dir = root.join(".worktrees");
+    if !worktrees_dir.is_dir() {
+        println!("No worktrees found.");
+        return Ok(());
+    }
+
+    let mut cost_log: CostLog =
+        read_hub_json(&sync, "swarm/history/cost-log.json").unwrap_or_default();
+
+    let existing_ids: std::collections::HashSet<String> = cost_log
+        .observations
+        .iter()
+        .map(|o| o.agent_id.clone())
+        .collect();
+
+    let mut new_observations = 0u32;
+
+    let entries = std::fs::read_dir(&worktrees_dir).context("Failed to read .worktrees")?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let report_file = entry.path().join(".kickoff-report.json");
+        if !report_file.exists() {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&report_file) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let report: kickoff::KickoffReport = match serde_json::from_str(&content) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        let agent_id = report
+            .agent_id
+            .clone()
+            .unwrap_or_else(|| entry.file_name().to_string_lossy().to_string());
+
+        if existing_ids.contains(&agent_id) {
+            continue;
+        }
+
+        // Extract total duration from phases
+        let duration_s = report
+            .phases
+            .as_ref()
+            .map(|p| {
+                [
+                    p.exploration.as_ref(),
+                    p.planning.as_ref(),
+                    p.implementation.as_ref(),
+                    p.testing.as_ref(),
+                    p.validation.as_ref(),
+                    p.review.as_ref(),
+                ]
+                .iter()
+                .filter_map(|t| t.map(|t| t.duration_s))
+                .sum::<u64>()
+            })
+            .unwrap_or(0);
+
+        if duration_s == 0 {
+            continue;
+        }
+
+        let lines_added = report
+            .phases
+            .as_ref()
+            .and_then(|p| p.implementation.as_ref().and_then(|t| t.lines_added));
+
+        let files_changed = report.files_changed.as_ref().map(|f| f.len() as u64);
+
+        let obs = CostObservation {
+            agent_id,
+            model: "opus".to_string(), // default; reports don't track model
+            duration_s,
+            files_changed,
+            lines_added,
+        };
+
+        cost_log.observations.push(obs);
+        new_observations += 1;
+    }
+
+    // Recompute model estimates from observations
+    recompute_model_estimates(&mut cost_log);
+
+    write_hub_json(&sync, "swarm/history/cost-log.json", &cost_log)?;
+    commit_hub_files(
+        &sync,
+        &["swarm/history/cost-log.json"],
+        &format!("swarm: harvest {} cost observations", new_observations),
+    )?;
+
+    println!(
+        "Harvested {} new observation{} ({} total).",
+        new_observations,
+        if new_observations == 1 { "" } else { "s" },
+        cost_log.observations.len()
+    );
+
+    if let Some(est) = cost_log.model_estimates.get("opus") {
+        println!(
+            "  opus: median {}, p90 {}",
+            kickoff::format_duration(est.median_duration_s),
+            kickoff::format_duration(est.p90_duration_s)
+        );
+    }
+
+    Ok(())
+}
+
+/// Recompute median and p90 estimates per model from observations.
+fn recompute_model_estimates(cost_log: &mut CostLog) {
+    let mut by_model: std::collections::HashMap<String, Vec<u64>> =
+        std::collections::HashMap::new();
+
+    for obs in &cost_log.observations {
+        by_model
+            .entry(obs.model.clone())
+            .or_default()
+            .push(obs.duration_s);
+    }
+
+    cost_log.model_estimates.clear();
+    for (model, mut durations) in by_model {
+        durations.sort();
+        let len = durations.len();
+        let median = durations[len / 2];
+        let p90_idx = ((len as f64) * 0.9).ceil() as usize;
+        let p90 = durations[p90_idx.min(len - 1)];
+
+        cost_log.model_estimates.insert(
+            model,
+            ModelEstimate {
+                median_duration_s: median,
+                p90_duration_s: p90,
+            },
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
 /// Find the latest checkpoint file by modification time.
 fn find_latest_checkpoint(dir: &Path) -> Option<Checkpoint> {
     if !dir.is_dir() {
@@ -1598,5 +2078,233 @@ mod tests {
         let found = find_latest_checkpoint(dir.path()).unwrap();
         assert_eq!(found.phase, "Phase 1");
         assert_eq!(found.handoff_notes, Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_budget_config_serde_roundtrip() {
+        let config = BudgetConfig {
+            budget_window_s: 18000,
+            model: "opus".to_string(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: BudgetConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, parsed);
+    }
+
+    #[test]
+    fn test_cost_log_serde_roundtrip() {
+        let mut estimates = std::collections::HashMap::new();
+        estimates.insert(
+            "opus".to_string(),
+            ModelEstimate {
+                median_duration_s: 3600,
+                p90_duration_s: 5400,
+            },
+        );
+        let log = CostLog {
+            observations: vec![CostObservation {
+                agent_id: "driver--agent-1".to_string(),
+                model: "opus".to_string(),
+                duration_s: 4500,
+                files_changed: Some(12),
+                lines_added: Some(450),
+            }],
+            model_estimates: estimates,
+        };
+        let json = serde_json::to_string(&log).unwrap();
+        let parsed: CostLog = serde_json::from_str(&json).unwrap();
+        assert_eq!(log, parsed);
+    }
+
+    #[test]
+    fn test_default_agent_duration() {
+        assert_eq!(default_agent_duration("opus"), 5400);
+        assert_eq!(default_agent_duration("sonnet"), 2700);
+        assert_eq!(default_agent_duration("haiku"), 3600);
+    }
+
+    #[test]
+    fn test_estimate_phase_cost_no_history() {
+        let phase = PhaseDefinition {
+            name: "Phase 1".to_string(),
+            status: PhaseStatus::Pending,
+            agents: vec![
+                AgentEntry {
+                    slug: "a1".to_string(),
+                    description: "Agent 1".to_string(),
+                    issue_id: None,
+                    agent_id: None,
+                    branch: None,
+                    status: AgentStatus::Planned,
+                    started_at: None,
+                    completed_at: None,
+                },
+                AgentEntry {
+                    slug: "a2".to_string(),
+                    description: "Agent 2".to_string(),
+                    issue_id: None,
+                    agent_id: None,
+                    branch: None,
+                    status: AgentStatus::Planned,
+                    started_at: None,
+                    completed_at: None,
+                },
+            ],
+            gate: None,
+            depends_on: vec![],
+            checkpoint: None,
+        };
+        let cost_log = CostLog::default();
+        let (total, agents) = estimate_phase_cost(&phase, &cost_log, "opus");
+        // 2 agents × 5400s + 2×300 overhead + 600 gate = 12000
+        assert_eq!(agents.len(), 2);
+        assert_eq!(total, 5400 * 2 + 300 * 2 + 600);
+    }
+
+    #[test]
+    fn test_estimate_phase_cost_with_history() {
+        let phase = PhaseDefinition {
+            name: "Phase 1".to_string(),
+            status: PhaseStatus::Pending,
+            agents: vec![AgentEntry {
+                slug: "a1".to_string(),
+                description: "Agent 1".to_string(),
+                issue_id: None,
+                agent_id: None,
+                branch: None,
+                status: AgentStatus::Planned,
+                started_at: None,
+                completed_at: None,
+            }],
+            gate: None,
+            depends_on: vec![],
+            checkpoint: None,
+        };
+        let mut estimates = std::collections::HashMap::new();
+        estimates.insert(
+            "opus".to_string(),
+            ModelEstimate {
+                median_duration_s: 3000,
+                p90_duration_s: 4000,
+            },
+        );
+        let cost_log = CostLog {
+            observations: vec![],
+            model_estimates: estimates,
+        };
+        let (total, agents) = estimate_phase_cost(&phase, &cost_log, "opus");
+        // 1 agent × 4000 (p90) + 300 overhead + 600 gate = 4900
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].1, 4000);
+        assert_eq!(total, 4000 + 300 + 600);
+    }
+
+    #[test]
+    fn test_estimate_skips_non_planned_agents() {
+        let phase = PhaseDefinition {
+            name: "Phase 1".to_string(),
+            status: PhaseStatus::InProgress,
+            agents: vec![
+                AgentEntry {
+                    slug: "done".to_string(),
+                    description: "Done".to_string(),
+                    issue_id: None,
+                    agent_id: None,
+                    branch: None,
+                    status: AgentStatus::Completed,
+                    started_at: None,
+                    completed_at: None,
+                },
+                AgentEntry {
+                    slug: "pending-agent".to_string(),
+                    description: "Pending agent".to_string(),
+                    issue_id: None,
+                    agent_id: None,
+                    branch: None,
+                    status: AgentStatus::Planned,
+                    started_at: None,
+                    completed_at: None,
+                },
+            ],
+            gate: None,
+            depends_on: vec![],
+            checkpoint: None,
+        };
+        let cost_log = CostLog::default();
+        let (_, agents) = estimate_phase_cost(&phase, &cost_log, "opus");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].0, "pending-agent");
+    }
+
+    #[test]
+    fn test_budget_recommendation_proceed() {
+        let rec = budget_recommendation(5000, 18000, 2);
+        assert_eq!(rec, BudgetRecommendation::Proceed);
+    }
+
+    #[test]
+    fn test_budget_recommendation_caution() {
+        // Cost is > 80% of budget but still fits
+        let rec = budget_recommendation(15000, 18000, 2);
+        assert_eq!(rec, BudgetRecommendation::ProceedWithCaution);
+    }
+
+    #[test]
+    fn test_budget_recommendation_split() {
+        // Cost exceeds budget
+        let rec = budget_recommendation(20000, 10000, 4);
+        match rec {
+            BudgetRecommendation::Split {
+                recommended_count, ..
+            } => {
+                assert!(recommended_count > 0);
+                assert!(recommended_count < 4);
+            }
+            other => panic!("Expected Split, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_budget_recommendation_block() {
+        // Budget less than coordinator overhead
+        let rec = budget_recommendation(20000, 500, 4);
+        match rec {
+            BudgetRecommendation::Block { .. } => {}
+            other => panic!("Expected Block, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_recompute_model_estimates() {
+        let mut log = CostLog {
+            observations: vec![
+                CostObservation {
+                    agent_id: "a1".to_string(),
+                    model: "opus".to_string(),
+                    duration_s: 3000,
+                    files_changed: None,
+                    lines_added: None,
+                },
+                CostObservation {
+                    agent_id: "a2".to_string(),
+                    model: "opus".to_string(),
+                    duration_s: 4000,
+                    files_changed: None,
+                    lines_added: None,
+                },
+                CostObservation {
+                    agent_id: "a3".to_string(),
+                    model: "opus".to_string(),
+                    duration_s: 5000,
+                    files_changed: None,
+                    lines_added: None,
+                },
+            ],
+            model_estimates: std::collections::HashMap::new(),
+        };
+        recompute_model_estimates(&mut log);
+        let est = log.model_estimates.get("opus").unwrap();
+        assert_eq!(est.median_duration_s, 4000); // middle of [3000, 4000, 5000]
+        assert_eq!(est.p90_duration_s, 5000); // ceil(3*0.9) = 3 → index 2
     }
 }

@@ -1107,6 +1107,9 @@ enum SwarmCommands {
     Launch {
         /// Phase slug (e.g. "phase-1")
         phase: String,
+        /// Check budget before launching; block if insufficient
+        #[arg(long)]
+        budget_aware: bool,
     },
     /// Run the project test suite as a phase gate
     Gate {
@@ -1124,6 +1127,22 @@ enum SwarmCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Set budget parameters (window duration, model)
+    Config {
+        /// Budget time window (e.g. "5h", "3h30m")
+        #[arg(long, value_name = "DURATION")]
+        budget_window: String,
+        /// Model to estimate costs for
+        #[arg(long, default_value = "opus")]
+        model: String,
+    },
+    /// Estimate wall-clock cost for a phase
+    Estimate {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Scan completed agents and update cost history
+    Harvest,
 }
 
 #[derive(Subcommand)]
@@ -1677,10 +1696,29 @@ fn main() -> Result<()> {
                 SwarmCommands::Init { doc } => commands::swarm::init(&crosslink_dir, &doc),
                 SwarmCommands::Status => commands::swarm::status(&crosslink_dir),
                 SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
-                SwarmCommands::Launch { phase } => {
+                SwarmCommands::Launch {
+                    phase,
+                    budget_aware,
+                } => {
                     let db = get_db()?;
                     let writer = get_writer(&crosslink_dir);
-                    commands::swarm::launch(&crosslink_dir, &db, writer.as_ref(), &phase, cli.quiet)
+                    if budget_aware {
+                        commands::swarm::launch_budget_aware(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    } else {
+                        commands::swarm::launch(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    }
                 }
                 SwarmCommands::Gate { phase } => commands::swarm::gate(&crosslink_dir, &phase),
                 SwarmCommands::Checkpoint {
@@ -1688,6 +1726,14 @@ fn main() -> Result<()> {
                     notes,
                     force,
                 } => commands::swarm::checkpoint(&crosslink_dir, &phase, notes.as_deref(), force),
+                SwarmCommands::Config {
+                    budget_window,
+                    model,
+                } => commands::swarm::config_budget(&crosslink_dir, &budget_window, &model),
+                SwarmCommands::Estimate { phase } => {
+                    commands::swarm::estimate(&crosslink_dir, &phase)
+                }
+                SwarmCommands::Harvest => commands::swarm::harvest_costs(&crosslink_dir),
             }
         }
         Commands::Tui => {
