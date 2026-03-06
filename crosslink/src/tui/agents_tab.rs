@@ -8,6 +8,7 @@ use ratatui::{
 };
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use super::{Tab, TabAction};
 
@@ -62,6 +63,15 @@ struct AgentDetail {
     is_stale: bool,
 }
 
+/// Data payload sent from background refresh thread.
+struct AgentsLoadResult {
+    agents: Vec<AgentRow>,
+    lock_rows: Vec<LockRow>,
+    trust_entries: Vec<AllowedSignerEntry>,
+    status_msg: String,
+    error_msg: Option<String>,
+}
+
 /// The Agents tab — live coordination dashboard.
 pub struct AgentsTab {
     crosslink_dir: PathBuf,
@@ -82,6 +92,10 @@ pub struct AgentsTab {
     status_msg: String,
     /// Error message if data load failed.
     error_msg: Option<String>,
+    /// Whether a background load is in progress.
+    loading: bool,
+    /// Receiver for background load results.
+    load_rx: Option<mpsc::Receiver<AgentsLoadResult>>,
     /// TableState for agents view scroll-to-follow.
     agents_table_state: RefCell<TableState>,
     /// TableState for locks view scroll-to-follow.
@@ -105,62 +119,37 @@ impl AgentsTab {
             detail_scroll: 0,
             status_msg: String::new(),
             error_msg: None,
+            loading: false,
+            load_rx: None,
             agents_table_state: RefCell::new(TableState::default()),
             locks_table_state: RefCell::new(TableState::default()),
             trust_table_state: RefCell::new(TableState::default()),
         };
-        tab.refresh();
+        tab.start_background_refresh();
         tab
     }
 
-    fn refresh(&mut self) {
-        self.error_msg = None;
+    /// Spawn a background thread to load agents/locks/trust data without blocking the UI.
+    fn start_background_refresh(&mut self) {
+        self.loading = true;
+        let (tx, rx) = mpsc::channel();
+        self.load_rx = Some(rx);
+        let crosslink_dir = self.crosslink_dir.clone();
 
-        let sync = match SyncManager::new(&self.crosslink_dir) {
-            Ok(s) => s,
-            Err(e) => {
-                self.error_msg = Some(format!("Failed to init SyncManager: {e}"));
-                return;
-            }
-        };
+        std::thread::spawn(move || {
+            let result = load_agents_data(&crosslink_dir);
+            let _ = tx.send(result);
+        });
+    }
 
-        if !sync.is_initialized() {
-            self.error_msg =
-                Some("Hub cache not initialized. Run 'crosslink sync' first.".to_string());
-            return;
-        }
-
-        // Fetch latest state (ignore fetch errors — may be offline)
-        let _ = sync.fetch();
-
-        // Read locks
-        let locks = match sync.read_locks_auto() {
-            Ok(l) => l,
-            Err(e) => {
-                self.error_msg = Some(format!("Failed to read locks: {e}"));
-                LocksFile::empty()
-            }
-        };
-
-        // Read heartbeats (auto-dispatches V1/V2)
-        let heartbeats = sync.read_heartbeats_auto().unwrap_or_default();
-
-        // Find stale locks
-        let stale = sync.find_stale_locks().unwrap_or_default();
-        let stale_agents: std::collections::HashSet<String> =
-            stale.iter().map(|(_, a)| a.clone()).collect();
-
-        // Read trust store
-        let trust = sync.read_allowed_signers().unwrap_or_default();
-
-        // Build merged agent rows
-        self.build_agent_rows(&locks, &heartbeats, &stale_agents);
-
-        // Build lock rows
-        self.build_lock_rows(&locks, &stale);
-
-        // Store trust entries
-        self.trust_entries = trust.entries;
+    /// Apply a completed background load result to the tab state.
+    fn apply_load_result(&mut self, result: AgentsLoadResult) {
+        self.loading = false;
+        self.agents = result.agents;
+        self.lock_rows = result.lock_rows;
+        self.trust_entries = result.trust_entries;
+        self.status_msg = result.status_msg;
+        self.error_msg = result.error_msg;
 
         // Clamp selections
         if self.selected >= self.agents.len() && !self.agents.is_empty() {
@@ -172,103 +161,6 @@ impl AgentsTab {
         if self.trust_selected >= self.trust_entries.len() && !self.trust_entries.is_empty() {
             self.trust_selected = self.trust_entries.len() - 1;
         }
-
-        self.status_msg = format!(
-            "{} agents, {} locks, {} trusted signers",
-            self.agents.len(),
-            self.lock_rows.len(),
-            self.trust_entries.len()
-        );
-    }
-
-    fn build_agent_rows(
-        &mut self,
-        locks: &LocksFile,
-        heartbeats: &[Heartbeat],
-        stale_agents: &std::collections::HashSet<String>,
-    ) {
-        use std::collections::HashMap;
-
-        // Collect unique agent IDs from locks and heartbeats
-        let mut agents: HashMap<String, AgentRow> = HashMap::new();
-
-        for hb in heartbeats {
-            agents
-                .entry(hb.agent_id.clone())
-                .or_insert_with(|| AgentRow {
-                    agent_id: hb.agent_id.clone(),
-                    active_issue: None,
-                    lock_issue: None,
-                    branch: None,
-                    heartbeat_ago: None,
-                    is_stale: false,
-                    machine_id: None,
-                })
-                .heartbeat_ago = Some(format_relative_time(&hb.last_heartbeat));
-
-            if let Some(row) = agents.get_mut(&hb.agent_id) {
-                row.active_issue = hb.active_issue_id;
-                row.machine_id = Some(hb.machine_id.clone());
-            }
-        }
-
-        for (issue_str, lock) in &locks.locks {
-            let issue_id: i64 = issue_str.parse().unwrap_or(0);
-            let row = agents
-                .entry(lock.agent_id.clone())
-                .or_insert_with(|| AgentRow {
-                    agent_id: lock.agent_id.clone(),
-                    active_issue: None,
-                    lock_issue: None,
-                    branch: None,
-                    heartbeat_ago: None,
-                    is_stale: false,
-                    machine_id: None,
-                });
-            row.lock_issue = Some(issue_id);
-            row.branch = lock.branch.clone();
-        }
-
-        // Mark stale agents
-        for row in agents.values_mut() {
-            row.is_stale = stale_agents.contains(&row.agent_id);
-        }
-
-        let mut rows: Vec<AgentRow> = agents.into_values().collect();
-        // Sort: non-stale first, then by agent_id
-        rows.sort_by(|a, b| {
-            a.is_stale
-                .cmp(&b.is_stale)
-                .then_with(|| a.agent_id.cmp(&b.agent_id))
-        });
-        self.agents = rows;
-    }
-
-    fn build_lock_rows(&mut self, locks: &LocksFile, stale: &[(i64, String)]) {
-        let stale_set: std::collections::HashSet<i64> = stale.iter().map(|(id, _)| *id).collect();
-
-        let mut rows: Vec<LockRow> = locks
-            .locks
-            .iter()
-            .map(|(issue_str, lock)| {
-                let issue_id: i64 = issue_str.parse().unwrap_or(0);
-                LockRow {
-                    issue_id,
-                    agent_id: lock.agent_id.clone(),
-                    branch: lock.branch.clone(),
-                    claimed_ago: format_relative_time(&lock.claimed_at),
-                    is_stale: stale_set.contains(&issue_id),
-                }
-            })
-            .collect();
-
-        // Stale locks at the bottom
-        rows.sort_by(|a, b| {
-            a.is_stale
-                .cmp(&b.is_stale)
-                .then_with(|| a.issue_id.cmp(&b.issue_id))
-        });
-        self.lock_rows = rows;
     }
 
     fn load_detail(&mut self, agent_id: &str) {
@@ -347,7 +239,7 @@ impl AgentsTab {
                 TabAction::Consumed
             }
             KeyCode::Char('r') => {
-                self.refresh();
+                self.start_background_refresh();
                 TabAction::Consumed
             }
             _ => TabAction::NotHandled,
@@ -371,7 +263,7 @@ impl AgentsTab {
                 TabAction::Consumed
             }
             KeyCode::Char('r') => {
-                self.refresh();
+                self.start_background_refresh();
                 TabAction::Consumed
             }
             KeyCode::Esc => {
@@ -400,7 +292,7 @@ impl AgentsTab {
                 TabAction::Consumed
             }
             KeyCode::Char('r') => {
-                self.refresh();
+                self.start_background_refresh();
                 TabAction::Consumed
             }
             KeyCode::Esc => {
@@ -475,7 +367,13 @@ impl AgentsTab {
             return;
         }
 
-        if self.agents.is_empty() {
+        if self.loading && self.agents.is_empty() {
+            let msg = Paragraph::new(Line::from(Span::styled(
+                "  Loading agents...",
+                Style::default().fg(Color::DarkGray),
+            )));
+            frame.render_widget(msg, chunks[1]);
+        } else if self.agents.is_empty() {
             let msg = Paragraph::new(Line::from(Span::styled(
                 "  No agents detected. Hub may not be initialized.",
                 Style::default().fg(Color::DarkGray),
@@ -930,9 +828,179 @@ impl Tab for AgentsTab {
     }
 
     fn on_enter(&mut self) {
-        self.refresh();
+        self.start_background_refresh();
     }
+
     fn on_leave(&mut self) {}
+
+    fn poll_updates(&mut self) {
+        let result = self.load_rx.as_ref().and_then(|rx| rx.try_recv().ok());
+        if let Some(data) = result {
+            self.load_rx = None;
+            self.apply_load_result(data);
+        }
+    }
+}
+
+// ── Background loader ─────────────────────────────────────────────────
+
+/// Load all agents/locks/trust data synchronously (runs on a background thread).
+fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
+    let sync = match SyncManager::new(crosslink_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            return AgentsLoadResult {
+                agents: Vec::new(),
+                lock_rows: Vec::new(),
+                trust_entries: Vec::new(),
+                status_msg: String::new(),
+                error_msg: Some(format!("Failed to init SyncManager: {e}")),
+            };
+        }
+    };
+
+    if !sync.is_initialized() {
+        return AgentsLoadResult {
+            agents: Vec::new(),
+            lock_rows: Vec::new(),
+            trust_entries: Vec::new(),
+            status_msg: String::new(),
+            error_msg: Some(
+                "Hub cache not initialized. Run 'crosslink sync' first.".to_string(),
+            ),
+        };
+    }
+
+    // Fetch latest state (ignore fetch errors — may be offline)
+    let _ = sync.fetch();
+
+    // Read locks
+    let (locks, lock_error) = match sync.read_locks_auto() {
+        Ok(l) => (l, None),
+        Err(e) => (LocksFile::empty(), Some(format!("Failed to read locks: {e}"))),
+    };
+
+    // Read heartbeats (auto-dispatches V1/V2)
+    let heartbeats = sync.read_heartbeats_auto().unwrap_or_default();
+
+    // Find stale locks
+    let stale = sync.find_stale_locks().unwrap_or_default();
+    let stale_agents: std::collections::HashSet<String> =
+        stale.iter().map(|(_, a)| a.clone()).collect();
+    let stale_issues: std::collections::HashSet<i64> =
+        stale.iter().map(|(id, _)| *id).collect();
+
+    // Read trust store
+    let trust = sync.read_allowed_signers().unwrap_or_default();
+
+    // Build merged agent rows
+    let agents = build_agent_rows_static(&locks, &heartbeats, &stale_agents);
+
+    // Build lock rows
+    let lock_rows = build_lock_rows_static(&locks, &stale_issues);
+
+    let status_msg = format!(
+        "{} agents, {} locks, {} trusted signers",
+        agents.len(),
+        lock_rows.len(),
+        trust.entries.len()
+    );
+
+    AgentsLoadResult {
+        agents,
+        lock_rows,
+        trust_entries: trust.entries,
+        status_msg,
+        error_msg: lock_error,
+    }
+}
+
+/// Build merged agent rows from locks and heartbeats (free function for thread use).
+fn build_agent_rows_static(
+    locks: &LocksFile,
+    heartbeats: &[Heartbeat],
+    stale_agents: &std::collections::HashSet<String>,
+) -> Vec<AgentRow> {
+    use std::collections::HashMap;
+
+    let mut agents: HashMap<String, AgentRow> = HashMap::new();
+
+    for hb in heartbeats {
+        agents
+            .entry(hb.agent_id.clone())
+            .or_insert_with(|| AgentRow {
+                agent_id: hb.agent_id.clone(),
+                active_issue: None,
+                lock_issue: None,
+                branch: None,
+                heartbeat_ago: None,
+                is_stale: false,
+                machine_id: None,
+            })
+            .heartbeat_ago = Some(format_relative_time(&hb.last_heartbeat));
+
+        if let Some(row) = agents.get_mut(&hb.agent_id) {
+            row.active_issue = hb.active_issue_id;
+            row.machine_id = Some(hb.machine_id.clone());
+        }
+    }
+
+    for (issue_str, lock) in &locks.locks {
+        let issue_id: i64 = issue_str.parse().unwrap_or(0);
+        let row = agents
+            .entry(lock.agent_id.clone())
+            .or_insert_with(|| AgentRow {
+                agent_id: lock.agent_id.clone(),
+                active_issue: None,
+                lock_issue: None,
+                branch: None,
+                heartbeat_ago: None,
+                is_stale: false,
+                machine_id: None,
+            });
+        row.lock_issue = Some(issue_id);
+        row.branch = lock.branch.clone();
+    }
+
+    for row in agents.values_mut() {
+        row.is_stale = stale_agents.contains(&row.agent_id);
+    }
+
+    let mut rows: Vec<AgentRow> = agents.into_values().collect();
+    rows.sort_by(|a, b| {
+        a.is_stale
+            .cmp(&b.is_stale)
+            .then_with(|| a.agent_id.cmp(&b.agent_id))
+    });
+    rows
+}
+
+/// Build lock rows from locks file (free function for thread use).
+fn build_lock_rows_static(
+    locks: &LocksFile,
+    stale_issues: &std::collections::HashSet<i64>,
+) -> Vec<LockRow> {
+    let mut rows: Vec<LockRow> = locks
+        .locks
+        .iter()
+        .map(|(issue_str, lock)| {
+            let issue_id: i64 = issue_str.parse().unwrap_or(0);
+            LockRow {
+                issue_id,
+                agent_id: lock.agent_id.clone(),
+                branch: lock.branch.clone(),
+                claimed_ago: format_relative_time(&lock.claimed_at),
+                is_stale: stale_issues.contains(&issue_id),
+            }
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        a.is_stale
+            .cmp(&b.is_stale)
+            .then_with(|| a.issue_id.cmp(&b.issue_id))
+    });
+    rows
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
