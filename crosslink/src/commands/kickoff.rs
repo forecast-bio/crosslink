@@ -940,10 +940,7 @@ fn preflight_check(container: &ContainerMode, need_gh: bool) -> Result<()> {
         });
     } else {
         let (name, hint): (&'static str, &'static str) = match container {
-            ContainerMode::Docker => (
-                "docker",
-                "install from https://docs.docker.com/get-docker/",
-            ),
+            ContainerMode::Docker => ("docker", "install from https://docs.docker.com/get-docker/"),
             ContainerMode::Podman => (
                 "podman",
                 "install from https://podman.io/getting-started/installation",
@@ -1256,8 +1253,7 @@ pub fn run(
 ) -> Result<()> {
     // 1. Pre-flight: check all required external commands (skip for dry-run)
     if !opts.dry_run {
-        let need_gh =
-            opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough;
+        let need_gh = opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough;
         preflight_check(&opts.container, need_gh)?;
     }
 
