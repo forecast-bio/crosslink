@@ -1143,6 +1143,14 @@ enum SwarmCommands {
     },
     /// Scan completed agents and update cost history
     Harvest,
+    /// Plan a multi-phase build across budget windows
+    Plan {
+        /// Budget window duration (e.g. "5h"); uses saved config if omitted
+        #[arg(long, value_name = "DURATION")]
+        budget_window: Option<String>,
+    },
+    /// Show the current window plan (alias for plan with saved config)
+    PlanShow,
 }
 
 #[derive(Subcommand)]
@@ -1734,6 +1742,10 @@ fn main() -> Result<()> {
                     commands::swarm::estimate(&crosslink_dir, &phase)
                 }
                 SwarmCommands::Harvest => commands::swarm::harvest_costs(&crosslink_dir),
+                SwarmCommands::Plan { budget_window } => {
+                    commands::swarm::plan(&crosslink_dir, budget_window.as_deref())
+                }
+                SwarmCommands::PlanShow => commands::swarm::plan_show(&crosslink_dir),
             }
         }
         Commands::Tui => {
