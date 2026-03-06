@@ -466,6 +466,11 @@ enum Commands {
         #[command(subcommand)]
         action: KickoffCommands,
     },
+    /// Multi-agent swarm coordination (plan, status, resume)
+    Swarm {
+        #[command(subcommand)]
+        action: SwarmCommands,
+    },
     /// Interactive terminal dashboard (read-only)
     Tui,
     /// Manage container-based agent execution
@@ -1087,6 +1092,20 @@ enum ConfigCommands {
 }
 
 #[derive(Subcommand)]
+enum SwarmCommands {
+    /// Initialize a swarm plan from a design document
+    Init {
+        /// Path to design document (markdown)
+        #[arg(long, value_name = "PATH")]
+        doc: PathBuf,
+    },
+    /// Show current swarm status (agents, phases, progress)
+    Status,
+    /// Reconstruct state and show next steps for resuming
+    Resume,
+}
+
+#[derive(Subcommand)]
 enum ContextCommands {
     /// Measure context injection sizes and estimate token overhead
     Measure {
@@ -1630,6 +1649,14 @@ fn main() -> Result<()> {
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
             commands::kickoff::dispatch(action, &crosslink_dir, &db, writer.as_ref(), cli.quiet)
+        }
+        Commands::Swarm { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            match action {
+                SwarmCommands::Init { doc } => commands::swarm::init(&crosslink_dir, &doc),
+                SwarmCommands::Status => commands::swarm::status(&crosslink_dir),
+                SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
+            }
         }
         Commands::Tui => {
             let db = get_db()?;
