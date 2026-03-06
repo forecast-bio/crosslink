@@ -1103,6 +1103,27 @@ enum SwarmCommands {
     Status,
     /// Reconstruct state and show next steps for resuming
     Resume,
+    /// Launch all planned agents for a phase
+    Launch {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Run the project test suite as a phase gate
+    Gate {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Record a checkpoint after a phase completes
+    Checkpoint {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+        /// Handoff notes for the next session
+        #[arg(long)]
+        notes: Option<String>,
+        /// Checkpoint even if gate hasn't passed
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1656,6 +1677,17 @@ fn main() -> Result<()> {
                 SwarmCommands::Init { doc } => commands::swarm::init(&crosslink_dir, &doc),
                 SwarmCommands::Status => commands::swarm::status(&crosslink_dir),
                 SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
+                SwarmCommands::Launch { phase } => {
+                    let db = get_db()?;
+                    let writer = get_writer(&crosslink_dir);
+                    commands::swarm::launch(&crosslink_dir, &db, writer.as_ref(), &phase, cli.quiet)
+                }
+                SwarmCommands::Gate { phase } => commands::swarm::gate(&crosslink_dir, &phase),
+                SwarmCommands::Checkpoint {
+                    phase,
+                    notes,
+                    force,
+                } => commands::swarm::checkpoint(&crosslink_dir, &phase, notes.as_deref(), force),
             }
         }
         Commands::Tui => {

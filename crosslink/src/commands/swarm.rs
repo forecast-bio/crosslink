@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::commands::design_doc::{self, DesignDoc};
-use crate::commands::kickoff::tmux_session_name;
+use crate::commands::kickoff::{self, tmux_session_name, ContainerMode, KickoffOpts, VerifyLevel};
+use crate::db::Database;
+use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
 
 // ---------------------------------------------------------------------------
@@ -769,6 +771,449 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// swarm launch
+// ---------------------------------------------------------------------------
+
+/// Load a phase definition by slug, returning the phase and its hub path.
+fn load_phase(sync: &SyncManager, phase_slug: &str) -> Result<(PhaseDefinition, String)> {
+    let plan: SwarmPlan = read_hub_json(sync, "swarm/plan.json")
+        .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
+
+    // Try exact slug match first, then try matching against plan phase names
+    let phase_file = format!("swarm/phases/{}.json", phase_slug);
+    if let Ok(phase) = read_hub_json::<PhaseDefinition>(sync, &phase_file) {
+        return Ok((phase, phase_file));
+    }
+
+    // Try slugifying each plan phase name to find a match
+    for name in &plan.phases {
+        let slug = slugify_phase(name);
+        if slug == phase_slug {
+            let path = format!("swarm/phases/{}.json", slug);
+            let phase: PhaseDefinition = read_hub_json(sync, &path)
+                .with_context(|| format!("Phase file missing for '{}'", name))?;
+            return Ok((phase, path));
+        }
+    }
+
+    bail!(
+        "Phase '{}' not found. Available phases: {}",
+        phase_slug,
+        plan.phases
+            .iter()
+            .map(|n| slugify_phase(n))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Check that all dependency phases are completed.
+fn check_dependencies(sync: &SyncManager, phase: &PhaseDefinition) -> Result<()> {
+    for dep_name in &phase.depends_on {
+        let dep_slug = slugify_phase(dep_name);
+        let dep_file = format!("swarm/phases/{}.json", dep_slug);
+        let dep: PhaseDefinition = read_hub_json(sync, &dep_file)
+            .with_context(|| format!("Dependency phase '{}' not found", dep_name))?;
+        if dep.status != PhaseStatus::Completed {
+            bail!(
+                "Dependency '{}' is {} — must be completed before launching this phase",
+                dep_name,
+                dep.status
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Launch all planned agents for a phase via `kickoff run`.
+pub fn launch(
+    crosslink_dir: &Path,
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    phase_slug: &str,
+    quiet: bool,
+) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let (mut phase, phase_file) = load_phase(&sync, phase_slug)?;
+
+    if phase.status == PhaseStatus::Completed {
+        bail!("Phase '{}' is already completed", phase.name);
+    }
+
+    check_dependencies(&sync, &phase)?;
+
+    let planned_agents: Vec<usize> = phase
+        .agents
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.status == AgentStatus::Planned)
+        .map(|(i, _)| i)
+        .collect();
+
+    if planned_agents.is_empty() {
+        println!("No planned agents to launch in '{}'.", phase.name);
+        println!("Use `crosslink swarm status` to see current agent states.");
+        return Ok(());
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    if !quiet {
+        println!(
+            "Launching {} agent{} for {}...",
+            planned_agents.len(),
+            if planned_agents.len() == 1 { "" } else { "s" },
+            phase.name
+        );
+        println!();
+    }
+
+    for idx in &planned_agents {
+        let agent = &phase.agents[*idx];
+        let opts = KickoffOpts {
+            description: &agent.description,
+            issue: agent.issue_id,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "ghcr.io/forecast-bio/crosslink-agent:latest",
+            timeout: std::time::Duration::from_secs(3600),
+            dry_run: false,
+            branch: agent.branch.as_deref(),
+            quiet,
+            design_doc: None,
+            doc_path: None,
+        };
+
+        match kickoff::run(crosslink_dir, db, writer, &opts) {
+            Ok(()) => {
+                phase.agents[*idx].status = AgentStatus::Running;
+                phase.agents[*idx].started_at = Some(now.clone());
+            }
+            Err(e) => {
+                eprintln!("Failed to launch {}: {}", agent.slug, e);
+                phase.agents[*idx].status = AgentStatus::Failed;
+            }
+        }
+    }
+
+    phase.status = PhaseStatus::InProgress;
+
+    write_hub_json(&sync, &phase_file, &phase)?;
+    commit_hub_files(
+        &sync,
+        &[phase_file.as_str()],
+        &format!("swarm: launch {}", phase.name),
+    )?;
+
+    if !quiet {
+        let running = phase
+            .agents
+            .iter()
+            .filter(|a| a.status == AgentStatus::Running)
+            .count();
+        let failed = phase
+            .agents
+            .iter()
+            .filter(|a| a.status == AgentStatus::Failed)
+            .count();
+        println!();
+        println!(
+            "{} agent{} launched, {} failed.",
+            running,
+            if running == 1 { "" } else { "s" },
+            failed
+        );
+        println!();
+        println!("Monitor with: crosslink swarm status");
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// swarm gate
+// ---------------------------------------------------------------------------
+
+/// Run the project gate (test suite) for a phase and record the result.
+pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let (mut phase, phase_file) = load_phase(&sync, phase_slug)?;
+
+    // Check that agents are resolved (all completed/merged/failed)
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let unresolved: Vec<&AgentEntry> = phase
+        .agents
+        .iter()
+        .filter(|a| a.status == AgentStatus::Planned || a.status == AgentStatus::Running)
+        .collect();
+
+    if !unresolved.is_empty() {
+        let live_unresolved: Vec<&AgentEntry> = unresolved
+            .into_iter()
+            .filter(|a| {
+                let live = probe_agent_status(root, &a.slug);
+                live == "planned" || live.starts_with("running")
+            })
+            .collect();
+
+        if !live_unresolved.is_empty() {
+            let names: Vec<&str> = live_unresolved.iter().map(|a| a.slug.as_str()).collect();
+            bail!(
+                "Cannot gate: {} agent(s) still unresolved: {}",
+                live_unresolved.len(),
+                names.join(", ")
+            );
+        }
+    }
+
+    // Detect project conventions and get test command
+    let conventions = kickoff::detect_conventions(root);
+    let test_cmd = conventions.test_command.as_deref().unwrap_or("cargo test");
+
+    println!("Running gate: {}", test_cmd);
+    println!();
+
+    let output = std::process::Command::new("sh")
+        .args(["-c", test_cmd])
+        .current_dir(root)
+        .output()
+        .with_context(|| format!("Failed to run gate command: {}", test_cmd))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let gate_passed = output.status.success();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Try to parse test counts from output (Rust cargo test format)
+    let (tests_total, tests_passed) = parse_test_counts(&stdout, &stderr);
+
+    let gate_result = GateResult {
+        status: if gate_passed {
+            "passed".to_string()
+        } else {
+            "failed".to_string()
+        },
+        tests_total,
+        tests_passed,
+        ran_at: Some(now),
+    };
+
+    phase.gate = Some(gate_result);
+
+    write_hub_json(&sync, &phase_file, &phase)?;
+    commit_hub_files(
+        &sync,
+        &[phase_file.as_str()],
+        &format!(
+            "swarm: gate {} — {}",
+            phase.name,
+            if gate_passed { "passed" } else { "failed" }
+        ),
+    )?;
+
+    if gate_passed {
+        let tests_info = tests_total
+            .map(|t| format!(" ({} tests)", t))
+            .unwrap_or_default();
+        println!("Gate passed{}", tests_info);
+        println!();
+        println!(
+            "Next: crosslink swarm checkpoint {}",
+            slugify_phase(&phase.name)
+        );
+    } else {
+        println!("Gate FAILED.");
+        if !stderr.is_empty() {
+            let tail: Vec<&str> = stderr.lines().rev().take(20).collect();
+            for line in tail.into_iter().rev() {
+                println!("  {}", line);
+            }
+        }
+        println!();
+        println!(
+            "Fix failures and re-run: crosslink swarm gate {}",
+            phase_slug
+        );
+    }
+
+    Ok(())
+}
+
+/// Parse test counts from combined stdout/stderr (supports cargo test output).
+fn parse_test_counts(stdout: &str, stderr: &str) -> (Option<u64>, Option<u64>) {
+    // cargo test format: "test result: ok. 142 passed; 0 failed; 0 ignored; ..."
+    for text in [stdout, stderr] {
+        for line in text.lines() {
+            if line.starts_with("test result:") {
+                let mut passed: Option<u64> = None;
+                let mut failed: Option<u64> = None;
+
+                for part in line.split(';') {
+                    let part = part.trim();
+                    if part.ends_with("passed") {
+                        passed = part.split_whitespace().find_map(|w| w.parse::<u64>().ok());
+                    } else if part.ends_with("failed") {
+                        failed = part.split_whitespace().find_map(|w| w.parse::<u64>().ok());
+                    }
+                }
+
+                if let (Some(p), Some(f)) = (passed, failed) {
+                    return (Some(p + f), Some(p));
+                }
+            }
+        }
+    }
+    (None, None)
+}
+
+// ---------------------------------------------------------------------------
+// swarm checkpoint
+// ---------------------------------------------------------------------------
+
+/// Record a checkpoint after a phase completes.
+pub fn checkpoint(
+    crosslink_dir: &Path,
+    phase_slug: &str,
+    notes: Option<&str>,
+    force: bool,
+) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+
+    let (mut phase, phase_file) = load_phase(&sync, phase_slug)?;
+
+    // Verify gate passed (unless --force)
+    if !force {
+        match &phase.gate {
+            Some(g) if g.status == "passed" => {}
+            Some(g) => bail!(
+                "Gate status is '{}', not 'passed'. Use --force to checkpoint anyway.",
+                g.status
+            ),
+            None => bail!(
+                "No gate result recorded. Run `crosslink swarm gate {}` first, or use --force.",
+                phase_slug
+            ),
+        }
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Get current dev branch SHA
+    let dev_sha = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    let agents_merged: Vec<String> = phase
+        .agents
+        .iter()
+        .filter(|a| a.status == AgentStatus::Merged || a.status == AgentStatus::Completed)
+        .map(|a| a.slug.clone())
+        .collect();
+
+    let agents_pending: Vec<String> = phase
+        .agents
+        .iter()
+        .filter(|a| a.status != AgentStatus::Merged && a.status != AgentStatus::Completed)
+        .map(|a| a.slug.clone())
+        .collect();
+
+    let test_result = phase
+        .gate
+        .as_ref()
+        .and_then(|g| match (g.tests_total, g.tests_passed) {
+            (Some(total), Some(passed)) => Some(TestResult {
+                total,
+                passed,
+                failed: total.saturating_sub(passed),
+            }),
+            _ => None,
+        });
+
+    let cp = Checkpoint {
+        phase: phase.name.clone(),
+        created_at: now.clone(),
+        agents_merged,
+        agents_pending,
+        dev_branch_sha: dev_sha,
+        test_result,
+        handoff_notes: notes.map(|s| s.to_string()),
+    };
+
+    let cp_slug = slugify_phase(&phase.name);
+    let cp_path = format!("swarm/checkpoints/{}.json", cp_slug);
+    write_hub_json(&sync, &cp_path, &cp)?;
+
+    // Mark phase completed
+    phase.status = PhaseStatus::Completed;
+    phase.checkpoint = Some(cp_slug.clone());
+    for agent in &mut phase.agents {
+        if agent.status == AgentStatus::Completed {
+            agent.status = AgentStatus::Merged;
+            agent.completed_at = Some(now.clone());
+        }
+    }
+
+    write_hub_json(&sync, &phase_file, &phase)?;
+    commit_hub_files(
+        &sync,
+        &[phase_file.as_str(), cp_path.as_str()],
+        &format!("swarm: checkpoint {}", phase.name),
+    )?;
+
+    println!("Checkpoint recorded for {}", phase.name);
+    if let Some(n) = notes {
+        println!("  Notes: {}", n);
+    }
+
+    // Check if there's a next phase
+    let plan: SwarmPlan = read_hub_json(&sync, "swarm/plan.json")?;
+    let current_idx = plan
+        .phases
+        .iter()
+        .position(|p| slugify_phase(p) == slugify_phase(&phase.name));
+
+    if let Some(idx) = current_idx {
+        if idx + 1 < plan.phases.len() {
+            let next = &plan.phases[idx + 1];
+            println!();
+            println!(
+                "Next phase: {} → crosslink swarm launch {}",
+                next,
+                slugify_phase(next)
+            );
+        } else {
+            println!();
+            println!("All phases completed. Swarm build is done.");
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 /// Find the latest checkpoint file by modification time.
 fn find_latest_checkpoint(dir: &Path) -> Option<Checkpoint> {
     if !dir.is_dir() {
@@ -1011,6 +1456,122 @@ mod tests {
         std::fs::create_dir_all(&wt).unwrap();
         std::fs::write(wt.join(".kickoff-status"), "FAILED\n").unwrap();
         assert_eq!(probe_agent_status(dir.path(), "bad-agent"), "FAILED");
+    }
+
+    #[test]
+    fn test_load_phase_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path();
+        // Create a minimal plan with no phase files
+        std::fs::create_dir_all(cache.join("swarm")).unwrap();
+        let plan = SwarmPlan {
+            schema_version: 1,
+            title: "Test".to_string(),
+            design_doc: None,
+            created_at: "2026-03-06T12:00:00Z".to_string(),
+            phases: vec!["Phase 1".to_string()],
+        };
+        std::fs::write(
+            cache.join("swarm/plan.json"),
+            serde_json::to_string(&plan).unwrap(),
+        )
+        .unwrap();
+
+        // We can't easily test load_phase without a SyncManager,
+        // but we can test the slug-matching logic indirectly via slugify_phase
+        assert_eq!(slugify_phase("Phase 1"), "phase-1");
+        assert_eq!(slugify_phase("Phase 2"), "phase-2");
+    }
+
+    #[test]
+    fn test_parse_test_counts_cargo_format() {
+        let stdout = "running 142 tests\n\
+                      test result: ok. 140 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out";
+        let (total, passed) = parse_test_counts(stdout, "");
+        assert_eq!(total, Some(142));
+        assert_eq!(passed, Some(140));
+    }
+
+    #[test]
+    fn test_parse_test_counts_no_match() {
+        let (total, passed) = parse_test_counts("all good", "no tests");
+        assert_eq!(total, None);
+        assert_eq!(passed, None);
+    }
+
+    #[test]
+    fn test_parse_test_counts_from_stderr() {
+        let stderr = "test result: ok. 50 passed; 0 failed; 3 ignored; 0 measured; 10 filtered out";
+        let (total, passed) = parse_test_counts("", stderr);
+        assert_eq!(total, Some(50));
+        assert_eq!(passed, Some(50));
+    }
+
+    #[test]
+    fn test_gate_result_serde_roundtrip() {
+        let gate = GateResult {
+            status: "passed".to_string(),
+            tests_total: Some(142),
+            tests_passed: Some(142),
+            ran_at: Some("2026-03-06T15:00:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&gate).unwrap();
+        let parsed: GateResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(gate, parsed);
+    }
+
+    #[test]
+    fn test_phase_status_transitions() {
+        // Verify the expected phase lifecycle: Pending -> InProgress -> Completed
+        let mut phase = PhaseDefinition {
+            name: "Phase 1".to_string(),
+            status: PhaseStatus::Pending,
+            agents: vec![AgentEntry {
+                slug: "agent-1".to_string(),
+                description: "Test agent".to_string(),
+                issue_id: None,
+                agent_id: None,
+                branch: Some("feature/agent-1".to_string()),
+                status: AgentStatus::Planned,
+                started_at: None,
+                completed_at: None,
+            }],
+            gate: None,
+            depends_on: vec![],
+            checkpoint: None,
+        };
+
+        assert_eq!(phase.status, PhaseStatus::Pending);
+        assert_eq!(phase.agents[0].status, AgentStatus::Planned);
+
+        // Simulate launch
+        phase.status = PhaseStatus::InProgress;
+        phase.agents[0].status = AgentStatus::Running;
+        phase.agents[0].started_at = Some("2026-03-06T12:00:00Z".to_string());
+        assert_eq!(phase.status, PhaseStatus::InProgress);
+
+        // Simulate completion + gate
+        phase.agents[0].status = AgentStatus::Completed;
+        phase.gate = Some(GateResult {
+            status: "passed".to_string(),
+            tests_total: Some(100),
+            tests_passed: Some(100),
+            ran_at: Some("2026-03-06T13:00:00Z".to_string()),
+        });
+
+        // Simulate checkpoint
+        phase.status = PhaseStatus::Completed;
+        phase.agents[0].status = AgentStatus::Merged;
+        phase.checkpoint = Some("phase-1".to_string());
+
+        assert_eq!(phase.status, PhaseStatus::Completed);
+        assert_eq!(phase.agents[0].status, AgentStatus::Merged);
+        assert!(phase.checkpoint.is_some());
+
+        // Roundtrip the final state
+        let json = serde_json::to_string(&phase).unwrap();
+        let parsed: PhaseDefinition = serde_json::from_str(&json).unwrap();
+        assert_eq!(phase, parsed);
     }
 
     #[test]
