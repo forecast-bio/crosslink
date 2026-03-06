@@ -3826,4 +3826,157 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert!(command_available("where.exe"));
     }
+
+    // --- Tier 1 smoke tests (GH issue #242) ---
+
+    #[test]
+    fn test_kickoff_report_phase3_backward_compat() {
+        // Phase 3 report has only validated_at, criteria, summary — no Phase 4 fields.
+        // It must deserialize into the current KickoffReport struct.
+        let phase3_json = include_str!("../../test-fixtures/phase3-report.json");
+        let report: KickoffReport =
+            serde_json::from_str(phase3_json).expect("Phase 3 JSON must deserialize");
+
+        assert_eq!(report.validated_at, "2026-03-01T12:00:00Z");
+        assert_eq!(report.criteria.len(), 2);
+        assert_eq!(report.criteria[0].id, "AC-1");
+        assert_eq!(report.criteria[0].verdict, "pass");
+        assert_eq!(report.criteria[1].verdict, "fail");
+        assert_eq!(report.summary.total, 2);
+        assert_eq!(report.summary.pass, 1);
+        assert_eq!(report.summary.fail, 1);
+
+        // Phase 4 fields should all be None (serde defaults)
+        assert!(report.schema_version.is_none());
+        assert!(report.agent_id.is_none());
+        assert!(report.issue_id.is_none());
+        assert!(report.status.is_none());
+        assert!(report.started_at.is_none());
+        assert!(report.completed_at.is_none());
+        assert!(report.phases.is_none());
+        assert!(report.unresolved_questions.is_none());
+        assert!(report.commits.is_none());
+        assert!(report.files_changed.is_none());
+
+        // Round-trip: serialize and deserialize again
+        let serialized = serde_json::to_string(&report).expect("serialize");
+        let roundtrip: KickoffReport =
+            serde_json::from_str(&serialized).expect("round-trip deserialize");
+        assert_eq!(report, roundtrip);
+    }
+
+    #[test]
+    fn test_build_prompt_contains_report_json_schema() {
+        // When a design doc with acceptance criteria is provided, the prompt
+        // must include the KickoffReport JSON schema fields.
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Test Feature".to_string(),
+            summary: String::new(),
+            requirements: vec![],
+            acceptance_criteria: vec!["AC-1: Widget renders".to_string()],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "test feature",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+            doc_path: Some("test.md"),
+        };
+        let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
+
+        // Must contain the JSON schema field names from KickoffReport
+        assert!(prompt.contains("schema_version"));
+        assert!(prompt.contains("agent_id"));
+        assert!(prompt.contains("issue_id"));
+        assert!(prompt.contains("validated_at"));
+        assert!(prompt.contains("criteria"));
+        assert!(prompt.contains("summary"));
+        assert!(prompt.contains(".kickoff-report.json"));
+    }
+
+    #[test]
+    fn test_build_prompt_contains_validation_section() {
+        // When acceptance criteria are present, the prompt must include
+        // the spec validation instructions.
+        let doc = super::super::design_doc::DesignDoc {
+            title: "Validated Feature".to_string(),
+            summary: String::new(),
+            requirements: vec![],
+            acceptance_criteria: vec!["AC-1: Must work".to_string()],
+            architecture: String::new(),
+            open_questions: vec![],
+            out_of_scope: vec![],
+            unknown_sections: vec![],
+        };
+        let conventions = ProjectConventions {
+            test_command: None,
+            lint_commands: vec![],
+            allowed_tools: vec![],
+        };
+        let opts = KickoffOpts {
+            description: "validated feature",
+            issue: None,
+            container: ContainerMode::None,
+            verify: VerifyLevel::Local,
+            model: "opus",
+            image: "",
+            timeout: Duration::from_secs(3600),
+            dry_run: false,
+            branch: None,
+            quiet: false,
+            design_doc: Some(&doc),
+            doc_path: Some("test.md"),
+        };
+        let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
+
+        assert!(prompt.contains("Spec Validation & Reporting"));
+        assert!(prompt.contains("Criteria Validation"));
+        assert!(prompt.contains(".kickoff-criteria.json"));
+        assert!(prompt.contains("pass"));
+        assert!(prompt.contains("fail"));
+        assert!(prompt.contains("partial"));
+        assert!(prompt.contains("not_applicable"));
+        assert!(prompt.contains("needs_clarification"));
+    }
+
+    #[test]
+    fn test_plan_tools_are_read_only() {
+        let tools = build_allowed_tools_plan();
+        // Plan mode must NOT include write/edit tools
+        assert!(
+            !tools.contains("Write"),
+            "plan tools must not include Write"
+        );
+        assert!(!tools.contains("Edit"), "plan tools must not include Edit");
+        assert!(
+            !tools.contains("Bash(git commit"),
+            "plan tools must not allow git commit"
+        );
+        assert!(
+            !tools.contains("Bash(git push"),
+            "plan tools must not allow git push"
+        );
+        // Plan mode MUST include read-only tools
+        assert!(tools.contains("Read"));
+        assert!(tools.contains("Glob"));
+        assert!(tools.contains("Grep"));
+        assert!(tools.contains("Bash(git log"));
+        assert!(tools.contains("Bash(git diff"));
+    }
 }

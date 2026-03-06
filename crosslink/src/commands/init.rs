@@ -2522,4 +2522,72 @@ mod tests {
         let content = fs::read_to_string(dir.path().join(".crosslink/.gitignore")).unwrap();
         assert!(content.contains("integrations/"));
     }
+
+    // --- Tier 1/2 smoke tests (GH issue #242) ---
+
+    #[test]
+    fn test_init_deploys_skill_files() {
+        let dir = tempdir().unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        let commands_dir = dir.path().join(".claude/commands");
+        assert!(
+            commands_dir.join("maintain.md").exists(),
+            "maintain.md skill not deployed"
+        );
+        assert!(
+            commands_dir.join("design.md").exists(),
+            "design.md skill not deployed"
+        );
+
+        // Verify non-empty content
+        let maintain = fs::read_to_string(commands_dir.join("maintain.md")).unwrap();
+        assert!(!maintain.is_empty(), "maintain.md is empty");
+        let design = fs::read_to_string(commands_dir.join("design.md")).unwrap();
+        assert!(!design.is_empty(), "design.md is empty");
+    }
+
+    #[test]
+    fn test_init_deploys_mcp_knowledge_server() {
+        let dir = tempdir().unwrap();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // knowledge-server.py must exist
+        assert!(
+            dir.path().join(".claude/mcp/knowledge-server.py").exists(),
+            "knowledge-server.py not deployed"
+        );
+
+        // .mcp.json must reference both MCP servers
+        let mcp_content = fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
+        let mcp: serde_json::Value = serde_json::from_str(&mcp_content).unwrap();
+        let servers = mcp["mcpServers"].as_object().unwrap();
+        assert!(
+            servers.contains_key("crosslink-safe-fetch"),
+            ".mcp.json missing crosslink-safe-fetch"
+        );
+        assert!(
+            servers.contains_key("crosslink-knowledge"),
+            ".mcp.json missing crosslink-knowledge"
+        );
+    }
+
+    #[test]
+    fn test_force_init_deploys_skill_files() {
+        let dir = tempdir().unwrap();
+        // First init
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // Delete skill files to simulate upgrade scenario
+        let commands_dir = dir.path().join(".claude/commands");
+        fs::remove_file(commands_dir.join("maintain.md")).unwrap();
+        fs::remove_file(commands_dir.join("design.md")).unwrap();
+        assert!(!commands_dir.join("maintain.md").exists());
+        assert!(!commands_dir.join("design.md").exists());
+
+        // Force init should re-deploy them
+        run(dir.path(), &test_opts(true)).unwrap();
+        assert!(commands_dir.join("maintain.md").exists());
+        assert!(commands_dir.join("design.md").exists());
+    }
 }

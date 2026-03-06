@@ -2853,3 +2853,283 @@ fn test_kickoff_dry_run_does_not_launch_agent() {
     assert!(!stdout.contains("tmux"));
     assert!(!stdout.contains("Approve trust"));
 }
+
+// ==================== Tier 2 Smoke Tests (GH issue #242) ====================
+
+#[test]
+fn test_knowledge_search_with_tag_filter() {
+    let dir = tempdir().unwrap();
+    init_git_and_crosslink(dir.path());
+
+    // Add two knowledge pages with different tags
+    let (s1, _, _) = run_crosslink(
+        dir.path(),
+        &[
+            "knowledge",
+            "add",
+            "design-alpha",
+            "--title",
+            "Alpha Design",
+            "--tag",
+            "design-doc",
+            "--content",
+            "Alpha design content with searchword",
+        ],
+    );
+    assert!(s1, "Failed to add knowledge page alpha");
+
+    let (s2, _, _) = run_crosslink(
+        dir.path(),
+        &[
+            "knowledge",
+            "add",
+            "notes-beta",
+            "--title",
+            "Beta Notes",
+            "--tag",
+            "meeting-notes",
+            "--content",
+            "Beta meeting content with searchword",
+        ],
+    );
+    assert!(s2, "Failed to add knowledge page beta");
+
+    // Search with tag filter
+    let (success, stdout, _) = run_crosslink(
+        dir.path(),
+        &["knowledge", "search", "searchword", "--tag", "design-doc"],
+    );
+    assert!(success);
+    assert!(
+        stdout.contains("design-alpha") || stdout.contains("Alpha"),
+        "Tag-filtered search should find design-alpha, got: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("notes-beta"),
+        "Tag-filtered search should NOT find notes-beta"
+    );
+}
+
+#[test]
+fn test_knowledge_import_dry_run() {
+    let dir = tempdir().unwrap();
+    init_git_and_crosslink(dir.path());
+
+    // Create a fixtures directory with markdown files
+    let fixtures = dir.path().join("import-fixtures");
+    std::fs::create_dir_all(&fixtures).unwrap();
+    std::fs::write(fixtures.join("doc-one.md"), "# Doc One\n\nContent one.\n").unwrap();
+    std::fs::write(fixtures.join("doc-two.md"), "# Doc Two\n\nContent two.\n").unwrap();
+
+    let (success, stdout, _) = run_crosslink(
+        dir.path(),
+        &[
+            "knowledge",
+            "import",
+            fixtures.to_str().unwrap(),
+            "--dry-run",
+        ],
+    );
+    assert!(success);
+    // Dry run should list files that WOULD be imported
+    assert!(
+        stdout.contains("doc-one") || stdout.contains("import"),
+        "Dry run should list files: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("doc-two") || stdout.contains("import"),
+        "Dry run should list both files: {}",
+        stdout
+    );
+
+    // Verify nothing was actually imported
+    let (_, list_out, _) = run_crosslink(dir.path(), &["knowledge", "list"]);
+    assert!(
+        !list_out.contains("doc-one"),
+        "Dry run should not actually import pages"
+    );
+}
+
+#[test]
+fn test_init_deploys_mcp_knowledge_server_integration() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+
+    // knowledge-server.py must exist after init
+    assert!(
+        dir.path().join(".claude/mcp/knowledge-server.py").exists(),
+        "knowledge-server.py not deployed"
+    );
+
+    // .mcp.json must exist and reference both MCP servers
+    let mcp_path = dir.path().join(".mcp.json");
+    assert!(mcp_path.exists(), ".mcp.json not created");
+
+    let mcp_content = std::fs::read_to_string(&mcp_path).unwrap();
+    assert!(
+        mcp_content.contains("crosslink-safe-fetch"),
+        ".mcp.json missing crosslink-safe-fetch"
+    );
+    assert!(
+        mcp_content.contains("crosslink-knowledge"),
+        ".mcp.json missing crosslink-knowledge"
+    );
+}
+
+#[test]
+fn test_init_deploys_skill_files_integration() {
+    let dir = tempdir().unwrap();
+    init_crosslink(dir.path());
+
+    let commands_dir = dir.path().join(".claude/commands");
+    assert!(
+        commands_dir.join("maintain.md").exists(),
+        "maintain.md not deployed"
+    );
+    assert!(
+        commands_dir.join("design.md").exists(),
+        "design.md not deployed"
+    );
+
+    // Force init should also work
+    let (success, _, _) = run_crosslink(dir.path(), &["init", "--force"]);
+    assert!(success, "Force init failed");
+    assert!(commands_dir.join("maintain.md").exists());
+    assert!(commands_dir.join("design.md").exists());
+}
+
+// ==================== Tier 3 Smoke Tests (GH issue #242) ====================
+// These tests need git repo fixtures with remotes.
+
+/// Set up a temp dir with a bare "remote" and a clone that has crosslink initialized.
+/// Returns (work_dir, remote_dir) — work_dir is the clone with crosslink init done.
+fn setup_repo_with_remote() -> (tempfile::TempDir, tempfile::TempDir) {
+    let remote_dir = tempdir().unwrap();
+    let work_dir = tempdir().unwrap();
+
+    // Create bare remote
+    let out = Command::new("git")
+        .current_dir(remote_dir.path())
+        .args(["init", "--bare", "-b", "main"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git init --bare failed");
+
+    // Init work repo
+    let out = Command::new("git")
+        .current_dir(work_dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git init failed");
+
+    // Configure git user
+    for args in [
+        vec!["config", "user.email", "test@test.com"],
+        vec!["config", "user.name", "Test"],
+        vec![
+            "remote",
+            "add",
+            "origin",
+            remote_dir.path().to_str().unwrap(),
+        ],
+    ] {
+        let _ = Command::new("git")
+            .current_dir(work_dir.path())
+            .args(&args)
+            .output();
+    }
+
+    // Initial commit and push
+    std::fs::write(work_dir.path().join("README.md"), "# test\n").unwrap();
+    let _ = Command::new("git")
+        .current_dir(work_dir.path())
+        .args(["add", "README.md"])
+        .output();
+    let _ = Command::new("git")
+        .current_dir(work_dir.path())
+        .args(["commit", "-m", "initial", "--no-gpg-sign"])
+        .output();
+    let out = Command::new("git")
+        .current_dir(work_dir.path())
+        .args(["push", "-u", "origin", "main"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "initial push failed");
+
+    // Init crosslink
+    init_crosslink(work_dir.path());
+
+    (work_dir, remote_dir)
+}
+
+#[test]
+fn test_hub_sync_idempotent() {
+    let (work_dir, _remote_dir) = setup_repo_with_remote();
+
+    // First sync
+    let (s1, out1, err1) = run_crosslink(work_dir.path(), &["sync"]);
+    assert!(s1, "First sync failed: stdout={} stderr={}", out1, err1);
+
+    // Second sync — must also succeed (idempotent)
+    let (s2, out2, err2) = run_crosslink(work_dir.path(), &["sync"]);
+    assert!(
+        s2,
+        "Second sync failed (not idempotent): stdout={} stderr={}",
+        out2, err2
+    );
+}
+
+#[test]
+fn test_hub_sync_recovery_from_dirty_cache() {
+    let (work_dir, _remote_dir) = setup_repo_with_remote();
+
+    // First sync to initialize cache
+    let (s, _, err) = run_crosslink(work_dir.path(), &["sync"]);
+    assert!(s, "Initial sync failed: {}", err);
+
+    // Dirty the cache by appending to a file in the hub cache dir
+    let hub_cache = work_dir.path().join(".crosslink/.hub-cache");
+    if hub_cache.exists() {
+        // Create a dirty untracked file in the cache
+        std::fs::write(hub_cache.join("dirty-test-file.txt"), "dirty\n").ok();
+    }
+
+    // Sync again — should recover cleanly
+    let (s2, _, err2) = run_crosslink(work_dir.path(), &["sync"]);
+    assert!(s2, "Sync after dirty cache should recover: stderr={}", err2);
+}
+
+#[test]
+fn test_offline_sync_does_not_panic() {
+    let (work_dir, _remote_dir) = setup_repo_with_remote();
+
+    // First sync to initialize the hub cache properly
+    let (s, _, err) = run_crosslink(work_dir.path(), &["sync"]);
+    assert!(s, "Initial sync failed: {}", err);
+
+    // Now point origin at a nonexistent path so fetch/push will fail
+    let _ = Command::new("git")
+        .current_dir(work_dir.path())
+        .args([
+            "remote",
+            "set-url",
+            "origin",
+            "/nonexistent/remote/path/that/does/not/exist",
+        ])
+        .output();
+
+    // Sync with unreachable remote — should not panic, and should either
+    // fail gracefully or succeed with local-only state
+    let (_, stdout, stderr) = run_crosslink(work_dir.path(), &["sync"]);
+    let combined = format!("{}{}", stdout, stderr);
+
+    // Must not contain panic output
+    assert!(
+        !combined.contains("panicked"),
+        "Sync with offline remote should not panic: {}",
+        combined
+    );
+}

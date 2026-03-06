@@ -1,0 +1,23 @@
+{
+  "validated_at": "2026-03-01T12:00:00Z",
+  "criteria": [
+    {
+      "id": "AC-1",
+      "verdict": "pass",
+      "evidence": "test_upload passes with 100MB fixture"
+    },
+    {
+      "id": "AC-2",
+      "verdict": "fail",
+      "evidence": "timeout not implemented yet"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "pass": 1,
+    "fail": 1,
+    "partial": 0,
+    "not_applicable": 0,
+    "needs_clarification": 0
+  }
+}

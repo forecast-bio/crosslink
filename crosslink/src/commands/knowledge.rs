@@ -1273,7 +1273,6 @@ mod tests {
     #[test]
     fn test_add_from_doc_creates_page() {
         let (km, dir) = setup_km();
-        let crosslink_dir = dir.path().join(".crosslink");
 
         // Write a sample design doc
         let doc_path = dir.path().join("design.md");
