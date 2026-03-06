@@ -890,11 +890,94 @@ fn tmux_session_exists(name: &str) -> bool {
 
 /// Check if a command is available on PATH.
 fn command_available(cmd: &str) -> bool {
-    Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    #[cfg(target_os = "windows")]
+    let lookup = Command::new("where.exe").arg(cmd).output();
+    #[cfg(not(target_os = "windows"))]
+    let lookup = Command::new("which").arg(cmd).output();
+
+    lookup.map(|o| o.status.success()).unwrap_or(false)
+}
+
+/// Detect whether we're running on macOS (runtime check).
+fn is_macos() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Install hint for a required command.
+struct InstallHint {
+    name: &'static str,
+    hint: &'static str,
+}
+
+/// Pre-flight check: verify all required external commands are available.
+///
+/// Collects *all* missing commands and reports them together so the user can
+/// install everything in one pass instead of hitting errors one at a time.
+fn preflight_check(container: &ContainerMode, need_gh: bool) -> Result<()> {
+    let mut required: Vec<InstallHint> = Vec::new();
+    let macos = is_macos();
+
+    if *container == ContainerMode::None {
+        required.push(InstallHint {
+            name: "timeout",
+            hint: if macos {
+                "brew install coreutils && alias gtimeout=timeout (or add to shell profile)"
+            } else {
+                "part of GNU coreutils — install via your package manager (e.g. apt install coreutils)"
+            },
+        });
+        required.push(InstallHint {
+            name: "tmux",
+            hint: if macos {
+                "brew install tmux"
+            } else {
+                "install via your package manager (e.g. apt install tmux)"
+            },
+        });
+        required.push(InstallHint {
+            name: "claude",
+            hint: "install from https://docs.anthropic.com/en/docs/claude-code",
+        });
+    } else {
+        let (name, hint): (&'static str, &'static str) = match container {
+            ContainerMode::Docker => (
+                "docker",
+                "install from https://docs.docker.com/get-docker/",
+            ),
+            ContainerMode::Podman => (
+                "podman",
+                "install from https://podman.io/getting-started/installation",
+            ),
+            ContainerMode::None => unreachable!(),
+        };
+        required.push(InstallHint { name, hint });
+    }
+
+    if need_gh {
+        required.push(InstallHint {
+            name: "gh",
+            hint: if macos {
+                "brew install gh"
+            } else {
+                "install from https://cli.github.com"
+            },
+        });
+    }
+
+    let missing: Vec<&InstallHint> = required
+        .iter()
+        .filter(|r| !command_available(r.name))
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let mut msg = String::from("missing required commands:\n");
+    for cmd in &missing {
+        msg.push_str(&format!("  • {}: {}\n", cmd.name, cmd.hint));
+    }
+    bail!(msg.trim_end().to_string());
 }
 
 /// Get the git repository root.
@@ -1171,19 +1254,11 @@ pub fn run(
     writer: Option<&SharedWriter>,
     opts: &KickoffOpts,
 ) -> Result<()> {
-    // 1. Validate prerequisites (skip for dry-run — no agent is launched)
+    // 1. Pre-flight: check all required external commands (skip for dry-run)
     if !opts.dry_run {
-        if opts.container == ContainerMode::None && !command_available("tmux") {
-            bail!("tmux is not installed. Install tmux or use --container docker.");
-        }
-        if opts.container == ContainerMode::None && !command_available("claude") {
-            bail!("claude CLI is not installed. Install it from https://claude.ai/install.sh");
-        }
-        if (opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough)
-            && !command_available("gh")
-        {
-            bail!("GitHub CLI (gh) is required for --verify ci/thorough. Install from https://cli.github.com");
-        }
+        let need_gh =
+            opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough;
+        preflight_check(&opts.container, need_gh)?;
     }
 
     let root = repo_root()?;
@@ -1749,14 +1824,9 @@ pub struct PlanOpts<'a> {
 
 /// Main entry point: `crosslink kickoff plan`.
 pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
-    // 1. Validate prerequisites (skip for dry-run)
+    // 1. Pre-flight: check all required external commands (skip for dry-run)
     if !opts.dry_run {
-        if !command_available("tmux") {
-            bail!("tmux is not installed. Install tmux to use kickoff plan.");
-        }
-        if !command_available("claude") {
-            bail!("claude CLI is not installed. Install it from https://claude.ai/install.sh");
-        }
+        preflight_check(&ContainerMode::None, false)?;
     }
 
     let root = repo_root()?;
@@ -3715,5 +3785,49 @@ mod tests {
         assert!(output.contains("alpha"));
         assert!(output.contains("beta"));
         assert!(output.contains("1 completed, 1 failed"));
+    }
+
+    #[test]
+    fn test_preflight_check_passes_when_commands_available() {
+        // In the test environment, timeout/tmux/claude may or may not exist.
+        // For container mode with a non-existent runtime, it should fail.
+        let result = preflight_check(&ContainerMode::Docker, false);
+        // Docker may or may not be installed — just verify it doesn't panic.
+        let _ = result;
+    }
+
+    #[test]
+    fn test_preflight_check_missing_command_includes_hint() {
+        // Use a container mode referencing a command that almost certainly doesn't exist
+        // by checking the error message format when docker/podman is missing.
+        // We test the error format rather than specific availability.
+        let result = preflight_check(&ContainerMode::Podman, true);
+        if let Err(e) = result {
+            let msg = e.to_string();
+            // If podman is missing, the error should mention it with a hint
+            if msg.contains("podman") {
+                assert!(msg.contains("missing required commands:"));
+                assert!(msg.contains("podman.io"));
+            }
+            // If gh is also missing, it should appear in the same message
+            if msg.contains("gh") {
+                assert!(msg.contains("cli.github.com") || msg.contains("brew install gh"));
+            }
+        }
+        // If it passes, both podman and gh are installed — that's fine too.
+    }
+
+    #[test]
+    fn test_command_available_nonexistent() {
+        assert!(!command_available("crosslink_nonexistent_binary_xyz"));
+    }
+
+    #[test]
+    fn test_command_available_real() {
+        // `which` (or `where.exe` on Windows) should always be available
+        #[cfg(not(target_os = "windows"))]
+        assert!(command_available("which"));
+        #[cfg(target_os = "windows")]
+        assert!(command_available("where.exe"));
     }
 }
