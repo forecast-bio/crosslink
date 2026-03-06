@@ -865,9 +865,7 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
             lock_rows: Vec::new(),
             trust_entries: Vec::new(),
             status_msg: String::new(),
-            error_msg: Some(
-                "Hub cache not initialized. Run 'crosslink sync' first.".to_string(),
-            ),
+            error_msg: Some("Hub cache not initialized. Run 'crosslink sync' first.".to_string()),
         };
     }
 
@@ -877,7 +875,10 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
     // Read locks
     let (locks, lock_error) = match sync.read_locks_auto() {
         Ok(l) => (l, None),
-        Err(e) => (LocksFile::empty(), Some(format!("Failed to read locks: {e}"))),
+        Err(e) => (
+            LocksFile::empty(),
+            Some(format!("Failed to read locks: {e}")),
+        ),
     };
 
     // Read heartbeats (auto-dispatches V1/V2)
@@ -887,8 +888,7 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
     let stale = sync.find_stale_locks().unwrap_or_default();
     let stale_agents: std::collections::HashSet<String> =
         stale.iter().map(|(_, a)| a.clone()).collect();
-    let stale_issues: std::collections::HashSet<i64> =
-        stale.iter().map(|(id, _)| *id).collect();
+    let stale_issues: std::collections::HashSet<i64> = stale.iter().map(|(id, _)| *id).collect();
 
     // Read trust store
     let trust = sync.read_allowed_signers().unwrap_or_default();
