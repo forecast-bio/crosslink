@@ -23,7 +23,7 @@
     "tsc", "node ", "python ",
     "ls", "dir", "pwd", "echo"
   ],
-  "reminder_drift_threshold": 5,
+  "reminder_drift_threshold": 3,
   "agent_overrides": {
     "tracking_mode": "relaxed",
     "blocked_git_commands": [

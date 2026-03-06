@@ -19,7 +19,6 @@ from crosslink_config import (
     is_agent_context,
     load_config_merged,
     normalize_git_command,
-    reset_drift_counter,
     run_crosslink,
 )
 
@@ -218,10 +217,6 @@ def main():
 
     # Allow read-only / infrastructure Bash commands through
     if tool_name == 'Bash' and is_allowed_bash(input_data, allowed_bash):
-        # Reset drift counter when agent uses crosslink (proves active usage)
-        command = input_data.get("tool_input", {}).get("command", "").strip()
-        if command.startswith("crosslink "):
-            reset_drift_counter(crosslink_dir)
         sys.exit(0)
 
     # Relaxed mode: no issue-tracking enforcement
