@@ -16,8 +16,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crosslink_config import (
     find_crosslink_dir,
+    is_agent_context,
     load_config_merged,
-    reset_drift_counter,
+    normalize_git_command,
     run_crosslink,
 )
 
@@ -27,6 +28,15 @@ DEFAULT_BLOCKED_GIT = [
     "git reset", "git checkout .", "git restore .", "git clean",
     "git stash", "git tag", "git am", "git apply",
     "git branch -d", "git branch -D", "git branch -m",
+]
+
+# Reduced block list for agents — they need push/commit/merge for their workflow
+# but force-push, hard-reset, and clean remain dangerous even for agents.
+DEFAULT_AGENT_BLOCKED_GIT = [
+    "git push --force", "git push -f",
+    "git reset --hard",
+    "git clean -f", "git clean -fd", "git clean -fdx",
+    "git checkout .", "git restore .",
 ]
 
 # Git commands that are blocked UNLESS there is an active crosslink issue.
@@ -48,7 +58,7 @@ DEFAULT_ALLOWED_BASH = [
 def load_config(crosslink_dir):
     """Load hook config from .crosslink/hook-config.json (with .local override), falling back to defaults.
 
-    Returns (tracking_mode, blocked_git, gated_git, allowed_bash).
+    Returns (tracking_mode, blocked_git, gated_git, allowed_bash, is_agent).
     tracking_mode is one of: "strict", "normal", "relaxed".
       strict  — block Write/Edit/Bash without an active issue
       normal  — remind (print warning) but don't block
@@ -58,10 +68,13 @@ def load_config(crosslink_dir):
     gated = list(DEFAULT_GATED_GIT)
     allowed = list(DEFAULT_ALLOWED_BASH)
     mode = "strict"
+    is_agent = is_agent_context(crosslink_dir)
 
     config = load_config_merged(crosslink_dir)
     if not config:
-        return mode, blocked, gated, allowed
+        if is_agent:
+            return "relaxed", list(DEFAULT_AGENT_BLOCKED_GIT), [], allowed, True
+        return mode, blocked, gated, allowed, False
 
     if config.get("tracking_mode") in ("strict", "normal", "relaxed"):
         mode = config["tracking_mode"]
@@ -72,17 +85,35 @@ def load_config(crosslink_dir):
     if "allowed_bash_prefixes" in config:
         allowed = config["allowed_bash_prefixes"]
 
-    return mode, blocked, gated, allowed
+    # Apply agent overrides when running in an agent worktree
+    if is_agent:
+        overrides = config.get("agent_overrides", {})
+        mode = overrides.get("tracking_mode", "relaxed")
+        blocked = overrides.get("blocked_git_commands", list(DEFAULT_AGENT_BLOCKED_GIT))
+        gated = overrides.get("gated_git_commands", [])
+
+    return mode, blocked, gated, allowed, is_agent
 
 
 def _matches_command_list(command, cmd_list):
-    """Check if a command matches any entry in the list (direct or chained)."""
+    """Check if a command matches any entry in the list (direct or chained).
+
+    Normalizes git commands to strip global flags (-C, --git-dir, etc.)
+    before matching, preventing bypass via 'git -C /path push'.
+    """
+    normalized = normalize_git_command(command)
     for entry in cmd_list:
-        if command.startswith(entry):
+        if normalized.startswith(entry):
             return True
-    for entry in cmd_list:
-        if f"&& {entry}" in command or f"; {entry}" in command or f"| {entry}" in command:
-            return True
+    # Check chained commands (&&, ;, |) with normalization
+    for sep in (" && ", " ; ", " | "):
+        for part in command.split(sep):
+            part = part.strip()
+            if part:
+                norm_part = normalize_git_command(part)
+                for entry in cmd_list:
+                    if norm_part.startswith(entry):
+                        return True
     return False
 
 
@@ -138,7 +169,7 @@ def main():
         sys.exit(0)
 
     crosslink_dir = find_crosslink_dir()
-    tracking_mode, blocked_git, gated_git, allowed_bash = load_config(crosslink_dir)
+    tracking_mode, blocked_git, gated_git, allowed_bash, is_agent = load_config(crosslink_dir)
 
     # PERMANENT BLOCK: git mutation commands are never allowed (all modes)
     if tool_name == 'Bash' and is_blocked_git(input_data, blocked_git):
@@ -186,10 +217,6 @@ def main():
 
     # Allow read-only / infrastructure Bash commands through
     if tool_name == 'Bash' and is_allowed_bash(input_data, allowed_bash):
-        # Reset drift counter when agent uses crosslink (proves active usage)
-        command = input_data.get("tool_input", {}).get("command", "").strip()
-        if command.startswith("crosslink "):
-            reset_drift_counter(crosslink_dir)
         sys.exit(0)
 
     # Relaxed mode: no issue-tracking enforcement

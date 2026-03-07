@@ -23,5 +23,15 @@
     "tsc", "node ", "python ",
     "ls", "dir", "pwd", "echo"
   ],
-  "reminder_drift_threshold": 5
+  "reminder_drift_threshold": 3,
+  "agent_overrides": {
+    "tracking_mode": "relaxed",
+    "blocked_git_commands": [
+      "git push --force", "git push -f",
+      "git reset --hard",
+      "git clean -f", "git clean -fd", "git clean -fdx",
+      "git checkout .", "git restore ."
+    ],
+    "gated_git_commands": []
+  }
 }

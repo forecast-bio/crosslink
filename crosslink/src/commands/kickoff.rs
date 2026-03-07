@@ -890,11 +890,12 @@ fn tmux_session_exists(name: &str) -> bool {
 
 /// Check if a command is available on PATH.
 fn command_available(cmd: &str) -> bool {
-    Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    #[cfg(target_os = "windows")]
+    let lookup = Command::new("where.exe").arg(cmd).output();
+    #[cfg(not(target_os = "windows"))]
+    let lookup = Command::new("which").arg(cmd).output();
+
+    lookup.map(|o| o.status.success()).unwrap_or(false)
 }
 
 /// Resolve the correct `timeout` command for the current platform.
@@ -3850,7 +3851,7 @@ mod tests {
                 assert!(msg.contains("podman.io"));
             }
             // If gh is also missing, it should appear in the same message
-            if msg.contains("gh") {
+            if msg.contains("GitHub CLI") {
                 assert!(msg.contains("cli.github.com"));
             }
         }

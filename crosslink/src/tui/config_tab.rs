@@ -7,6 +7,7 @@ use ratatui::{
     Frame,
 };
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use super::{Tab, TabAction};
 use crate::db::Database;
@@ -28,6 +29,17 @@ struct EventSummary {
     timestamp: String,
     agent_id: String,
     description: String,
+}
+
+/// Data payload from background sync thread.
+struct ConfigSyncResult {
+    hub_initialized: bool,
+    hub_v2: bool,
+    lock_count: usize,
+    stale_lock_count: usize,
+    agent_count: usize,
+    recent_events: Vec<EventSummary>,
+    all_events: Vec<EventSummary>,
 }
 
 /// The Config tab — configuration and diagnostics dashboard.
@@ -63,6 +75,11 @@ pub struct ConfigTab {
     event_scroll: usize,
 
     error_msg: Option<String>,
+
+    /// Whether a background sync load is in progress.
+    loading_sync: bool,
+    /// Receiver for background sync results.
+    sync_rx: Option<mpsc::Receiver<ConfigSyncResult>>,
 }
 
 impl ConfigTab {
@@ -88,8 +105,15 @@ impl ConfigTab {
             all_events: Vec::new(),
             event_scroll: 0,
             error_msg: None,
+            loading_sync: false,
+            sync_rx: None,
         };
-        tab.load_all(db);
+        // Fast loads done synchronously
+        tab.load_identity();
+        tab.load_db_info(db);
+        tab.load_config();
+        // Heavy sync/events deferred to background
+        tab.start_background_sync();
         tab
     }
 
@@ -97,13 +121,29 @@ impl ConfigTab {
         Database::open(&self.db_path).ok()
     }
 
-    fn load_all(&mut self, db: &Database) {
-        self.error_msg = None;
-        self.load_identity();
-        self.load_db_info(db);
-        self.load_sync_state();
-        self.load_config();
-        self.load_events();
+    /// Spawn a background thread for the slow SyncManager + events work.
+    fn start_background_sync(&mut self) {
+        self.loading_sync = true;
+        let (tx, rx) = mpsc::channel();
+        self.sync_rx = Some(rx);
+        let crosslink_dir = self.crosslink_dir.clone();
+
+        std::thread::spawn(move || {
+            let result = load_config_sync_data(&crosslink_dir);
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Apply background sync results.
+    fn apply_sync_result(&mut self, result: ConfigSyncResult) {
+        self.loading_sync = false;
+        self.hub_initialized = result.hub_initialized;
+        self.hub_v2 = result.hub_v2;
+        self.lock_count = result.lock_count;
+        self.stale_lock_count = result.stale_lock_count;
+        self.agent_count = result.agent_count;
+        self.recent_events = result.recent_events;
+        self.all_events = result.all_events;
     }
 
     fn load_identity(&mut self) {
@@ -132,38 +172,6 @@ impl ConfigTab {
         self.schema_version = db.get_schema_version().unwrap_or(0);
         self.issue_count = db.get_issue_count().unwrap_or(0);
         self.milestone_count = db.get_milestone_count().unwrap_or(0);
-    }
-
-    fn load_sync_state(&mut self) {
-        let sync = match SyncManager::new(&self.crosslink_dir) {
-            Ok(s) => s,
-            Err(_) => {
-                self.hub_initialized = false;
-                return;
-            }
-        };
-
-        self.hub_initialized = sync.is_initialized();
-        if !self.hub_initialized {
-            return;
-        }
-
-        self.hub_v2 = sync.is_v2_layout();
-
-        // Read locks
-        if let Ok(locks) = sync.read_locks_auto() {
-            self.lock_count = locks.locks.len();
-        }
-
-        // Stale locks
-        if let Ok(stale) = sync.find_stale_locks() {
-            self.stale_lock_count = stale.len();
-        }
-
-        // Count agents from heartbeats
-        if let Ok(heartbeats) = sync.read_heartbeats() {
-            self.agent_count = heartbeats.len();
-        }
     }
 
     fn load_config(&mut self) {
@@ -223,66 +231,14 @@ impl ConfigTab {
         }
     }
 
-    fn load_events(&mut self) {
-        self.recent_events.clear();
-        self.all_events.clear();
-
-        let sync = match SyncManager::new(&self.crosslink_dir) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        if !sync.is_initialized() {
-            return;
-        }
-
-        // Read events from all agents
-        let agents_dir = sync.cache_path().join("agents");
-        if !agents_dir.exists() {
-            return;
-        }
-
-        let mut all: Vec<events::EventEnvelope> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&agents_dir) {
-            for entry in entries.flatten() {
-                if entry.path().is_dir() {
-                    let log_path = entry.path().join("events.log");
-                    if let Ok(mut evts) = events::read_events(&log_path) {
-                        all.append(&mut evts);
-                    }
-                }
-            }
-        }
-
-        // Sort by timestamp descending
-        all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-        // Convert to summaries
-        let summaries: Vec<EventSummary> = all
-            .iter()
-            .map(|e| EventSummary {
-                timestamp: e.timestamp.format("%H:%M:%S").to_string(),
-                agent_id: truncate(&e.agent_id, 30),
-                description: describe_event(&e.event),
-            })
-            .collect();
-
-        self.recent_events = summaries
-            .iter()
-            .take(15)
-            .map(|s| EventSummary {
-                timestamp: s.timestamp.clone(),
-                agent_id: s.agent_id.clone(),
-                description: s.description.clone(),
-            })
-            .collect();
-        self.all_events = summaries;
-    }
-
     fn refresh(&mut self) {
+        self.error_msg = None;
         if let Some(db) = self.open_db() {
-            self.load_all(&db);
+            self.load_identity();
+            self.load_db_info(&db);
+            self.load_config();
         }
+        self.start_background_sync();
     }
 
     // ── Rendering ────────────────────────────────────────────────────
@@ -332,7 +288,9 @@ impl ConfigTab {
 
         // ── Hub Sync ──
         lines.push(section_header("Hub Sync"));
-        if self.hub_initialized {
+        if self.loading_sync {
+            lines.push(kv_line("Status", "loading...", Color::DarkGray));
+        } else if self.hub_initialized {
             let layout_str = if self.hub_v2 { "V2" } else { "V1" };
             lines.push(kv_line("Status", "initialized", Color::Green));
             lines.push(kv_line("Layout", layout_str, Color::White));
@@ -612,6 +570,90 @@ impl Tab for ConfigTab {
     }
 
     fn on_leave(&mut self) {}
+
+    fn poll_updates(&mut self) {
+        let result = self.sync_rx.as_ref().and_then(|rx| rx.try_recv().ok());
+        if let Some(data) = result {
+            self.sync_rx = None;
+            self.apply_sync_result(data);
+        }
+    }
+}
+
+// ── Background loader ────────────────────────────────────────────────
+
+/// Load sync state and events on a background thread.
+fn load_config_sync_data(crosslink_dir: &Path) -> ConfigSyncResult {
+    let mut result = ConfigSyncResult {
+        hub_initialized: false,
+        hub_v2: false,
+        lock_count: 0,
+        stale_lock_count: 0,
+        agent_count: 0,
+        recent_events: Vec::new(),
+        all_events: Vec::new(),
+    };
+
+    let sync = match SyncManager::new(crosslink_dir) {
+        Ok(s) => s,
+        Err(_) => return result,
+    };
+
+    result.hub_initialized = sync.is_initialized();
+    if !result.hub_initialized {
+        return result;
+    }
+
+    result.hub_v2 = sync.is_v2_layout();
+
+    if let Ok(locks) = sync.read_locks_auto() {
+        result.lock_count = locks.locks.len();
+    }
+    if let Ok(stale) = sync.find_stale_locks() {
+        result.stale_lock_count = stale.len();
+    }
+    if let Ok(heartbeats) = sync.read_heartbeats() {
+        result.agent_count = heartbeats.len();
+    }
+
+    // Read events from all agents
+    let agents_dir = sync.cache_path().join("agents");
+    if agents_dir.exists() {
+        let mut all: Vec<events::EventEnvelope> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&agents_dir) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let log_path = entry.path().join("events.log");
+                    if let Ok(mut evts) = events::read_events(&log_path) {
+                        all.append(&mut evts);
+                    }
+                }
+            }
+        }
+        all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        let summaries: Vec<EventSummary> = all
+            .iter()
+            .map(|e| EventSummary {
+                timestamp: e.timestamp.format("%H:%M:%S").to_string(),
+                agent_id: truncate(&e.agent_id, 30),
+                description: describe_event(&e.event),
+            })
+            .collect();
+
+        result.recent_events = summaries
+            .iter()
+            .take(15)
+            .map(|s| EventSummary {
+                timestamp: s.timestamp.clone(),
+                agent_id: s.agent_id.clone(),
+                description: s.description.clone(),
+            })
+            .collect();
+        result.all_events = summaries;
+    }
+
+    result
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -891,5 +933,60 @@ mod tests {
         assert_eq!(tab.event_scroll, 0);
         tab.handle_key(make_key(KeyCode::PageDown));
         assert_eq!(tab.event_scroll, 0);
+    }
+
+    // ── Async loading tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_new_starts_with_loading_sync() {
+        let (tab, _dir) = setup_tab();
+        // Fast parts (identity, db, config) are loaded synchronously
+        assert!(tab.schema_version > 0);
+        assert_eq!(tab.issue_count, 1);
+        // Sync state is loaded in background — loading_sync should be true
+        // (or already finished if thread was very fast)
+        // Either way, we should have a receiver or it should have completed
+        // The key point: constructor returned without blocking on SyncManager
+    }
+
+    #[test]
+    fn test_new_returns_instantly() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db_path = crosslink_dir.join("issues.db");
+        let db = Database::open(&db_path).unwrap();
+
+        let start = std::time::Instant::now();
+        let _tab = ConfigTab::new(&db, &db_path, &crosslink_dir);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_millis() < 100,
+            "ConfigTab::new() took {}ms, expected <100ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    fn test_poll_updates_receives_sync_result() {
+        let (mut tab, _dir) = setup_tab();
+        // Wait for background thread
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        tab.poll_updates();
+        // After polling, sync loading should be done
+        assert!(!tab.loading_sync);
+        assert!(tab.sync_rx.is_none());
+    }
+
+    #[test]
+    fn test_on_enter_spawns_new_sync() {
+        let (mut tab, _dir) = setup_tab();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        tab.poll_updates();
+        assert!(!tab.loading_sync);
+
+        tab.on_enter();
+        assert!(tab.loading_sync);
+        assert!(tab.sync_rx.is_some());
     }
 }

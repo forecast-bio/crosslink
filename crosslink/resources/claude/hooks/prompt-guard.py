@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from crosslink_config import (
     find_crosslink_dir,
     get_project_root,
+    is_agent_context,
     load_config_merged,
     load_guard_state,
     load_tracking_mode,
@@ -623,27 +624,26 @@ def main():
     crosslink_dir = find_crosslink_dir()
     tracking_mode = load_tracking_mode(crosslink_dir)
 
+    # Agents always get condensed reminders — skip expensive tree/deps scanning
+    if is_agent_context(crosslink_dir):
+        languages = detect_languages()
+        print(build_condensed_reminder(languages, tracking_mode))
+        sys.exit(0)
+
     # Check if we should send full or condensed guard
     if not should_send_full_guard(crosslink_dir):
-        # Adaptive drift: only inject condensed reminder when agent drifts
+        # Simple turn counter: inject condensed reminder every N turns
         config = load_config_merged(crosslink_dir)
-        threshold = int(config.get("reminder_drift_threshold", 5))
+        interval = int(config.get("reminder_drift_threshold", 3))
 
         state = load_guard_state(crosslink_dir)
-        state["prompts_since_crosslink"] = state.get("prompts_since_crosslink", 0) + 1
         state["total_prompts"] = state.get("total_prompts", 0) + 1
 
-        if threshold == 0 or state["prompts_since_crosslink"] >= threshold:
-            # Threshold reached (or always-inject mode) — send reminder
+        if interval == 0 or state["total_prompts"] % interval == 0:
             languages = detect_languages()
             print(build_condensed_reminder(languages, tracking_mode))
-            state["prompts_since_crosslink"] = 0
-            state["last_reminder_at"] = datetime.now().isoformat()
-            save_guard_state(crosslink_dir, state)
-        else:
-            # Under threshold — save state, print nothing
-            save_guard_state(crosslink_dir, state)
 
+        save_guard_state(crosslink_dir, state)
         sys.exit(0)
 
     language_rules, global_rules, project_rules = load_all_rules(crosslink_dir)

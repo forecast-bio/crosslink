@@ -466,6 +466,11 @@ enum Commands {
         #[command(subcommand)]
         action: KickoffCommands,
     },
+    /// Multi-agent swarm coordination (plan, status, resume)
+    Swarm {
+        #[command(subcommand)]
+        action: SwarmCommands,
+    },
     /// Interactive terminal dashboard (read-only)
     Tui,
     /// Manage container-based agent execution
@@ -1087,6 +1092,68 @@ enum ConfigCommands {
 }
 
 #[derive(Subcommand)]
+enum SwarmCommands {
+    /// Initialize a swarm plan from a design document
+    Init {
+        /// Path to design document (markdown)
+        #[arg(long, value_name = "PATH")]
+        doc: PathBuf,
+    },
+    /// Show current swarm status (agents, phases, progress)
+    Status,
+    /// Reconstruct state and show next steps for resuming
+    Resume,
+    /// Launch all planned agents for a phase
+    Launch {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+        /// Check budget before launching; block if insufficient
+        #[arg(long)]
+        budget_aware: bool,
+    },
+    /// Run the project test suite as a phase gate
+    Gate {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Record a checkpoint after a phase completes
+    Checkpoint {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+        /// Handoff notes for the next session
+        #[arg(long)]
+        notes: Option<String>,
+        /// Checkpoint even if gate hasn't passed
+        #[arg(long)]
+        force: bool,
+    },
+    /// Set budget parameters (window duration, model)
+    Config {
+        /// Budget time window (e.g. "5h", "3h30m")
+        #[arg(long, value_name = "DURATION")]
+        budget_window: String,
+        /// Model to estimate costs for
+        #[arg(long, default_value = "opus")]
+        model: String,
+    },
+    /// Estimate wall-clock cost for a phase
+    Estimate {
+        /// Phase slug (e.g. "phase-1")
+        phase: String,
+    },
+    /// Scan completed agents and update cost history
+    Harvest,
+    /// Plan a multi-phase build across budget windows
+    Plan {
+        /// Budget window duration (e.g. "5h"); uses saved config if omitted
+        #[arg(long, value_name = "DURATION")]
+        budget_window: Option<String>,
+    },
+    /// Show the current window plan (alias for plan with saved config)
+    PlanShow,
+}
+
+#[derive(Subcommand)]
 enum ContextCommands {
     /// Measure context injection sizes and estimate token overhead
     Measure {
@@ -1630,6 +1697,56 @@ fn main() -> Result<()> {
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
             commands::kickoff::dispatch(action, &crosslink_dir, &db, writer.as_ref(), cli.quiet)
+        }
+        Commands::Swarm { action } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            match action {
+                SwarmCommands::Init { doc } => commands::swarm::init(&crosslink_dir, &doc),
+                SwarmCommands::Status => commands::swarm::status(&crosslink_dir),
+                SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
+                SwarmCommands::Launch {
+                    phase,
+                    budget_aware,
+                } => {
+                    let db = get_db()?;
+                    let writer = get_writer(&crosslink_dir);
+                    if budget_aware {
+                        commands::swarm::launch_budget_aware(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    } else {
+                        commands::swarm::launch(
+                            &crosslink_dir,
+                            &db,
+                            writer.as_ref(),
+                            &phase,
+                            cli.quiet,
+                        )
+                    }
+                }
+                SwarmCommands::Gate { phase } => commands::swarm::gate(&crosslink_dir, &phase),
+                SwarmCommands::Checkpoint {
+                    phase,
+                    notes,
+                    force,
+                } => commands::swarm::checkpoint(&crosslink_dir, &phase, notes.as_deref(), force),
+                SwarmCommands::Config {
+                    budget_window,
+                    model,
+                } => commands::swarm::config_budget(&crosslink_dir, &budget_window, &model),
+                SwarmCommands::Estimate { phase } => {
+                    commands::swarm::estimate(&crosslink_dir, &phase)
+                }
+                SwarmCommands::Harvest => commands::swarm::harvest_costs(&crosslink_dir),
+                SwarmCommands::Plan { budget_window } => {
+                    commands::swarm::plan(&crosslink_dir, budget_window.as_deref())
+                }
+                SwarmCommands::PlanShow => commands::swarm::plan_show(&crosslink_dir),
+            }
         }
         Commands::Tui => {
             let db = get_db()?;

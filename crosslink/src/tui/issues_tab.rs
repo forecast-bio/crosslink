@@ -4,9 +4,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
+use std::cell::RefCell;
 use std::path::PathBuf;
 
 use crate::db::Database;
@@ -123,6 +124,10 @@ pub struct IssuesTab {
     /// Flattened tree nodes for tree view.
     tree_nodes: Vec<TreeNode>,
     tree_selected: usize,
+    /// TableState for list view scroll-to-follow (interior mutability for render).
+    list_table_state: RefCell<TableState>,
+    /// TableState for tree view scroll-to-follow.
+    tree_table_state: RefCell<TableState>,
 }
 
 impl IssuesTab {
@@ -144,6 +149,8 @@ impl IssuesTab {
             closed_count: 0,
             tree_nodes: Vec::new(),
             tree_selected: 0,
+            list_table_state: RefCell::new(TableState::default()),
+            tree_table_state: RefCell::new(TableState::default()),
         };
         tab.refresh(db)?;
         Ok(tab)
@@ -560,8 +567,7 @@ impl IssuesTab {
             let rows: Vec<Row> = self
                 .tree_nodes
                 .iter()
-                .enumerate()
-                .map(|(i, node)| {
+                .map(|node| {
                     let indent = "  ".repeat(node.depth);
                     let connector = if node.depth > 0 {
                         "\u{251c}\u{2500} "
@@ -588,25 +594,23 @@ impl IssuesTab {
                         Style::default()
                     };
 
-                    let row = Row::new(vec![ratatui::text::Text::from(Line::from(vec![
+                    Row::new(vec![ratatui::text::Text::from(Line::from(vec![
                         Span::raw(format!("{}{}", indent, connector)),
                         status_marker,
                         Span::styled(format!("{} ", id_str), Style::default().fg(Color::DarkGray)),
                         Span::styled(node.issue.title.clone(), title_style),
                         Span::styled(labels_str, Style::default().fg(Color::Magenta)),
-                    ]))]);
-
-                    if i == self.tree_selected {
-                        row.style(Style::default().bg(HIGHLIGHT_BG))
-                    } else {
-                        row
-                    }
+                    ]))])
                 })
                 .collect();
 
             let table = Table::new(rows, [Constraint::Min(0)])
-                .block(Block::default().borders(Borders::TOP));
-            frame.render_widget(table, chunks[1]);
+                .block(Block::default().borders(Borders::TOP))
+                .row_highlight_style(Style::default().bg(HIGHLIGHT_BG));
+
+            let mut state = self.tree_table_state.borrow_mut();
+            state.select(Some(self.tree_selected));
+            frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
         // Context keys
@@ -688,8 +692,7 @@ impl IssuesTab {
             let rows: Vec<Row> = self
                 .issues
                 .iter()
-                .enumerate()
-                .map(|(i, issue)| {
+                .map(|issue| {
                     let priority_style = match issue.priority.as_str() {
                         "critical" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                         "high" => Style::default().fg(Color::Red),
@@ -714,20 +717,14 @@ impl IssuesTab {
 
                     let id_str = format_issue_id(issue.id);
 
-                    let row = Row::new(vec![
+                    Row::new(vec![
                         ratatui::text::Text::styled(id_str, Style::default()),
                         ratatui::text::Text::styled(issue.priority.clone(), priority_style),
                         ratatui::text::Text::styled(issue.status.clone(), status_style),
                         ratatui::text::Text::styled(labels, Style::default().fg(Color::Magenta)),
                         ratatui::text::Text::raw(&issue.title),
                         ratatui::text::Text::styled(updated, Style::default().fg(Color::DarkGray)),
-                    ]);
-
-                    if i == self.selected {
-                        row.style(Style::default().bg(HIGHLIGHT_BG))
-                    } else {
-                        row
-                    }
+                    ])
                 })
                 .collect();
 
@@ -742,9 +739,12 @@ impl IssuesTab {
 
             let table = Table::new(rows, widths)
                 .header(header_row)
-                .block(Block::default().borders(Borders::TOP));
+                .block(Block::default().borders(Borders::TOP))
+                .row_highlight_style(Style::default().bg(HIGHLIGHT_BG));
 
-            frame.render_widget(table, chunks[1]);
+            let mut state = self.list_table_state.borrow_mut();
+            state.select(Some(self.selected));
+            frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
         // Context keys

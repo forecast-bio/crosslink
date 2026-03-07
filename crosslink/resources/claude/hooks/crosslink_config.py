@@ -256,6 +256,53 @@ def reset_drift_counter(crosslink_dir):
     save_guard_state(crosslink_dir, state)
 
 
+def is_agent_context(crosslink_dir):
+    """Check if we're running inside an agent worktree.
+
+    Returns True if .crosslink/agent.json exists, indicating this is a
+    kickoff agent rather than an interactive human session.
+    """
+    if not crosslink_dir:
+        return False
+    return os.path.isfile(os.path.join(crosslink_dir, "agent.json"))
+
+
+def normalize_git_command(command):
+    """Strip git global flags to extract the actual subcommand for matching.
+
+    Git accepts flags like -C, --git-dir, --work-tree, -c before the
+    subcommand. This normalizes 'git -C /path push' to 'git push' so
+    that blocked/gated command matching can't be bypassed.
+    """
+    import shlex
+
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return command
+
+    if not parts or parts[0] != "git":
+        return command
+
+    i = 1
+    while i < len(parts):
+        # Flags that take a separate next argument
+        if parts[i] in ("-C", "--git-dir", "--work-tree", "-c") and i + 1 < len(parts):
+            i += 2
+        # Flags with =value syntax
+        elif (
+            parts[i].startswith("--git-dir=")
+            or parts[i].startswith("--work-tree=")
+        ):
+            i += 1
+        else:
+            break
+
+    if i < len(parts):
+        return "git " + " ".join(parts[i:])
+    return command
+
+
 _crosslink_bin = None
 
 

@@ -3,9 +3,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
+use std::cell::RefCell;
 use std::path::PathBuf;
 
 use crate::db::Database;
@@ -101,6 +102,8 @@ pub struct MilestonesTab {
     detail_scroll: u16,
     status_msg: String,
     error_msg: Option<String>,
+    /// TableState for list view scroll-to-follow.
+    list_table_state: RefCell<TableState>,
 }
 
 impl MilestonesTab {
@@ -115,6 +118,7 @@ impl MilestonesTab {
             detail_scroll: 0,
             status_msg: String::new(),
             error_msg: None,
+            list_table_state: RefCell::new(TableState::default()),
         };
         tab.load_milestones(db);
         tab
@@ -266,8 +270,7 @@ impl MilestonesTab {
         let rows: Vec<Row> = self
             .milestones
             .iter()
-            .enumerate()
-            .map(|(idx, m)| {
+            .map(|m| {
                 let pct = if m.total_count > 0 {
                     (m.closed_count * 100) / m.total_count
                 } else {
@@ -283,7 +286,7 @@ impl MilestonesTab {
                     Style::default().fg(Color::Yellow)
                 };
 
-                let row = Row::new(vec![
+                Row::new(vec![
                     ratatui::widgets::Cell::from(format!("#{}", m.id)),
                     ratatui::widgets::Cell::from(m.name.clone()),
                     ratatui::widgets::Cell::from(m.status.clone()).style(status_style),
@@ -291,13 +294,7 @@ impl MilestonesTab {
                     ratatui::widgets::Cell::from(bar).style(Style::default().fg(Color::Cyan)),
                     ratatui::widgets::Cell::from(pct_str)
                         .style(Style::default().fg(Color::DarkGray)),
-                ]);
-
-                if idx == self.selected {
-                    row.style(Style::default().bg(HIGHLIGHT_BG))
-                } else {
-                    row
-                }
+                ])
             })
             .collect();
 
@@ -312,9 +309,12 @@ impl MilestonesTab {
 
         let table = Table::new(rows, widths)
             .header(header)
-            .block(Block::default().borders(Borders::ALL));
+            .block(Block::default().borders(Borders::ALL))
+            .row_highlight_style(Style::default().bg(HIGHLIGHT_BG));
 
-        frame.render_widget(table, chunks[1]);
+        let mut state = self.list_table_state.borrow_mut();
+        state.select(Some(self.selected));
+        frame.render_stateful_widget(table, chunks[1], &mut state);
     }
 
     fn render_detail(&self, frame: &mut Frame, area: Rect) {

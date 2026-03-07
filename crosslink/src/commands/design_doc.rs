@@ -42,8 +42,23 @@ pub(crate) fn parse_design_doc(content: &str) -> DesignDoc {
 
     let mut section = Section::Title;
     let mut current_block = String::new();
+    let mut in_code_fence = false;
 
     for line in content.lines() {
+        // Track code fences so we don't treat comments as headings
+        if line.starts_with("```") {
+            in_code_fence = !in_code_fence;
+            current_block.push_str(line);
+            current_block.push('\n');
+            continue;
+        }
+
+        if in_code_fence {
+            current_block.push_str(line);
+            current_block.push('\n');
+            continue;
+        }
+
         // H1: extract title
         if let Some(rest) = line.strip_prefix("# ") {
             let rest = rest.trim();
@@ -587,5 +602,107 @@ Use a middleware pattern.
     #[test]
     fn test_strip_list_prefix_no_prefix() {
         assert_eq!(strip_list_prefix("plain text"), None);
+    }
+
+    // ==================== Code fence handling Tests ====================
+
+    #[test]
+    fn test_parse_h1_inside_code_fence_ignored() {
+        let input = "\
+# Real Title
+
+## Summary
+
+Some summary.
+
+```bash
+# This is a shell comment, not a heading
+echo hello
+```
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.title, "Real Title");
+        assert_eq!(
+            doc.summary,
+            "Some summary.\n\n```bash\n# This is a shell comment, not a heading\necho hello\n```"
+        );
+    }
+
+    #[test]
+    fn test_parse_h2_inside_code_fence_ignored() {
+        let input = "\
+# Real Title
+
+## Requirements
+- REQ-1: First
+
+## Summary
+
+Some summary.
+
+```markdown
+## This is not a section switch
+```
+
+Still in summary.
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.title, "Real Title");
+        assert_eq!(doc.requirements, vec!["REQ-1: First"]);
+        // The ## inside the code fence should NOT switch to a new section
+        assert!(doc.summary.contains("## This is not a section switch"));
+        assert!(doc.summary.contains("Still in summary."));
+    }
+
+    #[test]
+    fn test_parse_multiple_code_fences() {
+        let input = "\
+# Real Title
+
+## Summary
+
+Before code.
+
+```
+# Not a title
+## Not a section
+```
+
+After first fence.
+
+```python
+# Python comment
+```
+
+Still in summary.
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.title, "Real Title");
+        assert!(doc.summary.contains("Before code."));
+        assert!(doc.summary.contains("# Not a title"));
+        assert!(doc.summary.contains("After first fence."));
+        assert!(doc.summary.contains("# Python comment"));
+        assert!(doc.summary.contains("Still in summary."));
+    }
+
+    #[test]
+    fn test_parse_code_fence_does_not_affect_content_after() {
+        let input = "\
+# Real Title
+
+## Summary
+
+Summary text.
+
+```
+# shell comment
+```
+
+## Requirements
+- REQ-1: After the fence
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.title, "Real Title");
+        assert_eq!(doc.requirements, vec!["REQ-1: After the fence"]);
     }
 }

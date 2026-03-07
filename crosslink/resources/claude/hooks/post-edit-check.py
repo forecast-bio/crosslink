@@ -12,6 +12,10 @@ import subprocess
 import glob
 import time
 
+# Add hooks directory to path for shared module import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from crosslink_config import find_crosslink_dir, is_agent_context
+
 # Stub patterns to detect (compiled regex for performance)
 STUB_PATTERNS = [
     (r'\bTODO\b', 'TODO comment'),
@@ -326,38 +330,44 @@ def main():
         'pyproject.toml', '.git'
     ])
 
-    # Check for stubs (always - instant regex check)
+    # Detect agent context — agents skip linting and test reminders
+    # (they run their own CI checks), but stub detection stays active
+    crosslink_dir = find_crosslink_dir()
+    is_agent = is_agent_context(crosslink_dir)
+
+    # Check for stubs (always - instant regex check, even for agents)
     stub_findings = check_for_stubs(file_path)
 
-    # Debounced linting: only run linter if no edits in last 10 seconds
-    # Track last edit time via marker file
+    # Skip linting and test reminders for agents (too slow, agents have CI)
     linter_errors = []
-    lint_marker = None
-    if project_root:
-        crosslink_cache = os.path.join(project_root, '.crosslink', '.cache')
-        lint_marker = os.path.join(crosslink_cache, 'last-edit-time')
+    test_reminder = None
 
-    should_lint = True
-    if lint_marker:
-        try:
-            os.makedirs(os.path.dirname(lint_marker), exist_ok=True)
-            if os.path.exists(lint_marker):
-                last_edit = os.path.getmtime(lint_marker)
-                elapsed = time.time() - last_edit
-                # If last edit was < 10 seconds ago, skip linting (rapid edits)
-                if elapsed < 10:
-                    should_lint = False
-            # Update the marker to current time
-            with open(lint_marker, 'w') as f:
-                f.write(str(time.time()))
-        except OSError:
-            pass
+    if not is_agent:
+        # Debounced linting: only run linter if no edits in last 10 seconds
+        lint_marker = None
+        if project_root:
+            crosslink_cache = os.path.join(project_root, '.crosslink', '.cache')
+            lint_marker = os.path.join(crosslink_cache, 'last-edit-time')
 
-    if should_lint:
-        linter_errors = run_linter(file_path)
+        should_lint = True
+        if lint_marker:
+            try:
+                os.makedirs(os.path.dirname(lint_marker), exist_ok=True)
+                if os.path.exists(lint_marker):
+                    last_edit = os.path.getmtime(lint_marker)
+                    elapsed = time.time() - last_edit
+                    if elapsed < 10:
+                        should_lint = False
+                with open(lint_marker, 'w') as f:
+                    f.write(str(time.time()))
+            except OSError:
+                pass
 
-    # Check for test reminder
-    test_reminder = get_test_reminder(file_path, project_root)
+        if should_lint:
+            linter_errors = run_linter(file_path)
+
+        # Check for test reminder
+        test_reminder = get_test_reminder(file_path, project_root)
 
     # Build output
     messages = []

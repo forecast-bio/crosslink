@@ -3,9 +3,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -53,6 +54,8 @@ pub struct KnowledgeTab {
     status_msg: String,
     /// Error message if data load failed.
     error_msg: Option<String>,
+    /// TableState for list view scroll-to-follow.
+    list_table_state: RefCell<TableState>,
 }
 
 impl KnowledgeTab {
@@ -73,6 +76,7 @@ impl KnowledgeTab {
             reader_scroll: 0,
             status_msg: String::new(),
             error_msg: None,
+            list_table_state: RefCell::new(TableState::default()),
         };
         tab.refresh();
         tab
@@ -380,23 +384,16 @@ impl KnowledgeTab {
             let rows: Vec<Row> = self
                 .filtered_pages
                 .iter()
-                .enumerate()
-                .map(|(i, page)| {
+                .map(|page| {
                     let tags = page.frontmatter.tags.join(", ");
                     let updated = format_relative_date(&page.frontmatter.updated);
 
-                    let row = Row::new(vec![
+                    Row::new(vec![
                         ratatui::text::Text::raw(&page.slug),
                         ratatui::text::Text::raw(&page.frontmatter.title),
                         ratatui::text::Text::styled(tags, Style::default().fg(Color::Magenta)),
                         ratatui::text::Text::styled(updated, Style::default().fg(Color::DarkGray)),
-                    ]);
-
-                    if i == self.selected {
-                        row.style(Style::default().bg(HIGHLIGHT_BG))
-                    } else {
-                        row
-                    }
+                    ])
                 })
                 .collect();
 
@@ -410,9 +407,12 @@ impl KnowledgeTab {
                 ],
             )
             .header(header_row)
-            .block(Block::default().borders(Borders::TOP));
+            .block(Block::default().borders(Borders::TOP))
+            .row_highlight_style(Style::default().bg(HIGHLIGHT_BG));
 
-            frame.render_widget(table, chunks[1]);
+            let mut state = self.list_table_state.borrow_mut();
+            state.select(Some(self.selected));
+            frame.render_stateful_widget(table, chunks[1], &mut state);
         }
 
         // Context keys

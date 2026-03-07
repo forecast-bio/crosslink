@@ -22,6 +22,7 @@ use ratatui::{
 };
 use std::io;
 use std::path::Path;
+use std::time::Duration;
 
 use crate::db::Database;
 
@@ -47,6 +48,8 @@ pub trait Tab {
     fn on_enter(&mut self);
     /// Called when this tab loses focus.
     fn on_leave(&mut self);
+    /// Poll for async data updates (called each event-loop tick).
+    fn poll_updates(&mut self) {}
 }
 
 /// Copy text to the system clipboard using platform-native commands.
@@ -577,22 +580,30 @@ pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
 
     let mut app = App::new(db, crosslink_dir)?;
 
-    // Main loop
+    // Main loop — non-blocking so we can poll for async data updates
     loop {
         terminal.draw(|frame| app.render(frame))?;
 
-        match event::read()? {
-            Event::Key(key) => {
-                // Ignore key release events (crossterm sends press + release on some platforms)
-                if key.kind != event::KeyEventKind::Press {
-                    continue;
+        // Poll all tabs for async data that may have arrived
+        for tab in &mut app.tabs {
+            tab.poll_updates();
+        }
+
+        // Non-blocking event poll (50ms timeout keeps UI responsive for async updates)
+        if event::poll(Duration::from_millis(50))? {
+            match event::read()? {
+                Event::Key(key) => {
+                    // Ignore key release events (crossterm sends press + release on some platforms)
+                    if key.kind != event::KeyEventKind::Press {
+                        continue;
+                    }
+                    app.handle_key(key);
                 }
-                app.handle_key(key);
+                Event::Mouse(mouse) => {
+                    app.handle_mouse(mouse);
+                }
+                _ => {}
             }
-            Event::Mouse(mouse) => {
-                app.handle_mouse(mouse);
-            }
-            _ => {}
         }
 
         if app.should_quit {
