@@ -21,7 +21,7 @@ Crosslink solves this with a local-first issue tracker designed specifically for
 # Install
 cargo install crosslink
 
-# Initialize in any project
+# Initialize in any project (interactive TUI walkthrough)
 crosslink init
 
 # Start a session — see what the last AI left you
@@ -39,16 +39,78 @@ crosslink session end --notes "Fixed token refresh. Dark mode is next."
 
 ## Features
 
+### Core Issue Tracking
 - **Session memory** — Handoff notes, breadcrumbs, and session state survive restarts
 - **Local-first** — All data in SQLite (`.crosslink/issues.db`), no cloud, works offline
 - **Smart workflow** — `quick` command, `next` recommendations, `tree` visualization
-- **Behavioral hooks** — Claude Code hooks enforce no-stubs, proper error handling, issue tracking
-- **Multi-agent** — Distributed issue locking via git for parallel AI work
-- **Templates** — Built-in templates for bugs, features, refactors, and research
 - **Subissues & dependencies** — Break tasks down, track blocking relationships
-- **Knowledge pages** — Shared documentation synced across agents via the coordination branch
-- **House style** — Sync project rules and policies from a central git repo
 - **Time tracking, milestones, archiving** — Full project management in the CLI
+- **Templates** — Built-in templates for bugs, features, refactors, and research
+
+### Multi-Agent Orchestration
+
+Crosslink coordinates multiple AI agents working in parallel on the same codebase.
+
+- **Distributed locking** — Agents claim issues via a shared git coordination branch, preventing conflicts
+- **Agent identity** — Each agent gets a unique ID and SSH signing key (`crosslink agent init`)
+- **`crosslink kickoff`** — Launch background agents in isolated git worktrees (local tmux or container)
+  - Design doc-driven: pass `--doc` to generate implementation plans from a design document
+  - `kickoff plan` — Read-only gap analysis against the codebase before committing to a build
+  - `kickoff report` — Spec validation reports from completed agents
+  - Pre-flight checks for required external commands with platform-specific install guidance
+- **`crosslink swarm`** — Multi-agent swarm coordination across phased builds
+  - `swarm init` — Initialize a swarm plan from a design document
+  - `swarm plan` — Plan multi-phase builds across budget windows with cost estimation
+  - `swarm launch` — Launch all agents for a phase
+  - `swarm gate` — Run the test suite as a phase gate before proceeding
+  - `swarm checkpoint` — Record progress after a phase completes
+  - `swarm resume` — Reconstruct state and continue after a budget cap or session restart
+  - Budget-aware scheduling with configurable window duration and model cost tracking
+- **Container execution** — Run agents in isolated Docker containers (`crosslink container`)
+
+### Knowledge Management
+
+Shared documentation synced across agents via a dedicated git branch.
+
+- **`crosslink knowledge`** — CRUD for markdown knowledge pages with YAML frontmatter
+- **Full-text search** — `knowledge search` across all pages
+- **Bulk import** — `knowledge import` from existing markdown files or design documents
+- **Auto-injection** — Relevant knowledge pages injected into agent context automatically
+- **Conflict resolution** — Accept-both merge strategy for concurrent knowledge edits
+
+### Behavioral Hooks & Rules
+
+Claude Code hooks that enforce code quality and workflow discipline.
+
+- **Issue tracking enforcement** — Hooks block code changes without an active crosslink issue
+- **No-stubs policy** — Post-edit hooks detect `TODO`, `FIXME`, `unimplemented!()` stubs
+- **Drift detection** — Adaptive reminders when agent behavior drifts from project norms
+- **Tracking modes** — Strict, normal, and relaxed enforcement (`crosslink workflow`)
+- **Language-aware rules** — 20+ language-specific rule files auto-injected based on project languages
+- **House style** — `crosslink style` syncs project conventions from a central git repo
+- **Local overrides** — `rules.local/` directory for gitignored per-machine rule customizations
+
+### Terminal Dashboard
+
+```bash
+crosslink tui
+```
+
+Read-only interactive terminal UI built with ratatui:
+- **Issues tab** — Tree view, detail view, filtering, and sorting
+- **Agents tab** — Active session monitoring with heartbeat status
+- **Knowledge tab** — Page browser with syntax highlighting
+- **Milestones & Config tabs** — Project overview at a glance
+- Mouse support, command palette (`Ctrl-P`), clipboard export, keyboard help (`?`)
+
+### Other
+
+- **SSH signing** — Agent key generation, per-commit signing, allowed_signers management
+- **Driver intervention tracking** — `crosslink intervene` logs human corrections for agent improvement
+- **Typed comments** — Comments carry `kind` (plan, decision, observation, blocker, resolution, result)
+- **Clock skew detection** — Uses git commit timestamps as witness to detect time drift
+- **Context measurement** — `crosslink context` measures and optimizes context injection overhead
+- **Configurable git remote** — Use any remote for hub/knowledge branches, not just `origin`
 - **Works everywhere** — CLI + VS Code extension + context provider for any AI agent
 
 ## Installation
