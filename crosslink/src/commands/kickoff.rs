@@ -1392,6 +1392,9 @@ pub fn run(
     // 8. Initialize crosslink + agent in worktree (only for real launches)
     let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
 
+    // preflight is guaranteed Some after the dry-run early return above
+    let preflight = preflight.context("preflight check was skipped unexpectedly")?;
+
     // 9. Launch the agent
     let allowed_tools = build_allowed_tools(&conventions, &opts.verify);
 
@@ -1411,7 +1414,7 @@ pub fn run(
                 opts.model,
                 &allowed_tools,
                 opts.timeout,
-                preflight.as_ref().unwrap().timeout_cmd,
+                preflight.timeout_cmd,
             )?;
 
             // 10. Report
@@ -1917,6 +1920,9 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     // 7. Init worktree agent
     let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &slug)?;
 
+    // preflight is guaranteed Some after the dry-run early return above
+    let preflight = preflight.context("preflight check was skipped unexpectedly")?;
+
     // 8. Launch with read-only tools
     let allowed_tools = build_allowed_tools_plan();
     let mut session_name = tmux_session_name(&slug);
@@ -1927,7 +1933,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
 
     // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
     let timeout_secs = opts.timeout.as_secs();
-    let timeout_cmd = preflight.as_ref().unwrap().timeout_cmd;
+    let timeout_cmd = preflight.timeout_cmd;
     let cmd = format!(
         "{} {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat PLAN_KICKOFF.md)\"",
         timeout_cmd, timeout_secs, opts.model, allowed_tools
