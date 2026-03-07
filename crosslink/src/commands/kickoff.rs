@@ -897,6 +897,124 @@ fn command_available(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Resolve the correct `timeout` command for the current platform.
+///
+/// On macOS, `timeout` is not available by default. The GNU coreutils
+/// package (via Homebrew) installs it as `gtimeout`.
+/// Returns the command name to use, or an error with install instructions.
+fn resolve_timeout_command() -> Result<&'static str> {
+    if command_available("timeout") {
+        return Ok("timeout");
+    }
+    if command_available("gtimeout") {
+        return Ok("gtimeout");
+    }
+    if cfg!(target_os = "macos") {
+        bail!(
+            "Neither `timeout` nor `gtimeout` found.\n\
+             On macOS, install GNU coreutils:\n\
+             \n  brew install coreutils\n\
+             \nThis provides `gtimeout` which crosslink will use automatically."
+        );
+    }
+    bail!(
+        "`timeout` is not installed.\n\
+         Install GNU coreutils to get the `timeout` command."
+    );
+}
+
+/// Result of a successful pre-flight check.
+pub(crate) struct PreflightResult {
+    /// The resolved timeout command (`timeout` or `gtimeout`).
+    pub timeout_cmd: &'static str,
+}
+
+/// Pre-flight check: verify all required external commands are present before
+/// creating worktrees, branches, or sessions. Emits clear errors with install
+/// instructions for any missing command.
+fn preflight_check(container: &ContainerMode, verify: &VerifyLevel) -> Result<PreflightResult> {
+    let mut missing: Vec<String> = Vec::new();
+
+    // timeout (or gtimeout on macOS) — always required for agent timeout
+    let timeout_cmd = match resolve_timeout_command() {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            missing.push(format!("{}", e));
+            "timeout" // placeholder, won't be used since we'll bail
+        }
+    };
+
+    // tmux — required for local (non-container) mode
+    if *container == ContainerMode::None && !command_available("tmux") {
+        missing.push(
+            "`tmux` is not installed.\n\
+             Install it for your platform:\n\
+             \n  macOS:  brew install tmux\
+             \n  Ubuntu: sudo apt install tmux\
+             \n  Fedora: sudo dnf install tmux\n\
+             \nAlternatively, use --container docker to avoid tmux."
+                .to_string(),
+        );
+    }
+
+    // claude CLI — required for local mode
+    if *container == ContainerMode::None && !command_available("claude") {
+        missing.push(
+            "`claude` CLI is not installed.\n\
+             Install from: https://claude.ai/install.sh"
+                .to_string(),
+        );
+    }
+
+    // gh — required for CI/thorough verification
+    if (*verify == VerifyLevel::Ci || *verify == VerifyLevel::Thorough) && !command_available("gh")
+    {
+        missing.push(
+            "`gh` (GitHub CLI) is required for --verify ci/thorough.\n\
+             Install from: https://cli.github.com"
+                .to_string(),
+        );
+    }
+
+    // docker/podman — required when using container mode
+    match container {
+        ContainerMode::Docker if !command_available("docker") => {
+            missing.push(
+                "`docker` is not installed.\n\
+                 Install from: https://docs.docker.com/get-docker/\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string(),
+            );
+        }
+        ContainerMode::Podman if !command_available("podman") => {
+            missing.push(
+                "`podman` is not installed.\n\
+                 Install from: https://podman.io/getting-started/installation\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string(),
+            );
+        }
+        _ => {}
+    }
+
+    if !missing.is_empty() {
+        let header = format!(
+            "Pre-flight check failed — {} missing command{}:\n",
+            missing.len(),
+            if missing.len() == 1 { "" } else { "s" }
+        );
+        let body = missing
+            .iter()
+            .enumerate()
+            .map(|(i, msg)| format!("{}. {}", i + 1, msg))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        bail!("{}{}", header, body);
+    }
+
+    Ok(PreflightResult { timeout_cmd })
+}
+
 /// Get the git repository root.
 fn repo_root() -> Result<std::path::PathBuf> {
     let output = Command::new("git")
@@ -1038,6 +1156,7 @@ fn launch_local(
     model: &str,
     allowed_tools: &str,
     timeout: Duration,
+    timeout_cmd: &str,
 ) -> Result<()> {
     // Create the tmux session
     let output = Command::new("tmux")
@@ -1060,8 +1179,8 @@ fn launch_local(
     // Build the claude command
     let timeout_secs = timeout.as_secs();
     let cmd = format!(
-        "timeout {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat KICKOFF.md)\"",
-        timeout_secs, model, allowed_tools
+        "{} {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat KICKOFF.md)\"",
+        timeout_cmd, timeout_secs, model, allowed_tools
     );
 
     // Send the command to the tmux session
@@ -1171,20 +1290,12 @@ pub fn run(
     writer: Option<&SharedWriter>,
     opts: &KickoffOpts,
 ) -> Result<()> {
-    // 1. Validate prerequisites (skip for dry-run — no agent is launched)
-    if !opts.dry_run {
-        if opts.container == ContainerMode::None && !command_available("tmux") {
-            bail!("tmux is not installed. Install tmux or use --container docker.");
-        }
-        if opts.container == ContainerMode::None && !command_available("claude") {
-            bail!("claude CLI is not installed. Install it from https://claude.ai/install.sh");
-        }
-        if (opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough)
-            && !command_available("gh")
-        {
-            bail!("GitHub CLI (gh) is required for --verify ci/thorough. Install from https://cli.github.com");
-        }
-    }
+    // 1. Pre-flight: validate all required external commands are present
+    let preflight = if !opts.dry_run {
+        Some(preflight_check(&opts.container, &opts.verify)?)
+    } else {
+        None
+    };
 
     let root = repo_root()?;
     let slug = slugify(opts.description);
@@ -1299,6 +1410,7 @@ pub fn run(
                 opts.model,
                 &allowed_tools,
                 opts.timeout,
+                preflight.as_ref().unwrap().timeout_cmd,
             )?;
 
             // 10. Report
@@ -1749,15 +1861,12 @@ pub struct PlanOpts<'a> {
 
 /// Main entry point: `crosslink kickoff plan`.
 pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
-    // 1. Validate prerequisites (skip for dry-run)
-    if !opts.dry_run {
-        if !command_available("tmux") {
-            bail!("tmux is not installed. Install tmux to use kickoff plan.");
-        }
-        if !command_available("claude") {
-            bail!("claude CLI is not installed. Install it from https://claude.ai/install.sh");
-        }
-    }
+    // 1. Pre-flight: validate all required external commands
+    let preflight = if !opts.dry_run {
+        Some(preflight_check(&ContainerMode::None, &VerifyLevel::Local)?)
+    } else {
+        None
+    };
 
     let root = repo_root()?;
     let title_slug = if opts.doc.title.is_empty() {
@@ -1817,9 +1926,10 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
 
     // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
     let timeout_secs = opts.timeout.as_secs();
+    let timeout_cmd = preflight.as_ref().unwrap().timeout_cmd;
     let cmd = format!(
-        "timeout {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat PLAN_KICKOFF.md)\"",
-        timeout_secs, opts.model, allowed_tools
+        "{} {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat PLAN_KICKOFF.md)\"",
+        timeout_cmd, timeout_secs, opts.model, allowed_tools
     );
 
     let output = Command::new("tmux")
