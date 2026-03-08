@@ -565,6 +565,12 @@ impl SyncManager {
                 SignatureVerification::Unsigned {
                     commit: commit.to_string(),
                 }
+            } else if stderr.contains("allowedSignersFile needs to be configured") {
+                // gpg.ssh.allowedSignersFile not set — verification is not possible,
+                // but this doesn't mean the signature is invalid. Degrade gracefully.
+                SignatureVerification::Unsigned {
+                    commit: commit.to_string(),
+                }
             } else {
                 SignatureVerification::Invalid {
                     commit: commit.to_string(),
@@ -679,6 +685,9 @@ impl SyncManager {
             })
         } else if stderr.contains("NODATA") || stderr.contains("no signature") || stderr.is_empty()
         {
+            Ok(SignatureVerification::Unsigned { commit })
+        } else if stderr.contains("allowedSignersFile needs to be configured") {
+            // gpg.ssh.allowedSignersFile not set — cannot verify, degrade gracefully
             Ok(SignatureVerification::Unsigned { commit })
         } else {
             Ok(SignatureVerification::Invalid {
