@@ -48,6 +48,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/heartbeat.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "SessionStart": [

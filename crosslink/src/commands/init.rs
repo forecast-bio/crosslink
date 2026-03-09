@@ -295,6 +295,7 @@ pub(crate) const PRE_WEB_CHECK_PY: &str =
 pub(crate) const WORK_CHECK_PY: &str = include_str!("../../resources/claude/hooks/work-check.py");
 pub(crate) const CROSSLINK_CONFIG_PY: &str =
     include_str!("../../resources/claude/hooks/crosslink_config.py");
+pub(crate) const HEARTBEAT_PY: &str = include_str!("../../resources/claude/hooks/heartbeat.py");
 
 // Embed MCP servers
 const SAFE_FETCH_SERVER_PY: &str = include_str!("../../resources/claude/mcp/safe-fetch-server.py");
@@ -1426,6 +1427,8 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             .context("Failed to write work-check.py")?;
         fs::write(hooks_dir.join("crosslink_config.py"), CROSSLINK_CONFIG_PY)
             .context("Failed to write crosslink_config.py")?;
+        fs::write(hooks_dir.join("heartbeat.py"), HEARTBEAT_PY)
+            .context("Failed to write heartbeat.py")?;
 
         let mcp_dir = claude_dir.join("mcp");
         fs::create_dir_all(&mcp_dir).context("Failed to create .claude/mcp directory")?;

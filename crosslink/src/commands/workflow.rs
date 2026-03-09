@@ -34,6 +34,7 @@ const HOOK_FILES: &[(&str, &str)] = &[
     ("session-start.py", init::SESSION_START_PY),
     ("pre-web-check.py", init::PRE_WEB_CHECK_PY),
     ("work-check.py", init::WORK_CHECK_PY),
+    ("heartbeat.py", init::HEARTBEAT_PY),
 ];
 
 /// The marker comment that acknowledges intentional customization.

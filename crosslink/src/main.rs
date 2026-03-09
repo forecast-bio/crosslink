@@ -406,6 +406,9 @@ enum Commands {
         action: LocksCommands,
     },
 
+    /// Push a heartbeat for the current agent (used by hooks)
+    Heartbeat,
+
     /// Sync locks and issue state from remote
     Sync,
 
@@ -1632,6 +1635,28 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             commands::locks_cmd::run(action, &crosslink_dir, &db, cli.json)
+        }
+
+        Commands::Heartbeat => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let agent = crate::identity::AgentConfig::load(&crosslink_dir)?;
+            match agent {
+                Some(agent) => {
+                    let sync = crate::sync::SyncManager::new(&crosslink_dir)?;
+                    let _ = sync.init_cache();
+                    // Read active issue from session, if any
+                    let db = get_db()?;
+                    let active_issue = db
+                        .get_current_session_for_agent(None)?
+                        .and_then(|s| s.active_issue_id);
+                    sync.push_heartbeat(&agent, active_issue)?;
+                    Ok(())
+                }
+                None => {
+                    // No agent config — not an agent context, silently succeed
+                    Ok(())
+                }
+            }
         }
 
         Commands::Sync => {
