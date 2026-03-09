@@ -898,29 +898,271 @@ fn command_available(cmd: &str) -> bool {
     lookup.map(|o| o.status.success()).unwrap_or(false)
 }
 
+/// Detected platform for generating targeted install instructions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Platform {
+    MacOS,
+    Linux(LinuxDistro),
+    Windows,
+}
+
+/// Known Linux distribution families.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LinuxDistro {
+    Debian,
+    Fedora,
+    Arch,
+    Alpine,
+    Other,
+}
+
+/// Detect the current platform and Linux distribution (if applicable).
+fn detect_platform() -> Platform {
+    if cfg!(target_os = "macos") {
+        Platform::MacOS
+    } else if cfg!(target_os = "windows") {
+        Platform::Windows
+    } else {
+        Platform::Linux(detect_linux_distro())
+    }
+}
+
+/// Detect the Linux distribution by reading /etc/os-release.
+fn detect_linux_distro() -> LinuxDistro {
+    let content = match std::fs::read_to_string("/etc/os-release") {
+        Ok(c) => c.to_lowercase(),
+        Err(_) => return LinuxDistro::Other,
+    };
+    if content.contains("id=debian")
+        || content.contains("id=ubuntu")
+        || content.contains("id_like=debian")
+        || content.contains("id_like=\"debian")
+    {
+        LinuxDistro::Debian
+    } else if content.contains("id=fedora")
+        || content.contains("id=rhel")
+        || content.contains("id=centos")
+        || content.contains("id_like=fedora")
+        || content.contains("id_like=\"fedora")
+        || content.contains("id_like=\"rhel")
+    {
+        LinuxDistro::Fedora
+    } else if content.contains("id=arch")
+        || content.contains("id_like=arch")
+        || content.contains("id_like=\"arch")
+    {
+        LinuxDistro::Arch
+    } else if content.contains("id=alpine") {
+        LinuxDistro::Alpine
+    } else {
+        LinuxDistro::Other
+    }
+}
+
+/// Build a platform-specific install hint for a given command.
+fn install_hint(cmd: &str, platform: &Platform) -> String {
+    match cmd {
+        "timeout" | "gtimeout" => match platform {
+            Platform::MacOS => "On macOS, install GNU coreutils:\n\
+                 \n  brew install coreutils\n\
+                 \nThis provides `gtimeout` which crosslink will use automatically."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Debian) => {
+                "Install coreutils (provides `timeout`):\n\n  sudo apt install coreutils"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Fedora) => {
+                "Install coreutils (provides `timeout`):\n\n  sudo dnf install coreutils"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Arch) => {
+                "Install coreutils (provides `timeout`):\n\n  sudo pacman -S coreutils".to_string()
+            }
+            Platform::Linux(LinuxDistro::Alpine) => {
+                "Install coreutils (provides `timeout`):\n\n  apk add coreutils".to_string()
+            }
+            Platform::Linux(LinuxDistro::Other) => {
+                "Install GNU coreutils to get the `timeout` command.\n\
+                 Use your distribution's package manager (e.g. apt, dnf, pacman)."
+                    .to_string()
+            }
+            Platform::Windows => "Install GNU coreutils via scoop or chocolatey:\n\
+                 \n  scoop install coreutils\n  choco install gnuwin32-coreutils.install"
+                .to_string(),
+        },
+        "tmux" => match platform {
+            Platform::MacOS => "`tmux` is not installed.\n\n  brew install tmux\n\
+                 \nAlternatively, use --container docker to avoid tmux."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Debian) => {
+                "`tmux` is not installed.\n\n  sudo apt install tmux\n\
+                 \nAlternatively, use --container docker to avoid tmux."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Fedora) => {
+                "`tmux` is not installed.\n\n  sudo dnf install tmux\n\
+                 \nAlternatively, use --container docker to avoid tmux."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Arch) => {
+                "`tmux` is not installed.\n\n  sudo pacman -S tmux\n\
+                 \nAlternatively, use --container docker to avoid tmux."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Alpine) => "`tmux` is not installed.\n\n  apk add tmux\n\
+                 \nAlternatively, use --container docker to avoid tmux."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Other) => "`tmux` is not installed.\n\
+                 Install with your distribution's package manager (e.g. apt, dnf, pacman).\n\
+                 \nAlternatively, use --container docker to avoid tmux."
+                .to_string(),
+            Platform::Windows => "`tmux` is not available on Windows.\n\
+                 Use --container docker instead for containerized agent mode."
+                .to_string(),
+        },
+        "claude" => match platform {
+            Platform::MacOS => "`claude` CLI is not installed.\n\n  brew install claude-code\n\
+                 \nOr install via npm:\n\n  npm install -g @anthropic-ai/claude-code"
+                .to_string(),
+            Platform::Windows => {
+                "`claude` CLI is not installed.\n\n  npm install -g @anthropic-ai/claude-code"
+                    .to_string()
+            }
+            Platform::Linux(_) => {
+                "`claude` CLI is not installed.\n\n  npm install -g @anthropic-ai/claude-code"
+                    .to_string()
+            }
+        },
+        "gh" => match platform {
+            Platform::MacOS => {
+                "`gh` (GitHub CLI) is required for --verify ci/thorough.\n\n  brew install gh"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Debian) => {
+                "`gh` (GitHub CLI) is required for --verify ci/thorough.\n\
+                 \nInstall via apt (official repo):\n\
+                 \n  sudo mkdir -p /etc/apt/keyrings\n  \
+                 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                 | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null\n  \
+                 echo \"deb [arch=$(dpkg --print-architecture) \
+                 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] \
+                 https://cli.github.com/packages stable main\" \
+                 | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null\n  \
+                 sudo apt update && sudo apt install gh\n\
+                 \nOr install a single binary from: https://cli.github.com"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Fedora) => {
+                "`gh` (GitHub CLI) is required for --verify ci/thorough.\
+                 \n\n  sudo dnf install gh"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Arch) => {
+                "`gh` (GitHub CLI) is required for --verify ci/thorough.\
+                 \n\n  sudo pacman -S github-cli"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Alpine) => {
+                "`gh` (GitHub CLI) is required for --verify ci/thorough.\
+                 \n\n  apk add github-cli"
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Other) => {
+                "`gh` (GitHub CLI) is required for --verify ci/thorough.\n\
+                 Install from: https://cli.github.com"
+                    .to_string()
+            }
+            Platform::Windows => "`gh` (GitHub CLI) is required for --verify ci/thorough.\
+                 \n\n  winget install GitHub.cli\n\
+                 \nOr: scoop install gh"
+                .to_string(),
+        },
+        "docker" => match platform {
+            Platform::MacOS => "`docker` is not installed.\n\n  brew install --cask docker\n\
+                 \nOr install Docker Desktop from: https://docs.docker.com/get-docker/\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Debian) => "`docker` is not installed.\n\
+                 \nInstall Docker Engine:\n\
+                 \n  curl -fsSL https://get.docker.com | sh\n  sudo usermod -aG docker $USER\n\
+                 \nOr see: https://docs.docker.com/engine/install/\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Fedora) => "`docker` is not installed.\n\
+                 \n  sudo dnf install docker-ce docker-ce-cli containerd.io\n\
+                 \nOr: curl -fsSL https://get.docker.com | sh\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Arch) => "`docker` is not installed.\n\
+                 \n  sudo pacman -S docker\n  sudo systemctl enable --now docker\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Alpine) => "`docker` is not installed.\n\
+                 \n  apk add docker\n  rc-update add docker default\n  service docker start\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Other) | Platform::Windows => {
+                "`docker` is not installed.\n\
+                 Install from: https://docs.docker.com/get-docker/\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string()
+            }
+        },
+        "podman" => match platform {
+            Platform::MacOS => "`podman` is not installed.\n\n  brew install podman\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Linux(LinuxDistro::Debian) => {
+                "`podman` is not installed.\n\n  sudo apt install podman\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Fedora) => {
+                "`podman` is not installed.\n\n  sudo dnf install podman\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Arch) => {
+                "`podman` is not installed.\n\n  sudo pacman -S podman\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Alpine) => {
+                "`podman` is not installed.\n\n  apk add podman\n\
+                 \nAlternatively, use --container none for local mode."
+                    .to_string()
+            }
+            Platform::Linux(LinuxDistro::Other) => "`podman` is not installed.\n\
+                 Install from: https://podman.io/getting-started/installation\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+            Platform::Windows => "`podman` is not installed.\n\
+                 \n  winget install RedHat.Podman\n\
+                 \nAlternatively, use --container none for local mode."
+                .to_string(),
+        },
+        other => format!(
+            "`{}` is not installed. Install it using your system package manager.",
+            other
+        ),
+    }
+}
+
 /// Resolve the correct `timeout` command for the current platform.
 ///
 /// On macOS, `timeout` is not available by default. The GNU coreutils
 /// package (via Homebrew) installs it as `gtimeout`.
 /// Returns the command name to use, or an error with install instructions.
-fn resolve_timeout_command() -> Result<&'static str> {
+fn resolve_timeout_command(platform: &Platform) -> Result<&'static str> {
     if command_available("timeout") {
         return Ok("timeout");
     }
     if command_available("gtimeout") {
         return Ok("gtimeout");
     }
-    if cfg!(target_os = "macos") {
-        bail!(
-            "Neither `timeout` nor `gtimeout` found.\n\
-             On macOS, install GNU coreutils:\n\
-             \n  brew install coreutils\n\
-             \nThis provides `gtimeout` which crosslink will use automatically."
-        );
-    }
     bail!(
-        "`timeout` is not installed.\n\
-         Install GNU coreutils to get the `timeout` command."
+        "Neither `timeout` nor `gtimeout` found.\n{}",
+        install_hint("timeout", platform)
     );
 }
 
@@ -934,10 +1176,11 @@ pub(crate) struct PreflightResult {
 /// creating worktrees, branches, or sessions. Emits clear errors with install
 /// instructions for any missing command.
 fn preflight_check(container: &ContainerMode, verify: &VerifyLevel) -> Result<PreflightResult> {
+    let platform = detect_platform();
     let mut missing: Vec<String> = Vec::new();
 
     // timeout (or gtimeout on macOS) — always required for agent timeout
-    let timeout_cmd = match resolve_timeout_command() {
+    let timeout_cmd = match resolve_timeout_command(&platform) {
         Ok(cmd) => cmd,
         Err(e) => {
             missing.push(format!("{}", e));
@@ -947,53 +1190,27 @@ fn preflight_check(container: &ContainerMode, verify: &VerifyLevel) -> Result<Pr
 
     // tmux — required for local (non-container) mode
     if *container == ContainerMode::None && !command_available("tmux") {
-        missing.push(
-            "`tmux` is not installed.\n\
-             Install it for your platform:\n\
-             \n  macOS:  brew install tmux\
-             \n  Ubuntu: sudo apt install tmux\
-             \n  Fedora: sudo dnf install tmux\n\
-             \nAlternatively, use --container docker to avoid tmux."
-                .to_string(),
-        );
+        missing.push(install_hint("tmux", &platform));
     }
 
     // claude CLI — required for local mode
     if *container == ContainerMode::None && !command_available("claude") {
-        missing.push(
-            "`claude` CLI is not installed.\n\
-             Install from: https://claude.ai/install.sh"
-                .to_string(),
-        );
+        missing.push(install_hint("claude", &platform));
     }
 
     // gh — required for CI/thorough verification
     if (*verify == VerifyLevel::Ci || *verify == VerifyLevel::Thorough) && !command_available("gh")
     {
-        missing.push(
-            "`gh` (GitHub CLI) is required for --verify ci/thorough.\n\
-             Install from: https://cli.github.com"
-                .to_string(),
-        );
+        missing.push(install_hint("gh", &platform));
     }
 
     // docker/podman — required when using container mode
     match container {
         ContainerMode::Docker if !command_available("docker") => {
-            missing.push(
-                "`docker` is not installed.\n\
-                 Install from: https://docs.docker.com/get-docker/\n\
-                 \nAlternatively, use --container none for local mode."
-                    .to_string(),
-            );
+            missing.push(install_hint("docker", &platform));
         }
         ContainerMode::Podman if !command_available("podman") => {
-            missing.push(
-                "`podman` is not installed.\n\
-                 Install from: https://podman.io/getting-started/installation\n\
-                 \nAlternatively, use --container none for local mode."
-                    .to_string(),
-            );
+            missing.push(install_hint("podman", &platform));
         }
         _ => {}
     }
@@ -3854,11 +4071,11 @@ mod tests {
             // If podman is missing, the error should mention it with a hint
             if msg.contains("podman") {
                 assert!(msg.contains("Pre-flight check failed"));
-                assert!(msg.contains("podman.io"));
+                assert!(msg.contains("podman"));
             }
             // If gh is also missing, it should appear in the same message
             if msg.contains("GitHub CLI") {
-                assert!(msg.contains("cli.github.com"));
+                assert!(msg.contains("gh"));
             }
         }
         // If it passes, both podman and gh are installed — that's fine too.
@@ -3873,6 +4090,131 @@ mod tests {
     fn test_command_available_real() {
         // `which` should always be available on unix platforms
         assert!(command_available("which"));
+    }
+
+    #[test]
+    fn test_detect_platform_returns_valid_variant() {
+        let platform = detect_platform();
+        // On any platform, detect_platform should return a valid variant
+        match platform {
+            Platform::MacOS | Platform::Windows | Platform::Linux(_) => {}
+        }
+    }
+
+    #[test]
+    fn test_install_hint_timeout_macos() {
+        let hint = install_hint("timeout", &Platform::MacOS);
+        assert!(hint.contains("brew install coreutils"));
+        assert!(hint.contains("gtimeout"));
+    }
+
+    #[test]
+    fn test_install_hint_timeout_debian() {
+        let hint = install_hint("timeout", &Platform::Linux(LinuxDistro::Debian));
+        assert!(hint.contains("sudo apt install coreutils"));
+    }
+
+    #[test]
+    fn test_install_hint_timeout_fedora() {
+        let hint = install_hint("timeout", &Platform::Linux(LinuxDistro::Fedora));
+        assert!(hint.contains("sudo dnf install coreutils"));
+    }
+
+    #[test]
+    fn test_install_hint_timeout_arch() {
+        let hint = install_hint("timeout", &Platform::Linux(LinuxDistro::Arch));
+        assert!(hint.contains("sudo pacman -S coreutils"));
+    }
+
+    #[test]
+    fn test_install_hint_tmux_macos() {
+        let hint = install_hint("tmux", &Platform::MacOS);
+        assert!(hint.contains("brew install tmux"));
+        assert!(hint.contains("--container docker"));
+    }
+
+    #[test]
+    fn test_install_hint_tmux_debian() {
+        let hint = install_hint("tmux", &Platform::Linux(LinuxDistro::Debian));
+        assert!(hint.contains("sudo apt install tmux"));
+    }
+
+    #[test]
+    fn test_install_hint_tmux_windows() {
+        let hint = install_hint("tmux", &Platform::Windows);
+        assert!(hint.contains("not available on Windows"));
+        assert!(hint.contains("--container docker"));
+    }
+
+    #[test]
+    fn test_install_hint_claude_macos() {
+        let hint = install_hint("claude", &Platform::MacOS);
+        assert!(hint.contains("brew install claude-code"));
+        assert!(hint.contains("npm install"));
+    }
+
+    #[test]
+    fn test_install_hint_claude_linux() {
+        let hint = install_hint("claude", &Platform::Linux(LinuxDistro::Other));
+        assert!(hint.contains("npm install -g @anthropic-ai/claude-code"));
+    }
+
+    #[test]
+    fn test_install_hint_gh_macos() {
+        let hint = install_hint("gh", &Platform::MacOS);
+        assert!(hint.contains("brew install gh"));
+    }
+
+    #[test]
+    fn test_install_hint_gh_debian() {
+        let hint = install_hint("gh", &Platform::Linux(LinuxDistro::Debian));
+        assert!(hint.contains("sudo apt"));
+        assert!(hint.contains("githubcli"));
+    }
+
+    #[test]
+    fn test_install_hint_gh_windows() {
+        let hint = install_hint("gh", &Platform::Windows);
+        assert!(hint.contains("winget install"));
+    }
+
+    #[test]
+    fn test_install_hint_docker_macos() {
+        let hint = install_hint("docker", &Platform::MacOS);
+        assert!(hint.contains("brew install --cask docker"));
+        assert!(hint.contains("--container none"));
+    }
+
+    #[test]
+    fn test_install_hint_docker_debian() {
+        let hint = install_hint("docker", &Platform::Linux(LinuxDistro::Debian));
+        assert!(hint.contains("get.docker.com"));
+        assert!(hint.contains("usermod"));
+    }
+
+    #[test]
+    fn test_install_hint_podman_macos() {
+        let hint = install_hint("podman", &Platform::MacOS);
+        assert!(hint.contains("brew install podman"));
+    }
+
+    #[test]
+    fn test_install_hint_podman_fedora() {
+        let hint = install_hint("podman", &Platform::Linux(LinuxDistro::Fedora));
+        assert!(hint.contains("sudo dnf install podman"));
+    }
+
+    #[test]
+    fn test_install_hint_podman_windows() {
+        let hint = install_hint("podman", &Platform::Windows);
+        assert!(hint.contains("winget install RedHat.Podman"));
+    }
+
+    #[test]
+    fn test_install_hint_unknown_command() {
+        let hint = install_hint("unknown_tool", &Platform::MacOS);
+        assert!(hint.contains("unknown_tool"));
+        assert!(hint.contains("package manager"));
     }
 
     // --- Tier 1 smoke tests (GH issue #242) ---
