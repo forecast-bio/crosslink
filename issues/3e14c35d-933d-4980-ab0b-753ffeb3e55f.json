@@ -6,8 +6,17 @@
   "priority": "high",
   "created_by": "driver--comprehensive-readme-and-quarto-docs-src-documentation",
   "created_at": "2026-03-09T00:50:28.333994Z",
-  "updated_at": "2026-03-09T00:50:30.025974Z",
+  "updated_at": "2026-03-09T00:55:11.764843Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 238,
+      "author": "driver--comprehensive-readme-and-quarto-docs-src-documentation",
+      "content": "Plan: Comprehensive documentation overhaul covering all v0.4 features. The existing docs are solid but need expansion in several areas:\n\n1. **README.md** - Already comprehensive, needs minor updates for swarm commands table format, preflight checks mention, and documentation links for new guides\n2. **Quarto docs_src** - Needs 4 new guide pages:\n   - guides/swarm.qmd - Swarm orchestration (init, plan, launch, gate, checkpoint, resume)\n   - guides/knowledge.qmd - Knowledge management (add, show, list, edit, remove, search, sync)\n   - guides/tui.qmd - Terminal UI dashboard guide\n   - guides/container-agents.qmd - Container-based agent execution\n3. **_quarto.yml** - Add new pages to navbar and sidebar\n4. **index.qmd** - Add feature cards for TUI, Knowledge, Swarm, Container agents\n5. **Existing guides** - Update multi-agent.qmd with SSH signing section, update commands.qmd with swarm/container/tui/preflight commands\n6. **Reference** - Add kickoff-report.qmd to navbar (already exists but not linked)\n\nKey decisions: Keep existing content stable, add new content additively. No restructuring.",
+      "created_at": "2026-03-09T00:55:11.764843Z",
+      "kind": "plan"
+    }
   ]
 }
