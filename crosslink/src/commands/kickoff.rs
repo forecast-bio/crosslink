@@ -889,7 +889,7 @@ fn tmux_session_exists(name: &str) -> bool {
 }
 
 /// Check if a command is available on PATH.
-fn command_available(cmd: &str) -> bool {
+pub(crate) fn command_available(cmd: &str) -> bool {
     #[cfg(target_os = "windows")]
     let lookup = Command::new("where.exe").arg(cmd).output();
     #[cfg(not(target_os = "windows"))]

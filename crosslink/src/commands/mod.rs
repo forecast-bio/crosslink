@@ -22,6 +22,7 @@ pub mod list;
 pub mod locks_cmd;
 pub mod migrate;
 pub mod milestone;
+pub mod mission_control;
 pub mod next;
 pub mod relate;
 pub mod search;

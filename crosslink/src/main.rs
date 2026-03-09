@@ -476,6 +476,13 @@ enum Commands {
     },
     /// Interactive terminal dashboard (read-only)
     Tui,
+    /// Mission control: tmux dashboard showing all active agents
+    #[command(alias = "mission-control")]
+    Mc {
+        /// Panel layout: tiled, even-horizontal, even-vertical
+        #[arg(long, default_value = "tiled")]
+        layout: String,
+    },
     /// Manage container-based agent execution
     Container {
         #[command(subcommand)]
@@ -1777,6 +1784,10 @@ fn main() -> Result<()> {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             commands::tui::run(&db, &crosslink_dir)
+        }
+        Commands::Mc { layout } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            commands::mission_control::run(&crosslink_dir, &layout)
         }
     }
 }
