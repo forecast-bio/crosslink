@@ -1170,12 +1170,66 @@ fn resolve_timeout_command(platform: &Platform) -> Result<&'static str> {
 pub(crate) struct PreflightResult {
     /// The resolved timeout command (`timeout` or `gtimeout`).
     pub timeout_cmd: &'static str,
+    /// Optional sandbox wrapper command from hook-config.json `sandbox.command`.
+    pub sandbox_command: Option<String>,
+}
+
+/// Read the `sandbox.command` setting from hook-config.json, if configured.
+fn read_sandbox_command(crosslink_dir: &Path) -> Option<String> {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("sandbox")
+        .and_then(|s| s.get("command"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Build the shell command string for launching a claude agent.
+///
+/// When `sandbox_command` is set, the claude invocation is wrapped:
+/// ```text
+/// timeout 3600s my-sandbox --project-dir /path -- env -u CLAUDECODE claude ...
+/// ```
+/// Without sandbox:
+/// ```text
+/// timeout 3600s env -u CLAUDECODE claude ...
+/// ```
+fn build_agent_command(
+    timeout_cmd: &str,
+    timeout_secs: u64,
+    model: &str,
+    allowed_tools: &str,
+    kickoff_file: &str,
+    sandbox_command: Option<&str>,
+    worktree_dir: &Path,
+) -> String {
+    let claude_cmd = format!(
+        "env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat {})\"",
+        model, allowed_tools, kickoff_file
+    );
+    match sandbox_command {
+        Some(cmd) => {
+            let expanded = cmd.replace("{{worktree}}", &worktree_dir.to_string_lossy());
+            format!(
+                "{} {}s {} {}",
+                timeout_cmd, timeout_secs, expanded, claude_cmd
+            )
+        }
+        None => format!("{} {}s {}", timeout_cmd, timeout_secs, claude_cmd),
+    }
 }
 
 /// Pre-flight check: verify all required external commands are present before
 /// creating worktrees, branches, or sessions. Emits clear errors with install
 /// instructions for any missing command.
-fn preflight_check(container: &ContainerMode, verify: &VerifyLevel) -> Result<PreflightResult> {
+fn preflight_check(
+    container: &ContainerMode,
+    verify: &VerifyLevel,
+    crosslink_dir: &Path,
+) -> Result<PreflightResult> {
     let platform = detect_platform();
     let mut missing: Vec<String> = Vec::new();
 
@@ -1215,6 +1269,19 @@ fn preflight_check(container: &ContainerMode, verify: &VerifyLevel) -> Result<Pr
         _ => {}
     }
 
+    // sandbox command — validate the binary exists when configured
+    let sandbox_command = read_sandbox_command(crosslink_dir);
+    if let Some(ref cmd) = sandbox_command {
+        // Extract the binary name (first word before any flags/templates)
+        let binary = cmd.split_whitespace().next().unwrap_or(cmd);
+        if !command_available(binary) {
+            missing.push(format!(
+                "`{}` (configured in hook-config.json sandbox.command) not found on PATH",
+                binary
+            ));
+        }
+    }
+
     if !missing.is_empty() {
         let header = format!(
             "Pre-flight check failed — {} missing command{}:\n",
@@ -1230,7 +1297,10 @@ fn preflight_check(container: &ContainerMode, verify: &VerifyLevel) -> Result<Pr
         bail!("{}{}", header, body);
     }
 
-    Ok(PreflightResult { timeout_cmd })
+    Ok(PreflightResult {
+        timeout_cmd,
+        sandbox_command,
+    })
 }
 
 /// Get the git repository root.
@@ -1403,6 +1473,7 @@ fn launch_local(
     allowed_tools: &str,
     timeout: Duration,
     timeout_cmd: &str,
+    sandbox_command: Option<&str>,
 ) -> Result<()> {
     // Create the tmux session
     let output = Command::new("tmux")
@@ -1422,11 +1493,15 @@ fn launch_local(
         bail!("Failed to create tmux session: {}", stderr.trim());
     }
 
-    // Build the claude command
-    let timeout_secs = timeout.as_secs();
-    let cmd = format!(
-        "{} {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat KICKOFF.md)\"",
-        timeout_cmd, timeout_secs, model, allowed_tools
+    // Build the claude command (with optional sandbox wrapping)
+    let cmd = build_agent_command(
+        timeout_cmd,
+        timeout.as_secs(),
+        model,
+        allowed_tools,
+        "KICKOFF.md",
+        sandbox_command,
+        worktree_dir,
     );
 
     // Send the command to the tmux session
@@ -1538,7 +1613,11 @@ pub fn run(
 ) -> Result<()> {
     // 1. Pre-flight: validate all required external commands are present
     let preflight = if !opts.dry_run {
-        Some(preflight_check(&opts.container, &opts.verify)?)
+        Some(preflight_check(
+            &opts.container,
+            &opts.verify,
+            crosslink_dir,
+        )?)
     } else {
         None
     };
@@ -1660,6 +1739,7 @@ pub fn run(
                 &allowed_tools,
                 opts.timeout,
                 preflight.timeout_cmd,
+                preflight.sandbox_command.as_deref(),
             )?;
 
             // 10. Report
@@ -2112,7 +2192,11 @@ pub struct PlanOpts<'a> {
 pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
     // 1. Pre-flight: validate all required external commands
     let preflight = if !opts.dry_run {
-        Some(preflight_check(&ContainerMode::None, &VerifyLevel::Local)?)
+        Some(preflight_check(
+            &ContainerMode::None,
+            &VerifyLevel::Local,
+            crosslink_dir,
+        )?)
     } else {
         None
     };
@@ -2177,11 +2261,14 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     }
 
     // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
-    let timeout_secs = opts.timeout.as_secs();
-    let timeout_cmd = preflight.timeout_cmd;
-    let cmd = format!(
-        "{} {}s env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat PLAN_KICKOFF.md)\"",
-        timeout_cmd, timeout_secs, opts.model, allowed_tools
+    let cmd = build_agent_command(
+        preflight.timeout_cmd,
+        opts.timeout.as_secs(),
+        opts.model,
+        &allowed_tools,
+        "PLAN_KICKOFF.md",
+        preflight.sandbox_command.as_deref(),
+        &worktree_dir,
     );
 
     let output = Command::new("tmux")
@@ -4083,7 +4170,9 @@ mod tests {
     fn test_preflight_check_passes_when_commands_available() {
         // In the test environment, timeout/tmux/claude may or may not exist.
         // For container mode with a non-existent runtime, it should fail.
-        let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
+        let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
         // Docker may or may not be installed — just verify it doesn't panic.
         let _ = result;
     }
@@ -4093,7 +4182,9 @@ mod tests {
         // Use a container mode referencing a command that almost certainly doesn't exist
         // by checking the error message format when docker/podman is missing.
         // We test the error format rather than specific availability.
-        let result = preflight_check(&ContainerMode::Podman, &VerifyLevel::Thorough);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
+        let result = preflight_check(&ContainerMode::Podman, &VerifyLevel::Thorough, dir.path());
         if let Err(e) = result {
             let msg = e.to_string();
             // If podman is missing, the error should mention it with a hint
@@ -4107,6 +4198,103 @@ mod tests {
             }
         }
         // If it passes, both podman and gh are installed — that's fine too.
+    }
+
+    #[test]
+    fn test_build_agent_command_without_sandbox() {
+        let cmd = build_agent_command(
+            "timeout",
+            3600,
+            "opus",
+            "Read,Write",
+            "KICKOFF.md",
+            None,
+            Path::new("/tmp/worktree"),
+        );
+        assert_eq!(
+            cmd,
+            "timeout 3600s env -u CLAUDECODE claude --model opus --allowedTools 'Read,Write' -- \"$(cat KICKOFF.md)\""
+        );
+    }
+
+    #[test]
+    fn test_build_agent_command_with_sandbox() {
+        let cmd = build_agent_command(
+            "timeout",
+            3600,
+            "opus",
+            "Read,Write",
+            "KICKOFF.md",
+            Some("bwrap --bind {{worktree}} /workspace --"),
+            Path::new("/tmp/my-worktree"),
+        );
+        assert!(cmd.starts_with("timeout 3600s bwrap --bind /tmp/my-worktree /workspace --"));
+        assert!(cmd.contains("env -u CLAUDECODE claude"));
+    }
+
+    #[test]
+    fn test_build_agent_command_plan_kickoff() {
+        let cmd = build_agent_command(
+            "gtimeout",
+            1800,
+            "sonnet",
+            "Read,Glob",
+            "PLAN_KICKOFF.md",
+            None,
+            Path::new("/tmp/worktree"),
+        );
+        assert!(cmd.starts_with("gtimeout 1800s"));
+        assert!(cmd.contains("$(cat PLAN_KICKOFF.md)"));
+    }
+
+    #[test]
+    fn test_read_sandbox_command_not_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
+        assert!(read_sandbox_command(dir.path()).is_none());
+    }
+
+    #[test]
+    fn test_read_sandbox_command_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"sandbox": {"command": "bwrap --bind {{worktree}} /workspace --"}}"#,
+        )
+        .unwrap();
+        let cmd = read_sandbox_command(dir.path());
+        assert_eq!(
+            cmd.as_deref(),
+            Some("bwrap --bind {{worktree}} /workspace --")
+        );
+    }
+
+    #[test]
+    fn test_read_sandbox_command_empty_string_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"sandbox": {"command": ""}}"#,
+        )
+        .unwrap();
+        assert!(read_sandbox_command(dir.path()).is_none());
+    }
+
+    #[test]
+    fn test_preflight_check_validates_sandbox_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hook-config.json"),
+            r#"{"sandbox": {"command": "crosslink_nonexistent_sandbox_xyz --isolate --"}}"#,
+        )
+        .unwrap();
+        let result = preflight_check(&ContainerMode::None, &VerifyLevel::Local, dir.path());
+        if let Err(e) = result {
+            let msg = e.to_string();
+            assert!(msg.contains("crosslink_nonexistent_sandbox_xyz"));
+            assert!(msg.contains("sandbox.command"));
+        }
+        // If timeout/tmux/claude are also missing, the sandbox error should still be present
     }
 
     #[test]
