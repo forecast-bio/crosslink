@@ -1,5 +1,6 @@
 // Mission control: tmux dashboard showing all active agents
 use anyhow::{bail, Context, Result};
+use std::io::IsTerminal;
 use std::path::Path;
 use std::process::Command;
 
@@ -96,9 +97,10 @@ fn container_running(runtime: &str, name: &str) -> bool {
 fn pane_command(agent: &ActiveAgent) -> String {
     match &agent.source {
         AgentSource::Tmux(session) => {
-            // Pipe the tmux pane content, then attach read-only for live following
+            // Refresh the pane every 2 seconds with the agent's latest output.
+            // `capture-pane -p` dumps the visible content; the loop keeps it live.
             format!(
-                "tmux capture-pane -t {} -p -S -200; echo '--- live (Ctrl-C to detach) ---'; tmux pipe-pane -t {} 'cat'",
+                "while tmux has-session -t {} 2>/dev/null; do clear; tmux capture-pane -t {} -p -S -50; sleep 2; done; echo 'Session ended.'",
                 session, session
             )
         }
@@ -255,15 +257,11 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
     println!("Mission control ready.");
     println!("  tmux attach -t {}", MC_SESSION);
 
-    // If we're not inside tmux already, attach automatically
-    if std::env::var("TMUX").is_err() {
-        let status = Command::new("tmux")
+    // If we're not inside tmux already and have a terminal, attach automatically
+    if std::env::var("TMUX").is_err() && std::io::stdout().is_terminal() {
+        let _ = Command::new("tmux")
             .args(["attach", "-t", MC_SESSION])
-            .status()
-            .context("Failed to attach to mission-control")?;
-        if !status.success() {
-            bail!("tmux attach exited with non-zero status");
-        }
+            .status();
     }
 
     Ok(())
@@ -282,6 +280,7 @@ mod tests {
         let cmd = pane_command(&agent);
         assert!(cmd.contains("feat-test-agent"));
         assert!(cmd.contains("capture-pane"));
+        assert!(cmd.contains("has-session"));
     }
 
     #[test]
