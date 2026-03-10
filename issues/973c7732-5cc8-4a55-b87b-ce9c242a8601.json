@@ -2,9 +2,10 @@
   "uuid": "973c7732-5cc8-4a55-b87b-ce9c242a8601",
   "display_id": 126,
   "title": "Extract pure functions from kickoff for testability",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "driver--extract-pure-functions-from-kickoff-for-testability",
   "created_at": "2026-03-03T18:24:41.204114317Z",
-  "updated_at": "2026-03-03T18:24:41.204114317Z"
+  "updated_at": "2026-03-10T03:19:20.914422Z",
+  "closed_at": "2026-03-10T03:19:20.914422Z"
 }
