@@ -37,11 +37,10 @@ pub async fn run(
     // development. In production the dashboard is served from the same origin
     // so only the same-origin case matters, but permitting all origins here
     // keeps the dev-only setup simple (this server is localhost-only by design).
+    let localhost: axum::http::HeaderValue = "http://localhost:5173".parse()?;
+    let loopback: axum::http::HeaderValue = "http://127.0.0.1:5173".parse()?;
     let cors = CorsLayer::new()
-        .allow_origin([
-            "http://localhost:5173".parse().unwrap(),
-            "http://127.0.0.1:5173".parse().unwrap(),
-        ])
+        .allow_origin([localhost, loopback])
         .allow_methods(tower_http::cors::Any)
         .allow_headers(Any);
 
