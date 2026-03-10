@@ -2,11 +2,12 @@
   "uuid": "966aebb5-8601-454f-b145-83f5316c4127",
   "display_id": 164,
   "title": "Fix 59 broken integration tests to use canonical issue <verb> paths",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine--basel--refactor-subcommand-structure",
   "created_at": "2026-03-10T19:02:55.402822Z",
-  "updated_at": "2026-03-10T19:56:27.854009Z",
+  "updated_at": "2026-03-10T19:56:37.983133Z",
+  "closed_at": "2026-03-10T19:56:37.983133Z",
   "labels": [
     "test"
   ],
