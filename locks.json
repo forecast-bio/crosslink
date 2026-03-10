@@ -1,17 +1,11 @@
 {
   "version": 1,
   "locks": {
-    "153": {
-      "agent_id": "driver--fix-kickoff-agent-key-not-being-published-after-creation",
+    "152": {
+      "agent_id": "maxine-at-forecast--noether",
       "branch": null,
-      "claimed_at": "2026-03-08T18:53:01.246664Z",
-      "signed_by": "driver--fix-kickoff-agent-key-not-being-published-after-creation"
-    },
-    "4": {
-      "agent_id": "driver--comprehensive-readme-and-quarto-docs-src-documentation",
-      "branch": null,
-      "claimed_at": "2026-03-09T00:50:20.279053Z",
-      "signed_by": "driver--comprehensive-readme-and-quarto-docs-src-documentation"
+      "claimed_at": "2026-03-07T04:58:10.462069Z",
+      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
     },
     "155": {
       "agent_id": "driver--comprehensive-readme-and-quarto-docs-src-documentation",
@@ -19,11 +13,11 @@
       "claimed_at": "2026-03-09T20:00:42.204440Z",
       "signed_by": "driver--comprehensive-readme-and-quarto-docs-src-documentation"
     },
-    "152": {
-      "agent_id": "maxine-at-forecast--noether",
+    "4": {
+      "agent_id": "driver--comprehensive-readme-and-quarto-docs-src-documentation",
       "branch": null,
-      "claimed_at": "2026-03-07T04:58:10.462069Z",
-      "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU"
+      "claimed_at": "2026-03-09T00:50:20.279053Z",
+      "signed_by": "driver--comprehensive-readme-and-quarto-docs-src-documentation"
     }
   },
   "settings": {
