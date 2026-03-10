@@ -218,7 +218,10 @@ fn test_update_issue_title() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Original title"]);
-    let (success, _, _) = run_crosslink(dir.path(), &["issue", "update", "1", "--title", "Updated title"]);
+    let (success, _, _) = run_crosslink(
+        dir.path(),
+        &["issue", "update", "1", "--title", "Updated title"],
+    );
 
     assert!(success);
 
@@ -326,7 +329,8 @@ fn test_add_comment() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
-    let (success, _, _) = run_crosslink(dir.path(), &["issue", "comment", "1", "This is a comment"]);
+    let (success, _, _) =
+        run_crosslink(dir.path(), &["issue", "comment", "1", "This is a comment"]);
 
     assert!(success);
 
@@ -1305,7 +1309,10 @@ fn test_update_description() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
-    let (success, _, _) = run_crosslink(dir.path(), &["issue", "update", "1", "-d", "New description"]);
+    let (success, _, _) = run_crosslink(
+        dir.path(),
+        &["issue", "update", "1", "-d", "New description"],
+    );
 
     assert!(success);
 
@@ -1318,7 +1325,8 @@ fn test_update_nonexistent() {
     let dir = tempdir().unwrap();
     init_crosslink(dir.path());
 
-    let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "update", "999", "--title", "New"]);
+    let (success, _, stderr) =
+        run_crosslink(dir.path(), &["issue", "update", "999", "--title", "New"]);
 
     assert!(!success || stderr.contains("not found") || stderr.contains("No issue"));
 }
@@ -3143,7 +3151,8 @@ fn test_issue_create_canonical() {
     let dir = tempdir().unwrap();
     init_crosslink(dir.path());
 
-    let (success, stdout, stderr) = run_crosslink(dir.path(), &["issue", "create", "Canonical test"]);
+    let (success, stdout, stderr) =
+        run_crosslink(dir.path(), &["issue", "create", "Canonical test"]);
 
     assert!(success, "issue create failed: {}", stderr);
     assert!(
@@ -3165,10 +3174,8 @@ fn test_issue_create_with_parent() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Parent"]);
-    let (success, stdout, stderr) = run_crosslink(
-        dir.path(),
-        &["issue", "create", "Child", "--parent", "1"],
-    );
+    let (success, stdout, stderr) =
+        run_crosslink(dir.path(), &["issue", "create", "Child", "--parent", "1"]);
 
     assert!(success, "issue create --parent failed: {}", stderr);
     assert!(
@@ -3183,8 +3190,18 @@ fn test_issue_quick_canonical() {
     let dir = tempdir().unwrap();
     init_crosslink(dir.path());
 
-    let (success, stdout, stderr) =
-        run_crosslink(dir.path(), &["issue", "quick", "Quick test", "-p", "high", "-l", "feature"]);
+    let (success, stdout, stderr) = run_crosslink(
+        dir.path(),
+        &[
+            "issue",
+            "quick",
+            "Quick test",
+            "-p",
+            "high",
+            "-l",
+            "feature",
+        ],
+    );
 
     assert!(success, "issue quick failed: {}", stderr);
     assert!(
@@ -3281,8 +3298,10 @@ fn test_issue_comment_canonical() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Comment target"]);
-    let (success, _, stderr) =
-        run_crosslink(dir.path(), &["issue", "comment", "1", "A canonical comment"]);
+    let (success, _, stderr) = run_crosslink(
+        dir.path(),
+        &["issue", "comment", "1", "A canonical comment"],
+    );
 
     assert!(success, "issue comment failed: {}", stderr);
 
@@ -3340,7 +3359,10 @@ fn test_issue_tree_canonical() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Tree parent"]);
-    run_crosslink(dir.path(), &["issue", "create", "Tree child", "--parent", "1"]);
+    run_crosslink(
+        dir.path(),
+        &["issue", "create", "Tree child", "--parent", "1"],
+    );
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "tree"]);
 
@@ -3448,8 +3470,7 @@ fn test_issues_list_alias_emits_hint() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Listed issue"]);
-    let (success, stdout, stderr) =
-        run_crosslink(dir.path(), &["issues", "list", "-s", "open"]);
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["issues", "list", "-s", "open"]);
 
     assert!(success, "issues list alias failed: {}", stderr);
     assert!(stdout.contains("Listed issue"));

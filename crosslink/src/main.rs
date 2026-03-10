@@ -243,7 +243,6 @@ enum Commands {
     },
 
     // === Hidden top-level shortcuts (delegate to `issue <verb>`) ===
-
     /// Create a new issue (shortcut for `issue create`)
     #[command(hide = true)]
     Create {
@@ -328,7 +327,6 @@ enum Commands {
     },
 
     // === Hidden aliases for common agent mistakes ===
-
     /// Alias for `issue create`
     #[command(hide = true)]
     New {
@@ -396,7 +394,6 @@ enum Commands {
     TimerStop,
 
     // === Hidden migration aliases ===
-
     /// Alias for `migrate to-shared`
     #[command(hide = true, name = "migrate-to-shared")]
     MigrateToShared,
@@ -1790,7 +1787,6 @@ fn main() -> Result<()> {
         }
 
         // === Canonical grouped commands ===
-
         Commands::Issue { action } => dispatch_issue(action, cli.quiet, cli.json),
 
         Commands::Timer { action } => {
@@ -1820,7 +1816,6 @@ fn main() -> Result<()> {
         },
 
         // === Hidden top-level shortcuts ===
-
         Commands::Create {
             title,
             description,
@@ -1830,22 +1825,20 @@ fn main() -> Result<()> {
             work,
             defer_id,
             parent,
-        } => {
-            dispatch_issue(
-                IssueCommands::Create {
-                    title,
-                    description,
-                    priority,
-                    template,
-                    label,
-                    work,
-                    defer_id,
-                    parent,
-                },
-                cli.quiet,
-                cli.json,
-            )
-        }
+        } => dispatch_issue(
+            IssueCommands::Create {
+                title,
+                description,
+                priority,
+                template,
+                label,
+                work,
+                defer_id,
+                parent,
+            },
+            cli.quiet,
+            cli.json,
+        ),
 
         Commands::Quick {
             title,
@@ -1854,51 +1847,42 @@ fn main() -> Result<()> {
             template,
             label,
             parent,
-        } => {
-            dispatch_issue(
-                IssueCommands::Quick {
-                    title,
-                    description,
-                    priority,
-                    template,
-                    label,
-                    parent,
-                },
-                cli.quiet,
-                cli.json,
-            )
-        }
+        } => dispatch_issue(
+            IssueCommands::Quick {
+                title,
+                description,
+                priority,
+                template,
+                label,
+                parent,
+            },
+            cli.quiet,
+            cli.json,
+        ),
 
         Commands::List {
             status,
             label,
             priority,
-        } => {
-            dispatch_issue(
-                IssueCommands::List {
-                    status,
-                    label,
-                    priority,
-                },
-                cli.quiet,
-                cli.json,
-            )
-        }
+        } => dispatch_issue(
+            IssueCommands::List {
+                status,
+                label,
+                priority,
+            },
+            cli.quiet,
+            cli.json,
+        ),
 
-        Commands::Show { id } => {
-            dispatch_issue(IssueCommands::Show { id }, cli.quiet, cli.json)
-        }
+        Commands::Show { id } => dispatch_issue(IssueCommands::Show { id }, cli.quiet, cli.json),
 
-        Commands::Close { id, no_changelog } => {
-            dispatch_issue(
-                IssueCommands::Close { id, no_changelog },
-                cli.quiet,
-                cli.json,
-            )
-        }
+        Commands::Close { id, no_changelog } => dispatch_issue(
+            IssueCommands::Close { id, no_changelog },
+            cli.quiet,
+            cli.json,
+        ),
 
         // === Hidden aliases (emit hints) ===
-
         Commands::New {
             title,
             description,
@@ -1908,7 +1892,10 @@ fn main() -> Result<()> {
             work,
             parent,
         } => {
-            hint(cli.quiet, "did you mean 'crosslink issue create'? Using that.");
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink issue create'? Using that.",
+            );
             dispatch_issue(
                 IssueCommands::Create {
                     title,
@@ -1932,7 +1919,10 @@ fn main() -> Result<()> {
                 priority,
             }) = action
             {
-                hint(cli.quiet, "did you mean 'crosslink issue list'? Using that.");
+                hint(
+                    cli.quiet,
+                    "did you mean 'crosslink issue list'? Using that.",
+                );
                 dispatch_issue(
                     IssueCommands::List {
                         status,
@@ -1943,7 +1933,10 @@ fn main() -> Result<()> {
                     cli.json,
                 )
             } else {
-                hint(cli.quiet, "did you mean 'crosslink issue list'? Using that.");
+                hint(
+                    cli.quiet,
+                    "did you mean 'crosslink issue list'? Using that.",
+                );
                 dispatch_issue(
                     IssueCommands::List {
                         status: "open".to_string(),
@@ -2003,7 +1996,6 @@ fn main() -> Result<()> {
         }
 
         // === Hidden migration aliases ===
-
         Commands::MigrateToShared => {
             hint(
                 cli.quiet,
@@ -2034,7 +2026,6 @@ fn main() -> Result<()> {
         }
 
         // === Remaining top-level commands (unchanged) ===
-
         Commands::Export { output, format } => {
             let db = get_db()?;
             match format.as_str() {
