@@ -244,4 +244,12 @@ export const orchestrator = {
   pause: () => request<void>("/orchestrator/pause", { method: "POST" }),
   status: () =>
     request<{ status: string; progress_pct: number }>("/orchestrator/status"),
+  retryStage: (stageId: string) =>
+    request<void>(`/orchestrator/stages/${encodeURIComponent(stageId)}/retry`, {
+      method: "POST",
+    }),
+  skipStage: (stageId: string) =>
+    request<void>(`/orchestrator/stages/${encodeURIComponent(stageId)}/skip`, {
+      method: "POST",
+    }),
 };

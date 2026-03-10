@@ -543,6 +543,35 @@ export type WsClientMessage = WsSubscribeMessage;
 export type WsServerMessage = WsMessage;
 
 // ---------------------------------------------------------------------------
+// Execution events (frontend-only, built from WS messages + API responses)
+// ---------------------------------------------------------------------------
+
+export type ExecutionEventKind =
+  | "stage_started"
+  | "stage_completed"
+  | "stage_failed"
+  | "stage_skipped"
+  | "stage_retried"
+  | "phase_started"
+  | "phase_completed"
+  | "execution_started"
+  | "execution_paused"
+  | "execution_resumed"
+  | "execution_completed"
+  | "execution_failed";
+
+/** A single entry in the execution event log. */
+export interface ExecutionEvent {
+  id: string;
+  timestamp: string;
+  kind: ExecutionEventKind;
+  phase_id: string | null;
+  stage_id: string | null;
+  agent_id: string | null;
+  message: string;
+}
+
+// ---------------------------------------------------------------------------
 // Token usage & cost tracking
 // ---------------------------------------------------------------------------
 
