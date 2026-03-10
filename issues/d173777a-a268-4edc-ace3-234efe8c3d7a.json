@@ -2,9 +2,10 @@
   "uuid": "d173777a-a268-4edc-ace3-234efe8c3d7a",
   "display_id": 27,
   "title": "Clean up merged feature worktrees",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "m1",
   "created_at": "2026-02-28T21:54:56.404142Z",
-  "updated_at": "2026-02-28T21:54:56.404142Z"
+  "updated_at": "2026-03-10T03:19:09.766674Z",
+  "closed_at": "2026-03-10T03:19:09.766674Z"
 }
