@@ -2,11 +2,12 @@
   "uuid": "1910579c-2be9-4a5a-95a3-2e2caed77425",
   "display_id": 10,
   "title": "Create GH issues for signing epic",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "m1",
   "created_at": "2026-02-27T18:39:01.745491Z",
-  "updated_at": "2026-02-27T18:39:03.292273Z",
+  "updated_at": "2026-03-10T03:48:41.719475Z",
+  "closed_at": "2026-03-10T03:48:41.719475Z",
   "labels": [
     "chore"
   ]
