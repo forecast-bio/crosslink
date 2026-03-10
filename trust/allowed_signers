@@ -24,3 +24,5 @@ maxine-at-forecast--noether--ci-cd-restructure@crosslink ssh-ed25519 AAAAC3NzaC1
 m1--configurable-tracker-remote@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAaGpOCDvtjeOTjq598XcIxi7jZJ2ur7htC3n2ySBGMB crosslink-agent:m1--configurable-tracker-remote@noether-4.local
 # approved by max at 2026-03-04 19:58:29 UTC
 m1--fix-tui-agents-tab@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKS370uZ7MDCGirDeLJfDGPu4pcZbhTQZY0EL30BLOwU crosslink-agent:m1--fix-tui-agents-tab@noether-4.local
+# approved by maxine at 2026-03-10 03:02:12 UTC
+maxine--basel@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
