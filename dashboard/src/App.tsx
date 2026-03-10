@@ -19,10 +19,12 @@ import { Usage } from "@/pages/Usage";
 import { wsClient } from "@/api/ws";
 import { useAgentsStore } from "@/stores/agents";
 import { useIssuesStore } from "@/stores/issues";
+import { useOrchestratorStore } from "@/stores/orchestrator";
 
 function WsListener() {
   const { applyHeartbeat, applyStatus } = useAgentsStore();
   const { invalidate } = useIssuesStore();
+  const { applyProgress } = useOrchestratorStore();
 
   useEffect(() => {
     wsClient.connect(["agents", "issues", "execution"]);
@@ -37,6 +39,9 @@ function WsListener() {
         case "issue_updated":
           invalidate(msg.issue_id);
           break;
+        case "execution_progress":
+          applyProgress(msg.phase_id, msg.stage_id, msg.status);
+          break;
         default:
           break;
       }
@@ -45,7 +50,7 @@ function WsListener() {
       off();
       wsClient.disconnect();
     };
-  }, [applyHeartbeat, applyStatus, invalidate]);
+  }, [applyHeartbeat, applyStatus, invalidate, applyProgress]);
 
   return null;
 }
