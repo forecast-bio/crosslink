@@ -238,10 +238,7 @@ impl AgentsTab {
                 self.view_mode = ViewMode::Locks;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.start_background_refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -262,10 +259,7 @@ impl AgentsTab {
                 self.view_mode = ViewMode::Trust;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.start_background_refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Esc => {
                 self.view_mode = ViewMode::Agents;
                 TabAction::Consumed
@@ -291,10 +285,7 @@ impl AgentsTab {
                 self.view_mode = ViewMode::Agents;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.start_background_refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Esc => {
                 self.view_mode = ViewMode::Agents;
                 TabAction::Consumed
@@ -1115,7 +1106,8 @@ mod tests {
     fn test_refresh_key() {
         let mut tab = make_tab();
         let result = tab.handle_key(make_key(KeyCode::Char('r')));
-        assert!(matches!(result, TabAction::Consumed));
+        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+        assert!(matches!(result, TabAction::NotHandled));
     }
 
     #[test]

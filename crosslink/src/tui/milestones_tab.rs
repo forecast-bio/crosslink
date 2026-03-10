@@ -500,10 +500,7 @@ impl MilestonesTab {
                 self.refresh();
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -846,7 +843,8 @@ mod tests {
     fn test_refresh_key() {
         let (mut tab, _dir) = setup_tab();
         let result = tab.handle_key(make_key(KeyCode::Char('r')));
-        assert!(matches!(result, TabAction::Consumed));
+        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+        assert!(matches!(result, TabAction::NotHandled));
     }
 
     #[test]

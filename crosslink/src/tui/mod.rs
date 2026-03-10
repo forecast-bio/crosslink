@@ -21,10 +21,13 @@ use ratatui::{
     Frame,
 };
 use std::io;
-use std::path::Path;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use crate::db::Database;
+use crate::hydration::hydrate_to_sqlite;
+use crate::sync::SyncManager;
 
 /// Action returned by a tab's key handler to communicate with the App.
 pub enum TabAction {
@@ -50,6 +53,11 @@ pub trait Tab {
     fn on_leave(&mut self);
     /// Poll for async data updates (called each event-loop tick).
     fn poll_updates(&mut self) {}
+    /// Force a data reload (called after sync completes). Default cycles on_leave/on_enter.
+    fn force_refresh(&mut self) {
+        self.on_leave();
+        self.on_enter();
+    }
 }
 
 /// Copy text to the system clipboard using platform-native commands.
@@ -86,6 +94,12 @@ pub fn copy_to_clipboard(text: &str) -> bool {
     result.map(|s| s.success()).unwrap_or(false)
 }
 
+/// Result from a background sync operation.
+struct SyncResult {
+    cache_path: PathBuf,
+    error: Option<String>,
+}
+
 /// Top-level TUI application state.
 pub struct App {
     tabs: Vec<Box<dyn Tab>>,
@@ -99,6 +113,16 @@ pub struct App {
     flash_message: Option<String>,
     /// Tracks the tab bar area for mouse click detection.
     tab_bar_area: Rect,
+    /// Path to the .crosslink directory (for sync operations).
+    crosslink_dir: PathBuf,
+    /// Path to the issues database (for hydration after sync).
+    db_path: PathBuf,
+    /// When the last successful sync completed.
+    last_sync: Instant,
+    /// Receiver for background sync results.
+    sync_rx: Option<mpsc::Receiver<SyncResult>>,
+    /// Whether a background sync is in progress.
+    syncing: bool,
 }
 
 impl App {
@@ -127,6 +151,11 @@ impl App {
             command_input: String::new(),
             flash_message: None,
             tab_bar_area: Rect::default(),
+            crosslink_dir: crosslink_dir.to_path_buf(),
+            db_path,
+            last_sync: Instant::now(),
+            sync_rx: None,
+            syncing: false,
         };
         app.tabs[0].on_enter();
         Ok(app)
@@ -193,6 +222,9 @@ impl App {
             KeyCode::Char(':') => {
                 self.command_mode = true;
                 self.command_input.clear();
+            }
+            KeyCode::Char('r') => {
+                self.start_background_sync();
             }
             // Number keys 1-5 for direct tab selection
             KeyCode::Char(c @ '1'..='5') => {
@@ -279,6 +311,63 @@ impl App {
                 let _ = self.tabs[self.active_tab].handle_key(down);
             }
             _ => {}
+        }
+    }
+
+    /// Start a background sync (fetch from coordination branch).
+    fn start_background_sync(&mut self) {
+        if self.syncing {
+            return;
+        }
+        self.syncing = true;
+        self.flash_message = Some("Syncing...".to_string());
+        let (tx, rx) = mpsc::channel();
+        self.sync_rx = Some(rx);
+        let crosslink_dir = self.crosslink_dir.clone();
+
+        std::thread::spawn(move || {
+            let result = match SyncManager::new(&crosslink_dir) {
+                Ok(sync_mgr) => {
+                    let _ = sync_mgr.init_cache();
+                    match sync_mgr.fetch() {
+                        Ok(()) => SyncResult {
+                            cache_path: sync_mgr.cache_path().to_path_buf(),
+                            error: None,
+                        },
+                        Err(e) => SyncResult {
+                            cache_path: sync_mgr.cache_path().to_path_buf(),
+                            error: Some(e.to_string()),
+                        },
+                    }
+                }
+                Err(e) => SyncResult {
+                    cache_path: PathBuf::new(),
+                    error: Some(e.to_string()),
+                },
+            };
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Poll for a completed background sync and apply results.
+    fn poll_sync(&mut self) {
+        let result = self.sync_rx.as_ref().and_then(|rx| rx.try_recv().ok());
+        if let Some(result) = result {
+            self.syncing = false;
+            self.sync_rx = None;
+            self.last_sync = Instant::now();
+
+            if let Some(err) = result.error {
+                self.flash_message = Some(format!("Sync error: {err}"));
+            } else {
+                // Hydrate local DB from the fetched coordination branch data
+                if let Ok(db) = Database::open(&self.db_path) {
+                    let _ = hydrate_to_sqlite(&result.cache_path, &db);
+                }
+                // Refresh the active tab to show updated data
+                self.tabs[self.active_tab].force_refresh();
+                self.flash_message = Some("Synced".to_string());
+            }
         }
     }
 
@@ -397,7 +486,7 @@ impl App {
             Span::styled("?", Style::default().fg(Color::Cyan)),
             Span::raw(":Help  "),
             Span::styled("r", Style::default().fg(Color::Cyan)),
-            Span::raw(":Refresh"),
+            Span::raw(":Sync"),
         ];
 
         let status = Paragraph::new(Line::from(keys))
@@ -439,7 +528,7 @@ impl App {
             Line::from("  Enter         View issue details"),
             Line::from("  f             Cycle status filter"),
             Line::from("  s             Cycle sort order"),
-            Line::from("  r             Refresh data"),
+            Line::from("  r             Sync & refresh"),
             Line::from("  /             Search (type to filter)"),
             Line::from("  Esc           Clear search"),
             Line::from("  t             Tree view"),
@@ -459,7 +548,7 @@ impl App {
             Line::from("  Up/Down / j/k Navigate agents"),
             Line::from("  Enter         View agent details"),
             Line::from("  v             Cycle view (Agents/Locks/Trust)"),
-            Line::from("  r             Refresh data"),
+            Line::from("  r             Sync & refresh"),
             Line::from("  Esc           Back to list"),
             Line::from(""),
             Line::from(Span::styled(
@@ -471,7 +560,7 @@ impl App {
             Line::from("  /             Search pages"),
             Line::from("  t             Cycle tag filter"),
             Line::from("  y             Copy page to clipboard"),
-            Line::from("  r             Refresh"),
+            Line::from("  r             Sync & refresh"),
             Line::from("  Esc           Back to list"),
             Line::from(""),
             Line::from(Span::styled(
@@ -482,7 +571,7 @@ impl App {
             Line::from("  Enter         View milestone details"),
             Line::from("  f             Cycle status filter"),
             Line::from("  y             Copy to clipboard"),
-            Line::from("  r             Refresh"),
+            Line::from("  r             Sync & refresh"),
             Line::from("  Esc           Back to list"),
             Line::from(""),
             Line::from(Span::styled(
@@ -491,7 +580,7 @@ impl App {
             )),
             Line::from("  Up/Down / j/k Scroll"),
             Line::from("  e             Full event log"),
-            Line::from("  r             Refresh"),
+            Line::from("  r             Sync & refresh"),
             Line::from("  Esc           Back to main"),
             Line::from(""),
             Line::from(Span::styled(
@@ -567,8 +656,20 @@ impl Drop for TerminalGuard {
     }
 }
 
+/// Interval between automatic background syncs.
+const PERIODIC_SYNC_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Run the TUI application. Sets up terminal, runs event loop, cleans up on exit.
 pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
+    // Startup sync — pull latest from coordination branch before entering TUI
+    eprint!("Syncing...");
+    if let Ok(sync_mgr) = SyncManager::new(crosslink_dir) {
+        let _ = sync_mgr.init_cache();
+        let _ = sync_mgr.fetch();
+        let _ = hydrate_to_sqlite(sync_mgr.cache_path(), db);
+    }
+    eprintln!(" done.");
+
     let _guard = TerminalGuard::new();
 
     enable_raw_mode()?;
@@ -587,6 +688,14 @@ pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
         // Poll all tabs for async data that may have arrived
         for tab in &mut app.tabs {
             tab.poll_updates();
+        }
+
+        // Poll for background sync completion
+        app.poll_sync();
+
+        // Periodic background sync
+        if app.last_sync.elapsed() > PERIODIC_SYNC_INTERVAL && !app.syncing {
+            app.start_background_sync();
         }
 
         // Non-blocking event poll (50ms timeout keeps UI responsive for async updates)

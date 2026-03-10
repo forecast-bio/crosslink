@@ -257,10 +257,7 @@ impl KnowledgeTab {
                 self.searching = true;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -633,6 +630,10 @@ impl Tab for KnowledgeTab {
     // Data is loaded eagerly in new() and refreshed on 'r' keypress.
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
+
+    fn force_refresh(&mut self) {
+        self.refresh();
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -1179,7 +1180,8 @@ mod tests {
     fn test_refresh_key() {
         let mut tab = make_tab_empty();
         let result = tab.handle_list_key(make_key(KeyCode::Char('r')));
-        assert!(matches!(result, TabAction::Consumed));
+        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+        assert!(matches!(result, TabAction::NotHandled));
     }
 
     #[test]

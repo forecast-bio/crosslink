@@ -327,12 +327,7 @@ impl IssuesTab {
                 self.searching = true;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                if let Some(db) = db {
-                    let _ = self.refresh(db);
-                }
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Char('t') => {
                 if let Some(db) = db {
                     let _ = self.build_tree(db);
@@ -537,12 +532,7 @@ impl IssuesTab {
                 }
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                if let Some(db) = db {
-                    let _ = self.build_tree(db);
-                }
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -1062,6 +1052,19 @@ impl super::Tab for IssuesTab {
     // IssuesTab loads data eagerly in new() and on refresh, so no work needed on focus change.
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
+
+    fn force_refresh(&mut self) {
+        if let Ok(db) = self.open_db() {
+            match self.view_mode {
+                ViewMode::Tree => {
+                    let _ = self.build_tree(&db);
+                }
+                _ => {
+                    let _ = self.refresh(&db);
+                }
+            }
+        }
+    }
 }
 
 // === Helper functions ===

@@ -487,10 +487,7 @@ impl ConfigTab {
                 self.event_scroll = 0;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -537,10 +534,7 @@ impl ConfigTab {
                 }
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => {
-                self.refresh();
-                TabAction::Consumed
-            }
+            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -810,7 +804,8 @@ mod tests {
     fn test_refresh() {
         let (mut tab, _dir) = setup_tab();
         let result = tab.handle_key(make_key(KeyCode::Char('r')));
-        assert!(matches!(result, TabAction::Consumed));
+        // 'r' is now a global keybinding (sync), so tabs return NotHandled
+        assert!(matches!(result, TabAction::NotHandled));
     }
 
     #[test]
