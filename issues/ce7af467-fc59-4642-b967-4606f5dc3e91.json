@@ -6,8 +6,17 @@
   "priority": "high",
   "created_by": "maxine--plan-050",
   "created_at": "2026-03-10T22:31:18.498222Z",
-  "updated_at": "2026-03-10T22:31:20.008163Z",
+  "updated_at": "2026-03-10T22:31:31.421011Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 249,
+      "author": "maxine--plan-050",
+      "content": "Plan: Read-only gap analysis of v0.5.0 design spec against codebase. Exploring knowledge.rs edit command, kickoff.rs subcommands/prompt builder, TUI mod.rs/issues_tab/knowledge_tab, repo root structure, and main.rs CLI structure. Will produce .kickoff-plan.json with gaps, assumptions, subtasks, and conflicts.",
+      "created_at": "2026-03-10T22:31:31.421010Z",
+      "kind": "plan"
+    }
   ]
 }
