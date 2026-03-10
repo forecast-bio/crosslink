@@ -3,11 +3,12 @@
   "display_id": 104,
   "title": "TUI Phase 2: subissues, related issues, milestone in detail view + tree view",
   "description": "Enhance detail view with subissues, related issues, milestone. Add tree view mode toggled with 't' key. Migrated from crosslink/ subdir issue #2.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine-at-forecast--noether--tui-dashboard",
   "created_at": "2026-03-02T17:42:40.464625Z",
-  "updated_at": "2026-03-02T17:42:44.287963Z",
+  "updated_at": "2026-03-10T03:39:01.511939Z",
+  "closed_at": "2026-03-10T03:39:01.511939Z",
   "labels": [
     "feature"
   ],
