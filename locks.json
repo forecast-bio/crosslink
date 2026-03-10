@@ -1,23 +1,17 @@
 {
   "version": 1,
   "locks": {
-    "157": {
-      "agent_id": "maxine--basel--refactor-subcommand-structure",
-      "branch": null,
-      "claimed_at": "2026-03-10T04:18:17.406264Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    },
     "166": {
       "agent_id": "maxine--plan-050",
       "branch": null,
       "claimed_at": "2026-03-10T22:45:07.172281Z",
       "signed_by": "SHA256:1zTuPASnfyIT82GbzQyd7/lFzUpR7tLM/gybRTmMTKQ"
     },
-    "173": {
-      "agent_id": "maxine--plan-050",
+    "157": {
+      "agent_id": "maxine--basel--refactor-subcommand-structure",
       "branch": null,
-      "claimed_at": "2026-03-10T22:45:19.739236Z",
-      "signed_by": "SHA256:1zTuPASnfyIT82GbzQyd7/lFzUpR7tLM/gybRTmMTKQ"
+      "claimed_at": "2026-03-10T04:18:17.406264Z",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
     },
     "164": {
       "agent_id": "maxine--basel--refactor-subcommand-structure",
