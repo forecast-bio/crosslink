@@ -2,11 +2,12 @@
   "uuid": "8200e701-de4c-42d2-bdab-d4c0ddd0dbd3",
   "display_id": 81,
   "title": "Create GH issue for crosslink tui command",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "maxine-at-forecast--noether--knowledge-norms",
   "created_at": "2026-03-02T08:54:20.509180Z",
-  "updated_at": "2026-03-02T08:56:30.933362Z",
+  "updated_at": "2026-03-10T03:46:20.201531Z",
+  "closed_at": "2026-03-10T03:46:20.201531Z",
   "labels": [
     "ops"
   ],
