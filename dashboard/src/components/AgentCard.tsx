@@ -41,19 +41,20 @@ interface AgentCardProps {
 export function AgentCard({ agent }: AgentCardProps) {
   const navigate = useNavigate();
   const [pulsing, setPulsing] = useState(false);
-  const prevHeartbeat = useRef(agent.last_heartbeat);
+  const prevHeartbeat = useRef(agent.last_heartbeat?.timestamp);
 
   // Flash a brief pulse animation whenever the heartbeat timestamp changes
   useEffect(() => {
-    if (agent.last_heartbeat !== prevHeartbeat.current) {
-      prevHeartbeat.current = agent.last_heartbeat;
+    const ts = agent.last_heartbeat?.timestamp;
+    if (ts && ts !== prevHeartbeat.current) {
+      prevHeartbeat.current = ts;
       setPulsing(true);
       const t = setTimeout(() => setPulsing(false), 800);
       return () => clearTimeout(t);
     }
-  }, [agent.last_heartbeat]);
+  }, [agent.last_heartbeat?.timestamp]);
 
-  const displayId = agent.description ?? agent.agent_id;
+  const displayId = agent.description ?? agent.id;
 
   return (
     <Card
@@ -62,7 +63,7 @@ export function AgentCard({ agent }: AgentCardProps) {
         "hover:bg-accent/30 hover:shadow-md",
         pulsing ? "ring-1 ring-green-500/60" : "",
       ].join(" ")}
-      onClick={() => void navigate(`/agents/${encodeURIComponent(agent.agent_id)}`)}
+      onClick={() => void navigate(`/agents/${encodeURIComponent(agent.id)}`)}
     >
       <CardContent className="p-4 space-y-2">
         {/* Header row: status dot + id + badge */}
@@ -74,7 +75,7 @@ export function AgentCard({ agent }: AgentCardProps) {
               agent.status === "active" ? "animate-pulse" : "",
             ].join(" ")}
           />
-          <span className="font-mono text-xs truncate flex-1 text-foreground/80" title={agent.agent_id}>
+          <span className="font-mono text-xs truncate flex-1 text-foreground/80" title={agent.id}>
             {displayId}
           </span>
           <Badge variant={statusBadgeVariant(agent.status)} className="shrink-0 text-xs">
@@ -92,7 +93,7 @@ export function AgentCard({ agent }: AgentCardProps) {
         {/* Last heartbeat */}
         {agent.last_heartbeat && (
           <p className="text-xs text-muted-foreground pl-4">
-            Last seen {formatRelativeTime(agent.last_heartbeat)}
+            Last seen {formatRelativeTime(agent.last_heartbeat.timestamp)}
           </p>
         )}
 
