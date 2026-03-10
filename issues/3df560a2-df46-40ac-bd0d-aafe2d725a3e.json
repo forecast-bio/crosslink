@@ -7,7 +7,7 @@
   "parent_uuid": "078e82a2-3f55-4d6b-94da-00ae2b7c1504",
   "created_by": "maxine--plan-050",
   "created_at": "2026-03-10T22:41:18.904614Z",
-  "updated_at": "2026-03-10T23:43:08.631620Z",
+  "updated_at": "2026-03-10T23:43:16.270241Z",
   "comments": [
     {
       "id": 254,
@@ -28,6 +28,13 @@
       "author": "maxine--tui-startup-sync",
       "content": "Decision: Made 'r' a global keybinding that triggers full sync (fetch + hydrate) rather than keeping per-tab local refresh. ':r' command palette remains as local-only disk refresh. Added force_refresh() to Tab trait so sync completion can reload data for eagerly-loaded tabs (IssuesTab, KnowledgeTab). Tabs with on_enter refresh (AgentsTab, ConfigTab, MilestonesTab) use default force_refresh (on_leave + on_enter).",
       "created_at": "2026-03-10T23:43:08.631620Z",
+      "kind": "decision"
+    },
+    {
+      "id": 262,
+      "author": "maxine--tui-startup-sync",
+      "content": "Decision: Background thread only does SyncManager::fetch() (network I/O). Hydration (hydrate_to_sqlite) runs on main thread to avoid SQLite threading issues. SyncResult struct carries cache_path and optional error across mpsc channel. PERIODIC_SYNC_INTERVAL = 30s defined as module-level constant for easy tuning.",
+      "created_at": "2026-03-10T23:43:16.270241Z",
       "kind": "decision"
     }
   ]
