@@ -2,11 +2,12 @@
   "uuid": "14344570-e120-4e79-b327-76457f6e2874",
   "display_id": 144,
   "title": "Fix agent signing setup fragility during initial repo initialization",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-04T20:48:10.733922Z",
-  "updated_at": "2026-03-04T23:23:08.112040Z",
+  "updated_at": "2026-03-10T03:59:55.810424Z",
+  "closed_at": "2026-03-10T03:59:55.810424Z",
   "labels": [
     "bug"
   ],
