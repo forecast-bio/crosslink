@@ -7,5 +7,14 @@
   "parent_uuid": "078e82a2-3f55-4d6b-94da-00ae2b7c1504",
   "created_by": "maxine--plan-050",
   "created_at": "2026-03-10T22:41:37.085037Z",
-  "updated_at": "2026-03-10T22:41:37.085037Z"
+  "updated_at": "2026-03-10T22:41:38.630325Z",
+  "comments": [
+    {
+      "id": 256,
+      "author": "maxine--plan-050",
+      "content": "Covers REQ-8, AC-14 through AC-16. Steps: (1) migrate 3 DESIGN-*.md + POLICY-REVIEW.md + ADR.md to knowledge repo, (2) move ARCHITECTURE.md + ELI5.md to docs/, update README links, (3) remove test-*.sh and .plan/, (4) commit .crosslink/rules/ (28 files), (5) clean .gitignore, (6) update LICENSE copyright (2025->2025-2026, holder TBD), (7) update infographic. Must run AFTER all code features merged to avoid conflicts.",
+      "created_at": "2026-03-10T22:41:38.630325Z",
+      "kind": "plan"
+    }
+  ]
 }
