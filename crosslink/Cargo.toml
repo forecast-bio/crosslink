@@ -39,8 +39,13 @@ uuid = { version = "1", features = ["v4", "serde"] }
 signal-hook = "0.3"
 ratatui = "0.30"
 crossterm = "0.29"
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+tokio = { version = "1", features = ["full"] }
+notify = "6"
 
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
 arbitrary = "1"
+tower = { version = "0.5", features = ["util"] }

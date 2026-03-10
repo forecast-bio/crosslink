@@ -1,0 +1,465 @@
+//! Handlers for milestone management endpoints.
+//!
+//! Implements:
+//! - `GET /api/v1/milestones` — list milestones (with optional status filter)
+//! - `POST /api/v1/milestones` — create a new milestone
+//! - `GET /api/v1/milestones/:id` — get a single milestone with progress stats
+//! - `POST /api/v1/milestones/:id/assign` — assign an issue to a milestone
+//! - `POST /api/v1/milestones/:id/close` — close a milestone
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+};
+
+use crate::server::{
+    state::AppState,
+    types::{
+        ApiError, AssignMilestoneRequest, CreateMilestoneRequest, MilestoneDetail,
+        MilestoneListQuery, MilestoneListResponse, OkResponse,
+    },
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ApiError {
+            error: context.to_string(),
+            detail: Some(e.to_string()),
+        }),
+    )
+}
+
+fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ApiError {
+            error: "not found".to_string(),
+            detail: Some(msg.into()),
+        }),
+    )
+}
+
+/// Build a `MilestoneDetail` from a `Milestone` by looking up assigned issues.
+fn build_detail(
+    db: &crate::db::Database,
+    milestone: crate::models::Milestone,
+) -> anyhow::Result<MilestoneDetail> {
+    let issues = db.get_milestone_issues(milestone.id)?;
+    let issue_count = issues.len();
+    let completed_count = issues.iter().filter(|i| i.status == "closed").count();
+    let progress_percent = if issue_count == 0 {
+        0.0
+    } else {
+        (completed_count as f64 / issue_count as f64) * 100.0
+    };
+    Ok(MilestoneDetail {
+        milestone,
+        issue_count,
+        completed_count,
+        progress_percent,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/milestones` — list milestones.
+///
+/// Query params:
+/// - `?status=open|closed|all` — filter by status (default: open)
+pub async fn list_milestones(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<MilestoneListQuery>,
+) -> Result<Json<MilestoneListResponse>, (StatusCode, Json<ApiError>)> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| internal_error("DB lock poisoned", e))?;
+
+    let milestones = db
+        .list_milestones(query.status.as_deref())
+        .map_err(|e| internal_error("Failed to list milestones", e))?;
+
+    let items: Vec<MilestoneDetail> = milestones
+        .into_iter()
+        .map(|m| build_detail(&db, m))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| internal_error("Failed to build milestone details", e))?;
+
+    let total = items.len();
+    Ok(Json(MilestoneListResponse { items, total }))
+}
+
+/// `POST /api/v1/milestones` — create a new milestone.
+///
+/// Body: `{"name": "<name>", "description": "<optional>"}`.
+///
+/// Returns the newly created milestone with progress stats.
+pub async fn create_milestone(
+    State(state): State<AppState>,
+    Json(body): Json<CreateMilestoneRequest>,
+) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| internal_error("DB lock poisoned", e))?;
+
+    let milestone_id = db
+        .create_milestone(&body.name, body.description.as_deref())
+        .map_err(|e| internal_error("Failed to create milestone", e))?;
+
+    let milestone = db
+        .get_milestone(milestone_id)
+        .map_err(|e| internal_error("Failed to fetch new milestone", e))?
+        .ok_or_else(|| {
+            internal_error(
+                "Milestone created but not found",
+                format!("id={milestone_id}"),
+            )
+        })?;
+
+    let detail = build_detail(&db, milestone)
+        .map_err(|e| internal_error("Failed to build milestone detail", e))?;
+
+    Ok(Json(detail))
+}
+
+/// `GET /api/v1/milestones/:id` — get a single milestone with progress statistics.
+pub async fn get_milestone(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| internal_error("DB lock poisoned", e))?;
+
+    let milestone = db
+        .get_milestone(id)
+        .map_err(|e| internal_error("Failed to fetch milestone", e))?
+        .ok_or_else(|| not_found(format!("Milestone {} not found", id)))?;
+
+    let detail = build_detail(&db, milestone)
+        .map_err(|e| internal_error("Failed to build milestone detail", e))?;
+
+    Ok(Json(detail))
+}
+
+/// `POST /api/v1/milestones/:id/assign` — assign an issue to a milestone.
+///
+/// Body: `{"issue_id": <id>}`.
+pub async fn assign_milestone(
+    State(state): State<AppState>,
+    Path(milestone_id): Path<i64>,
+    Json(body): Json<AssignMilestoneRequest>,
+) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| internal_error("DB lock poisoned", e))?;
+
+    // Verify the milestone exists.
+    db.get_milestone(milestone_id)
+        .map_err(|e| internal_error("Failed to look up milestone", e))?
+        .ok_or_else(|| not_found(format!("Milestone {} not found", milestone_id)))?;
+
+    // Verify the issue exists.
+    db.get_issue(body.issue_id)
+        .map_err(|e| internal_error("Failed to look up issue", e))?
+        .ok_or_else(|| not_found(format!("Issue {} not found", body.issue_id)))?;
+
+    db.add_issue_to_milestone(milestone_id, body.issue_id)
+        .map_err(|e| internal_error("Failed to assign issue to milestone", e))?;
+
+    Ok(Json(OkResponse { ok: true }))
+}
+
+/// `POST /api/v1/milestones/:id/close` — close a milestone.
+pub async fn close_milestone(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| internal_error("DB lock poisoned", e))?;
+
+    // Verify the milestone exists first.
+    db.get_milestone(id)
+        .map_err(|e| internal_error("Failed to look up milestone", e))?
+        .ok_or_else(|| not_found(format!("Milestone {} not found", id)))?;
+
+    let closed = db
+        .close_milestone(id)
+        .map_err(|e| internal_error("Failed to close milestone", e))?;
+
+    if !closed {
+        return Err(internal_error("close_milestone returned false", ""));
+    }
+
+    Ok(Json(OkResponse { ok: true }))
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{Method, Request, StatusCode},
+        Router,
+    };
+    use serde_json::{json, Value};
+    use tower::util::ServiceExt;
+
+    use crate::db::Database;
+    use crate::server::{routes::build_router, state::AppState};
+
+    fn test_app() -> (Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let state = AppState::new(db, dir.path().join(".crosslink"));
+        (build_router(state, None), dir)
+    }
+
+    async fn body_json(resp: axum::response::Response) -> Value {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_list_milestones_empty() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/milestones")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 0);
+        assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_milestone() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"name": "v1.0", "description": "First release"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["name"], "v1.0");
+        assert_eq!(body["status"], "open");
+        assert_eq!(body["issue_count"], 0);
+        assert_eq!(body["progress_percent"], 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_get_milestone_not_found() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/milestones/999")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_get_milestone_exists() {
+        let (app, _dir) = test_app();
+        // Create first
+        let create_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "Sprint 1"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created = body_json(create_resp).await;
+        let id = created["id"].as_i64().unwrap();
+
+        // Fetch it
+        let get_resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/milestones/{}", id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), StatusCode::OK);
+        let body = body_json(get_resp).await;
+        assert_eq!(body["name"], "Sprint 1");
+    }
+
+    #[tokio::test]
+    async fn test_close_milestone_not_found() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones/999/close")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_close_milestone_success() {
+        let (app, _dir) = test_app();
+        // Create first
+        let create_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "To Close"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created = body_json(create_resp).await;
+        let id = created["id"].as_i64().unwrap();
+
+        // Close it
+        let close_resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/milestones/{}/close", id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(close_resp.status(), StatusCode::OK);
+        let body = body_json(close_resp).await;
+        assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn test_assign_milestone_not_found_milestone() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones/999/assign")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"issue_id": 1}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_list_milestones_with_status_filter() {
+        let (app, _dir) = test_app();
+        // Create a milestone and close it
+        let create_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "Closed MS"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created = body_json(create_resp).await;
+        let id = created["id"].as_i64().unwrap();
+
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/milestones/{}/close", id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // List open milestones — should be empty
+        let open_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/milestones?status=open")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(open_resp.status(), StatusCode::OK);
+        let open_body = body_json(open_resp).await;
+        assert_eq!(open_body["total"], 0);
+
+        // List all milestones — should have 1
+        let all_resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/milestones?status=all")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(all_resp.status(), StatusCode::OK);
+        let all_body = body_json(all_resp).await;
+        assert_eq!(all_body["total"], 1);
+    }
+}
