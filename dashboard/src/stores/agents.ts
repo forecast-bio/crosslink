@@ -27,16 +27,22 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   },
 
   applyHeartbeat: (agentId, timestamp, issueId) => {
-    const existing = get().agents.find((a) => a.agent_id === agentId);
+    const existing = get().agents.find((a) => a.id === agentId);
     if (existing) {
       set((s) => ({
         agents: s.agents.map((a) =>
-          a.agent_id === agentId
+          a.id === agentId
             ? {
                 ...a,
                 status: "active" as AgentStatus,
                 active_issue_id: issueId ?? a.active_issue_id,
-                last_heartbeat: timestamp,
+                last_heartbeat: {
+                  agent_id: agentId,
+                  timestamp,
+                  issue_id: issueId ?? null,
+                  session_id: null,
+                  message: null,
+                },
               }
             : a,
         ),
@@ -50,7 +56,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   applyStatus: (agentId, status) => {
     set((s) => ({
       agents: s.agents.map((a) =>
-        a.agent_id === agentId ? { ...a, status } : a,
+        a.id === agentId ? { ...a, status } : a,
       ),
     }));
   },

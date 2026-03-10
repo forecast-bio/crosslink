@@ -469,11 +469,9 @@ export interface ExecutionStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Type aliases for backward compatibility with API client and WS modules
+// Type aliases (canonical short names for API response types)
 // ---------------------------------------------------------------------------
 
-/** Alias: AgentSummary is the canonical agent list item type */
-export type Agent = AgentSummary;
 /** Alias: ConfigResponse is the canonical config type */
 export type Config = ConfigResponse;
 /** Alias: LockEntry is the canonical lock type */
@@ -560,12 +558,3 @@ export interface OkResponse {
   ok: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Convenience aliases (used by client.ts and page components)
-// ---------------------------------------------------------------------------
-
-/** Alias: use ConfigResponse as Config throughout the frontend. */
-export type Config = ConfigResponse;
-
-/** Alias: use SyncStatusResponse as SyncStatus throughout the frontend. */
-export type SyncStatus = SyncStatusResponse;

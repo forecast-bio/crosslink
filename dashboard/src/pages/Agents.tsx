@@ -28,7 +28,7 @@ export function Agents() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {agents.map((agent) => (
-            <AgentCard key={agent.agent_id} agent={agent} />
+            <AgentCard key={agent.id} agent={agent} />
           ))}
         </div>
       )}
