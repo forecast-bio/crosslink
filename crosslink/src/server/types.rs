@@ -13,6 +13,10 @@
 //! - Optional fields use `#[serde(skip_serializing_if = "Option::is_none")]`.
 //! - Enums are serialized as lowercase strings.
 
+// These types are pre-declared as the API contract for later phase agents.
+// Many are unused in the current phase; suppress dead-code noise until then.
+#![allow(dead_code, unused_imports)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
