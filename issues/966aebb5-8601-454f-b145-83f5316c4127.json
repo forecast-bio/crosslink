@@ -6,8 +6,17 @@
   "priority": "high",
   "created_by": "maxine--basel--refactor-subcommand-structure",
   "created_at": "2026-03-10T19:02:55.402822Z",
-  "updated_at": "2026-03-10T19:02:56.996465Z",
+  "updated_at": "2026-03-10T19:56:27.854009Z",
   "labels": [
     "test"
+  ],
+  "comments": [
+    {
+      "id": 247,
+      "author": "maxine--refactor-command--reinit",
+      "content": "All 186 integration tests pass. Updated ~100 call sites to use canonical issue <verb> paths. Also fixed bare timer -> timer show.",
+      "created_at": "2026-03-10T19:56:27.854009Z",
+      "kind": "note"
+    }
   ]
 }
