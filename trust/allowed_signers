@@ -28,3 +28,5 @@ m1--fix-tui-agents-tab@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKS370uZ7MD
 maxine--basel@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
 # approved by maxine at 2026-03-10 04:17:59 UTC
 maxine--basel--refactor-subcommand-structure@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by maxine at 2026-03-10 19:56:01 UTC
+maxine--refactor-command--reinit@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILSmM2XHw2maiI/+pBANKFrIntYfUdyBktqgd4R9tPU3 crosslink-agent:maxine--refactor-command--reinit@basel.local
