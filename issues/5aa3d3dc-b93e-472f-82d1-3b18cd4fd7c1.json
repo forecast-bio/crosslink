@@ -1,0 +1,11 @@
+{
+  "uuid": "5aa3d3dc-b93e-472f-82d1-3b18cd4fd7c1",
+  "display_id": 172,
+  "title": "Update CHANGELOG.md and bump Cargo.toml version to 0.5.0",
+  "status": "open",
+  "priority": "high",
+  "parent_uuid": "078e82a2-3f55-4d6b-94da-00ae2b7c1504",
+  "created_by": "maxine--plan-050",
+  "created_at": "2026-03-10T22:41:45.908222Z",
+  "updated_at": "2026-03-10T22:41:45.908222Z"
+}
