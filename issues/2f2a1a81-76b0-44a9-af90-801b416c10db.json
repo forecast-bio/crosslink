@@ -2,11 +2,12 @@
   "uuid": "2f2a1a81-76b0-44a9-af90-801b416c10db",
   "display_id": 96,
   "title": "Set up GH issue #129 branch protection and flow",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether--ci-cd-restructure",
   "created_at": "2026-03-02T10:25:18.293209Z",
-  "updated_at": "2026-03-02T10:41:33.624091Z",
+  "updated_at": "2026-03-10T03:46:23.020687Z",
+  "closed_at": "2026-03-10T03:46:23.020687Z",
   "labels": [
     "ops"
   ],
