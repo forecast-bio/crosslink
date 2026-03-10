@@ -32,7 +32,7 @@
         "hooks": [
           {
             "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/work-check.py\"; if [ -f \"$HOOK\" ]; then python3 \"$HOOK\"; else exit 0; fi",
-            "timeout": 3,
+            "timeout": 10,
             "type": "command"
           }
         ],

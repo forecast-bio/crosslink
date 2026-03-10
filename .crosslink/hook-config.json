@@ -6,6 +6,10 @@
     "git log",
     "git branch",
     "git show",
+    "git merge",
+    "git cherry-pick",
+    "git checkout",
+    "git add",
     "cargo test",
     "cargo build",
     "cargo check",
@@ -24,11 +28,8 @@
   ],
   "blocked_git_commands": [
     "git push",
-    "git merge",
     "git rebase",
-    "git cherry-pick",
     "git reset",
-    "git checkout .",
     "git restore .",
     "git clean",
     "git stash",
@@ -48,5 +49,5 @@
   "kickoff_verification": "local",
   "reminder_drift_threshold": 5,
   "signing_enforcement": "audit",
-  "tracking_mode": "strict"
+  "tracking_mode": "relaxed"
 }
