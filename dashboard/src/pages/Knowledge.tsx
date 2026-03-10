@@ -57,7 +57,7 @@ export function Knowledge() {
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Updated {formatRelativeTime(page.updated_at)}
+                    Updated {formatRelativeTime(page.updated)}
                   </p>
                 </CardContent>
               </Card>

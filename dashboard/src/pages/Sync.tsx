@@ -49,7 +49,7 @@ export function Sync() {
         <CardHeader>
           <CardTitle className="text-sm flex items-center justify-between">
             Hub Status
-            {status?.initialized ? (
+            {status?.hub_initialized ? (
               <Badge variant="success">initialized</Badge>
             ) : (
               <Badge variant="secondary">not initialized</Badge>
@@ -111,7 +111,7 @@ export function Sync() {
                     <span className="text-muted-foreground ml-2 font-mono text-xs">{lock.agent_id}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {lock.stale && <Badge variant="destructive">stale</Badge>}
+                    {lock.is_stale && <Badge variant="destructive">stale</Badge>}
                     <span className="text-xs text-muted-foreground">
                       {formatDateTime(lock.claimed_at)}
                     </span>

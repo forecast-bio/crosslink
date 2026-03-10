@@ -44,22 +44,12 @@ export function Config() {
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Remote</span>
-                <span className="font-mono text-xs">{cfg.hub_remote}</span>
+                <span className="font-mono text-xs">{cfg.remote}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Hub Branch</span>
-                <span className="font-mono text-xs">{cfg.hub_branch}</span>
+                <span className="text-muted-foreground">Stale Lock Timeout</span>
+                <span className="font-mono text-xs">{cfg.stale_lock_timeout_minutes}m</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Knowledge Branch</span>
-                <span className="font-mono text-xs">{cfg.knowledge_branch}</span>
-              </div>
-              {cfg.agent_id && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Agent ID</span>
-                  <span className="font-mono text-xs">{cfg.agent_id}</span>
-                </div>
-              )}
             </CardContent>
           </Card>
 

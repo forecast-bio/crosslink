@@ -27,7 +27,7 @@ function WsListener() {
     const off = wsClient.on((msg) => {
       switch (msg.type) {
         case "heartbeat":
-          applyHeartbeat(msg.agent_id, msg.timestamp, msg.issue_id);
+          applyHeartbeat(msg.agent_id, msg.timestamp, msg.active_issue_id ?? undefined);
           break;
         case "agent_status":
           applyStatus(msg.agent_id, msg.status);

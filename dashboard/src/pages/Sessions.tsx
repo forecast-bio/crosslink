@@ -69,9 +69,9 @@ export function Sessions() {
                   <span className="text-blue-400">Issue #{current.active_issue_id}</span>
                 </div>
               )}
-              {current.notes && (
+              {current.handoff_notes && (
                 <p className="text-xs text-muted-foreground border-t border-border pt-2">
-                  {current.notes}
+                  {current.handoff_notes}
                 </p>
               )}
               <Button size="sm" variant="outline" onClick={handleEnd}>

@@ -67,13 +67,6 @@ export interface Milestone {
   closed_at: string | null;
 }
 
-export interface Lock {
-  agent_id: string;
-  branch: string | null;
-  claimed_at: string;
-  signed_by: string;
-}
-
 export interface Heartbeat {
   agent_id: string;
   last_heartbeat: string;
@@ -277,7 +270,7 @@ export interface KnowledgeSearchMatch {
 // Agents and monitoring
 // ---------------------------------------------------------------------------
 
-export type AgentStatus = "active" | "idle" | "stale" | "unknown";
+export type AgentStatus = "active" | "idle" | "stale" | "done" | "failed" | "unknown";
 
 export interface AgentSummary {
   agent_id: string;
@@ -368,6 +361,10 @@ export interface OrchestratorStage {
   depends_on: string[];
   agent_count: number;
   complexity_hours: number;
+  /** Runtime execution state — present during/after execution */
+  status?: StageStatus;
+  /** Agent assigned to this stage during execution */
+  agent_id?: string;
 }
 
 export interface OrchestratorPhase {
@@ -380,6 +377,7 @@ export interface OrchestratorPhase {
 
 export interface OrchestratorPlan {
   id: string;
+  title?: string;
   document_slug: string;
   phases: OrchestratorPhase[];
   created_at: string;
@@ -419,6 +417,19 @@ export interface ExecutionStatus {
   /** Map from stage_id → agent_id for running stages */
   stage_agents: Record<string, string>;
 }
+
+// ---------------------------------------------------------------------------
+// Type aliases for backward compatibility with API client and WS modules
+// ---------------------------------------------------------------------------
+
+/** Alias: AgentSummary is the canonical agent list item type */
+export type Agent = AgentSummary;
+/** Alias: ConfigResponse is the canonical config type */
+export type Config = ConfigResponse;
+/** Alias: LockEntry is the canonical lock type */
+export type Lock = LockEntry;
+/** Alias: SyncStatusResponse is the canonical sync status type */
+export type SyncStatus = SyncStatusResponse;
 
 // ---------------------------------------------------------------------------
 // WebSocket messages
@@ -480,6 +491,11 @@ export interface WsSubscribeMessage {
 }
 
 export type WsChannel = "agents" | "issues" | "locks" | "execution";
+
+/** Alias: messages sent from client to server */
+export type WsClientMessage = WsSubscribeMessage;
+/** Alias: messages received from server */
+export type WsServerMessage = WsMessage;
 
 // ---------------------------------------------------------------------------
 // Generic API wrapper

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatRelativeTime } from "@/lib/utils";
-import type { IssuePriority, IssueStatus } from "@/lib/types";
+import type { IssuePriority } from "@/lib/types";
 
 const PRIORITY_ORDER: Record<IssuePriority, number> = {
   critical: 0, high: 1, medium: 2, low: 3,
@@ -26,7 +26,7 @@ function priorityVariant(p: IssuePriority) {
 export function Issues() {
   const { issues, loading, fetch } = useIssuesStore();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<IssueStatus | "all">("open");
+  const [statusFilter, setStatusFilter] = useState<"open" | "closed" | "all">("open");
 
   useEffect(() => {
     void fetch({ status: statusFilter === "all" ? undefined : statusFilter });

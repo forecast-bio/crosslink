@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { milestones as milestonesApi } from "@/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Milestone } from "@/lib/types";
+import type { MilestoneDetail } from "@/lib/types";
 
 export function Milestones() {
-  const [items, setItems] = useState<Milestone[]>([]);
+  const [items, setItems] = useState<MilestoneDetail[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,13 +28,13 @@ export function Milestones() {
           {items.map((m) => {
             const pct =
               m.issue_count > 0
-                ? Math.round((m.closed_issue_count / m.issue_count) * 100)
+                ? Math.round((m.completed_count / m.issue_count) * 100)
                 : 0;
             return (
               <Card key={m.id}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center justify-between">
-                    {m.title}
+                    {m.name}
                     <Badge variant={m.status === "open" ? "success" : "secondary"}>
                       {m.status}
                     </Badge>
@@ -46,7 +46,7 @@ export function Milestones() {
                   )}
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span>
-                      {m.closed_issue_count}/{m.issue_count} issues closed
+                      {m.completed_count}/{m.issue_count} issues closed
                     </span>
                     <span>{pct}%</span>
                   </div>

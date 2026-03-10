@@ -88,14 +88,14 @@ export function IssueDetail() {
         </Card>
       )}
 
-      {(issue.blocked_by.length > 0 || issue.blocking.length > 0) && (
+      {(issue.blockers.length > 0 || issue.blocking.length > 0) && (
         <Card>
           <CardHeader><CardTitle className="text-sm">Dependencies</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
-            {issue.blocked_by.length > 0 && (
+            {issue.blockers.length > 0 && (
               <div>
                 <span className="text-muted-foreground">Blocked by: </span>
-                {issue.blocked_by.map((bid) => (
+                {issue.blockers.map((bid) => (
                   <Link key={bid} to={`/issues/${bid}`} className="text-blue-400 hover:underline mr-2">
                     #{bid}
                   </Link>

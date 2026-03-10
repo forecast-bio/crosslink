@@ -8,7 +8,7 @@ import type {
   IssuePriority,
   KnowledgePage,
   Lock,
-  Milestone,
+  MilestoneDetail,
   OrchestratorPlan,
   Session,
   SyncStatus,
@@ -131,10 +131,10 @@ export const sessions = {
 // ── Milestones ────────────────────────────────────────────────────────────────
 
 export const milestones = {
-  list: () => request<Milestone[]>("/milestones"),
-  get: (id: number) => request<Milestone>(`/milestones/${id}`),
+  list: () => request<MilestoneDetail[]>("/milestones"),
+  get: (id: number) => request<MilestoneDetail>(`/milestones/${id}`),
   create: (data: { title: string; description?: string }) =>
-    request<Milestone>("/milestones", { method: "POST", body: JSON.stringify(data) }),
+    request<MilestoneDetail>("/milestones", { method: "POST", body: JSON.stringify(data) }),
   assign: (id: number, issueId: number) =>
     request<void>(`/milestones/${id}/assign`, {
       method: "POST",

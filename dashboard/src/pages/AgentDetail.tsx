@@ -17,7 +17,7 @@ export function AgentDetail() {
 
   useEffect(() => {
     if (!id) return;
-    const fromStore = agentsFromStore.find((a) => a.id === id);
+    const fromStore = agentsFromStore.find((a) => a.agent_id === id);
     if (fromStore) setAgent(fromStore);
     agentsApi
       .get(id)
@@ -51,10 +51,12 @@ export function AgentDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h1 className="text-xl font-bold font-mono truncate">{agent.id}</h1>
+        <h1 className="text-xl font-bold font-mono truncate">
+          {agent.description ?? agent.agent_id}
+        </h1>
         <Badge
           variant={
-            agent.status === "running"
+            agent.status === "active"
               ? "success"
               : agent.status === "idle"
                 ? "warning"
@@ -71,6 +73,10 @@ export function AgentDetail() {
             <CardTitle className="text-sm">Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Agent ID</span>
+              <span className="font-mono text-xs truncate max-w-40">{agent.agent_id}</span>
+            </div>
             {agent.branch && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Branch</span>
@@ -83,13 +89,7 @@ export function AgentDetail() {
                 <span className="font-mono text-xs truncate max-w-40">{agent.worktree_path}</span>
               </div>
             )}
-            {agent.tmux_session && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Tmux</span>
-                <span className="font-mono text-xs">{agent.tmux_session}</span>
-              </div>
-            )}
-            {agent.active_issue_id && (
+            {agent.active_issue_id != null && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Active Issue</span>
                 <Link
@@ -112,19 +112,14 @@ export function AgentDetail() {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Time</span>
-                  <span>{formatRelativeTime(agent.last_heartbeat.timestamp)}</span>
+                  <span>{formatRelativeTime(agent.last_heartbeat)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Exact</span>
                   <span className="text-xs text-muted-foreground">
-                    {formatDateTime(agent.last_heartbeat.timestamp)}
+                    {formatDateTime(agent.last_heartbeat)}
                   </span>
                 </div>
-                {agent.last_heartbeat.message && (
-                  <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-2">
-                    {agent.last_heartbeat.message}
-                  </p>
-                )}
               </div>
             ) : (
               <p className="text-muted-foreground">No heartbeat recorded</p>
@@ -140,17 +135,11 @@ export function AgentDetail() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {agent.locks.map((lock) => (
-                <div key={lock.issue_id} className="flex items-center justify-between text-sm">
-                  <Link to={`/issues/${lock.issue_id}`} className="text-blue-400 hover:underline">
-                    Issue #{lock.issue_id}
+              {agent.locks.map((issueId) => (
+                <div key={issueId} className="flex items-center justify-between text-sm">
+                  <Link to={`/issues/${issueId}`} className="text-blue-400 hover:underline">
+                    Issue #{issueId}
                   </Link>
-                  <div className="flex items-center gap-2">
-                    {lock.stale && <Badge variant="destructive">stale</Badge>}
-                    <span className="text-xs text-muted-foreground">
-                      {Math.round(lock.age_seconds / 60)}m ago
-                    </span>
-                  </div>
                 </div>
               ))}
             </div>

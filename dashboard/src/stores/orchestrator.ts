@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { orchestrator as orchestratorApi } from "@/api/client";
-import type { OrchestratorPlan } from "@/lib/types";
+import type { OrchestratorPlan, StageStatus } from "@/lib/types";
 
 interface OrchestratorState {
   plan: OrchestratorPlan | null;
@@ -51,7 +51,7 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
             ...p,
             stages: p.stages.map((s) =>
               s.id === stage
-                ? { ...s, status: status as OrchestratorPlan["phases"][0]["stages"][0]["status"] }
+                ? { ...s, status: status as StageStatus }
                 : s,
             ),
           }

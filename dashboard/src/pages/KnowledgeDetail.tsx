@@ -52,10 +52,10 @@ export function KnowledgeDetail() {
         {page.tags.map((t) => (
           <Badge key={t} variant="secondary">{t}</Badge>
         ))}
-        {page.source && (
-          <span>Source: <span className="font-mono">{page.source}</span></span>
+        {page.sources.length > 0 && (
+          <span>Source: <span className="font-mono">{page.sources[0].url}</span></span>
         )}
-        <span>Updated {formatDateTime(page.updated_at)}</span>
+        <span>Updated {formatDateTime(page.updated)}</span>
       </div>
 
       <Card>
