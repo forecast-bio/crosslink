@@ -2,9 +2,10 @@
   "uuid": "00a365a3-7b31-465a-aced-4f1e39c68f8b",
   "display_id": 118,
   "title": "Publish v0.2.0 release",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-03T01:11:12.662100Z",
-  "updated_at": "2026-03-03T01:11:12.662100Z"
+  "updated_at": "2026-03-10T03:18:18.576059Z",
+  "closed_at": "2026-03-10T03:18:18.576059Z"
 }
