@@ -15,6 +15,7 @@ mod knowledge;
 mod lock_check;
 mod locks;
 mod models;
+mod server;
 #[allow(dead_code)]
 mod shared_writer;
 mod signing;
@@ -482,6 +483,15 @@ enum Commands {
         /// Panel layout: tiled, even-horizontal, even-vertical
         #[arg(long, default_value = "tiled")]
         layout: String,
+    },
+    /// Start the crosslink web dashboard server
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "3100")]
+        port: u16,
+        /// Directory to serve the React dashboard from (optional)
+        #[arg(long)]
+        dashboard_dir: Option<PathBuf>,
     },
     /// Manage container-based agent execution
     Container {
@@ -1788,6 +1798,19 @@ fn main() -> Result<()> {
         Commands::Mc { layout } => {
             let crosslink_dir = find_crosslink_dir()?;
             commands::mission_control::run(&crosslink_dir, &layout)
+        }
+        Commands::Serve {
+            port,
+            dashboard_dir,
+        } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            tokio::runtime::Runtime::new()?.block_on(server::run(
+                port,
+                dashboard_dir,
+                db,
+                crosslink_dir,
+            ))
         }
     }
 }
