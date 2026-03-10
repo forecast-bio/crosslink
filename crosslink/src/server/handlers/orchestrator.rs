@@ -397,9 +397,7 @@ mod tests {
                     .method(Method::POST)
                     .uri("/api/v1/orchestrator/decompose")
                     .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({"document": ""}).to_string(),
-                    ))
+                    .body(Body::from(serde_json::json!({"document": ""}).to_string()))
                     .unwrap(),
             )
             .await
