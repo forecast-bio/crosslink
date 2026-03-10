@@ -692,6 +692,7 @@ pub(crate) fn build_final_steps_section() -> &'static str {
 - All driver interventions have been logged via `crosslink intervene`
 
 Then:
+- **Final sync**: `crosslink sync` — push all comments and state to the coordination hub before ending
 - **End session**: `crosslink session end --notes "Completed: <summary of what was delivered, any caveats or follow-ups>"`
 - **Write status**: Write the word `DONE` to a file called `.kickoff-status` in the worktree root when completely finished
 "#
@@ -762,25 +763,30 @@ these, ask the user to run it manually:
 
 ## Instructions
 
-1. **Start your crosslink session**: Run `crosslink session start` then `crosslink session work {issue_id}`
-2. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
-3. Explore relevant code before making changes
-4. **Check the knowledge repo** for relevant research before starting:
+1. **Verify agent setup**: Run `crosslink agent status` to confirm your agent identity is initialized and the
+   database is connected. If it reports no agent, run `crosslink agent init` first. Then run `crosslink sync`
+   to pull the latest coordination state from the hub.
+2. **Start your crosslink session**: Run `crosslink session start` then `crosslink session work {issue_id}`
+3. **Read the project's CLAUDE.md** (if it exists) for conventions before starting
+4. Explore relevant code before making changes
+5. **Check the knowledge repo** for relevant research before starting:
    `crosslink knowledge search '<relevant terms>'`
    Existing knowledge pages may save you from redundant research.
-5. **Document your plan**: `crosslink comment {issue_id} "Plan: <approach, key files, chosen strategy>" --kind plan`
-6. Implement the feature fully (no stubs or placeholders)
+6. **Document your plan**: `crosslink comment {issue_id} "Plan: <approach, key files, chosen strategy>" --kind plan`
+7. Implement the feature fully (no stubs or placeholders)
    - Before each major step: `crosslink session action "Starting <description>..."`
    - **Save research**: If you perform web research, save results for future agents:
      `crosslink knowledge add <slug> --title '<topic>' --tag <category> --source '<url>' --content '<summary>'`
-7. **Document decisions**: When choosing between approaches:
+8. **Document decisions**: When choosing between approaches:
    `crosslink comment {issue_id} "Decision: <chose X over Y because Z>" --kind decision`
-8. **Document discoveries**: When finding something unexpected:
+9. **Document discoveries**: When finding something unexpected:
    `crosslink comment {issue_id} "Found: <observation>" --kind observation`
-9. **Log interventions**: If a hook blocks you or a human redirects you, log it immediately:
-   `crosslink intervene {issue_id} "Description" --trigger <type> --context "what you were attempting"`
-   **Handle blockers visibly**: Document with `crosslink comment {issue_id} "Blocker: <desc>" --kind blocker`
-   and resolutions with `crosslink comment {issue_id} "Resolved: <how>" --kind resolution`
+10. **Sync periodically**: After adding comments or completing major milestones, run `crosslink sync` to push
+    your changes to the coordination hub. Other agents and the driver cannot see your comments until you sync.
+11. **Log interventions**: If a hook blocks you or a human redirects you, log it immediately:
+    `crosslink intervene {issue_id} "Description" --trigger <type> --context "what you were attempting"`
+    **Handle blockers visibly**: Document with `crosslink comment {issue_id} "Blocker: <desc>" --kind blocker`
+    and resolutions with `crosslink comment {issue_id} "Resolved: <how>" --kind resolution`
 "#,
         description = opts.description,
         issue_id = issue_id,

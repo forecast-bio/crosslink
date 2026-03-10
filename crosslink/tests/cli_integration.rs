@@ -2835,6 +2835,22 @@ fn test_kickoff_dry_run_creates_kickoff_md() {
 
     let content = std::fs::read_to_string(&kickoff_path).unwrap();
     assert!(content.contains("test file creation"));
+    assert!(
+        content.contains("Verify agent setup"),
+        "KICKOFF.md should include agent verification step"
+    );
+    assert!(
+        content.contains("crosslink agent status"),
+        "KICKOFF.md should instruct agent to check identity"
+    );
+    assert!(
+        content.contains("Sync periodically"),
+        "KICKOFF.md should instruct agent to sync during work"
+    );
+    assert!(
+        content.contains("Final sync"),
+        "KICKOFF.md should instruct agent to sync before ending"
+    );
 }
 
 #[test]
