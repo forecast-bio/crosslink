@@ -6,6 +6,12 @@
       "branch": null,
       "claimed_at": "2026-03-11T01:22:54.700782Z",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
+    },
+    "6": {
+      "agent_id": "driver--api-contract-and-shared-types-define-typescript-types-in",
+      "branch": null,
+      "claimed_at": "2026-03-10T03:17:46.268034040Z",
+      "signed_by": "driver--api-contract-and-shared-types-define-typescript-types-in"
     }
   },
   "settings": {
