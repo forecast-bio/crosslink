@@ -10,6 +10,7 @@ import {
   Layers,
   Activity,
   RefreshCw,
+  BarChart3,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Sessions", to: "/sessions", icon: Activity },
   { label: "Milestones", to: "/milestones", icon: Milestone },
   { label: "Knowledge", to: "/knowledge", icon: BookOpen },
+  { label: "Usage", to: "/usage", icon: BarChart3 },
 ];
 
 const SECONDARY_NAV: NavItem[] = [

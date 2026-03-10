@@ -14,6 +14,7 @@ import { Sync } from "@/pages/Sync";
 import { Config } from "@/pages/Config";
 import { Orchestrator } from "@/pages/Orchestrator";
 import { Execution } from "@/pages/Execution";
+import { Usage } from "@/pages/Usage";
 import { wsClient } from "@/api/ws";
 import { useAgentsStore } from "@/stores/agents";
 import { useIssuesStore } from "@/stores/issues";
@@ -69,6 +70,7 @@ export function App() {
             <Route path="/config" element={<Config />} />
             <Route path="/orchestrator" element={<Orchestrator />} />
             <Route path="/execution" element={<Execution />} />
+            <Route path="/usage" element={<Usage />} />
           </Routes>
         </main>
       </div>

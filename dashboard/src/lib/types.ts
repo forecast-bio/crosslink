@@ -543,6 +543,71 @@ export type WsClientMessage = WsSubscribeMessage;
 export type WsServerMessage = WsMessage;
 
 // ---------------------------------------------------------------------------
+// Token usage & cost tracking
+// ---------------------------------------------------------------------------
+
+/** A single token-usage record as stored in the `token_usage` table. */
+export interface TokenUsageRecord {
+  id: number;
+  agent_id: string;
+  session_id: number | null;
+  timestamp: string; // ISO 8601
+  input_tokens: number;
+  output_tokens: number;
+  model: string;
+  cost_estimate: number;
+}
+
+/** Aggregated usage totals returned by GET /api/v1/usage/summary. */
+export interface UsageSummary {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost: number;
+  by_agent: AgentUsageSummary[];
+  by_model: ModelUsageSummary[];
+  daily: DailyUsage[];
+}
+
+/** Per-agent usage totals. */
+export interface AgentUsageSummary {
+  agent_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_estimate: number;
+  interaction_count: number;
+}
+
+/** Per-model usage totals. */
+export interface ModelUsageSummary {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_estimate: number;
+}
+
+/** Per-day usage totals for time-series charts. */
+export interface DailyUsage {
+  date: string; // YYYY-MM-DD
+  input_tokens: number;
+  output_tokens: number;
+  cost_estimate: number;
+}
+
+/** Budget thresholds configured by the operator. */
+export interface BudgetConfig {
+  daily_limit: number | null;
+  monthly_limit: number | null;
+  alert_threshold_percent: number; // 0–100, triggers warning at this % of limit
+}
+
+/** Query parameters for GET /api/v1/usage. */
+export interface UsageQuery {
+  agent_id?: string;
+  from?: string; // ISO 8601
+  to?: string; // ISO 8601
+}
+
+// ---------------------------------------------------------------------------
 // Generic API wrapper
 // ---------------------------------------------------------------------------
 
