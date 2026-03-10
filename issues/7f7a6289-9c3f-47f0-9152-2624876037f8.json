@@ -2,11 +2,12 @@
   "uuid": "7f7a6289-9c3f-47f0-9152-2624876037f8",
   "display_id": 145,
   "title": "Prepare v0.3.0 release",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-05T19:02:21.385743Z",
-  "updated_at": "2026-03-05T19:02:23.421855Z",
+  "updated_at": "2026-03-10T03:18:14.262426Z",
+  "closed_at": "2026-03-10T03:18:14.262426Z",
   "labels": [
     "release"
   ]
