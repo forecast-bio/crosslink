@@ -1,0 +1,195 @@
+---
+title: "Swarm Orchestration"
+---
+
+Swarm orchestration coordinates multiple agents across phased builds. A design document is decomposed into phases, each phase launches a set of agents, and a test gate ensures quality before advancing.
+
+## Overview
+
+```
+Design Document
+    │
+    ├── swarm init --doc DESIGN.md
+    │       │
+    │       ├── Phase 1: Foundation
+    │       │     ├── Agent A (data layer)
+    │       │     └── Agent B (config parsing)
+    │       │
+    │       ├── Phase 2: Core Logic
+    │       │     ├── Agent C (business rules)
+    │       │     └── Agent D (API endpoints)
+    │       │
+    │       └── Phase 3: Integration
+    │             └── Agent E (end-to-end wiring)
+    │
+    ├── swarm launch 1        ← launch Phase 1 agents
+    ├── swarm gate 1          ← run test suite as quality gate
+    ├── swarm checkpoint 1    ← record progress
+    ├── swarm launch 2        ← advance to Phase 2
+    └── ...
+```
+
+## Getting Started
+
+### Initialize from a Design Document
+
+```bash
+crosslink swarm init --doc DESIGN-MY-FEATURE.md
+```
+
+This parses the design document, identifies work units, and creates a phased swarm plan. The plan is stored on the `crosslink/hub` branch so all agents can see it.
+
+### View Status
+
+```bash
+crosslink swarm status
+```
+
+Shows current swarm state: which phases exist, how many agents per phase, which phases are complete, and overall progress.
+
+### Plan a Multi-Phase Build
+
+```bash
+crosslink swarm plan
+crosslink swarm plan --budget_window 2h
+```
+
+Plans how to distribute work across budget windows. If you have a limited compute budget per session, `plan` estimates costs and schedules phases to fit within your window.
+
+## Launching Agents
+
+### Launch a Phase
+
+```bash
+crosslink swarm launch 1
+```
+
+Launches all agents planned for phase 1. Each agent gets its own git worktree, crosslink issue, and agent identity. Agents run in parallel.
+
+### Budget-Aware Launch
+
+```bash
+crosslink swarm launch 2 --budget_aware
+```
+
+Checks the remaining budget before launching. If the estimated cost exceeds the budget window, the launch is blocked with a warning.
+
+## Phase Gates
+
+### Run the Gate
+
+```bash
+crosslink swarm gate 1
+```
+
+Runs the project's test suite as a quality gate for the phase. All tests must pass before the phase is considered complete.
+
+### Checkpoint
+
+```bash
+crosslink swarm checkpoint 1 --notes "Phase 1 complete: data layer and config parsing done"
+```
+
+Records that a phase is complete. Includes timing data, agent results, and handoff notes for the next phase.
+
+Use `--force` to checkpoint even if the gate hasn't passed (for partial progress):
+
+```bash
+crosslink swarm checkpoint 1 --force --notes "3 of 4 agents complete, one blocked"
+```
+
+## Budget Management
+
+### Configure Budget Parameters
+
+```bash
+crosslink swarm config --budget_window 3h --model opus
+```
+
+Sets the budget window duration and cost model. The cost model uses wall-clock duration as a proxy for token spend.
+
+### Estimate Phase Cost
+
+```bash
+crosslink swarm estimate 2
+```
+
+Estimates the wall-clock cost for a phase based on historical data from previous phases and agent complexity.
+
+### Harvest Cost Data
+
+```bash
+crosslink swarm harvest
+```
+
+Scans completed agents and updates the cost history. Run this after agents finish to improve future estimates.
+
+## Resuming After Interruption
+
+```bash
+crosslink swarm resume
+```
+
+Reconstructs swarm state from the hub branch and shows next steps. Use this after a budget cap, session restart, or interruption.
+
+Resume reads:
+
+- Which phases are complete (from checkpoints)
+- Which agents are still running (from lock state and heartbeats)
+- Which phases are ready to launch
+- Budget remaining in the current window
+
+## Viewing the Plan
+
+```bash
+crosslink swarm plan-show
+```
+
+Displays the current window plan: phases, agent assignments, estimated costs, and scheduling.
+
+## Full Workflow Example
+
+```bash
+# 1. Initialize from a design document
+crosslink swarm init --doc DESIGN-AUTH-SYSTEM.md
+
+# 2. Review the plan
+crosslink swarm plan-show
+
+# 3. Launch phase 1
+crosslink swarm launch 1
+
+# 4. Monitor agents
+crosslink swarm status
+
+# 5. Once agents complete, run the gate
+crosslink swarm gate 1
+
+# 6. Checkpoint and advance
+crosslink swarm checkpoint 1 --notes "Auth models and DB migrations done"
+
+# 7. Launch phase 2
+crosslink swarm launch 2
+
+# 8. If interrupted, resume later
+crosslink swarm resume
+```
+
+## Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `swarm init --doc <PATH>` | Initialize a swarm plan from a design document |
+| `swarm status` | Show current swarm state and progress |
+| `swarm plan [--budget_window <DUR>]` | Plan multi-phase build across budget windows |
+| `swarm plan-show` | Display the current window plan |
+| `swarm launch <phase>` | Launch all agents for a phase |
+| `swarm launch <phase> --budget_aware` | Launch with budget check |
+| `swarm gate <phase>` | Run test suite as a phase gate |
+| `swarm checkpoint <phase>` | Record phase completion |
+| `swarm estimate <phase>` | Estimate wall-clock cost for a phase |
+| `swarm harvest` | Update cost history from completed agents |
+| `swarm resume` | Reconstruct state after interruption |
+| `swarm config --budget_window <DUR> --model <MODEL>` | Configure budget parameters |
+
+See also: [Kickoff](kickoff.qmd) for launching individual agents, [Multi-Agent Coordination](multi-agent.qmd) for distributed locking.

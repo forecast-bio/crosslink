@@ -9,12 +9,20 @@ Hook behavior is controlled by `.crosslink/hook-config.json`. This file is creat
 ```json
 {
   "tracking_mode": "strict",
+  "intervention_tracking": true,
+  "cpitd_auto_install": true,
+  "comment_discipline": "encouraged",
+  "kickoff_verification": "local",
+  "signing_enforcement": "audit",
+  "auto_steal_stale_locks": false,
+  "reminder_drift_threshold": 5,
   "blocked_git_commands": [
     "git push", "git commit", "git merge", "git rebase",
     "git cherry-pick", "git tag", "git stash", "git checkout -b",
     "git switch -c", "git branch -d", "git branch -D",
     "git reset", "git revert", "git am", "git format-patch"
   ],
+  "gated_git_commands": ["git commit"],
   "allowed_bash_prefixes": [
     "crosslink ",
     "git status", "git diff", "git log", "git branch", "git show",
@@ -39,6 +47,38 @@ Controls how aggressively crosslink enforces issue creation before code changes.
 | `"strict"` | Blocks code changes without an active issue |
 | `"normal"` | Reminds but allows proceeding |
 | `"relaxed"` | No enforcement, only git mutation blocks |
+
+### `intervention_tracking`
+
+When `true`, hooks log driver interventions (tool rejections, redirects, etc.) for audit and agent improvement. Default: `true`.
+
+### `cpitd_auto_install`
+
+When `true`, crosslink automatically installs the cpitd code clone detection tool if not present. Default: `true`.
+
+### `comment_discipline`
+
+Controls how aggressively hooks enforce typed comments on issues. Values: `"required"` (blocks close without comments), `"encouraged"` (reminds), `"off"`. Default: `"encouraged"`.
+
+### `kickoff_verification`
+
+Default verification level for kickoff agents. Values: `"local"`, `"ci"`, `"thorough"`. Default: `"local"`.
+
+### `signing_enforcement`
+
+Controls SSH signature verification strictness. Values: `"enforce"` (reject unsigned), `"audit"` (warn on unsigned), `"off"`. Default: `"audit"`.
+
+### `auto_steal_stale_locks`
+
+When `true`, agents automatically steal locks from agents with stale heartbeats. Default: `false`.
+
+### `reminder_drift_threshold`
+
+Number of drift events before hooks escalate reminder frequency. Default: `5`.
+
+### `gated_git_commands`
+
+Git commands that require an active crosslink issue before execution. Unlike `blocked_git_commands`, these are allowed when the agent has an active work item. Default: `["git commit"]`.
 
 ### `blocked_git_commands`
 

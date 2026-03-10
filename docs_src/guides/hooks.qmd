@@ -77,6 +77,39 @@ cp -r /path/to/crosslink/.claude /your/project/
 cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
 ```
 
+## Drift Detection
+
+The hooks include adaptive drift detection. When an agent's behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency. The `reminder_drift_threshold` in `hook-config.json` controls how many drift events trigger escalated reminders.
+
+## Intervention Tracking
+
+When a hook blocks an agent's action, or a human driver redirects the agent's approach, the intervention is logged:
+
+```bash
+crosslink intervene <issue-id> "Hook blocked git push attempt" \
+  --trigger tool_blocked \
+  --context "Agent tried to push directly"
+```
+
+Intervention data helps improve agent behavior over time and provides an audit trail of human oversight.
+
+## Context Verification
+
+Verify that all expected crosslink files are deployed correctly:
+
+```bash
+crosslink context check
+```
+
+This checks that all hook files, rule files, and command files exist and are valid. Useful after updates or when debugging hook issues.
+
+Measure context injection overhead:
+
+```bash
+crosslink context measure
+crosslink context measure -v  # verbose, with config details
+```
+
 ## Customization
 
 Hook behavior is controlled by `.crosslink/hook-config.json`. See [Hook Configuration Reference](../reference/hook-config.qmd) for details.

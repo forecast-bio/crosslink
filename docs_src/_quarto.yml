@@ -16,6 +16,10 @@ website:
           - guides/session-workflow.qmd
           - guides/multi-agent.qmd
           - guides/kickoff.qmd
+          - guides/swarm.qmd
+          - guides/container-agents.qmd
+          - guides/knowledge.qmd
+          - guides/tui.qmd
           - guides/hooks.qmd
           - guides/tracking-modes.qmd
       - text: Reference
@@ -23,6 +27,7 @@ website:
           - reference/commands.qmd
           - reference/hook-config.qmd
           - reference/rules.qmd
+          - reference/kickoff-report.qmd
     right:
       - icon: github
         href: https://github.com/forecast-bio/crosslink
@@ -38,6 +43,10 @@ website:
         - guides/session-workflow.qmd
         - guides/multi-agent.qmd
         - guides/kickoff.qmd
+        - guides/swarm.qmd
+        - guides/container-agents.qmd
+        - guides/knowledge.qmd
+        - guides/tui.qmd
         - guides/hooks.qmd
         - guides/tracking-modes.qmd
     - title: "Reference"
@@ -45,6 +54,7 @@ website:
         - reference/commands.qmd
         - reference/hook-config.qmd
         - reference/rules.qmd
+        - reference/kickoff-report.qmd
 
   page-footer:
     center: "Built with [Quarto](https://quarto.org) | [MIT License](https://github.com/forecast-bio/crosslink/blob/main/LICENSE)"

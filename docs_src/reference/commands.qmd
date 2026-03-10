@@ -173,13 +173,21 @@ Complete command reference for the crosslink CLI.
 
 | Command | Description |
 |---------|-------------|
-| `crosslink knowledge add <title>` | Create a new knowledge page |
-| `crosslink knowledge show <id>` | Display a knowledge page |
+| `crosslink knowledge add <slug>` | Create a new knowledge page |
+| `crosslink knowledge add <slug> --title "T" --tag t --source url --content "..."` | Create with metadata |
+| `crosslink knowledge add <slug> --from-doc DESIGN.md` | Import from a design document |
+| `crosslink knowledge show <slug>` | Display a knowledge page |
 | `crosslink knowledge list` | List all knowledge pages |
-| `crosslink knowledge edit <id>` | Update an existing knowledge page |
-| `crosslink knowledge remove <id>` | Remove a knowledge page |
+| `crosslink knowledge list --tag t --contributor id --since DATE --json` | Filter and format |
+| `crosslink knowledge edit <slug> --append "text"` | Append content to a page |
+| `crosslink knowledge edit <slug> --content "text"` | Replace page content |
+| `crosslink knowledge edit <slug> --tag t --source url` | Add tags or sources |
+| `crosslink knowledge remove <slug>` | Remove a knowledge page |
 | `crosslink knowledge sync` | Manually sync from remote |
-| `crosslink knowledge search <query>` | Search knowledge page content |
+| `crosslink knowledge search <query>` | Full-text search across pages |
+| `crosslink knowledge search <query> -C 3 --tag t --since DATE` | Search with filters |
+| `crosslink knowledge import <directory>` | Bulk import markdown files |
+| `crosslink knowledge import <dir> --tag t --overwrite --dry_run` | Import with options |
 
 ## House Style
 
@@ -223,6 +231,79 @@ Complete command reference for the crosslink CLI.
 | `crosslink migrate-to-shared` | Migrate local SQLite issues to shared coordination branch |
 | `crosslink migrate-from-shared` | Import shared issues from coordination branch into local SQLite |
 | `crosslink migrate-rename-branch` | Rename coordination branch from `crosslink/locks` to `crosslink/hub` |
+
+## Kickoff (Autonomous Agents)
+
+| Command | Description |
+|---------|-------------|
+| `crosslink kickoff run <description>` | Launch an agent to implement a feature |
+| `crosslink kickoff run <desc> --container docker` | Launch in a Docker container |
+| `crosslink kickoff run <desc> --verify ci` | Launch with CI verification |
+| `crosslink kickoff run <desc> --doc DESIGN.md` | Launch from a design document |
+| `crosslink kickoff run <desc> --timeout 2h --model opus` | With timeout and model |
+| `crosslink kickoff run <desc> --dry_run` | Print prompt without launching |
+| `crosslink kickoff status <agent>` | Check agent status |
+| `crosslink kickoff logs <agent>` | Tail agent event log |
+| `crosslink kickoff logs <agent> -l 50` | Show last 50 events |
+| `crosslink kickoff stop <agent>` | Stop a running agent |
+| `crosslink kickoff stop <agent> --force` | Force kill (SIGKILL) |
+| `crosslink kickoff plan <doc>` | Analyze design doc against codebase (read-only) |
+| `crosslink kickoff show-plan <agent>` | Display gap report from a plan analysis |
+| `crosslink kickoff report [agent]` | Show spec validation report |
+| `crosslink kickoff report --all` | Aggregate reports from all agents |
+| `crosslink kickoff report <agent> --json` | Report as JSON |
+| `crosslink kickoff report <agent> --markdown` | Report as PR-ready markdown |
+
+## Swarm Orchestration
+
+| Command | Description |
+|---------|-------------|
+| `crosslink swarm init --doc <PATH>` | Initialize swarm plan from a design document |
+| `crosslink swarm status` | Show current swarm state and progress |
+| `crosslink swarm plan` | Plan multi-phase build across budget windows |
+| `crosslink swarm plan --budget_window 2h` | Plan with budget constraint |
+| `crosslink swarm plan-show` | Display the current window plan |
+| `crosslink swarm launch <phase>` | Launch all agents for a phase |
+| `crosslink swarm launch <phase> --budget_aware` | Launch with budget check |
+| `crosslink swarm gate <phase>` | Run test suite as phase gate |
+| `crosslink swarm checkpoint <phase> --notes "..."` | Record phase completion |
+| `crosslink swarm checkpoint <phase> --force` | Checkpoint without passing gate |
+| `crosslink swarm estimate <phase>` | Estimate wall-clock cost for a phase |
+| `crosslink swarm harvest` | Update cost history from completed agents |
+| `crosslink swarm resume` | Reconstruct state after interruption |
+| `crosslink swarm config --budget_window <DUR> --model <MODEL>` | Configure budget parameters |
+
+## Container Execution
+
+| Command | Description |
+|---------|-------------|
+| `crosslink container build` | Build the agent container image |
+| `crosslink container build --force --tag v2` | Rebuild from scratch with custom tag |
+| `crosslink container build --dockerfile PATH` | Build with custom Dockerfile |
+| `crosslink container start <worktree>` | Start a container for a worktree |
+| `crosslink container start <wt> --issue 42 --prompt PATH` | Start with options |
+| `crosslink container ps` | List running containers |
+| `crosslink container logs <name>` | Stream container logs |
+| `crosslink container logs <name> -f --tail 50` | Follow logs, last 50 lines |
+| `crosslink container stop <name>` | Gracefully stop a container |
+| `crosslink container kill <name>` | Stop and remove a container |
+| `crosslink container rm <name>` | Remove a stopped container |
+| `crosslink container shell <name>` | Open a shell in a running container |
+| `crosslink container snapshot <name> --tag cached` | Save container state as image |
+
+## Terminal UI
+
+| Command | Description |
+|---------|-------------|
+| `crosslink tui` | Launch the interactive terminal dashboard |
+
+## Context Management
+
+| Command | Description |
+|---------|-------------|
+| `crosslink context measure` | Measure context injection sizes and token overhead |
+| `crosslink context measure -v` | Verbose measurement with hook config details |
+| `crosslink context check` | Verify all expected crosslink files are deployed |
 
 ## Project Setup
 

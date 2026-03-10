@@ -1,0 +1,86 @@
+---
+title: "Terminal Dashboard"
+---
+
+Crosslink includes a read-only terminal UI for browsing issues, monitoring agents, and viewing knowledge pages -- all without leaving the terminal.
+
+```bash
+crosslink tui
+```
+
+## Tabs
+
+The dashboard has five tabs, accessible via number keys `1`-`5` or `Tab`/`Shift+Tab`:
+
+### Issues (1)
+
+Browse all issues with tree view, detail view, filtering, and sorting.
+
+- **Tree view** shows parent-child relationships between issues and subissues
+- **Detail view** shows full issue details including description, comments, labels, and dependencies
+- Filter by status (open/closed/all), label, and priority
+- Sort by priority, creation date, or update date
+
+### Agents (2)
+
+Live coordination dashboard for multi-agent setups.
+
+- **Agents view** -- merged activity table showing all registered agents, their status, and held locks
+- **Locks view** -- all active locks with stale detection (highlights locks from agents with no recent heartbeat)
+- **Trust view** -- allowed signers list for SSH signature verification
+- **Detail view** -- agent-specific information and history
+
+### Knowledge (3)
+
+Browse knowledge pages with syntax highlighting.
+
+- Page list with tags and last-updated timestamps
+- Full page content rendered with vivid syntax highlighting
+- Navigate between pages
+
+### Milestones (4)
+
+Project milestone overview.
+
+- Milestone list with progress bars
+- Issue counts per milestone
+- Completion percentages
+
+### Config (5)
+
+View repository configuration at a glance.
+
+- Current tracking mode
+- Hook configuration
+- Agent identity
+- Blocked and allowed commands
+
+## Keyboard Navigation
+
+| Key | Action |
+|-----|--------|
+| `q` or `Ctrl+C` | Quit |
+| `Tab` / `Shift+Tab` | Next / previous tab |
+| `1`-`5` | Jump to tab directly |
+| `j` / `k` or `Up` / `Down` | Navigate lists |
+| `Enter` | Open detail view |
+| `Esc` | Back to list view |
+| `:` | Open command palette |
+| `?` | Show help overlay |
+| `/` | Search / filter |
+
+## Mouse Support
+
+The TUI supports mouse interactions:
+
+- Click tabs to switch between them
+- Click list items to select
+- Scroll with mouse wheel
+
+## Command Palette
+
+Press `:` to open the command palette (`Ctrl+P` also works). Type to filter available actions.
+
+## Clipboard Export
+
+Select an issue or knowledge page and use the command palette to copy its content to the clipboard.

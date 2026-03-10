@@ -104,3 +104,63 @@ crosslink sync
 ```
 
 When signatures are configured, `crosslink sync` verifies that lock state was written by a trusted agent.
+
+## SSH Signing
+
+Each agent can generate an SSH signing key for per-commit signing:
+
+```bash
+# Initialize agent identity (includes key generation)
+crosslink agent init my-agent-1
+
+# View agent key fingerprint
+crosslink agent status
+```
+
+Agent keys are stored in `.crosslink/agent.json` (machine-local, gitignored). Per-commit signing ensures every commit on the hub branch is attributable to a specific agent.
+
+### Trust Management
+
+```bash
+# Add a trusted agent's public key
+crosslink trust add /path/to/agent-key.pub
+
+# List trusted keys
+crosslink trust list
+```
+
+When signature verification is enabled, lock operations and hub branch commits from untrusted agents are flagged.
+
+## Launching Agents
+
+### Kickoff (Single Agent)
+
+Launch a single background agent to implement a feature:
+
+```bash
+crosslink kickoff run "add batch retry logic"
+crosslink kickoff run "add retry logic" --container docker  # in a container
+```
+
+See [Kickoff](kickoff.qmd) for the full guide.
+
+### Swarm (Multi-Agent Phased Builds)
+
+Coordinate multiple agents across phases from a design document:
+
+```bash
+crosslink swarm init --doc DESIGN.md
+crosslink swarm launch 1
+```
+
+See [Swarm Orchestration](swarm.qmd) for the full guide.
+
+### Container Execution
+
+Run agents in isolated Docker containers instead of tmux:
+
+```bash
+crosslink kickoff run "my feature" --container docker
+```
+
+See [Container-Based Agents](container-agents.qmd) for the full guide.

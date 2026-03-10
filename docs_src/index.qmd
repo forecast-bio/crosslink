@@ -44,6 +44,26 @@ Claude Code hooks inject best practices automatically — no stubs, proper error
 :::
 
 ::: {.feature-card}
+### Swarm Orchestration
+`crosslink swarm` coordinates multi-agent phased builds from a design document. Phase gates, budget-aware scheduling, and checkpoint/resume for interrupted builds.
+:::
+
+::: {.feature-card}
+### Knowledge Management
+Shared markdown knowledge pages synced via git. Full-text search, bulk import, auto-injection into agent context. Research done by one agent is available to all.
+:::
+
+::: {.feature-card}
+### Terminal Dashboard
+`crosslink tui` provides an interactive terminal UI with tabs for issues, agents, knowledge, milestones, and config. Mouse support, command palette, and keyboard navigation.
+:::
+
+::: {.feature-card}
+### Container Agents
+Run kickoff agents in isolated Docker containers. Same hook enforcement, stronger isolation, works cross-platform.
+:::
+
+::: {.feature-card}
 ### Smart Workflow
 `crosslink quick` creates, labels, and starts work in one command. `crosslink next` recommends what to work on. `crosslink tree` visualizes issue hierarchy.
 :::

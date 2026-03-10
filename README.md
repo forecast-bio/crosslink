@@ -132,12 +132,18 @@ Also available as a [VS Code extension](https://marketplace.visualstudio.com/ite
 
 - [Quick Start](https://forecast-bio.github.io/crosslink/getting-started/quickstart.html) — Get running in under a minute
 - [Session Workflow](https://forecast-bio.github.io/crosslink/guides/session-workflow.html) — Deep dive into session management
-- [Claude Code Hooks](https://forecast-bio.github.io/crosslink/guides/hooks.html) — Behavioral guardrails for AI coding
+- [Kickoff: Autonomous Agents](https://forecast-bio.github.io/crosslink/guides/kickoff.html) — Launch background agents in worktrees
+- [Swarm Orchestration](https://forecast-bio.github.io/crosslink/guides/swarm.html) — Multi-agent phased builds from design documents
+- [Container-Based Agents](https://forecast-bio.github.io/crosslink/guides/container-agents.html) — Run agents in isolated Docker containers
+- [Knowledge Management](https://forecast-bio.github.io/crosslink/guides/knowledge.html) — Shared research pages synced via git
+- [Terminal Dashboard](https://forecast-bio.github.io/crosslink/guides/tui.html) — Interactive TUI for browsing issues and agents
 - [Multi-Agent Coordination](https://forecast-bio.github.io/crosslink/guides/multi-agent.html) — Distributed locking for parallel AI work
+- [Claude Code Hooks](https://forecast-bio.github.io/crosslink/guides/hooks.html) — Behavioral guardrails for AI coding
 - [Tracking Modes](https://forecast-bio.github.io/crosslink/guides/tracking-modes.html) — Strict, normal, and relaxed enforcement
 - [CLI Reference](https://forecast-bio.github.io/crosslink/reference/commands.html) — Full command reference
 - [Hook Configuration](https://forecast-bio.github.io/crosslink/reference/hook-config.html) — Customize enforcement behavior
 - [Rules Customization](https://forecast-bio.github.io/crosslink/reference/rules.html) — Edit behavioral rules
+- [Kickoff Report Schema](https://forecast-bio.github.io/crosslink/reference/kickoff-report.html) — Agent validation report format
 
 ## Development
 

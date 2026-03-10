@@ -67,6 +67,10 @@ The next session will see these handoff notes automatically.
 ## What's Next?
 
 - [Session Workflow](../guides/session-workflow.qmd) — deep dive into session management
-- [CLI Reference](../reference/commands.qmd) — full command reference
-- [Hooks Guide](../guides/hooks.qmd) — behavioral guardrails for AI coding
+- [Kickoff](../guides/kickoff.qmd) — launch autonomous background agents
+- [Swarm Orchestration](../guides/swarm.qmd) — multi-agent phased builds
+- [Knowledge Management](../guides/knowledge.qmd) — shared research across agents
+- [Terminal Dashboard](../guides/tui.qmd) — interactive TUI for browsing issues
 - [Multi-Agent](../guides/multi-agent.qmd) — coordinate multiple AI agents
+- [Hooks Guide](../guides/hooks.qmd) — behavioral guardrails for AI coding
+- [CLI Reference](../reference/commands.qmd) — full command reference
