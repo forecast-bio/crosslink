@@ -7,13 +7,20 @@
   "parent_uuid": "078e82a2-3f55-4d6b-94da-00ae2b7c1504",
   "created_by": "maxine--plan-050",
   "created_at": "2026-03-10T22:41:18.904614Z",
-  "updated_at": "2026-03-10T22:41:20.340168Z",
+  "updated_at": "2026-03-10T23:42:59.335341Z",
   "comments": [
     {
       "id": 254,
       "author": "maxine--plan-050",
       "content": "Covers REQ-3, AC-7 through AC-9. Three parts: (1) startup sync before App::new() (~30 lines), (2) periodic 30s background sync using mpsc channel pattern from agents_tab.rs (~80 lines), (3) global 'r' keybinding for manual sync+refresh (~20 lines). No tab currently uses bare 'r'. SyncManager can run on background thread safely since hub cache worktree is separate from working tree.",
       "created_at": "2026-03-10T22:41:20.340168Z",
+      "kind": "plan"
+    },
+    {
+      "id": 260,
+      "author": "maxine--tui-startup-sync",
+      "content": "Plan: Three sync features for the TUI (REQ-3, AC-7/AC-8/AC-9): (1) Startup sync in run() before App::new() — SyncManager::fetch() + hydrate_to_sqlite() with 'Syncing...' message before alternate screen. (2) Periodic 30s background sync via mpsc channel (same pattern as agents_tab). (3) Global 'r' keybinding intercepted before tab dispatch triggers full sync. Per-tab 'r' handlers delegate to global. ':r' command palette remains as local disk refresh. Key files: tui/mod.rs (main), plus all 5 tab files.",
+      "created_at": "2026-03-10T23:42:59.335340Z",
       "kind": "plan"
     }
   ]
