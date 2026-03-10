@@ -2,6 +2,8 @@ pub mod handlers;
 pub mod routes;
 pub mod state;
 pub mod types;
+pub mod watcher;
+pub mod ws;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -16,14 +18,20 @@ use state::AppState;
 ///
 /// Binds to `0.0.0.0:<port>`, configures CORS for the Vite dev server on
 /// `:5173`, serves the React dashboard from `dashboard_dir` (if provided),
-/// and exposes the REST API under `/api/v1/`.
+/// exposes the REST API under `/api/v1/`, and opens a WebSocket hub at `/ws`.
+///
+/// The filesystem watcher is started as a background task and broadcasts
+/// heartbeat events to all connected WebSocket clients.
 pub async fn run(
     port: u16,
     dashboard_dir: Option<PathBuf>,
     db: Database,
     crosslink_dir: PathBuf,
 ) -> Result<()> {
-    let state = AppState::new(db, crosslink_dir);
+    let state = AppState::new(db, crosslink_dir.clone());
+
+    // Start the heartbeat watcher in the background.
+    watcher::start_watcher(crosslink_dir, state.ws_tx.clone());
 
     // Allow the Vite dev server (port 5173) and same-origin requests in
     // development. In production the dashboard is served from the same origin
@@ -41,7 +49,8 @@ pub async fn run(
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("crosslink serve: listening on http://{}", addr);
-    println!("  API: http://{}/api/v1/health", addr);
+    println!("  API:       http://{}/api/v1/health", addr);
+    println!("  WebSocket: ws://{}/ws", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

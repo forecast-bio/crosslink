@@ -6,6 +6,7 @@ use crate::server::{
         health::health,
     },
     state::AppState,
+    ws::ws_handler,
 };
 
 /// Build the full axum router with all API routes and static file serving.
@@ -20,7 +21,10 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .route("/locks", get(list_locks))
         .route("/locks/stale", get(list_stale_locks));
 
-    let mut app = Router::new().nest("/api/v1", api).with_state(state);
+    let mut app = Router::new()
+        .nest("/api/v1", api)
+        .route("/ws", get(ws_handler))
+        .with_state(state);
 
     // Serve static dashboard files if a directory was provided.
     if let Some(dir) = dashboard_dir {
