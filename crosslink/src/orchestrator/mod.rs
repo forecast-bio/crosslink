@@ -1,14 +1,12 @@
-//! LLM-assisted document decomposition orchestrator.
+//! Orchestrator module — LLM-assisted decomposition and DAG-based execution.
 //!
-//! This module decomposes design documents into phased execution plans using
-//! an LLM (Claude) as the analysis backend. The resulting plan structures can
-//! be stored on disk and surfaced through the REST API for review and
-//! execution.
-//!
-//! # Modules
-//!
-//! - [`models`] — domain types for LLM interaction and plan storage
-//! - [`decompose`] — core decomposition logic that shells out to `claude`
+//! This module provides:
+//! - [`models`] — domain types for plans, phases, stages, tasks
+//! - [`decompose`] — LLM-assisted document decomposition via `claude` CLI
+//! - [`dag`] — directed acyclic graph with topological sort and ready-node detection
+//! - [`executor`] — execution lifecycle management with kickoff integration
 
+pub mod dag;
 pub mod decompose;
+pub mod executor;
 pub mod models;
