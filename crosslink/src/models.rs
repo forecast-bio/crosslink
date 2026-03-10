@@ -55,6 +55,24 @@ pub struct Milestone {
     pub closed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TokenUsage {
+    pub id: i64,
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
+    pub timestamp: DateTime<Utc>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_tokens: Option<i64>,
+    pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_estimate: Option<f64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
