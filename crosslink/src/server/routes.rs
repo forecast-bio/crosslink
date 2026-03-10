@@ -1,7 +1,4 @@
-use axum::{
-    routing::{get, post},
-    Router,
-};
+use axum::{routing::get, Router};
 
 use crate::server::{
     handlers::{
@@ -12,9 +9,13 @@ use crate::server::{
             delete_issue, get_issue, list_blocked, list_comments, list_issues, list_ready,
             remove_blocker, remove_label, reopen_issue, update_issue,
         },
+        knowledge::{
+            create_knowledge_page, get_knowledge_page, list_knowledge_pages, search_knowledge,
+        },
         milestones::{
             assign_milestone, close_milestone, create_milestone, get_milestone, list_milestones,
         },
+        search::global_search,
         sessions::{end_session, get_current_session, start_session, work_on_issue},
     },
     state::AppState,
@@ -66,7 +67,16 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .route("/milestones", get(list_milestones).post(create_milestone))
         .route("/milestones/{id}", get(get_milestone))
         .route("/milestones/{id}/assign", post(assign_milestone))
-        .route("/milestones/{id}/close", post(close_milestone));
+        .route("/milestones/{id}/close", post(close_milestone))
+        // Knowledge — static path first to avoid conflict with {slug}
+        .route("/knowledge/search", get(search_knowledge))
+        .route(
+            "/knowledge",
+            get(list_knowledge_pages).post(create_knowledge_page),
+        )
+        .route("/knowledge/{slug}", get(get_knowledge_page))
+        // Unified search
+        .route("/search", get(global_search));
 
     let mut app = Router::new()
         .nest("/api/v1", api)
