@@ -7,3 +7,4 @@ pub mod milestones;
 pub mod search;
 pub mod sessions;
 pub mod sync;
+pub mod usage;

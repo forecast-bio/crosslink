@@ -19,6 +19,7 @@ use crate::server::{
         search::global_search,
         sessions::{end_session, get_current_session, start_session, work_on_issue},
         sync::{sync_fetch, sync_push, sync_status},
+        usage::{create_usage, list_usage, usage_summary},
     },
     state::AppState,
     ws::ws_handler,
@@ -84,7 +85,10 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .route("/sync/fetch", post(sync_fetch))
         .route("/sync/push", post(sync_push))
         // Config
-        .route("/config", get(get_config).patch(update_config));
+        .route("/config", get(get_config).patch(update_config))
+        // Token usage — static path first to avoid conflict with future /{id}
+        .route("/usage/summary", get(usage_summary))
+        .route("/usage", get(list_usage).post(create_usage));
 
     let mut app = Router::new()
         .nest("/api/v1", api)

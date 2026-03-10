@@ -444,6 +444,81 @@ pub struct UpdateConfigRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Token usage
+// ---------------------------------------------------------------------------
+
+pub use crate::db::UsageSummaryRow;
+pub use crate::models::TokenUsage;
+
+/// Request body for `POST /api/v1/usage`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateTokenUsageRequest {
+    pub agent_id: String,
+    #[serde(default)]
+    pub session_id: Option<i64>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    #[serde(default)]
+    pub cache_read_tokens: Option<i64>,
+    #[serde(default)]
+    pub cache_creation_tokens: Option<i64>,
+    #[serde(default = "default_model")]
+    pub model: String,
+    #[serde(default)]
+    pub cost_estimate: Option<f64>,
+}
+
+fn default_model() -> String {
+    "unknown".to_string()
+}
+
+/// Query parameters for `GET /api/v1/usage`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TokenUsageListQuery {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<i64>,
+    #[serde(default)]
+    pub model: Option<String>,
+    /// ISO 8601 timestamp — return records from this time onwards.
+    #[serde(default)]
+    pub from: Option<String>,
+    /// ISO 8601 timestamp — return records up to this time.
+    #[serde(default)]
+    pub to: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// Query parameters for `GET /api/v1/usage/summary`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TokenUsageSummaryQuery {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
+/// Paginated token usage list response.
+#[derive(Debug, Clone, Serialize)]
+pub struct TokenUsageListResponse {
+    pub items: Vec<TokenUsage>,
+    pub total: usize,
+}
+
+/// Aggregated usage summary response.
+#[derive(Debug, Clone, Serialize)]
+pub struct TokenUsageSummaryResponse {
+    pub items: Vec<UsageSummaryRow>,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cost: f64,
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
