@@ -2,11 +2,12 @@
   "uuid": "be1de53c-1e60-44be-bc9d-6727e5fce489",
   "display_id": 142,
   "title": "Support rules.local directory for gitignored local rule overrides",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-04T20:36:55.298816Z",
-  "updated_at": "2026-03-04T21:26:44.814001Z",
+  "updated_at": "2026-03-10T03:39:11.494611Z",
+  "closed_at": "2026-03-10T03:39:11.494611Z",
   "labels": [
     "feature"
   ],
