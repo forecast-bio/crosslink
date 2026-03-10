@@ -1,0 +1,11 @@
+{
+  "uuid": "2eb3a9d2-86b2-4622-ad61-925d8ea1a895",
+  "display_id": 158,
+  "title": "Define IssueCommands enum and move issue-lifecycle variants from Commands",
+  "status": "open",
+  "priority": "medium",
+  "parent_uuid": "332e4402-03cd-4151-8e5e-02f55f1d4e48",
+  "created_by": "maxine--basel--refactor-subcommand-structure",
+  "created_at": "2026-03-10T04:44:44.451120Z",
+  "updated_at": "2026-03-10T04:44:44.451120Z"
+}
