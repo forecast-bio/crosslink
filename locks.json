@@ -1,11 +1,11 @@
 {
   "version": 1,
   "locks": {
-    "167": {
-      "agent_id": "maxine--knowledge-edit",
+    "164": {
+      "agent_id": "maxine--basel--refactor-subcommand-structure",
       "branch": null,
-      "claimed_at": "2026-03-10T23:50:36.597857Z",
-      "signed_by": "SHA256:rn9mHe+ZRAhbZpjDWUjYHDu7mVIWyu0O0+FsXnPWdLY"
+      "claimed_at": "2026-03-10T19:03:01.173020Z",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
     },
     "169": {
       "agent_id": "maxine--tui-startup-sync",
@@ -13,23 +13,17 @@
       "claimed_at": "2026-03-10T23:42:47.648215Z",
       "signed_by": "SHA256:seRo3xKiVOcEMJFIS3qDVcYu4qp6B6YL1tRrWexcGuQ"
     },
-    "164": {
-      "agent_id": "maxine--basel--refactor-subcommand-structure",
-      "branch": null,
-      "claimed_at": "2026-03-10T19:03:01.173020Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    },
-    "157": {
-      "agent_id": "maxine--basel--refactor-subcommand-structure",
-      "branch": null,
-      "claimed_at": "2026-03-10T04:18:17.406264Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    },
     "174": {
       "agent_id": "maxine--basel--gh-issues-299-and-301",
       "branch": null,
       "claimed_at": "2026-03-10T23:49:39.867177Z",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
+    },
+    "167": {
+      "agent_id": "maxine--knowledge-edit",
+      "branch": null,
+      "claimed_at": "2026-03-10T23:50:36.597857Z",
+      "signed_by": "SHA256:rn9mHe+ZRAhbZpjDWUjYHDu7mVIWyu0O0+FsXnPWdLY"
     }
   },
   "settings": {
