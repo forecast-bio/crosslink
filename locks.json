@@ -1,39 +1,6 @@
 {
   "version": 1,
-  "locks": {
-<<<<<<< HEAD
-    "175": {
-      "agent_id": "maxine--basel--gh-287-and-gh-291",
-=======
-<<<<<<< HEAD
-    "157": {
-      "agent_id": "maxine--basel--refactor-subcommand-structure",
->>>>>>> 54ee700 (sync: auto-stage dirty hub state (recovery))
-      "branch": null,
-      "claimed_at": "2026-03-11T01:22:54.700782Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    },
-=======
->>>>>>> 9b92610 (driver--api-contract-and-shared-types-define-typescript-types-in: claim lock on #-1)
-    "6": {
-      "agent_id": "driver--api-contract-and-shared-types-define-typescript-types-in",
-      "branch": null,
-      "claimed_at": "2026-03-10T03:17:46.268034040Z",
-      "signed_by": "driver--api-contract-and-shared-types-define-typescript-types-in"
-    },
-    "-1": {
-      "agent_id": "driver--api-contract-and-shared-types-define-typescript-types-in",
-      "branch": null,
-      "claimed_at": "2026-03-10T03:18:18.107591748Z",
-      "signed_by": "driver--api-contract-and-shared-types-define-typescript-types-in"
-    },
-    "156": {
-      "agent_id": "maxine--basel",
-      "branch": null,
-      "claimed_at": "2026-03-10T03:13:49.195241Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    }
-  },
+  "locks": {},
   "settings": {
     "stale_lock_timeout_minutes": 60
   }
