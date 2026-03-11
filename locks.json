@@ -1,13 +1,6 @@
 {
   "version": 1,
-  "locks": {
-    "174": {
-      "agent_id": "maxine--basel",
-      "branch": null,
-      "claimed_at": "2026-03-11T01:21:17.940453Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    }
-  },
+  "locks": {},
   "settings": {
     "stale_lock_timeout_minutes": 60
   }
