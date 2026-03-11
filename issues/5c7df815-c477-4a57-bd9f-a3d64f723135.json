@@ -1,6 +1,6 @@
 {
   "uuid": "5c7df815-c477-4a57-bd9f-a3d64f723135",
-  "display_id": 176,
+  "display_id": null,
   "title": "Fix cargo fmt formatting in kickoff cleanup",
   "status": "open",
   "priority": "high",
