@@ -1,0 +1,10 @@
+{
+  "uuid": "ccdd1078-4c94-4b27-8e5e-e3b447b21e67",
+  "display_id": null,
+  "title": "Add kickoff cleanup command to prune stale agent sessions and worktrees",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-11T13:25:11.968256022Z",
+  "updated_at": "2026-03-11T13:25:11.968256022Z"
+}
