@@ -389,10 +389,12 @@ pub fn edit(
     let existing_body = extract_body(&existing);
 
     let new_body = if let Some(heading) = replace_section {
-        let new_content = content.unwrap(); // safe: validated above
+        let new_content =
+            content.ok_or_else(|| anyhow::anyhow!("--replace-section requires --content"))?;
         replace_section_content(existing_body, heading, new_content)?
     } else if let Some(heading) = append_to_section {
-        let new_content = content.unwrap(); // safe: validated above
+        let new_content =
+            content.ok_or_else(|| anyhow::anyhow!("--append-to-section requires --content"))?;
         append_to_section_content(existing_body, heading, new_content)?
     } else if let Some(full_content) = content {
         // Replace content entirely
