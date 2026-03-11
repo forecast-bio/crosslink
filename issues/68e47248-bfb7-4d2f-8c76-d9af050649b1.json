@@ -7,7 +7,7 @@
   "priority": "medium",
   "created_by": "maxine--basel",
   "created_at": "2026-03-10T23:49:01.997731Z",
-  "updated_at": "2026-03-11T00:00:04.212233Z",
+  "updated_at": "2026-03-11T00:38:14.215645Z",
   "labels": [
     "feature"
   ],
@@ -20,6 +20,15 @@
       "kind": "plan",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
       "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABANwsKm/0PN+VZDefvT2Pc/Iq9sioMsHQkV81wxyHctiNS7bYnIRs6kk5STQOo8WUEaTs1pEvBOSP7Wtr8ajCMCA=="
+    },
+    {
+      "id": 268,
+      "author": "maxine--basel--gh-issues-299-and-301",
+      "content": "Result: Implemented both fixes. #301: 3 verification sites now check both stdout+stderr for ssh-keygen 'Good' message (signing.rs verify_content, sync.rs commit signature audit x2). #299: SharedWriter::new() creates anonymous identity when no agent.json, auto-inits hub cache if branch exists, unsigned commits via -c commit.gpgsign=false. All 186 tests pass, clippy clean, fmt clean.",
+      "created_at": "2026-03-11T00:38:14.215645Z",
+      "kind": "result",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAaYrS8vUjIsDl5ppWDuZCmDtV+woRLXM4eo4TOikMvRhhbVnNbiANrsBzhn6tSdUDUAl3wVzxa62MLm6aj+hiDA=="
     }
   ]
 }
