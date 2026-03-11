@@ -85,7 +85,18 @@ pub fn copy_to_clipboard(text: &str) -> bool {
             }
             child.wait()
         });
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("clip.exe")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                stdin.write_all(text.as_bytes())?;
+            }
+            child.wait()
+        });
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     let result: Result<std::process::ExitStatus, std::io::Error> = Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "unsupported platform",
