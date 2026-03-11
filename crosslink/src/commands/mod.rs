@@ -24,6 +24,7 @@ pub mod migrate;
 pub mod milestone;
 pub mod mission_control;
 pub mod next;
+pub mod prune;
 pub mod relate;
 pub mod search;
 pub mod session;

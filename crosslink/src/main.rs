@@ -208,6 +208,25 @@ enum Commands {
         force: bool,
     },
 
+    /// Prune git history of hub and knowledge branches for storage efficiency
+    Prune {
+        /// Show what would be pruned without modifying anything
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Skip confirmation and execute the prune
+        #[arg(long)]
+        force: bool,
+        /// Preserve the last N commits (default: 1, squash to current state)
+        #[arg(long = "keep-commits", default_value = "1")]
+        keep_commits: usize,
+        /// Only prune the hub branch
+        #[arg(long = "hub-only")]
+        hub_only: bool,
+        /// Only prune the knowledge branch
+        #[arg(long = "knowledge-only")]
+        knowledge_only: bool,
+    },
+
     /// Launch an agent to implement a feature (local process or container)
     Kickoff {
         #[command(subcommand)]
@@ -2152,6 +2171,24 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             commands::integrity_cmd::run(action.as_ref(), &crosslink_dir, &db)
+        }
+
+        Commands::Prune {
+            dry_run,
+            force,
+            keep_commits,
+            hub_only,
+            knowledge_only,
+        } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let opts = commands::prune::PruneOpts {
+                dry_run,
+                force,
+                keep_commits,
+                hub_only,
+                knowledge_only,
+            };
+            commands::prune::run(&crosslink_dir, &opts, cli.json)
         }
 
         Commands::Compact { force } => {
