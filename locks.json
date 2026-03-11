@@ -7,12 +7,6 @@
       "claimed_at": "2026-03-10T23:49:39.867177Z",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
     },
-    "164": {
-      "agent_id": "maxine--basel--refactor-subcommand-structure",
-      "branch": null,
-      "claimed_at": "2026-03-10T19:03:01.173020Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    },
     "167": {
       "agent_id": "maxine--knowledge-edit",
       "branch": null,
