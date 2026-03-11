@@ -6,7 +6,7 @@
   "priority": "high",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-11T14:05:10.282798212Z",
-  "updated_at": "2026-03-11T14:05:19.629165362Z",
+  "updated_at": "2026-03-11T14:09:04.727605111Z",
   "labels": [
     "enhancement"
   ],
@@ -17,6 +17,13 @@
       "content": "Plan: Add crosslink prune command. 1) Add Prune subcommand to CLI in main.rs. 2) Create commands/prune.rs with hub and knowledge branch pruning. 3) Use git orphan branch rewrite (checkout --orphan, commit current tree, force-update branch). 4) Stale data cleanup for heartbeats/locks/events. 5) Flags: --dry-run, --keep-commits N, --hub-only, --knowledge-only, --force.",
       "created_at": "2026-03-11T14:05:19.629164966Z",
       "kind": "plan"
+    },
+    {
+      "id": 277,
+      "author": "anon-295fd0bb",
+      "content": "Decision: Implement as commands/prune.rs with a standalone git_in_dir() helper. Will use SyncManager::init_cache() and KnowledgeManager::init_cache() to ensure caches exist, then operate directly on the worktrees via git commands. Squash approach: git checkout --orphan, add all, commit, then update-ref the branch. Need to add remote() getter to KnowledgeManager.",
+      "created_at": "2026-03-11T14:09:04.727604750Z",
+      "kind": "decision"
     }
   ]
 }
