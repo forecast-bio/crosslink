@@ -6,7 +6,7 @@
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-11T13:18:43.264437753Z",
-  "updated_at": "2026-03-11T13:21:13.778866083Z",
+  "updated_at": "2026-03-11T13:23:37.946006424Z",
   "labels": [
     "enhancement"
   ],
@@ -16,6 +16,13 @@
       "author": "anon-ab6221f8",
       "content": "Starting implementation of crosslink kickoff cleanup command (GH #298). Need to explore existing kickoff code, discovery logic, and plan the approach.",
       "created_at": "2026-03-11T13:21:13.778865445Z",
+      "kind": "plan"
+    },
+    {
+      "id": 273,
+      "author": "anon-ab6221f8",
+      "content": "Plan: 1) Extract shared discover_agents() from list(). 2) Add Cleanup variant to KickoffCommands in main.rs. 3) Implement cleanup() fn in kickoff.rs that reuses discovery, classifies agents, and removes done/stale ones. 4) Wire up dispatch.",
+      "created_at": "2026-03-11T13:23:37.946006105Z",
       "kind": "plan"
     }
   ]
