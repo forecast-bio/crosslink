@@ -1283,6 +1283,21 @@ enum KickoffCommands {
         #[arg(long, default_value = "all")]
         status: String,
     },
+    /// Remove completed/stale agent worktrees, tmux sessions, and containers
+    Cleanup {
+        /// Show what would be cleaned without doing anything
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Also clean up potentially stale agents (not just confirmed-done)
+        #[arg(long)]
+        force: bool,
+        /// Keep the N most recently completed agents
+        #[arg(long, default_value = "0")]
+        keep: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
