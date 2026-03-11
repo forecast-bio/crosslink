@@ -2451,7 +2451,10 @@ pub fn cleanup(
         }
 
         if dry_run {
-            let wt_count = to_clean.iter().filter(|(a, _)| !a.worktree.is_empty()).count();
+            let wt_count = to_clean
+                .iter()
+                .filter(|(a, _)| !a.worktree.is_empty())
+                .count();
             let tmux_count = to_clean.iter().filter(|(a, _)| a.session.is_some()).count();
             let docker_count = to_clean.iter().filter(|(a, _)| a.docker.is_some()).count();
             println!();
