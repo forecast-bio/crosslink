@@ -1,6 +1,13 @@
 {
   "version": 1,
-  "locks": {},
+  "locks": {
+    "175": {
+      "agent_id": "maxine--basel--gh-287-and-gh-291",
+      "branch": null,
+      "claimed_at": "2026-03-11T01:22:54.700782Z",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
+    }
+  },
   "settings": {
     "stale_lock_timeout_minutes": 60
   }
