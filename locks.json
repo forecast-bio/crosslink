@@ -6,12 +6,6 @@
       "branch": null,
       "claimed_at": "2026-03-11T19:32:08.258987Z",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
-    },
-    "5": {
-      "agent_id": "maxine--basel",
-      "branch": null,
-      "claimed_at": "2026-03-12T05:04:33.718783Z",
-      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
     }
   },
   "settings": {
