@@ -766,21 +766,25 @@ fn merge_smallest_pair(mut partitions: Vec<Partition>) -> Vec<Partition> {
     }
 
     // Find the partition with the fewest lines.
-    let min_idx = partitions
+    let Some(min_idx) = partitions
         .iter()
         .enumerate()
         .min_by_key(|(_, p)| p.line_count)
         .map(|(i, _)| i)
-        .expect("partitions guaranteed non-empty by len() > 1 guard");
+    else {
+        return partitions;
+    };
 
     // Find the best merge partner: the next smallest that isn't the same.
-    let partner_idx = partitions
+    let Some(partner_idx) = partitions
         .iter()
         .enumerate()
         .filter(|(i, _)| *i != min_idx)
         .min_by_key(|(_, p)| p.line_count)
         .map(|(i, _)| i)
-        .expect("partitions guaranteed len >= 2 by guard");
+    else {
+        return partitions;
+    };
 
     // Merge the two.
     let (lo, hi) = if min_idx < partner_idx {
