@@ -1,6 +1,12 @@
 {
   "version": 1,
   "locks": {
+    "181": {
+      "agent_id": "maxine--basel",
+      "branch": null,
+      "claimed_at": "2026-03-12T06:15:37.776323Z",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A"
+    },
     "166": {
       "agent_id": "maxine--basel",
       "branch": null,
