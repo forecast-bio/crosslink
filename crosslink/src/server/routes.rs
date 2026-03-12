@@ -2,7 +2,10 @@ use axum::{routing::get, Router};
 
 use crate::server::{
     handlers::{
-        agents::{get_agent, get_agent_status, list_agents, list_locks, list_stale_locks},
+        agents::{
+            get_agent, get_agent_status, list_agents, list_locks, list_stale_locks,
+            notify_lock_changed,
+        },
         config::{get_config, update_config},
         health::health,
         issues::{
@@ -17,7 +20,10 @@ use crate::server::{
             assign_milestone, close_milestone, create_milestone, get_milestone, list_milestones,
         },
         orchestrator::{
-            decompose_handler, execute, get_plan, get_status, pause, retry_stage, skip_stage,
+            decompose_handler, execute, get_plan, get_plan_by_id, get_snapshot, get_status,
+            list_plans_handler, mark_stage_done_handler, mark_stage_failed_handler,
+            mark_stage_running_handler, pause, poll_agents, resume_execution, retry_stage,
+            skip_stage,
         },
         search::global_search,
         sessions::{end_session, get_current_session, start_session, work_on_issue},
@@ -41,6 +47,7 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         // Locks
         .route("/locks", get(list_locks))
         .route("/locks/stale", get(list_stale_locks))
+        .route("/locks/notify", post(notify_lock_changed))
         // Issues — static paths first to avoid conflict with /{id}
         .route("/issues/blocked", get(list_blocked))
         .route("/issues/ready", get(list_ready))
@@ -93,13 +100,30 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
         .route("/usage/summary", get(usage_summary))
         .route("/usage", get(list_usage).post(create_usage))
         // Orchestrator — static paths first
+        .route("/orchestrator/plans", get(list_plans_handler))
+        .route("/orchestrator/plans/{id}", get(get_plan_by_id))
         .route("/orchestrator/plan", get(get_plan))
         .route("/orchestrator/status", get(get_status))
+        .route("/orchestrator/snapshot", get(get_snapshot))
+        .route("/orchestrator/agents/poll", get(poll_agents))
         .route("/orchestrator/decompose", post(decompose_handler))
         .route("/orchestrator/execute", post(execute))
         .route("/orchestrator/pause", post(pause))
+        .route("/orchestrator/resume", post(resume_execution))
         .route("/orchestrator/stages/{id}/retry", post(retry_stage))
-        .route("/orchestrator/stages/{id}/skip", post(skip_stage));
+        .route("/orchestrator/stages/{id}/skip", post(skip_stage))
+        .route(
+            "/orchestrator/stages/{id}/running",
+            post(mark_stage_running_handler),
+        )
+        .route(
+            "/orchestrator/stages/{id}/done",
+            post(mark_stage_done_handler),
+        )
+        .route(
+            "/orchestrator/stages/{id}/failed",
+            post(mark_stage_failed_handler),
+        );
 
     let mut app = Router::new()
         .nest("/api/v1", api)

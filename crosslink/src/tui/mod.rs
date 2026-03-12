@@ -35,8 +35,7 @@ pub enum TabAction {
     Consumed,
     /// Key was not handled; App should process it.
     NotHandled,
-    /// Request the app to quit (available for future tab use).
-    #[allow(dead_code)]
+    /// Request the app to quit.
     Quit,
     /// Show a flash message to the user.
     Flash(String),
@@ -144,12 +143,14 @@ impl App {
         let knowledge_tab = knowledge_tab::KnowledgeTab::new(crosslink_dir);
         let milestones_tab = milestones_tab::MilestonesTab::new(db, &db_path);
         let config_tab = config_tab::ConfigTab::new(db, &db_path, crosslink_dir);
+        let pipelines_tab = tabs::PlaceholderTab::new("Pipelines", 6);
         let tabs: Vec<Box<dyn Tab>> = vec![
             Box::new(issues_tab),
             Box::new(agents_tab),
             Box::new(knowledge_tab),
             Box::new(milestones_tab),
             Box::new(config_tab),
+            Box::new(pipelines_tab),
         ];
 
         // Activate the first tab
@@ -237,8 +238,8 @@ impl App {
             KeyCode::Char('r') => {
                 self.start_background_sync();
             }
-            // Number keys 1-5 for direct tab selection
-            KeyCode::Char(c @ '1'..='5') => {
+            // Number keys 1-6 for direct tab selection
+            KeyCode::Char(c @ '1'..='6') => {
                 let idx = (c as usize) - ('1' as usize);
                 if idx < self.tabs.len() && idx != self.active_tab {
                     self.tabs[self.active_tab].on_leave();
@@ -290,7 +291,7 @@ impl App {
                         self.tabs[self.active_tab].on_enter();
                     }
                 } else {
-                    self.flash_message = Some("Usage: :tab <1-5>".to_string());
+                    self.flash_message = Some("Usage: :tab <1-6>".to_string());
                 }
             }
             Some(other) => {
@@ -492,7 +493,7 @@ impl App {
             Span::raw(":Next  "),
             Span::styled("S-Tab", Style::default().fg(Color::Cyan)),
             Span::raw(":Prev  "),
-            Span::styled("1-5", Style::default().fg(Color::Cyan)),
+            Span::styled("1-6", Style::default().fg(Color::Cyan)),
             Span::raw(":Jump  "),
             Span::styled("?", Style::default().fg(Color::Cyan)),
             Span::raw(":Help  "),
@@ -526,7 +527,7 @@ impl App {
             Line::from("  q / Ctrl-c    Quit"),
             Line::from("  Tab           Next tab"),
             Line::from("  Shift-Tab     Previous tab"),
-            Line::from("  1-5           Jump to tab"),
+            Line::from("  1-6           Jump to tab"),
             Line::from("  :             Command palette"),
             Line::from("  ?             Toggle this help"),
             Line::from("  Mouse         Click tabs, scroll wheel"),
@@ -800,7 +801,7 @@ mod tests {
         assert_eq!(app.active_tab, 0);
         assert!(!app.show_help);
         assert!(!app.should_quit);
-        assert_eq!(app.tabs.len(), 5);
+        assert_eq!(app.tabs.len(), 6);
     }
 
     #[test]
@@ -817,10 +818,10 @@ mod tests {
     fn test_tab_navigation_wraps() {
         let (mut app, _dir) = setup_test_app();
         // Go to last tab
-        for _ in 0..4 {
+        for _ in 0..5 {
             app.handle_key(make_key(KeyCode::Tab));
         }
-        assert_eq!(app.active_tab, 4);
+        assert_eq!(app.active_tab, 5);
         // Should wrap to 0
         app.handle_key(make_key(KeyCode::Tab));
         assert_eq!(app.active_tab, 0);
@@ -830,9 +831,9 @@ mod tests {
     fn test_tab_navigation_backward() {
         let (mut app, _dir) = setup_test_app();
         app.handle_key(make_key(KeyCode::BackTab));
-        assert_eq!(app.active_tab, 4);
+        assert_eq!(app.active_tab, 5);
         app.handle_key(make_key(KeyCode::BackTab));
-        assert_eq!(app.active_tab, 3);
+        assert_eq!(app.active_tab, 4);
     }
 
     #[test]
@@ -842,8 +843,8 @@ mod tests {
         assert_eq!(app.active_tab, 2);
         app.handle_key(make_key(KeyCode::Char('1')));
         assert_eq!(app.active_tab, 0);
-        app.handle_key(make_key(KeyCode::Char('5')));
-        assert_eq!(app.active_tab, 4);
+        app.handle_key(make_key(KeyCode::Char('6')));
+        assert_eq!(app.active_tab, 5);
     }
 
     #[test]
@@ -908,7 +909,7 @@ mod tests {
         let backend = ratatui::backend::TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
 
-        for i in 0..5 {
+        for i in 0..6 {
             app.tabs[app.active_tab].on_leave();
             app.active_tab = i;
             app.tabs[app.active_tab].on_enter();

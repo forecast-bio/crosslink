@@ -1,27 +1,27 @@
-#[allow(dead_code)]
 mod checkpoint;
 mod clock_skew;
 mod commands;
-#[allow(dead_code)]
 mod compaction;
 mod daemon;
 mod db;
-#[allow(dead_code)]
 mod events;
+mod findings;
 mod hydration;
 mod identity;
 mod issue_file;
+mod issue_filing;
 mod knowledge;
 mod lock_check;
 mod locks;
 mod models;
-#[allow(dead_code)]
 mod orchestrator;
+mod pipeline;
+mod seam;
 mod server;
-#[allow(dead_code)]
 mod shared_writer;
 mod signing;
 mod sync;
+mod trust_model;
 mod tui;
 mod utils;
 
@@ -1412,6 +1412,79 @@ enum SwarmCommands {
     },
     /// Show the current window plan (alias for plan with saved config)
     PlanShow,
+    /// Launch parallel adversarial review agents across codebase partitions
+    Review {
+        /// Number of review agents to launch
+        #[arg(long, default_value = "4")]
+        agents: usize,
+        /// Review mandate type
+        #[arg(long, default_value = "adversarial")]
+        mandate: String,
+        /// Output path for consolidated findings document
+        #[arg(long, value_name = "PATH")]
+        doc: Option<PathBuf>,
+        /// Also file issues for findings after review
+        #[arg(long)]
+        file_issues: bool,
+        /// Also launch fix agents after filing issues
+        #[arg(long)]
+        fix: bool,
+    },
+    /// Launch parallel fix agents, one per issue
+    Fix {
+        /// Comma-separated issue numbers (e.g., "326,327,328")
+        #[arg(long, value_name = "IDS")]
+        issues: Option<String>,
+        /// Label filter to select issues (e.g., "review-finding")
+        #[arg(long, value_name = "LABEL")]
+        from_label: Option<String>,
+        /// Maximum number of concurrent agents
+        #[arg(long, default_value = "6")]
+        max_agents: usize,
+        /// Check budget before launching
+        #[arg(long)]
+        budget_aware: bool,
+    },
+    /// Merge changes from completed agent worktrees into a single branch
+    Merge {
+        /// Target branch name for merged changes
+        #[arg(long, default_value = "swarm-combined")]
+        branch: String,
+        /// Only analyze conflicts, don't apply changes
+        #[arg(long)]
+        dry_run: bool,
+        /// Agent slugs to merge (default: all completed agents from current swarm)
+        #[arg(long, value_name = "SLUGS")]
+        agents: Option<String>,
+    },
+    /// Continue a paused pipeline (e.g., after human checkpoint)
+    ReviewContinue,
+    /// Show pipeline status
+    ReviewStatus,
+    /// Run the full review→fix pipeline (standalone pipeline driver with stage logging)
+    Pipeline {
+        /// Number of agents
+        #[arg(long, default_value = "4")]
+        agents: usize,
+        /// Review mandate
+        #[arg(long, default_value = "adversarial")]
+        mandate: String,
+        /// Target branch for merging fixes
+        #[arg(long, default_value = "main")]
+        target_branch: String,
+        /// Automatically fix findings
+        #[arg(long)]
+        auto_fix: bool,
+        /// Automatically file issues for findings
+        #[arg(long)]
+        auto_file_issues: bool,
+    },
+    /// Initialize trust model configuration (writes swarm.toml)
+    TrustInit {
+        /// Trust model type: local-only, multi-tenant, public-api
+        #[arg(long, default_value = "local-only")]
+        model: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2283,6 +2356,56 @@ fn main() -> Result<()> {
                     commands::swarm::plan(&crosslink_dir, budget_window.as_deref())
                 }
                 SwarmCommands::PlanShow => commands::swarm::plan_show(&crosslink_dir),
+                SwarmCommands::Review {
+                    agents,
+                    mandate,
+                    doc,
+                    file_issues,
+                    fix,
+                } => commands::swarm::review(
+                    &crosslink_dir,
+                    agents,
+                    &mandate,
+                    doc.as_deref(),
+                    file_issues,
+                    fix,
+                ),
+                SwarmCommands::Fix {
+                    issues,
+                    from_label,
+                    max_agents,
+                    budget_aware,
+                } => commands::swarm::fix(
+                    &crosslink_dir,
+                    issues.as_deref(),
+                    from_label.as_deref(),
+                    max_agents,
+                    budget_aware,
+                ),
+                SwarmCommands::Merge {
+                    branch,
+                    dry_run,
+                    agents,
+                } => commands::swarm::merge(&crosslink_dir, &branch, dry_run, agents.as_deref()),
+                SwarmCommands::ReviewContinue => commands::swarm::review_continue(&crosslink_dir),
+                SwarmCommands::ReviewStatus => commands::swarm::review_status(&crosslink_dir),
+                SwarmCommands::Pipeline {
+                    agents,
+                    mandate,
+                    target_branch,
+                    auto_fix,
+                    auto_file_issues,
+                } => commands::swarm::run_pipeline_cmd(
+                    &crosslink_dir,
+                    agents,
+                    &mandate,
+                    &target_branch,
+                    auto_fix,
+                    auto_file_issues,
+                ),
+                SwarmCommands::TrustInit { model } => {
+                    commands::swarm::trust_init(&crosslink_dir, &model)
+                }
             }
         }
         Commands::Tui => {

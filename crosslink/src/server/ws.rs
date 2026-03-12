@@ -40,10 +40,7 @@ pub const BROADCAST_CAPACITY: usize = 256;
 /// Each variant carries the concrete event struct defined in `types.rs`.
 /// `Clone` is required by `tokio::sync::broadcast`.
 ///
-/// Some variants (`IssueUpdated`, `LockChanged`, `ExecutionProgress`) are
-/// pre-declared for use by later phase agents; the `#[allow(dead_code)]`
-/// attribute suppresses premature warnings.
-#[allow(dead_code)]
+/// All variants are used by their respective handlers.
 #[derive(Debug, Clone)]
 pub enum WsEvent {
     Heartbeat(WsHeartbeatEvent),

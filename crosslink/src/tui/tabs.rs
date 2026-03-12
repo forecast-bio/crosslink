@@ -10,14 +10,12 @@ use ratatui::{
 use super::TabAction;
 
 /// A placeholder tab for features not yet implemented.
-#[allow(dead_code)]
 pub struct PlaceholderTab {
     title: String,
     phase: u8,
 }
 
 impl PlaceholderTab {
-    #[cfg(test)]
     pub fn new(title: &str, phase: u8) -> Self {
         PlaceholderTab {
             title: title.to_string(),
@@ -57,8 +55,11 @@ impl super::Tab for PlaceholderTab {
         frame.render_widget(paragraph, area);
     }
 
-    fn handle_key(&mut self, _key: KeyEvent) -> TabAction {
-        TabAction::NotHandled
+    fn handle_key(&mut self, key: KeyEvent) -> TabAction {
+        match key.code {
+            crossterm::event::KeyCode::Char('q') => TabAction::Quit,
+            _ => TabAction::NotHandled,
+        }
     }
 
     // Placeholder tabs have no state to initialize or tear down on focus changes.
@@ -104,5 +105,18 @@ mod tests {
             state: KeyEventState::empty(),
         };
         assert!(matches!(tab.handle_key(key), TabAction::NotHandled));
+    }
+
+    #[test]
+    fn test_placeholder_key_quit() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let mut tab = PlaceholderTab::new("Test", 1);
+        let key = KeyEvent {
+            code: KeyCode::Char('q'),
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+        assert!(matches!(tab.handle_key(key), TabAction::Quit));
     }
 }

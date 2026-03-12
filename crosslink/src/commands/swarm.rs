@@ -5,13 +5,18 @@
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::commands::design_doc::{self, DesignDoc};
 use crate::commands::kickoff::{self, tmux_session_name, ContainerMode, KickoffOpts, VerifyLevel};
 use crate::db::Database;
+use crate::findings;
+use crate::issue_filing;
+use crate::pipeline::{self, Pipeline, PipelineConfig};
+use crate::seam;
 use crate::shared_writer::SharedWriter;
 use crate::sync::SyncManager;
+use crate::trust_model;
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -206,6 +211,48 @@ pub enum WindowFit {
     Fits,
     Tight,
     Overflow,
+}
+
+// ---------------------------------------------------------------------------
+// Merge orchestration data model
+// ---------------------------------------------------------------------------
+
+/// Top-level merge plan, stored at `swarm/merge-plan.json` on the hub branch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MergePlan {
+    pub target_branch: String,
+    pub agents: Vec<MergeSource>,
+    pub conflicts: Vec<FileConflict>,
+    pub merge_order: Vec<String>, // agent slugs in application order
+}
+
+/// A single agent's worktree as a merge source.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MergeSource {
+    pub agent_slug: String,
+    pub worktree_path: PathBuf,
+    pub changed_files: Vec<String>,
+    pub commit_count: usize,
+}
+
+/// A file conflict between multiple agents.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FileConflict {
+    pub file: String,
+    pub agents: Vec<String>,
+    pub conflict_type: ConflictType,
+}
+
+/// Classification of a file conflict.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictType {
+    /// Multiple agents modified the same file but different regions
+    NonOverlapping,
+    /// Multiple agents modified overlapping regions
+    Overlapping,
+    /// One agent created, another modified
+    CreateModify,
 }
 
 // ---------------------------------------------------------------------------
@@ -1945,6 +1992,410 @@ pub fn plan_show(crosslink_dir: &Path) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// swarm review — parallel adversarial review
+// ---------------------------------------------------------------------------
+
+/// The overall review plan stored at `swarm/review-plan.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewPlan {
+    pub mandate: String,
+    pub mandate_prompt: String,
+    pub agent_count: usize,
+    pub created_at: String,
+    pub agents: Vec<ReviewAgentAssignment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc_output: Option<PathBuf>,
+}
+
+/// Assignment of a partition to a review agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewAgentAssignment {
+    pub agent_slug: String,
+    pub partition_label: String,
+    pub files: Vec<String>,
+}
+
+// Mandate prompt templates
+const MANDATE_ADVERSARIAL: &str = "You are the ha-satan, the loyal accuser. \
+    Find real problems that would cause failures in production. \
+    Ignore style nits, focus on correctness, safety, and robustness.";
+
+const MANDATE_SECURITY: &str = "Review for trust boundary violations, injection vectors, \
+    data integrity issues, and unsafe operations.";
+
+const MANDATE_ROBUSTNESS: &str = "Find crash paths, resource leaks, error handling gaps, \
+    and unhandled edge cases.";
+
+const MANDATE_CORRECTNESS: &str = "Find logic errors, race conditions, invariant violations, \
+    and incorrect algorithm implementations.";
+
+/// Map a mandate name to its prompt text.
+pub fn mandate_prompt(mandate: &str) -> &str {
+    match mandate {
+        "adversarial" => MANDATE_ADVERSARIAL,
+        "security" => MANDATE_SECURITY,
+        "robustness" => MANDATE_ROBUSTNESS,
+        "correctness" => MANDATE_CORRECTNESS,
+        _ => mandate, // Custom mandate text passed through as-is
+    }
+}
+
+/// Assign partitions to agents using round-robin distribution.
+fn assign_partitions(
+    partitions: Vec<seam::Partition>,
+    agent_count: usize,
+) -> Vec<ReviewAgentAssignment> {
+    let agent_count = agent_count.max(1);
+    let mut assignments: Vec<ReviewAgentAssignment> = (0..agent_count)
+        .map(|i| ReviewAgentAssignment {
+            agent_slug: format!("reviewer-{}", i + 1),
+            partition_label: String::new(),
+            files: Vec::new(),
+        })
+        .collect();
+
+    for (i, partition) in partitions.into_iter().enumerate() {
+        let agent_idx = i % agent_count;
+        if !assignments[agent_idx].partition_label.is_empty() {
+            assignments[agent_idx].partition_label.push_str(", ");
+        }
+        assignments[agent_idx]
+            .partition_label
+            .push_str(&partition.label);
+        assignments[agent_idx].files.extend(
+            partition
+                .files
+                .into_iter()
+                .map(|f| f.to_string_lossy().to_string()),
+        );
+    }
+
+    // Filter out agents with no files assigned
+    assignments.retain(|a| !a.files.is_empty());
+    assignments
+}
+
+/// Launch a parallel adversarial review across codebase partitions.
+pub fn review(
+    crosslink_dir: &Path,
+    agent_count: usize,
+    mandate: &str,
+    doc: Option<&Path>,
+    file_issues: bool,
+    fix: bool,
+) -> Result<()> {
+    let repo_root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let sync = SyncManager::new(crosslink_dir)?;
+    sync.init_cache()?;
+    sync.fetch()?;
+
+    // Discover source partitions via seam detection
+    let partitions = seam::detect_seams(repo_root, agent_count)?;
+    if partitions.is_empty() {
+        bail!("No source files found in repo root. Nothing to review.");
+    }
+
+    println!(
+        "Discovered {} source partition(s) in {}",
+        partitions.len(),
+        repo_root.display()
+    );
+    for p in &partitions {
+        println!(
+            "  {} ({} files, {} lines)",
+            p.label,
+            p.files.len(),
+            p.line_count
+        );
+    }
+    println!();
+
+    // Assign partitions to agents
+    let assignments = assign_partitions(partitions, agent_count);
+    let prompt_text = mandate_prompt(mandate);
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let plan = ReviewPlan {
+        mandate: mandate.to_string(),
+        mandate_prompt: prompt_text.to_string(),
+        agent_count: assignments.len(),
+        created_at: now,
+        agents: assignments.clone(),
+        doc_output: doc.map(|p| p.to_path_buf()),
+    };
+
+    // Persist plan to hub branch
+    write_hub_json(&sync, "swarm/review-plan.json", &plan)?;
+    commit_hub_files(
+        &sync,
+        &["swarm/review-plan.json"],
+        "swarm: store review plan",
+    )?;
+
+    // Print summary
+    println!("Review plan ({} mandate):", mandate);
+    println!("  Prompt: {}", prompt_text);
+    println!();
+    println!("Agent assignments:");
+    for agent in &plan.agents {
+        println!(
+            "  {} — partitions: [{}] ({} files)",
+            agent.agent_slug,
+            agent.partition_label,
+            agent.files.len()
+        );
+    }
+    println!();
+
+    if let Some(doc_path) = doc {
+        println!("Findings will be consolidated to: {}", doc_path.display());
+    }
+
+    println!("Plan saved to hub branch at swarm/review-plan.json");
+
+    if file_issues || fix {
+        // Run the pipeline for post-review stages
+        let config = PipelineConfig {
+            agent_count: assignments.len(),
+            mandate: mandate.to_string(),
+            auto_fix: fix,
+            auto_file_issues: file_issues,
+            target_branch: "develop".to_string(),
+        };
+        run_review_pipeline(crosslink_dir, config)?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Review pipeline orchestration
+// ---------------------------------------------------------------------------
+
+/// Convert consolidated finding groups into the format expected by issue_filing.
+fn findings_to_filing(groups: &[findings::FindingGroup]) -> Vec<issue_filing::FindingForFiling> {
+    groups
+        .iter()
+        .map(|g| issue_filing::FindingForFiling {
+            title: g.canonical.title.clone(),
+            severity: g.effective_severity.to_string(),
+            file: g.canonical.file.clone(),
+            line: g.canonical.line,
+            description: g.canonical.description.clone(),
+            suggested_fix: g.canonical.suggested_fix.clone(),
+            consensus_count: g.consensus_count,
+        })
+        .collect()
+}
+
+/// Consolidate review findings from agent reports on the hub branch.
+fn consolidate_review_findings(crosslink_dir: &Path) -> Result<findings::ConsolidatedReport> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    let findings_dir = sync.cache_path().join("swarm");
+    let reports = findings::parse_reports(&findings_dir)?;
+    if reports.is_empty() {
+        bail!("No review findings found. Run review agents first.");
+    }
+    let consolidated = findings::consolidate(reports);
+
+    // Persist consolidated report
+    write_hub_json(&sync, "swarm/consolidated-report.json", &consolidated)?;
+    let markdown = findings::generate_markdown_report(&consolidated);
+    let md_path = sync
+        .cache_path()
+        .join("swarm")
+        .join("consolidated-report.md");
+    if let Some(parent) = md_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&md_path, &markdown)?;
+    commit_hub_files(
+        &sync,
+        &[
+            "swarm/consolidated-report.json",
+            "swarm/consolidated-report.md",
+        ],
+        "swarm: consolidate review findings",
+    )?;
+
+    println!(
+        "Consolidated {} findings from {} agents ({} after dedup)",
+        consolidated.total_findings, consolidated.agent_count, consolidated.deduplicated_findings,
+    );
+
+    Ok(consolidated)
+}
+
+/// Apply trust model filtering to consolidated findings.
+fn apply_trust_filtering(
+    crosslink_dir: &Path,
+    report: &findings::ConsolidatedReport,
+) -> Vec<findings::FindingGroup> {
+    let config = match trust_model::load_trust_config(crosslink_dir) {
+        Ok(c) => c,
+        Err(_) => return report.groups.clone(),
+    };
+
+    // Convert finding groups to tuples for the trust model batch API
+    let finding_tuples: Vec<(String, String, String)> = report
+        .groups
+        .iter()
+        .map(|g| {
+            (
+                g.canonical.title.clone(),
+                g.canonical.description.clone(),
+                g.effective_severity.to_string(),
+            )
+        })
+        .collect();
+
+    let annotated = trust_model::apply_trust_model(&config, finding_tuples);
+
+    let mut kept = Vec::new();
+    let mut by_design_count = 0;
+    for (i, (_title, _desc, _sev, result)) in annotated.into_iter().enumerate() {
+        let group = &report.groups[i];
+        match result {
+            trust_model::TriageResult::Valid => kept.push(group.clone()),
+            trust_model::TriageResult::ByDesign { reason } => {
+                println!("  [by-design] {} — {}", group.canonical.title, reason);
+                by_design_count += 1;
+            }
+            trust_model::TriageResult::Downgraded { reason, .. } => {
+                println!("  [downgraded] {} — {}", group.canonical.title, reason);
+                kept.push(group.clone());
+            }
+        }
+    }
+    if by_design_count > 0 {
+        println!("  {} finding(s) triaged as by-design", by_design_count);
+    }
+    kept
+}
+
+/// Drive the review pipeline through its stages.
+fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> {
+    let mut pipe = match pipeline::load_pipeline(crosslink_dir)? {
+        Some(p) => {
+            println!("Resuming existing pipeline at stage: {}", p.current_stage);
+            p
+        }
+        None => Pipeline::new(config),
+    };
+
+    loop {
+        // Check for human checkpoints using the pipeline API
+        if Pipeline::is_checkpoint(pipe.current_stage) {
+            println!("\nPipeline paused for human review.");
+            println!("Review findings in .crosslink/ or on the hub branch.");
+            println!("Run `crosslink swarm review-continue` to proceed.");
+            pipeline::save_pipeline(crosslink_dir, &pipe)?;
+            return Ok(());
+        }
+
+        let stage_result: Result<()> = match pipe.current_stage {
+            pipeline::PipelineStage::Partition | pipeline::PipelineStage::Review => {
+                // Partitioning and agent launch already handled by review()
+                pipe.advance()?;
+                Ok(())
+            }
+            pipeline::PipelineStage::AwaitReview => {
+                println!("Review agents launched. Check progress with `crosslink swarm status`.");
+                println!("Run `crosslink swarm review-continue` when agents complete.");
+                pipeline::save_pipeline(crosslink_dir, &pipe)?;
+                return Ok(());
+            }
+            pipeline::PipelineStage::Consolidate => {
+                let report = consolidate_review_findings(crosslink_dir)?;
+                let filtered = apply_trust_filtering(crosslink_dir, &report);
+                println!("{} findings after trust model filtering", filtered.len());
+                pipe.advance()?;
+                Ok(())
+            }
+            pipeline::PipelineStage::HumanCheckpoint => {
+                // Handled by is_checkpoint check above
+                unreachable!()
+            }
+            pipeline::PipelineStage::FileIssues => {
+                if pipe.config.auto_file_issues {
+                    let sync = SyncManager::new(crosslink_dir)?;
+                    let report: findings::ConsolidatedReport =
+                        read_hub_json(&sync, "swarm/consolidated-report.json")?;
+                    let filtered = apply_trust_filtering(crosslink_dir, &report);
+
+                    // Deduplicate against existing GitHub issues with the review label
+                    let existing_titles = fetch_existing_review_titles();
+                    let deduped = findings::cross_reference_issues(&filtered, &existing_titles);
+                    if deduped.len() < filtered.len() {
+                        println!(
+                            "  Skipped {} finding(s) that match existing issues",
+                            filtered.len() - deduped.len()
+                        );
+                    }
+
+                    let for_filing = findings_to_filing(&deduped);
+                    issue_filing::file_issues_batch(&for_filing, false)?;
+                }
+                pipe.advance()?;
+                Ok(())
+            }
+            pipeline::PipelineStage::Fix => {
+                if pipe.config.auto_fix {
+                    println!("Launching fix agents...");
+                    fix(crosslink_dir, None, Some("review-finding"), 6, false)?;
+                }
+                pipe.advance()?;
+                Ok(())
+            }
+            pipeline::PipelineStage::AwaitFix => {
+                println!("Fix agents launched. Check progress with `crosslink swarm status`.");
+                println!("Run `crosslink swarm review-continue` when agents complete.");
+                pipeline::save_pipeline(crosslink_dir, &pipe)?;
+                return Ok(());
+            }
+            pipeline::PipelineStage::Merge | pipeline::PipelineStage::PullRequest => {
+                println!(
+                    "Stage {}: run `crosslink swarm merge` to combine changes.",
+                    pipe.current_stage
+                );
+                pipe.advance()?;
+                Ok(())
+            }
+            pipeline::PipelineStage::Done => {
+                println!("Pipeline complete.");
+                break;
+            }
+            pipeline::PipelineStage::Failed => {
+                println!("Pipeline failed.");
+                break;
+            }
+        };
+
+        // On stage failure, mark the pipeline as failed and persist
+        if let Err(e) = stage_result {
+            pipe.fail(&e.to_string());
+            pipeline::save_pipeline(crosslink_dir, &pipe)?;
+            return Err(e);
+        }
+
+        pipeline::save_pipeline(crosslink_dir, &pipe)?;
+    }
+
+    Ok(())
+}
+
+/// Fetch titles of existing GitHub issues labeled "review-finding" for deduplication.
+fn fetch_existing_review_titles() -> Vec<String> {
+    match fetch_issues_by_label("review-finding") {
+        Ok(issues) => issues.into_iter().map(|(_, title, _, _)| title).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -1976,12 +2427,877 @@ fn find_latest_checkpoint(dir: &Path) -> Option<Checkpoint> {
 }
 
 // ---------------------------------------------------------------------------
+// swarm fix — parallel issue-to-agent fix execution
+// ---------------------------------------------------------------------------
+
+/// Plan for parallel fix execution, stored at `swarm/fix-plan.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FixPlan {
+    pub schema_version: u32,
+    pub created_at: String,
+    pub issues: Vec<FixTarget>,
+}
+
+/// A single issue targeted for an agent fix.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FixTarget {
+    pub issue_number: u64,
+    pub title: String,
+    pub body: String,
+    pub labels: Vec<String>,
+    pub agent_slug: String,
+    pub status: AgentStatus,
+}
+
+/// Fetch details for a single GitHub issue via `gh issue view`.
+fn fetch_issue_details(number: u64) -> Result<(String, String, Vec<String>)> {
+    let output = std::process::Command::new("gh")
+        .args([
+            "issue",
+            "view",
+            &number.to_string(),
+            "--json",
+            "title,body,labels",
+        ])
+        .output()
+        .context("Failed to run gh issue view")?;
+
+    if !output.status.success() {
+        bail!(
+            "gh issue view {} failed: {}",
+            number,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("Failed to parse gh issue view output")?;
+
+    let title = parsed["title"].as_str().unwrap_or_default().to_string();
+    let body = parsed["body"].as_str().unwrap_or_default().to_string();
+    let labels = parsed["labels"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok((title, body, labels))
+}
+
+/// An issue fetched from GitHub with its number, title, body, and labels.
+type LabeledIssue = (u64, String, String, Vec<String>);
+
+/// Fetch issues matching a label via `gh issue list`.
+fn fetch_issues_by_label(label: &str) -> Result<Vec<LabeledIssue>> {
+    let output = std::process::Command::new("gh")
+        .args([
+            "issue",
+            "list",
+            "--label",
+            label,
+            "--json",
+            "number,title,body,labels",
+            "--limit",
+            "100",
+        ])
+        .output()
+        .context("Failed to run gh issue list")?;
+
+    if !output.status.success() {
+        bail!(
+            "gh issue list --label {} failed: {}",
+            label,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let parsed: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).context("Failed to parse gh issue list output")?;
+
+    let mut results = Vec::new();
+    for item in parsed {
+        let number = item["number"].as_u64().unwrap_or(0);
+        if number == 0 {
+            continue;
+        }
+        let title = item["title"].as_str().unwrap_or_default().to_string();
+        let body = item["body"].as_str().unwrap_or_default().to_string();
+        let labels = item["labels"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        results.push((number, title, body, labels));
+    }
+
+    Ok(results)
+}
+
+/// Create a slug for a fix agent from the issue number and title.
+///
+/// Example: `slugify_fix_target(326, "Buffer overflow in parser")` → `"fix-326-buffer-overflow-in-parser"`
+fn slugify_fix_target(issue_number: u64, title: &str) -> String {
+    let slug_part: String = title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+
+    // Truncate slug_part to keep the total slug reasonable
+    let max_slug_len: usize = 50;
+    let prefix = format!("fix-{}-", issue_number);
+    let remaining = max_slug_len.saturating_sub(prefix.len());
+    let truncated = if slug_part.len() > remaining {
+        // Cut at a word boundary if possible
+        match slug_part[..remaining].rfind('-') {
+            Some(pos) if pos > 0 => &slug_part[..pos],
+            _ => &slug_part[..remaining],
+        }
+    } else {
+        &slug_part
+    };
+
+    format!("{}{}", prefix, truncated)
+}
+
+/// Parse comma-separated issue numbers from a string.
+fn parse_issue_numbers(input: &str) -> Result<Vec<u64>> {
+    input
+        .split(',')
+        .map(|s| {
+            let trimmed = s.trim();
+            trimmed
+                .parse::<u64>()
+                .with_context(|| format!("Invalid issue number: {:?}", trimmed))
+        })
+        .collect()
+}
+
+/// Build and persist a fix plan for parallel issue resolution.
+pub fn fix(
+    crosslink_dir: &Path,
+    issues: Option<&str>,
+    from_label: Option<&str>,
+    max_agents: usize,
+    budget_aware: bool,
+) -> Result<()> {
+    // Resolve issues from the provided source
+    let issue_data: Vec<(u64, String, String, Vec<String>)> = match (issues, from_label) {
+        (Some(ids), _) => {
+            let numbers = parse_issue_numbers(ids)?;
+            let mut data = Vec::new();
+            for num in numbers {
+                let (title, body, labels) = fetch_issue_details(num)?;
+                data.push((num, title, body, labels));
+            }
+            data
+        }
+        (None, Some(label)) => fetch_issues_by_label(label)?,
+        (None, None) => {
+            bail!(
+                "Either --issues or --from-label is required.\n\n\
+                 Usage:\n  \
+                   crosslink swarm fix --issues 326,327,328\n  \
+                   crosslink swarm fix --from-label review-finding"
+            );
+        }
+    };
+
+    if issue_data.is_empty() {
+        bail!("No issues found matching the given criteria.");
+    }
+
+    // Build fix targets
+    let targets: Vec<FixTarget> = issue_data
+        .into_iter()
+        .map(|(number, title, body, labels)| {
+            let agent_slug = slugify_fix_target(number, &title);
+            FixTarget {
+                issue_number: number,
+                title,
+                body,
+                labels,
+                agent_slug,
+                status: AgentStatus::Planned,
+            }
+        })
+        .collect();
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let plan = FixPlan {
+        schema_version: 1,
+        created_at: now,
+        issues: targets,
+    };
+
+    // Persist to hub branch
+    let sync = SyncManager::new(crosslink_dir)?;
+    sync.init_cache()?;
+    sync.fetch()?;
+
+    write_hub_json(&sync, "swarm/fix-plan.json", &plan)?;
+    commit_hub_files(&sync, &["swarm/fix-plan.json"], "swarm: persist fix plan")?;
+
+    // Print summary
+    println!("Fix plan created with {} issue(s):\n", plan.issues.len());
+    println!("  {:<8} {:<40} Labels", "Issue", "Agent Slug");
+    println!("  {:<8} {:<40} ------", "-----", "----------");
+    for target in &plan.issues {
+        let labels_str = if target.labels.is_empty() {
+            String::from("-")
+        } else {
+            target.labels.join(", ")
+        };
+        println!(
+            "  #{:<7} {:<40} {}",
+            target.issue_number, target.agent_slug, labels_str
+        );
+    }
+
+    if plan.issues.len() > max_agents {
+        println!(
+            "\nNote: {} issues exceed max_agents ({}). Some will queue.",
+            plan.issues.len(),
+            max_agents
+        );
+    }
+
+    if budget_aware {
+        println!("\nBudget checking not yet integrated.");
+    }
+
+    println!("\nPlan persisted to hub branch at swarm/fix-plan.json");
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// swarm merge
+// ---------------------------------------------------------------------------
+
+/// Discover agent worktrees that have commits beyond the base branch (develop).
+fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
+    let worktrees_dir = repo_root.join(".worktrees");
+    if !worktrees_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut sources = Vec::new();
+    let mut entries: Vec<_> = std::fs::read_dir(&worktrees_dir)
+        .context("Failed to read .worktrees")?
+        .filter_map(|e| e.ok())
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        let wt_path = entry.path();
+        if !wt_path.is_dir() {
+            continue;
+        }
+
+        let slug = entry.file_name().to_string_lossy().to_string();
+
+        // Get changed files relative to develop
+        let diff_output = std::process::Command::new("git")
+            .current_dir(&wt_path)
+            .args(["diff", "--name-only", "develop...HEAD"])
+            .output();
+
+        let changed_files = match diff_output {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                stdout
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(|l| l.to_string())
+                    .collect::<Vec<_>>()
+            }
+            _ => continue, // Skip worktrees where git diff fails
+        };
+
+        if changed_files.is_empty() {
+            continue;
+        }
+
+        // Count commits beyond develop
+        let log_output = std::process::Command::new("git")
+            .current_dir(&wt_path)
+            .args(["log", "--oneline", "develop..HEAD"])
+            .output();
+
+        let commit_count = match log_output {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                stdout.lines().count()
+            }
+            _ => 0,
+        };
+
+        sources.push(MergeSource {
+            agent_slug: slug,
+            worktree_path: wt_path,
+            changed_files,
+            commit_count,
+        });
+    }
+
+    Ok(sources)
+}
+
+/// Extract line ranges modified by a diff for a specific file in a worktree.
+fn extract_diff_ranges(worktree: &Path, file: &str) -> Result<Vec<(usize, usize)>> {
+    let output = std::process::Command::new("git")
+        .current_dir(worktree)
+        .args(["diff", "develop...HEAD", "--", file])
+        .output()
+        .context("Failed to run git diff")?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut ranges = Vec::new();
+
+    for line in stdout.lines() {
+        // Parse unified diff hunk headers: @@ -start,count +start,count @@
+        if let Some(rest) = line.strip_prefix("@@ ") {
+            // Extract the +start,count part (new file ranges)
+            if let Some(plus_part) = rest.split(' ').find(|s| s.starts_with('+')) {
+                let nums = plus_part.trim_start_matches('+');
+                let parts: Vec<&str> = nums.split(',').collect();
+                if let Ok(start) = parts[0].parse::<usize>() {
+                    let count = if parts.len() > 1 {
+                        parts[1]
+                            .split_whitespace()
+                            .next()
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .unwrap_or(1)
+                    } else {
+                        1
+                    };
+                    if count > 0 {
+                        ranges.push((start, start + count - 1));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(ranges)
+}
+
+/// Check if two sets of line ranges overlap.
+fn ranges_overlap(a: &[(usize, usize)], b: &[(usize, usize)]) -> bool {
+    for &(a_start, a_end) in a {
+        for &(b_start, b_end) in b {
+            if a_start <= b_end && b_start <= a_end {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Detect file conflicts between multiple merge sources.
+fn detect_file_conflicts(sources: &[MergeSource]) -> Vec<FileConflict> {
+    // Build map: file → list of agent slugs that modified it
+    let mut file_agents: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+
+    for source in sources {
+        for file in &source.changed_files {
+            file_agents
+                .entry(file.clone())
+                .or_default()
+                .push(source.agent_slug.clone());
+        }
+    }
+
+    let mut conflicts = Vec::new();
+
+    for (file, agents) in &file_agents {
+        if agents.len() < 2 {
+            continue;
+        }
+
+        // Build a lookup for worktree paths by agent slug
+        let slug_to_source: std::collections::HashMap<&str, &MergeSource> =
+            sources.iter().map(|s| (s.agent_slug.as_str(), s)).collect();
+
+        // Check if we can determine overlap by inspecting diff ranges
+        let mut all_ranges: Vec<(&str, Vec<(usize, usize)>)> = Vec::new();
+        let mut range_extraction_ok = true;
+
+        for agent_slug in agents {
+            if let Some(source) = slug_to_source.get(agent_slug.as_str()) {
+                match extract_diff_ranges(&source.worktree_path, file) {
+                    Ok(ranges) if !ranges.is_empty() => {
+                        all_ranges.push((agent_slug.as_str(), ranges));
+                    }
+                    Ok(_) => {
+                        // Empty ranges could mean the file was created or binary
+                        range_extraction_ok = false;
+                        break;
+                    }
+                    Err(_) => {
+                        range_extraction_ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let conflict_type = if !range_extraction_ok {
+            // If we can't extract ranges, check if file is new in any worktree
+            ConflictType::CreateModify
+        } else {
+            // Check pairwise for overlapping ranges
+            let mut has_overlap = false;
+            'outer: for i in 0..all_ranges.len() {
+                for j in (i + 1)..all_ranges.len() {
+                    if ranges_overlap(&all_ranges[i].1, &all_ranges[j].1) {
+                        has_overlap = true;
+                        break 'outer;
+                    }
+                }
+            }
+            if has_overlap {
+                ConflictType::Overlapping
+            } else {
+                ConflictType::NonOverlapping
+            }
+        };
+
+        conflicts.push(FileConflict {
+            file: file.clone(),
+            agents: agents.clone(),
+            conflict_type,
+        });
+    }
+
+    conflicts
+}
+
+/// Compute merge order: non-conflicting agents first, then non-overlapping, then overlapping.
+fn compute_merge_order(sources: &[MergeSource], conflicts: &[FileConflict]) -> Vec<String> {
+    // Classify each agent's worst conflict level
+    let mut agent_worst: std::collections::BTreeMap<&str, u8> = std::collections::BTreeMap::new();
+
+    // Start all agents at level 0 (no conflicts)
+    for source in sources {
+        agent_worst.insert(&source.agent_slug, 0);
+    }
+
+    for conflict in conflicts {
+        let level = match conflict.conflict_type {
+            ConflictType::NonOverlapping => 1,
+            ConflictType::CreateModify => 2,
+            ConflictType::Overlapping => 3,
+        };
+        for agent in &conflict.agents {
+            if let Some(current) = agent_worst.get_mut(agent.as_str()) {
+                if level > *current {
+                    *current = level;
+                }
+            }
+        }
+    }
+
+    // Sort: lowest conflict level first, then alphabetically for stability
+    let mut order: Vec<(&str, u8)> = agent_worst.into_iter().collect();
+    order.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+
+    order.iter().map(|(slug, _)| slug.to_string()).collect()
+}
+
+/// Orchestrate merging agent worktree changes into a single branch.
+pub fn merge(
+    crosslink_dir: &Path,
+    branch: &str,
+    dry_run: bool,
+    agents_filter: Option<&str>,
+) -> Result<()> {
+    let repo_root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    // Discover agent worktrees with changes
+    let mut sources = discover_worktrees(repo_root)?;
+
+    if sources.is_empty() {
+        println!("No agent worktrees with changes found.");
+        return Ok(());
+    }
+
+    // Filter by agent slugs if --agents provided
+    if let Some(filter) = agents_filter {
+        let slugs: std::collections::HashSet<&str> = filter.split(',').map(|s| s.trim()).collect();
+        sources.retain(|s| slugs.contains(s.agent_slug.as_str()));
+        if sources.is_empty() {
+            bail!("No matching agent worktrees found for filter: {}", filter);
+        }
+    }
+
+    // Detect file conflicts
+    let conflicts = detect_file_conflicts(&sources);
+
+    // Compute merge order
+    let merge_order = compute_merge_order(&sources, &conflicts);
+
+    // Build the merge plan
+    let plan = MergePlan {
+        target_branch: branch.to_string(),
+        agents: sources.clone(),
+        conflicts: conflicts.clone(),
+        merge_order: merge_order.clone(),
+    };
+
+    // Print summary
+    println!("Merge Plan");
+    println!("==========");
+    println!("Target branch: {}", branch);
+    println!(
+        "Agents:        {} ({} total commits)",
+        sources.len(),
+        sources.iter().map(|s| s.commit_count).sum::<usize>()
+    );
+    println!();
+
+    // Agent details table
+    println!("Agent Worktrees:");
+    for source in &sources {
+        println!(
+            "  {} — {} file{}, {} commit{}",
+            source.agent_slug,
+            source.changed_files.len(),
+            if source.changed_files.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
+            source.commit_count,
+            if source.commit_count == 1 { "" } else { "s" },
+        );
+    }
+    println!();
+
+    // Conflict analysis
+    if conflicts.is_empty() {
+        println!("Conflicts:     none detected");
+    } else {
+        println!(
+            "Conflicts:     {} file{}",
+            conflicts.len(),
+            if conflicts.len() == 1 { "" } else { "s" }
+        );
+        for conflict in &conflicts {
+            let type_label = match conflict.conflict_type {
+                ConflictType::NonOverlapping => "non-overlapping",
+                ConflictType::Overlapping => "OVERLAPPING",
+                ConflictType::CreateModify => "create/modify",
+            };
+            println!(
+                "  {} [{}] — agents: {}",
+                conflict.file,
+                type_label,
+                conflict.agents.join(", ")
+            );
+        }
+
+        let overlapping_count = conflicts
+            .iter()
+            .filter(|c| c.conflict_type == ConflictType::Overlapping)
+            .count();
+        if overlapping_count > 0 {
+            println!();
+            println!(
+                "WARNING: {} file{} with overlapping changes will need manual resolution.",
+                overlapping_count,
+                if overlapping_count == 1 { "" } else { "s" }
+            );
+        }
+    }
+    println!();
+
+    // Merge order
+    println!("Merge order:");
+    for (i, slug) in merge_order.iter().enumerate() {
+        println!("  {}. {}", i + 1, slug);
+    }
+    println!();
+
+    // Persist the plan to hub branch
+    let sync = SyncManager::new(crosslink_dir)?;
+    if sync.is_initialized() {
+        sync.fetch()?;
+        write_hub_json(&sync, "swarm/merge-plan.json", &plan)?;
+        commit_hub_files(
+            &sync,
+            &["swarm/merge-plan.json"],
+            &format!(
+                "swarm: merge plan for {} agents → {}",
+                sources.len(),
+                branch
+            ),
+        )?;
+        println!("Plan saved to hub branch (swarm/merge-plan.json).");
+    }
+
+    if dry_run {
+        println!("Dry run — no changes applied.");
+        return Ok(());
+    }
+
+    // Create the target branch from develop
+    let create_branch = std::process::Command::new("git")
+        .current_dir(repo_root)
+        .args(["checkout", "-b", branch, "develop"])
+        .output()
+        .context("Failed to create target branch")?;
+
+    if !create_branch.status.success() {
+        let stderr = String::from_utf8_lossy(&create_branch.stderr);
+        // If branch already exists, try to check it out
+        if stderr.contains("already exists") {
+            let checkout = std::process::Command::new("git")
+                .current_dir(repo_root)
+                .args(["checkout", branch])
+                .output()
+                .context("Failed to checkout existing target branch")?;
+            if !checkout.status.success() {
+                bail!(
+                    "Failed to checkout branch '{}': {}",
+                    branch,
+                    String::from_utf8_lossy(&checkout.stderr)
+                );
+            }
+            println!("Checked out existing branch '{}'.", branch);
+        } else {
+            bail!("Failed to create branch '{}': {}", branch, stderr);
+        }
+    } else {
+        println!("Created branch '{}' from develop.", branch);
+    }
+
+    // Apply each agent's diff in merge order
+    let slug_to_source: std::collections::HashMap<&str, &MergeSource> =
+        sources.iter().map(|s| (s.agent_slug.as_str(), s)).collect();
+
+    let mut applied = 0usize;
+    let mut failed = Vec::new();
+
+    for slug in &merge_order {
+        let source = match slug_to_source.get(slug.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        println!("Applying changes from '{}'...", slug);
+
+        // Generate the diff from the agent's worktree
+        let diff_output = std::process::Command::new("git")
+            .current_dir(&source.worktree_path)
+            .args(["diff", "develop...HEAD"])
+            .output()
+            .context("Failed to generate diff")?;
+
+        if !diff_output.status.success() {
+            eprintln!(
+                "  Failed to generate diff for '{}': {}",
+                slug,
+                String::from_utf8_lossy(&diff_output.stderr)
+            );
+            failed.push(slug.clone());
+            continue;
+        }
+
+        let diff_content = diff_output.stdout;
+        if diff_content.is_empty() {
+            println!("  No diff to apply for '{}'.", slug);
+            continue;
+        }
+
+        // Apply the diff using git apply
+        let mut apply_cmd = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["apply", "--3way", "--stat", "-"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .context("Failed to start git apply")?;
+
+        if let Some(mut stdin) = apply_cmd.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(&diff_content)?;
+        }
+
+        let apply_result = apply_cmd.wait_with_output()?;
+
+        if !apply_result.status.success() {
+            let stderr = String::from_utf8_lossy(&apply_result.stderr);
+            eprintln!("  Failed to apply diff for '{}': {}", slug, stderr);
+            eprintln!("  This agent's changes need manual resolution.");
+            failed.push(slug.clone());
+
+            // Abort any partial apply
+            let _ = std::process::Command::new("git")
+                .current_dir(repo_root)
+                .args(["checkout", "."])
+                .output();
+            continue;
+        }
+
+        // Stage and commit the applied changes
+        let _ = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["add", "-A"])
+            .output()?;
+
+        let commit_msg = format!("merge: apply changes from agent '{}'", slug);
+        let commit_output = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args([
+                "commit",
+                "-m",
+                &commit_msg,
+                "--no-gpg-sign",
+                "--allow-empty",
+            ])
+            .output()?;
+
+        if commit_output.status.success() {
+            println!("  Applied and committed changes from '{}'.", slug);
+            applied += 1;
+        } else {
+            let stderr = String::from_utf8_lossy(&commit_output.stderr);
+            if stderr.contains("nothing to commit") {
+                println!("  No new changes from '{}' (already applied).", slug);
+            } else {
+                eprintln!("  Commit failed for '{}': {}", slug, stderr);
+                failed.push(slug.clone());
+            }
+        }
+    }
+
+    println!();
+    println!(
+        "Merge complete: {} applied, {} failed.",
+        applied,
+        failed.len()
+    );
+    if !failed.is_empty() {
+        println!("Failed agents: {}", failed.join(", "));
+        println!("These agents' changes need manual resolution.");
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline wrappers
+// ---------------------------------------------------------------------------
+
+/// Continue a paused pipeline past a human checkpoint.
+pub fn review_continue(crosslink_dir: &Path) -> Result<()> {
+    let mut pipeline = crate::pipeline::load_pipeline(crosslink_dir)?
+        .context("No active pipeline found. Start one with `crosslink swarm review`")?;
+    pipeline.confirm_checkpoint()?;
+    crate::pipeline::save_pipeline(crosslink_dir, &pipeline)?;
+    println!(
+        "Pipeline resumed from checkpoint. Current stage: {}",
+        pipeline.current_stage
+    );
+    Ok(())
+}
+
+/// Show the current pipeline status.
+pub fn review_status(crosslink_dir: &Path) -> Result<()> {
+    match crate::pipeline::load_pipeline(crosslink_dir)? {
+        Some(pipeline) => println!("{}", pipeline.summary()),
+        None => println!("No active pipeline."),
+    }
+    Ok(())
+}
+
+/// Run the standalone pipeline driver (crosslink swarm pipeline).
+///
+/// This uses [`pipeline::run_pipeline`] which logs each stage transition
+/// and pauses at human checkpoints.
+pub fn run_pipeline_cmd(
+    crosslink_dir: &Path,
+    agents: usize,
+    mandate: &str,
+    target_branch: &str,
+    auto_fix: bool,
+    auto_file_issues: bool,
+) -> Result<()> {
+    let config = PipelineConfig {
+        agent_count: agents,
+        mandate: mandate.to_string(),
+        auto_fix,
+        auto_file_issues,
+        target_branch: target_branch.to_string(),
+    };
+    pipeline::run_pipeline(crosslink_dir, config)
+}
+
+/// Initialize trust model configuration (crosslink swarm trust-init).
+pub fn trust_init(crosslink_dir: &Path, model: &str) -> Result<()> {
+    trust_model::write_default_config(crosslink_dir, model)?;
+    let config = trust_model::generate_default_config(model);
+    println!("Trust model configuration written to swarm.toml");
+    println!("  Model:       {}", config.trust.model);
+    println!("  Description: {}", config.trust.description);
+    if !config.ignore.patterns.is_empty() {
+        println!("  Ignore patterns: {}", config.ignore.patterns.join(", "));
+    }
+    if !config.boundaries.external.is_empty() {
+        println!(
+            "  External boundaries: {}",
+            config.boundaries.external.join(", ")
+        );
+    }
+    if !config.boundaries.internal.is_empty() {
+        println!(
+            "  Internal boundaries: {}",
+            config.boundaries.internal.join(", ")
+        );
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::findings::{Finding, FindingSeverity, ReviewReport};
+
+    /// Helper to build seam::Partition from a label and file list (for tests).
+    fn make_partition(label: &str, files: Vec<&str>) -> seam::Partition {
+        seam::Partition {
+            label: label.to_string(),
+            files: files
+                .into_iter()
+                .map(|s| std::path::PathBuf::from(s))
+                .collect(),
+            line_count: 0,
+        }
+    }
 
     #[test]
     fn test_swarm_plan_serde_roundtrip() {
@@ -2648,5 +3964,607 @@ mod tests {
         assert_eq!(json_tight, "\"tight\"");
         let json_overflow = serde_json::to_string(&WindowFit::Overflow).unwrap();
         assert_eq!(json_overflow, "\"overflow\"");
+    }
+
+    // -----------------------------------------------------------------------
+    // swarm review tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_mandate_prompt_adversarial() {
+        let prompt = mandate_prompt("adversarial");
+        assert!(prompt.contains("ha-satan"));
+        assert!(prompt.contains("correctness, safety, and robustness"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_security() {
+        let prompt = mandate_prompt("security");
+        assert!(prompt.contains("trust boundary"));
+        assert!(prompt.contains("injection vectors"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_robustness() {
+        let prompt = mandate_prompt("robustness");
+        assert!(prompt.contains("crash paths"));
+        assert!(prompt.contains("resource leaks"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_correctness() {
+        let prompt = mandate_prompt("correctness");
+        assert!(prompt.contains("logic errors"));
+        assert!(prompt.contains("race conditions"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_custom_passthrough() {
+        let custom = "Check for off-by-one errors everywhere";
+        assert_eq!(mandate_prompt(custom), custom);
+    }
+
+    #[test]
+    fn test_finding_serde_roundtrip() {
+        let finding = Finding {
+            title: "Unchecked unwrap in parser".to_string(),
+            severity: FindingSeverity::High,
+            file: "src/parser.rs".to_string(),
+            line: Some(42),
+            description: "This unwrap will panic on malformed input".to_string(),
+            suggested_fix: Some("Use ? operator instead".to_string()),
+            agent: "reviewer-1".to_string(),
+        };
+        let json = serde_json::to_string(&finding).unwrap();
+        let parsed: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.title, finding.title);
+        assert_eq!(parsed.severity, finding.severity);
+        assert_eq!(parsed.file, finding.file);
+        assert_eq!(parsed.line, finding.line);
+        assert_eq!(parsed.description, finding.description);
+        assert_eq!(parsed.suggested_fix, finding.suggested_fix);
+        assert_eq!(parsed.agent, finding.agent);
+    }
+
+    #[test]
+    fn test_finding_minimal_serde_roundtrip() {
+        let finding = Finding {
+            title: "Minor issue".to_string(),
+            severity: FindingSeverity::Info,
+            file: "src/lib.rs".to_string(),
+            line: None,
+            description: "Consider adding docs".to_string(),
+            suggested_fix: None,
+            agent: "reviewer-2".to_string(),
+        };
+        let json = serde_json::to_string(&finding).unwrap();
+        let parsed: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.line, None);
+        assert_eq!(parsed.suggested_fix, None);
+    }
+
+    #[test]
+    fn test_review_report_serde_roundtrip() {
+        let report = ReviewReport {
+            agent: "reviewer-1".to_string(),
+            partition_label: "src, lib".to_string(),
+            mandate: "adversarial".to_string(),
+            findings: vec![Finding {
+                title: "Buffer overflow".to_string(),
+                severity: FindingSeverity::Critical,
+                file: "src/buffer.rs".to_string(),
+                line: Some(100),
+                description: "Writes past allocated size".to_string(),
+                suggested_fix: Some("Add bounds check".to_string()),
+                agent: "reviewer-1".to_string(),
+            }],
+            completed_at: Some("2026-03-12T10:00:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: ReviewReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.agent, report.agent);
+        assert_eq!(parsed.partition_label, report.partition_label);
+        assert_eq!(parsed.mandate, report.mandate);
+        assert_eq!(parsed.findings.len(), 1);
+        assert_eq!(parsed.findings[0].title, "Buffer overflow");
+        assert_eq!(parsed.completed_at, report.completed_at);
+    }
+
+    #[test]
+    fn test_finding_severity_ordering() {
+        // Derived PartialOrd/Ord uses variant declaration order
+        assert!(FindingSeverity::Critical < FindingSeverity::High);
+        assert!(FindingSeverity::High < FindingSeverity::Medium);
+        assert!(FindingSeverity::Medium < FindingSeverity::Low);
+        assert!(FindingSeverity::Low < FindingSeverity::Info);
+
+        // Sort a mixed list and verify order
+        let mut severities = vec![
+            FindingSeverity::Low,
+            FindingSeverity::Critical,
+            FindingSeverity::Info,
+            FindingSeverity::High,
+            FindingSeverity::Medium,
+        ];
+        severities.sort();
+        assert_eq!(
+            severities,
+            vec![
+                FindingSeverity::Critical,
+                FindingSeverity::High,
+                FindingSeverity::Medium,
+                FindingSeverity::Low,
+                FindingSeverity::Info,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_slugify_fix_target_basic() {
+        assert_eq!(
+            slugify_fix_target(326, "Buffer overflow in parser"),
+            "fix-326-buffer-overflow-in-parser"
+        );
+    }
+
+    #[test]
+    fn test_assign_partitions_round_robin() {
+        let partitions = vec![
+            make_partition("alpha", vec!["a/1.rs"]),
+            make_partition("beta", vec!["b/1.rs"]),
+            make_partition("gamma", vec!["c/1.rs"]),
+            make_partition("delta", vec!["d/1.rs"]),
+            make_partition("epsilon", vec!["e/1.rs"]),
+        ];
+        let assignments = assign_partitions(partitions, 3);
+
+        assert_eq!(assignments.len(), 3);
+        // Agent 0 gets partitions 0, 3 (alpha, delta)
+        assert!(assignments[0].partition_label.contains("alpha"));
+        assert!(assignments[0].partition_label.contains("delta"));
+        assert_eq!(assignments[0].files.len(), 2);
+        // Agent 1 gets partition 1, 4 (beta, epsilon)
+        assert!(assignments[1].partition_label.contains("beta"));
+        assert!(assignments[1].partition_label.contains("epsilon"));
+        assert_eq!(assignments[1].files.len(), 2);
+        // Agent 2 gets partition 2 (gamma)
+        assert!(assignments[2].partition_label.contains("gamma"));
+        assert_eq!(assignments[2].files.len(), 1);
+    }
+
+    #[test]
+    fn test_assign_partitions_more_agents_than_partitions() {
+        let partitions = vec![
+            make_partition("src", vec!["src/main.rs"]),
+            make_partition("lib", vec!["lib/mod.rs"]),
+        ];
+        let assignments = assign_partitions(partitions, 5);
+
+        // Only 2 agents should have files; the rest are filtered out
+        assert_eq!(assignments.len(), 2);
+        assert_eq!(assignments[0].agent_slug, "reviewer-1");
+        assert_eq!(assignments[1].agent_slug, "reviewer-2");
+    }
+
+    #[test]
+    fn test_assign_partitions_single_agent() {
+        let partitions = vec![
+            make_partition("a", vec!["a/1.rs"]),
+            make_partition("b", vec!["b/1.rs"]),
+            make_partition("c", vec!["c/1.rs"]),
+        ];
+        let assignments = assign_partitions(partitions, 1);
+
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].files.len(), 3);
+        assert!(assignments[0].partition_label.contains("a"));
+        assert!(assignments[0].partition_label.contains("b"));
+        assert!(assignments[0].partition_label.contains("c"));
+    }
+
+    #[test]
+    fn test_assign_partitions_empty() {
+        let partitions: Vec<seam::Partition> = vec![];
+        let assignments = assign_partitions(partitions, 4);
+        assert!(assignments.is_empty());
+    }
+
+    #[test]
+    fn test_assign_partitions_zero_agents_defaults_to_one() {
+        let partitions = vec![make_partition("src", vec!["src/main.rs"])];
+        let assignments = assign_partitions(partitions, 0);
+        assert_eq!(assignments.len(), 1);
+    }
+
+    #[test]
+    fn test_review_plan_serde_roundtrip() {
+        let plan = ReviewPlan {
+            mandate: "adversarial".to_string(),
+            mandate_prompt: MANDATE_ADVERSARIAL.to_string(),
+            agent_count: 2,
+            created_at: "2026-03-12T10:00:00Z".to_string(),
+            agents: vec![
+                ReviewAgentAssignment {
+                    agent_slug: "reviewer-1".to_string(),
+                    partition_label: "src".to_string(),
+                    files: vec!["src/main.rs".to_string()],
+                },
+                ReviewAgentAssignment {
+                    agent_slug: "reviewer-2".to_string(),
+                    partition_label: "lib".to_string(),
+                    files: vec!["lib/mod.rs".to_string()],
+                },
+            ],
+            doc_output: Some(std::path::PathBuf::from("review-findings.md")),
+        };
+        let json = serde_json::to_string_pretty(&plan).unwrap();
+        let parsed: ReviewPlan = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.mandate, plan.mandate);
+        assert_eq!(parsed.agent_count, 2);
+        assert_eq!(parsed.agents.len(), 2);
+        assert_eq!(parsed.agents[0].agent_slug, "reviewer-1");
+        assert_eq!(parsed.doc_output, plan.doc_output);
+    }
+
+    #[test]
+    fn test_finding_severity_serde_values() {
+        // Verify the rename_all = "snake_case" produces expected strings
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Critical).unwrap(),
+            "\"critical\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::High).unwrap(),
+            "\"high\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Low).unwrap(),
+            "\"low\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Info).unwrap(),
+            "\"info\""
+        );
+    }
+
+    #[test]
+    fn test_slugify_fix_target_special_chars() {
+        assert_eq!(
+            slugify_fix_target(42, "Fix: memory leak (critical!)"),
+            "fix-42-fix-memory-leak-critical"
+        );
+    }
+
+    #[test]
+    fn test_slugify_fix_target_long_title_truncates() {
+        let long_title =
+            "This is a very long title that should be truncated to keep the slug reasonable";
+        let slug = slugify_fix_target(1, long_title);
+        assert!(slug.len() <= 50, "slug too long: {} ({})", slug, slug.len());
+        assert!(slug.starts_with("fix-1-"));
+        assert!(!slug.ends_with('-'));
+    }
+
+    #[test]
+    fn test_slugify_fix_target_empty_title() {
+        assert_eq!(slugify_fix_target(99, ""), "fix-99-");
+    }
+
+    #[test]
+    fn test_fix_plan_serde_roundtrip() {
+        let plan = FixPlan {
+            schema_version: 1,
+            created_at: "2026-03-12T10:00:00Z".to_string(),
+            issues: vec![
+                FixTarget {
+                    issue_number: 326,
+                    title: "Buffer overflow".to_string(),
+                    body: "Details here".to_string(),
+                    labels: vec!["bug".to_string(), "review-finding".to_string()],
+                    agent_slug: "fix-326-buffer-overflow".to_string(),
+                    status: AgentStatus::Planned,
+                },
+                FixTarget {
+                    issue_number: 327,
+                    title: "Memory leak".to_string(),
+                    body: "".to_string(),
+                    labels: vec![],
+                    agent_slug: "fix-327-memory-leak".to_string(),
+                    status: AgentStatus::Running,
+                },
+            ],
+        };
+        let json = serde_json::to_string_pretty(&plan).unwrap();
+        let parsed: FixPlan = serde_json::from_str(&json).unwrap();
+        assert_eq!(plan, parsed);
+    }
+
+    // -----------------------------------------------------------------------
+    // Merge orchestration tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_merge_plan_serde_roundtrip() {
+        let plan = MergePlan {
+            target_branch: "swarm-combined".to_string(),
+            agents: vec![MergeSource {
+                agent_slug: "agent-a".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-a"),
+                changed_files: vec!["src/main.rs".to_string()],
+                commit_count: 3,
+            }],
+            conflicts: vec![],
+            merge_order: vec!["agent-a".to_string()],
+        };
+        let json = serde_json::to_string(&plan).unwrap();
+        let parsed: MergePlan = serde_json::from_str(&json).unwrap();
+        assert_eq!(plan, parsed);
+    }
+
+    #[test]
+    fn test_parse_issue_numbers_valid() {
+        let nums = parse_issue_numbers("326,327,328").unwrap();
+        assert_eq!(nums, vec![326, 327, 328]);
+    }
+
+    #[test]
+    fn test_parse_issue_numbers_with_spaces() {
+        let nums = parse_issue_numbers("1, 2, 3").unwrap();
+        assert_eq!(nums, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_parse_issue_numbers_single() {
+        let nums = parse_issue_numbers("42").unwrap();
+        assert_eq!(nums, vec![42]);
+    }
+
+    #[test]
+    fn test_parse_issue_numbers_invalid() {
+        let result = parse_issue_numbers("326,abc,328");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fix_requires_issues_or_label() {
+        let result = parse_issue_numbers("");
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // swarm merge tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_conflict_type_serde_roundtrip() {
+        let cases = vec![
+            (ConflictType::NonOverlapping, "\"non_overlapping\""),
+            (ConflictType::Overlapping, "\"overlapping\""),
+            (ConflictType::CreateModify, "\"create_modify\""),
+        ];
+        for (variant, expected_json) in cases {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected_json);
+            let parsed: ConflictType = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_detect_file_conflicts_no_overlaps() {
+        let sources = vec![
+            MergeSource {
+                agent_slug: "agent-a".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-a"),
+                changed_files: vec!["src/foo.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-b".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-b"),
+                changed_files: vec!["src/bar.rs".to_string()],
+                commit_count: 2,
+            },
+        ];
+        let conflicts = detect_file_conflicts(&sources);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn test_detect_file_conflicts_shared_files() {
+        let sources = vec![
+            MergeSource {
+                agent_slug: "agent-a".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-a"),
+                changed_files: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-b".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-b"),
+                changed_files: vec!["src/main.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-c".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-c"),
+                changed_files: vec!["src/lib.rs".to_string(), "src/utils.rs".to_string()],
+                commit_count: 1,
+            },
+        ];
+        let conflicts = detect_file_conflicts(&sources);
+
+        // src/main.rs: agent-a + agent-b
+        // src/lib.rs: agent-a + agent-c
+        assert_eq!(conflicts.len(), 2);
+
+        let main_conflict = conflicts.iter().find(|c| c.file == "src/main.rs").unwrap();
+        assert_eq!(main_conflict.agents, vec!["agent-a", "agent-b"]);
+
+        let lib_conflict = conflicts.iter().find(|c| c.file == "src/lib.rs").unwrap();
+        assert_eq!(lib_conflict.agents, vec!["agent-a", "agent-c"]);
+    }
+
+    #[test]
+    fn test_compute_merge_order_non_conflicting_first() {
+        let sources = vec![
+            MergeSource {
+                agent_slug: "agent-a".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-a"),
+                changed_files: vec!["src/main.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-b".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-b"),
+                changed_files: vec!["src/main.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-c".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-c"),
+                changed_files: vec!["src/other.rs".to_string()],
+                commit_count: 1,
+            },
+        ];
+
+        let conflicts = vec![FileConflict {
+            file: "src/main.rs".to_string(),
+            agents: vec!["agent-a".to_string(), "agent-b".to_string()],
+            conflict_type: ConflictType::Overlapping,
+        }];
+
+        let order = compute_merge_order(&sources, &conflicts);
+
+        // agent-c has no conflicts, should be first
+        assert_eq!(order[0], "agent-c");
+        // agent-a and agent-b both have overlapping conflicts, sorted alphabetically
+        assert_eq!(order[1], "agent-a");
+        assert_eq!(order[2], "agent-b");
+    }
+
+    #[test]
+    fn test_compute_merge_order_is_deterministic() {
+        let sources = vec![
+            MergeSource {
+                agent_slug: "zebra".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-z"),
+                changed_files: vec!["a.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "alpha".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-a"),
+                changed_files: vec!["b.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "middle".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-m"),
+                changed_files: vec!["c.rs".to_string()],
+                commit_count: 1,
+            },
+        ];
+
+        let conflicts = vec![];
+
+        // Run multiple times to verify determinism
+        let order1 = compute_merge_order(&sources, &conflicts);
+        let order2 = compute_merge_order(&sources, &conflicts);
+        assert_eq!(order1, order2);
+        // All at same conflict level → alphabetical
+        assert_eq!(order1, vec!["alpha", "middle", "zebra"]);
+    }
+
+    #[test]
+    fn test_compute_merge_order_respects_conflict_levels() {
+        let sources = vec![
+            MergeSource {
+                agent_slug: "agent-overlap".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-1"),
+                changed_files: vec!["shared.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-nonoverlap".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-2"),
+                changed_files: vec!["shared2.rs".to_string()],
+                commit_count: 1,
+            },
+            MergeSource {
+                agent_slug: "agent-clean".to_string(),
+                worktree_path: PathBuf::from("/tmp/wt-3"),
+                changed_files: vec!["unique.rs".to_string()],
+                commit_count: 1,
+            },
+        ];
+
+        let conflicts = vec![
+            FileConflict {
+                file: "shared.rs".to_string(),
+                agents: vec!["agent-overlap".to_string(), "agent-nonoverlap".to_string()],
+                conflict_type: ConflictType::Overlapping,
+            },
+            FileConflict {
+                file: "shared2.rs".to_string(),
+                agents: vec!["agent-nonoverlap".to_string(), "agent-clean".to_string()],
+                conflict_type: ConflictType::NonOverlapping,
+            },
+        ];
+
+        let order = compute_merge_order(&sources, &conflicts);
+        // agent-clean is involved in NonOverlapping only → level 1
+        // agent-nonoverlap has Overlapping → level 3
+        // agent-overlap has Overlapping → level 3
+        // Wait: agent-clean is in shared2.rs NonOverlapping conflict
+        // So: agent-clean → level 1, agent-nonoverlap → level 3, agent-overlap → level 3
+        assert_eq!(order[0], "agent-clean");
+        assert_eq!(order[1], "agent-nonoverlap");
+        assert_eq!(order[2], "agent-overlap");
+    }
+
+    #[test]
+    fn test_ranges_overlap() {
+        // Overlapping ranges
+        assert!(ranges_overlap(&[(1, 10)], &[(5, 15)]));
+        assert!(ranges_overlap(&[(5, 15)], &[(1, 10)]));
+        assert!(ranges_overlap(&[(1, 10)], &[(10, 20)]));
+
+        // Non-overlapping ranges
+        assert!(!ranges_overlap(&[(1, 5)], &[(6, 10)]));
+        assert!(!ranges_overlap(&[(10, 20)], &[(1, 5)]));
+
+        // Multiple ranges, some overlap
+        assert!(ranges_overlap(&[(1, 5), (20, 30)], &[(4, 6)]));
+        assert!(!ranges_overlap(&[(1, 5), (20, 30)], &[(6, 19)]));
+    }
+
+    #[test]
+    fn test_merge_source_serde_roundtrip() {
+        let source = MergeSource {
+            agent_slug: "my-agent".to_string(),
+            worktree_path: PathBuf::from("/home/user/.worktrees/my-agent"),
+            changed_files: vec!["src/main.rs".to_string(), "Cargo.toml".to_string()],
+            commit_count: 5,
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        let parsed: MergeSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(source, parsed);
+    }
+
+    #[test]
+    fn test_file_conflict_serde_roundtrip() {
+        let conflict = FileConflict {
+            file: "src/lib.rs".to_string(),
+            agents: vec!["agent-a".to_string(), "agent-b".to_string()],
+            conflict_type: ConflictType::NonOverlapping,
+        };
+        let json = serde_json::to_string(&conflict).unwrap();
+        let parsed: FileConflict = serde_json::from_str(&json).unwrap();
+        assert_eq!(conflict, parsed);
     }
 }

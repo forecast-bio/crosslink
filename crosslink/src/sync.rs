@@ -345,6 +345,14 @@ impl SyncManager {
             std::fs::create_dir_all(self.cache_dir.join("trust"))?;
             std::fs::create_dir_all(self.cache_dir.join("issues"))?;
             std::fs::create_dir_all(self.cache_dir.join("meta").join("milestones"))?;
+            std::fs::create_dir_all(self.cache_dir.join("locks"))?;
+
+            // Write v2 layout version marker for new hubs
+            let meta_dir = self.cache_dir.join("meta");
+            crate::issue_file::write_layout_version(
+                &meta_dir,
+                crate::issue_file::CURRENT_LAYOUT_VERSION,
+            )?;
 
             // Commit the initial state so the branch has at least one commit.
             // Without this, `git log` and other commands fail on the empty orphan.
@@ -365,6 +373,47 @@ impl SyncManager {
         self.propagate_claude_hooks()?;
 
         Ok(())
+    }
+
+    /// Upgrade the hub cache from v1 to v2 layout.
+    ///
+    /// - Writes the v2 layout version marker
+    /// - Migrates inline comments to standalone v2 comment files
+    /// - Commits the migration if any changes were made
+    ///
+    /// Call this explicitly (e.g. from `crosslink sync --upgrade`) rather than
+    /// automatically during init_cache, to avoid side-effects on hubs that
+    /// intentionally use v1 layout.
+    pub fn upgrade_to_v2(&self) -> Result<usize> {
+        let meta_dir = self.cache_dir.join("meta");
+        let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
+        if version >= 2 {
+            return Ok(0);
+        }
+
+        let migrated =
+            crate::hydration::migrate_inline_comments_to_v2(&self.cache_dir).unwrap_or(0);
+
+        crate::issue_file::write_layout_version(
+            &meta_dir,
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        )?;
+
+        // Commit the migration
+        let _ = self.git_in_cache(&["add", "-A"]);
+        let has_changes = self.git_in_cache(&["diff", "--cached", "--quiet"]).is_err();
+        if has_changes {
+            self.git_in_cache(&[
+                "commit",
+                "-m",
+                &format!(
+                    "sync: upgrade hub layout v1→v2 ({} comment files migrated)",
+                    migrated
+                ),
+            ])?;
+        }
+
+        Ok(migrated)
     }
 
     /// Detect and resolve dirty hub cache state.

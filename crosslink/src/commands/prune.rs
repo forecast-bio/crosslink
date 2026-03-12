@@ -362,7 +362,7 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
             km.sync()?;
 
             let cache_dir = km.cache_path();
-            let remote = crate::sync::read_tracker_remote(crosslink_dir);
+            let remote = crate::sync::read_tracker_remote(km.crosslink_dir());
 
             let stats = squash_branch(
                 cache_dir,

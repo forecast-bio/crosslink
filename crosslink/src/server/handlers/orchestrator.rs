@@ -287,6 +287,243 @@ pub async fn skip_stage(
     })))
 }
 
+// ---------------------------------------------------------------------------
+// GET /api/v1/orchestrator/plans
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/orchestrator/plans` — list all stored plan IDs.
+pub async fn list_plans_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<String>>, (StatusCode, Json<ApiError>)> {
+    let plans = decompose::list_plans(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to list plans", e))?;
+    Ok(Json(plans))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/orchestrator/plans/:id
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/orchestrator/plans/:id` — retrieve a specific stored plan.
+pub async fn get_plan_by_id(
+    State(state): State<AppState>,
+    Path(plan_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let plan = decompose::load_plan(&state.crosslink_dir, &plan_id)
+        .map_err(|e| not_found(format!("Plan not found: {e}")))?;
+    let json =
+        serde_json::to_value(plan).map_err(|e| internal_error("Failed to serialize plan", e))?;
+    Ok(Json(json))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/orchestrator/resume
+// ---------------------------------------------------------------------------
+
+/// `POST /api/v1/orchestrator/resume` — resume a paused execution.
+pub async fn resume_execution(
+    State(state): State<AppState>,
+) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
+    if !OrchestratorExecutor::exists(&state.crosslink_dir) {
+        return Err(not_found("No execution in progress"));
+    }
+
+    let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to load execution state", e))?;
+
+    let _ready = executor
+        .resume()
+        .map_err(|e| conflict(format!("Cannot resume: {e}")))?;
+
+    let full_status = executor.status();
+    Ok(Json(ExecutionStatusResponse {
+        status: "running".to_string(),
+        progress_pct: full_status.progress_percent.round() as u32,
+        detail: Some(full_status),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/orchestrator/stages/:id/running
+// ---------------------------------------------------------------------------
+
+/// Request body for marking a stage as running.
+#[derive(Debug, serde::Deserialize)]
+pub struct MarkRunningRequest {
+    pub agent_id: String,
+}
+
+/// `POST /api/v1/orchestrator/stages/:id/running` — record agent launch for a stage.
+pub async fn mark_stage_running_handler(
+    State(state): State<AppState>,
+    Path(stage_id): Path<String>,
+    Json(body): Json<MarkRunningRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    if !OrchestratorExecutor::exists(&state.crosslink_dir) {
+        return Err(not_found("No execution in progress"));
+    }
+
+    let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to load execution state", e))?;
+
+    let event = executor
+        .mark_stage_running(&stage_id, &body.agent_id)
+        .map_err(|e| bad_request(format!("Cannot mark stage running: {e}")))?;
+
+    OrchestratorExecutor::broadcast_event(&state.ws_tx, event);
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stage_id": stage_id,
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/orchestrator/stages/:id/done
+// ---------------------------------------------------------------------------
+
+/// `POST /api/v1/orchestrator/stages/:id/done` — record stage completion.
+pub async fn mark_stage_done_handler(
+    State(state): State<AppState>,
+    Path(stage_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    if !OrchestratorExecutor::exists(&state.crosslink_dir) {
+        return Err(not_found("No execution in progress"));
+    }
+
+    let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to load execution state", e))?;
+
+    let db = state.db();
+    let (newly_ready, event, complete) = executor
+        .mark_stage_done(&stage_id, &db)
+        .map_err(|e| bad_request(format!("Cannot mark stage done: {e}")))?;
+
+    OrchestratorExecutor::broadcast_event(&state.ws_tx, event);
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stage_id": stage_id,
+        "newly_ready": newly_ready,
+        "execution_complete": complete,
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/orchestrator/stages/:id/failed
+// ---------------------------------------------------------------------------
+
+/// `POST /api/v1/orchestrator/stages/:id/failed` — record stage failure.
+pub async fn mark_stage_failed_handler(
+    State(state): State<AppState>,
+    Path(stage_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    if !OrchestratorExecutor::exists(&state.crosslink_dir) {
+        return Err(not_found("No execution in progress"));
+    }
+
+    let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to load execution state", e))?;
+
+    let event = executor
+        .mark_stage_failed(&stage_id)
+        .map_err(|e| bad_request(format!("Cannot mark stage failed: {e}")))?;
+
+    OrchestratorExecutor::broadcast_event(&state.ws_tx, event);
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "stage_id": stage_id,
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/orchestrator/agents/poll
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/orchestrator/agents/poll` — poll running agent status files.
+pub async fn poll_agents(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    if !OrchestratorExecutor::exists(&state.crosslink_dir) {
+        return Err(not_found("No execution in progress"));
+    }
+
+    let executor = OrchestratorExecutor::load(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to load execution state", e))?;
+
+    // Repo root is the parent of .crosslink
+    let repo_root = state.crosslink_dir.parent().unwrap_or(&state.crosslink_dir);
+    let statuses = executor.poll_agent_status(repo_root);
+
+    Ok(Json(serde_json::json!({
+        "agents": statuses.iter().map(|(id, status)| serde_json::json!({
+            "stage_id": id,
+            "status": status,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/orchestrator/snapshot
+// ---------------------------------------------------------------------------
+
+/// `GET /api/v1/orchestrator/snapshot` — full execution state export with DAG details.
+pub async fn get_snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    if !OrchestratorExecutor::exists(&state.crosslink_dir) {
+        return Err(not_found("No execution in progress"));
+    }
+
+    let executor = OrchestratorExecutor::load(&state.crosslink_dir)
+        .map_err(|e| internal_error("Failed to load execution state", e))?;
+
+    let snapshot = executor.snapshot();
+    let dag = executor.dag();
+    let plan_id = executor.plan_id();
+    let exec_state = executor.state();
+
+    // Use DAG accessor methods for rich introspection
+    let node_ids = dag.node_ids();
+    let running = dag.running_nodes();
+    let stage_count = dag.len();
+
+    // Build dependency graph using dependents/dependencies accessors
+    let dep_graph: serde_json::Map<String, serde_json::Value> = node_ids
+        .iter()
+        .map(|id| {
+            (
+                id.clone(),
+                serde_json::json!({
+                    "dependents": dag.dependents(id),
+                    "dependencies": dag.dependencies(id),
+                    "status": dag.get(id).map(|n| format!("{:?}", n.status)),
+                }),
+            )
+        })
+        .collect();
+
+    // Counts by status
+    let pending = dag.nodes_with_status(&crate::server::types::StageStatus::Pending);
+    let done = dag.nodes_with_status(&crate::server::types::StageStatus::Done);
+    let failed = dag.nodes_with_status(&crate::server::types::StageStatus::Failed);
+
+    Ok(Json(serde_json::json!({
+        "plan_id": plan_id,
+        "state": format!("{:?}", exec_state),
+        "stage_count": stage_count,
+        "is_empty": dag.is_empty(),
+        "nodes": serde_json::to_value(dag.nodes()).unwrap_or_default(),
+        "running": running,
+        "pending_count": pending.len(),
+        "done_count": done.len(),
+        "failed_count": failed.len(),
+        "dependency_graph": dep_graph,
+        "snapshot": serde_json::to_value(snapshot).unwrap_or_default(),
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

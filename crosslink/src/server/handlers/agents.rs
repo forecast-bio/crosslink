@@ -429,6 +429,55 @@ pub async fn list_stale_locks(
 }
 
 // ---------------------------------------------------------------------------
+// Lock change notification
+// ---------------------------------------------------------------------------
+
+/// Request body for `POST /api/v1/locks/notify`.
+#[derive(serde::Deserialize)]
+pub struct LockNotifyRequest {
+    pub issue_id: i64,
+    pub action: String,
+    pub agent_id: String,
+}
+
+/// `POST /api/v1/locks/notify` — broadcast a lock change event over WebSocket.
+///
+/// Agents call this after claiming or releasing a lock so that all connected
+/// WebSocket clients are notified in real time.
+pub async fn notify_lock_changed(
+    State(state): State<AppState>,
+    Json(body): Json<LockNotifyRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    let action = match body.action.as_str() {
+        "claimed" => crate::server::types::LockAction::Claimed,
+        "released" => crate::server::types::LockAction::Released,
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiError {
+                    error: format!(
+                        "Invalid lock action '{}'. Must be 'claimed' or 'released'",
+                        other
+                    ),
+                    detail: None,
+                }),
+            ));
+        }
+    };
+
+    let _ = state.ws_tx.send(crate::server::ws::WsEvent::LockChanged(
+        crate::server::types::WsLockChangedEvent {
+            event_type: "lock_changed",
+            issue_id: body.issue_id,
+            action,
+            agent_id: body.agent_id,
+        },
+    ));
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

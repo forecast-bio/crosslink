@@ -10,9 +10,7 @@ use crate::server::ws::{self, WsEvent};
 ///
 /// Cloning `AppState` is cheap — all fields are `Arc`-wrapped or `Copy`.
 ///
-/// Fields `db` and `crosslink_dir` are used by API handlers added in later
-/// phases; `#[allow(dead_code)]` suppresses the false-positive until then.
-#[allow(dead_code)]
+/// Fields `db` and `crosslink_dir` are used by API handlers.
 #[derive(Clone)]
 pub struct AppState {
     /// Shared database handle — wrapped for concurrent handler access.

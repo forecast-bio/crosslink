@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::checkpoint::{
-    read_checkpoint, read_watermark, write_checkpoint, CheckpointState, CompactIssue, LockEntry,
-    SkewWarning, UnsignedEventWarning,
+    read_checkpoint, read_watermark, write_checkpoint, write_watermark, CheckpointState,
+    CompactIssue, LockEntry, SkewWarning, UnsignedEventWarning,
 };
 use crate::events::{Event, EventEnvelope, OrderingKey};
 use crate::issue_file::{IssueFile, LockFileV2};
@@ -176,6 +176,16 @@ pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<C
                 crate::events::read_events(&log_path)?
             };
             all_events.extend(events);
+        }
+    }
+
+    // If we fell back to a legacy file-based watermark, migrate it into the
+    // checkpoint state so future compactions use the embedded watermark path.
+    if state.watermark.is_none() {
+        if let Some(ref wm) = watermark {
+            write_watermark(cache_dir, wm)?;
+            // Re-read so our in-memory state reflects the migration.
+            state = read_checkpoint(cache_dir)?;
         }
     }
 

@@ -25,6 +25,18 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
             } else {
                 println!("  No new events to process.");
             }
+            if result.skew_warnings > 0 {
+                eprintln!(
+                    "  Warning: {} event clock skew warning(s) detected during compaction",
+                    result.skew_warnings
+                );
+            }
+            if result.unsigned_warnings > 0 {
+                eprintln!(
+                    "  Warning: {} unsigned event(s) detected during compaction",
+                    result.unsigned_warnings
+                );
+            }
             if result.git_skew_violations > 0 {
                 eprintln!(
                     "  Warning: {} clock skew violation(s) detected (see checkpoint/skew_warnings.json)",

@@ -16,8 +16,7 @@ pub(crate) const KNOWLEDGE_BRANCH: &str = "crosslink/knowledge";
 /// Uses a git worktree at `.crosslink/.knowledge-cache/` to avoid disturbing
 /// the user's working tree. Follows the same pattern as `SyncManager`.
 pub struct KnowledgeManager {
-    /// Path to the .crosslink directory (used by future signing support).
-    #[allow(dead_code)]
+    /// Path to the .crosslink directory (used by signing support).
     crosslink_dir: PathBuf,
     /// Path to .crosslink/.knowledge-cache (worktree of crosslink/knowledge branch).
     cache_dir: PathBuf,
@@ -627,8 +626,12 @@ impl KnowledgeManager {
         Ok(matches)
     }
 
+    /// Get the path to the `.crosslink` directory.
+    pub fn crosslink_dir(&self) -> &Path {
+        &self.crosslink_dir
+    }
+
     /// Get the path to the cache directory.
-    #[allow(dead_code)]
     pub fn cache_path(&self) -> &Path {
         &self.cache_dir
     }

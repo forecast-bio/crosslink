@@ -324,6 +324,13 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     // Configure SSH signing in the cache worktree (if agent has a key)
     let _ = sync.configure_signing(crosslink_dir);
 
+    // Upgrade v1 layouts to v2 if needed (migrates inline comments to standalone files)
+    match sync.upgrade_to_v2() {
+        Ok(0) => {} // already v2 or nothing to migrate
+        Ok(n) => println!("Upgraded hub layout to v2 ({n} comment files migrated)."),
+        Err(e) => eprintln!("Warning: layout upgrade failed: {e}"),
+    }
+
     // Hydrate local SQLite from JSON issue files on the coordination branch
     let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
     if stats.issues > 0 {

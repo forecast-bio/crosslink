@@ -10,8 +10,7 @@ pub const SCHEMA_VERSION: i32 = 15;
 /// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
 
-/// Valid values for issue status (used for future validation).
-#[allow(dead_code)]
+/// Valid values for issue status.
 pub const VALID_STATUSES: &[&str] = &["open", "closed", "archived"];
 
 /// Maximum lengths for string inputs.
@@ -19,6 +18,19 @@ pub const MAX_TITLE_LEN: usize = 512;
 pub const MAX_LABEL_LEN: usize = 128;
 pub const MAX_DESCRIPTION_LEN: usize = 64 * 1024; // 64KB
 pub const MAX_COMMENT_LEN: usize = 1024 * 1024; // 1MB
+
+/// Validate that a status value is known, returning an error if not.
+pub fn validate_status(status: &str) -> Result<()> {
+    if VALID_STATUSES.contains(&status) {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "Invalid status '{}'. Valid values: {}",
+            status,
+            VALID_STATUSES.join(", ")
+        )
+    }
+}
 
 /// Validate that a priority value is known, returning an error if not.
 pub fn validate_priority(priority: &str) -> Result<()> {
@@ -492,6 +504,7 @@ impl Database {
 
         if let Some(status) = status_filter {
             if status != "all" {
+                validate_status(status)?;
                 conditions.push("i.status = ?".to_string());
                 params_vec.push(Box::new(status.to_string()));
             }

@@ -12,7 +12,8 @@ use anyhow::Result;
 
 use crate::db::{Database, HydratedIssue, HydratedMilestone};
 use crate::issue_file::{
-    read_all_issue_files, read_all_milestone_files, read_milestones_file, IssueFile,
+    read_all_issue_files, read_all_milestone_files, read_comment_files, read_layout_version,
+    read_milestones_file, write_comment_file, CommentFile, IssueFile,
 };
 
 /// Deduplicate issue files that share the same display_id.
@@ -111,6 +112,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         .collect();
 
     let mut stats = HydrationStats::default();
+    let layout_version = read_layout_version(&cache_dir.join("meta")).unwrap_or(1);
 
     db.transaction(|| {
         db.clear_shared_data()?;
@@ -176,7 +178,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 db.insert_hydrated_label(display_id, label)?;
             }
 
-            // Comments
+            // Comments — inline (v1) entries on the issue file
             for comment in &issue.comments {
                 let comment_created = comment.created_at.to_rfc3339();
                 db.insert_hydrated_comment(
@@ -192,6 +194,29 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                     comment.driver_key_fingerprint.as_deref(),
                 )?;
                 stats.comments += 1;
+            }
+
+            // Comments — standalone v2 comment files in issues/{uuid}/comments/
+            if layout_version >= 2 {
+                let comments_dir = issues_dir.join(issue.uuid.to_string()).join("comments");
+                if let Ok(v2_comments) = read_comment_files(&comments_dir) {
+                    for cf in &v2_comments {
+                        let comment_created = cf.created_at.to_rfc3339();
+                        db.insert_hydrated_comment(
+                            -1, // v2 comments use uuid, not sequential id
+                            display_id,
+                            Some(&cf.uuid.to_string()),
+                            Some(&cf.author),
+                            &cf.content,
+                            &comment_created,
+                            &cf.kind,
+                            cf.trigger_type.as_deref(),
+                            cf.intervention_context.as_deref(),
+                            cf.driver_key_fingerprint.as_deref(),
+                        )?;
+                        stats.comments += 1;
+                    }
+                }
             }
 
             // Time entries
@@ -305,6 +330,49 @@ fn hydrate_relations(
         }
     }
     Ok(())
+}
+
+/// Migrate inline comments from v1 issue files to standalone v2 comment files.
+///
+/// For each issue that has inline `comments`, writes a standalone
+/// `issues/{uuid}/comments/{comment-uuid}.json` file using `write_comment_file`.
+/// This is called during a v1→v2 layout upgrade to split inline comments into
+/// their own files.
+///
+/// Returns the number of comment files written.
+pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
+    let issues_dir = cache_dir.join("issues");
+    let issue_files = read_all_issue_files(&issues_dir)?;
+
+    let mut count = 0;
+    for issue in &issue_files {
+        if issue.comments.is_empty() {
+            continue;
+        }
+        for comment in &issue.comments {
+            let comment_uuid = uuid::Uuid::new_v4();
+            let cf = CommentFile {
+                uuid: comment_uuid,
+                issue_uuid: issue.uuid,
+                author: comment.author.clone(),
+                content: comment.content.clone(),
+                created_at: comment.created_at,
+                kind: comment.kind.clone(),
+                trigger_type: comment.trigger_type.clone(),
+                intervention_context: comment.intervention_context.clone(),
+                driver_key_fingerprint: comment.driver_key_fingerprint.clone(),
+                signed_by: comment.signed_by.clone(),
+                signature: comment.signature.clone(),
+            };
+            let path = issues_dir
+                .join(issue.uuid.to_string())
+                .join("comments")
+                .join(format!("{}.json", comment_uuid));
+            write_comment_file(&path, &cf)?;
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 #[cfg(test)]
