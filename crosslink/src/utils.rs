@@ -257,9 +257,7 @@ mod tests {
 
     #[test]
     fn test_windows_reserved_names_rejected() {
-        for name in &[
-            "CON", "PRN", "AUX", "NUL", "COM1", "COM9", "LPT1", "LPT9",
-        ] {
+        for name in &["CON", "PRN", "AUX", "NUL", "COM1", "COM9", "LPT1", "LPT9"] {
             assert!(
                 is_windows_reserved_name(name),
                 "{} should be reserved",

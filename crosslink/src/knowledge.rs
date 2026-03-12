@@ -460,10 +460,7 @@ impl KnowledgeManager {
             );
         }
         if is_windows_reserved_name(slug) {
-            bail!(
-                "Invalid page slug '{}': Windows reserved filename",
-                slug
-            );
+            bail!("Invalid page slug '{}': Windows reserved filename", slug);
         }
         let path = self.cache_dir.join(format!("{}.md", slug));
         // Defense in depth: verify the resolved path is within cache_dir
@@ -1618,7 +1615,11 @@ updated: 2026-01-01
 
         for name in &["CON", "con", "PRN", "AUX", "NUL", "COM1", "LPT1"] {
             let result = manager.safe_page_path(name);
-            assert!(result.is_err(), "Should reject Windows reserved name: {}", name);
+            assert!(
+                result.is_err(),
+                "Should reject Windows reserved name: {}",
+                name
+            );
             assert!(
                 result.unwrap_err().to_string().contains("Windows reserved"),
                 "Error should mention Windows reserved for: {}",

@@ -108,10 +108,7 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
                     );
                 }
                 Err(e) => {
-                    eprintln!(
-                        "warning: failed to run icacls on keys directory: {}",
-                        e
-                    );
+                    eprintln!("warning: failed to run icacls on keys directory: {}", e);
                 }
                 _ => {}
             }
@@ -131,10 +128,7 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
                     );
                 }
                 Err(e) => {
-                    eprintln!(
-                        "warning: failed to run icacls on private key: {}",
-                        e
-                    );
+                    eprintln!("warning: failed to run icacls on private key: {}", e);
                 }
                 _ => {}
             }

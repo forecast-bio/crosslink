@@ -630,10 +630,7 @@ mod tests {
                 // Another agent holds an unexpired lease — but check if the
                 // holding process is still alive. If the PID is dead, treat
                 // the lease as stale regardless of expiry time.
-                let holder_dead = lease
-                    .pid
-                    .map(|pid| !is_pid_alive(pid))
-                    .unwrap_or(false);
+                let holder_dead = lease.pid.map(|pid| !is_pid_alive(pid)).unwrap_or(false);
                 if !holder_dead {
                     return false;
                 }
