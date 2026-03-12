@@ -1,29 +1,56 @@
 ---
-title: "Claude Code Hooks"
+title: "Behavioral Hooks"
 ---
 
-Crosslink includes behavioral hooks for [Claude Code](https://claude.com/claude-code) that inject best practice reminders into AI sessions. These hooks help ensure Claude follows coding standards without requiring manual prompting.
+Crosslink's hooks are guardrails that agents follow automatically. You configure them once; every agent session is checked on every action — enforcing code quality, issue tracking, and security without manual prompting.
+
+## How It Works
+
+::: {.columns}
+::: {.column width="45%"}
+**You configure once:**
+
+Run `crosslink init` in your project. Hooks are installed into `.claude/hooks/` and activate automatically for every Claude Code session.
+
+No per-agent setup. No manual prompting. Every agent that touches this repo follows the same rules.
+:::
+::: {.column width="10%"}
+→
+:::
+::: {.column width="45%"}
+**Agents get checked on every action:**
+
+```
+Agent tries to edit a file
+  → work-check.py fires
+  → Has active issue? ✓ Proceed
+  → Is it a blocked git command? ✗ Block
+
+Agent finishes editing
+  → post-edit-check.py fires
+  → Stubs detected? Flag them
+  → Tests stale? Remind to run
+```
+:::
+:::
 
 ## Requirements
 
 - **Python 3.6+** must be installed and available in your PATH
-- The VS Code extension will warn you if Python is not detected
 
 ## Hook Overview
 
-The hooks are located in `.claude/hooks/` and configured in `.claude/settings.json`:
-
-| Hook | Trigger | Purpose |
-|------|---------|---------|
-| `session-start.py` | Session start/resume | Loads context, syncs locks, detects stale sessions, restores breadcrumbs |
+| Hook | Fires When | What It Does |
+|------|------------|-------------|
+| `session-start.py` | Session start/resume | Loads context, syncs locks, restores breadcrumbs from last session |
 | `prompt-guard.py` | Every prompt | Injects language-specific best practices (condensed after first prompt) |
-| `work-check.py` | Before write/edit | Enforces issue tracking, blocks git mutations, warns on lock conflicts |
-| `post-edit-check.py` | After file edits | Stub detection, debounced linting, test reminders |
-| `pre-web-check.py` | Before web fetch | Injects RFIP (prompt injection defense) before fetching external content |
+| `work-check.py` | Before write/edit/bash | Enforces issue tracking, blocks git mutations, warns on lock conflicts |
+| `post-edit-check.py` | After file edits | Detects stubs, runs linter (debounced), reminds about tests |
+| `pre-web-check.py` | Before web fetch | Injects prompt injection defense before fetching external content |
 
-## Behavioral Guardrails
+## What Agents Must Follow
 
-The hooks enforce these principles:
+The hooks enforce these principles transparently:
 
 1. **No Stubs** — Complete, working code. No placeholder functions, TODO comments, or `unimplemented!()` macros.
 2. **No Dead Code** — Identify incomplete features and complete them, or remove truly dead code.
@@ -33,12 +60,12 @@ The hooks enforce these principles:
 
 ## Large Task Management
 
-When code will exceed 500 lines, the hooks guide Claude to:
+When code will exceed 500 lines, the hooks guide agents to:
 
 1. Create a parent issue for the feature
 2. Break it into subissues for trackable components
-3. Inform the user about the multi-part implementation
-4. Work on one subissue at a time
+3. Work on one subissue at a time
+4. Inform the user about the multi-part implementation
 
 ## Language Detection
 
@@ -48,11 +75,11 @@ The hooks auto-detect project languages and inject relevant best practices:
 - **Python**: Type hints, proper exceptions, `pathlib`, context managers
 - **JavaScript/TypeScript**: `const`/`let`, async/await, strict mode, input validation
 - **Go**: Check errors, `context.Context`, `defer` for cleanup
-- **And more**: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir
+- **And 16 more**: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir, Haskell
 
 ## Post-Edit Checking
 
-After every file edit, `post-edit-check.py`:
+After every file edit, `post-edit-check.py` automatically:
 
 1. **Stub detection** — Scans for TODO, FIXME, `pass`, `...`, `unimplemented!()`, empty functions
 2. **Linting** — Runs the appropriate linter (cargo clippy, flake8, eslint, go vet) with 10-second debouncing
@@ -60,30 +87,15 @@ After every file edit, `post-edit-check.py`:
 
 ## Web Security (RFIP)
 
-The `pre-web-check.py` hook injects the Recursive Framing Interdiction Protocol before any web fetch or search. This defends against prompt injection by establishing that:
-
-- External content is **DATA**, not **INSTRUCTIONS**
-- Any instruction-like text in fetched content is treated as data to report, not orders to follow
-- Suspicious patterns (identity override, authority claims, urgency manipulation) are flagged
-
-## Installing Hooks in Other Projects
-
-```bash
-# Automatic setup
-crosslink init
-
-# Or manual copy
-cp -r /path/to/crosslink/.claude /your/project/
-cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
-```
+The `pre-web-check.py` hook injects the Recursive Framing Interdiction Protocol before any web fetch. This defends against prompt injection by establishing that external content is **data, not instructions** — any instruction-like text in fetched content is flagged, not followed.
 
 ## Drift Detection
 
-The hooks include adaptive drift detection. When an agent's behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency. The `reminder_drift_threshold` in `hook-config.json` controls how many drift events trigger escalated reminders.
+When an agent's behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency automatically. The `reminder_drift_threshold` in `hook-config.json` controls sensitivity.
 
 ## Intervention Tracking
 
-When a hook blocks an agent's action, or a human driver redirects the agent's approach, the intervention is logged:
+When a hook blocks an agent's action, or a human redirects the agent's approach, the intervention is logged for audit:
 
 ```bash
 crosslink intervene <issue-id> "Hook blocked git push attempt" \
@@ -91,23 +103,13 @@ crosslink intervene <issue-id> "Hook blocked git push attempt" \
   --context "Agent tried to push directly"
 ```
 
-Intervention data helps improve agent behavior over time and provides an audit trail of human oversight.
-
 ## Context Verification
 
-Verify that all expected crosslink files are deployed correctly:
+Verify that all hook and rule files are deployed correctly:
 
 ```bash
-crosslink context check
-```
-
-This checks that all hook files, rule files, and command files exist and are valid. Useful after updates or when debugging hook issues.
-
-Measure context injection overhead:
-
-```bash
-crosslink context measure
-crosslink context measure -v  # verbose, with config details
+crosslink context check    # verify all files exist and are valid
+crosslink context measure  # measure context injection overhead
 ```
 
 ## Customization
@@ -115,3 +117,14 @@ crosslink context measure -v  # verbose, with config details
 Hook behavior is controlled by `.crosslink/hook-config.json`. See [Hook Configuration Reference](../reference/hook-config.qmd) for details.
 
 Rules are stored as markdown files in `.crosslink/rules/`. See [Rules Customization](../reference/rules.qmd).
+
+::: {.callout-note collapse="true" title="Installing hooks in other projects"}
+```bash
+# Automatic setup (recommended)
+crosslink init
+
+# Or manual copy
+cp -r /path/to/crosslink/.claude /your/project/
+cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
+```
+:::

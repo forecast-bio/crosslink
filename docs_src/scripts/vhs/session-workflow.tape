@@ -1,4 +1,4 @@
-# Session Workflow — full lifecycle demo with handoff
+# Session Workflow — agent handoff across sessions
 # Output: docs_src/assets/img/session-workflow.gif
 
 Output ../assets/img/session-workflow.gif
@@ -15,8 +15,8 @@ Set TypingSpeed 35ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# --- Session 1 ---
-Type "# ─── Session 1: Start work ───"
+# --- Agent Session 1 ---
+Type "# ─── Agent Session 1: Start work ───"
 Enter
 Sleep 1s
 
@@ -30,18 +30,18 @@ Sleep 1.5s
 
 Type `crosslink session action "Added ThemeProvider wrapper to App.tsx"`
 Enter
-Sleep 1s
+Sleep 0.8s
 
 Type `crosslink session action "Dark palette complete, testing toggle"`
 Enter
-Sleep 1s
+Sleep 0.8s
 
 Type `crosslink session end --notes "Dark mode 80% done. Toggle works, need to persist preference in localStorage."`
 Enter
 Sleep 3s
 
-# --- Session 2: Pick up where we left off ---
-Type "# ─── Session 2: Continue from handoff ───"
+# --- Agent Session 2: Picks up from handoff ---
+Type "# ─── Agent Session 2: New agent reads handoff and continues ───"
 Enter
 Sleep 1s
 
@@ -55,7 +55,7 @@ Sleep 1.5s
 
 Type `crosslink session action "Added localStorage persistence for theme preference"`
 Enter
-Sleep 1s
+Sleep 0.8s
 
 Type "crosslink close 1"
 Enter

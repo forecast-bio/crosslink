@@ -2,11 +2,17 @@
 title: "Terminal Dashboard"
 ---
 
-Crosslink includes a read-only terminal UI for browsing issues, monitoring agents, and viewing knowledge pages -- all without leaving the terminal.
+The terminal dashboard is your window into agent activity — browse issues, monitor running agents, view shared knowledge, and check project configuration without leaving the terminal.
+
+![](../assets/img/tui-demo.gif)
 
 ```bash
 crosslink tui
 ```
+
+## What You See
+
+While agents handle implementation, the TUI lets you monitor what's happening across your project. It syncs data on startup and refreshes periodically in the background — press `r` for a manual refresh.
 
 ## Tabs
 
@@ -23,16 +29,16 @@ Browse all issues with tree view, detail view, filtering, and sorting.
 
 ### Agents (2)
 
-Live coordination dashboard for multi-agent setups.
+Live coordination dashboard for multi-agent setups. See which agents are running, what they're working on, and whether they're healthy.
 
-- **Agents view** -- merged activity table showing all registered agents, their status, and held locks
-- **Locks view** -- all active locks with stale detection (highlights locks from agents with no recent heartbeat)
-- **Trust view** -- allowed signers list for SSH signature verification
-- **Detail view** -- agent-specific information and history
+- **Agents view** — merged activity table showing all registered agents, their status, and held locks
+- **Locks view** — all active locks with stale detection (highlights locks from agents with no recent heartbeat)
+- **Trust view** — allowed signers list for SSH signature verification
+- **Detail view** — agent-specific information and history
 
 ### Knowledge (3)
 
-Browse knowledge pages with syntax highlighting.
+Browse the shared knowledge base that agents contribute to.
 
 - Page list with tags and last-updated timestamps
 - Full page content rendered with vivid syntax highlighting
@@ -65,6 +71,7 @@ View repository configuration at a glance.
 | `j` / `k` or `Up` / `Down` | Navigate lists |
 | `Enter` | Open detail view |
 | `Esc` | Back to list view |
+| `r` | Refresh data |
 | `:` | Open command palette |
 | `?` | Show help overlay |
 | `/` | Search / filter |
@@ -84,3 +91,7 @@ Press `:` to open the command palette (`Ctrl+P` also works). Type to filter avai
 ## Clipboard Export
 
 Select an issue or knowledge page and use the command palette to copy its content to the clipboard.
+
+::: {.callout-note collapse="true" title="When to use TUI vs. Web Dashboard"}
+The TUI is ideal for quick checks while working in the terminal — glance at agent status, browse an issue, or check a knowledge page. For richer visualization (DAG charts, Gantt timelines, interactive editing), use the [Web Dashboard](web-dashboard.qmd) with `crosslink serve`.
+:::

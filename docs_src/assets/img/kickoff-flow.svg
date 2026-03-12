@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 620" width="1100" height="620">
+  <defs>
+    <style>
+      .label { font-family: 'Times New Roman', Times, serif; font-style: italic; }
+      .body { font-family: Helvetica, Arial, sans-serif; }
+      .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
+    </style>
+  </defs>
+  <rect width="1100" height="620" fill="#F9F4F5"/>
+  <text x="550.0" y="40" class="label" font-size="26" fill="#000000" text-anchor="middle">Kickoff Agent Lifecycle</text>
+  <text x="550.0" y="62" class="body" font-size="13" fill="#666666" text-anchor="middle">from instruction to autonomous implementation</text>
+  <ellipse cx="130" cy="175" rx="105" ry="80" fill="#FFB6C6" opacity="0.5"/>
+  <ellipse cx="130" cy="175" rx="90" ry="65" fill="#FFB6C6" opacity="0.35"/>
+  <text x="130" y="157" class="label" font-size="20" fill="#000000" text-anchor="middle">Human</text>
+  <text x="130" y="180" class="mono" font-size="11" fill="#666666" text-anchor="middle">"fix the auth bug"</text>
+  <text x="130" y="200" class="body" font-size="11" fill="#666666" text-anchor="middle">high-level instruction</text>
+  <path d="M 230.0 175.0 Q 272.5 162.2 315.0 175.0" fill="none" stroke="#F95838" stroke-width="2.5" stroke-linecap="round"/>
+  <polygon points="315.0,175.0 305.0,175.6 307.0,169.0" fill="#F95838"/>
+  <text x="273" y="163" class="mono" font-size="11" fill="#F95838" text-anchor="middle" font-weight="bold">/kickoff</text>
+  <rect x="325" y="100" width="260" height="155" rx="30" fill="#007C35" opacity="0.12"/>
+  <rect x="329" y="104" width="252" height="147" rx="28" fill="#FFFFFF" opacity="0.85"/>
+  <text x="455.0" y="128" class="label" font-size="17" fill="#007C35" text-anchor="middle">Crosslink Orchestrates</text>
+  <rect x="355" y="148" width="110" height="28" rx="14" fill="#00A6DB" opacity="0.18"/>
+  <text x="410.0" y="167.0" class="mono" font-size="10.5" fill="#00A6DB" text-anchor="middle" font-weight="bold">git branch</text>
+  <rect x="355" y="182" width="110" height="28" rx="14" fill="#FFCE02" opacity="0.18"/>
+  <text x="410.0" y="201.0" class="mono" font-size="10.5" fill="#FFCE02" text-anchor="middle" font-weight="bold">git worktree</text>
+  <rect x="473" y="148" width="110" height="28" rx="14" fill="#F95838" opacity="0.18"/>
+  <text x="528.0" y="167.0" class="mono" font-size="10.5" fill="#F95838" text-anchor="middle" font-weight="bold">agent init</text>
+  <rect x="473" y="182" width="110" height="28" rx="14" fill="#007C35" opacity="0.18"/>
+  <text x="528.0" y="201.0" class="mono" font-size="10.5" fill="#007C35" text-anchor="middle" font-weight="bold">issue + session</text>
+  <circle cx="403.9115018016171" cy="112.90709717603286" r="2.8018689460797077" fill="#007C35" opacity="0.9106371459956542"/>
+  <circle cx="337.29771216250793" cy="192.8157810921207" r="3.3194081262862047" fill="#00A6DB" opacity="0.5187478292209924"/>
+  <circle cx="435.75724826209193" cy="97.9232533613045" r="1.6814260266877301" fill="rgba(0,0,0,0.06)" opacity="0.5295552530394946"/>
+  <circle cx="473.9815713159931" cy="260.2781946308852" r="2.761251831463474" fill="#007C35" opacity="0.7885514743087494"/>
+  <circle cx="425.03733764872624" cy="265.6071945346902" r="1.5931653612355126" fill="#00A6DB" opacity="0.6448046431658381"/>
+  <circle cx="351.8339741736569" cy="106.79156404449814" r="2.1169636482038685" fill="#00A6DB" opacity="0.5515278562217957"/>
+  <circle cx="475.64927350941974" cy="119.75613995562155" r="1.6948611519894667" fill="#007C35" opacity="0.7821841465666933"/>
+  <circle cx="489.51278202033063" cy="176.83668159599597" r="2.563440493160371" fill="#FFCE02" opacity="0.7328009329198371"/>
+  <circle cx="577.7980012552698" cy="151.89273584974478" r="1.9968531697150986" fill="#00A6DB" opacity="0.8494972168647856"/>
+  <circle cx="380.7879881094243" cy="191.26838639785413" r="2.550393007622903" fill="#FFCE02" opacity="0.8647226447196088"/>
+  <circle cx="393.5019518181541" cy="266.3323467861277" r="1.7361315565099242" fill="rgba(0,0,0,0.06)" opacity="0.5824810518217867"/>
+  <circle cx="409.1961837863588" cy="257.65498925341797" r="2.3433967089534886" fill="#007C35" opacity="0.8822854331064065"/>
+  <path d="M 590.0 175.0 Q 630.0 163.0 670.0 175.0" fill="none" stroke="#007C35" stroke-width="2.5" stroke-linecap="round"/>
+  <polygon points="670.0,175.0 660.0,175.6 662.0,169.0" fill="#007C35"/>
+  <text x="630" y="163" class="body" font-size="11" fill="#007C35" text-anchor="middle">launch</text>
+  <ellipse cx="830" cy="175" rx="160" ry="95" fill="#00A6DB" opacity="0.1"/>
+  <ellipse cx="830" cy="175" rx="145" ry="80" fill="#FFFFFF" opacity="0.8"/>
+  <text x="830" y="135" class="label" font-size="17" fill="#00A6DB" text-anchor="middle">Autonomous Agent</text>
+  <circle cx="750" cy="153" r="3" fill="#00A6DB" opacity="0.6"/>
+  <text x="760" y="157" class="mono" font-size="10.5" fill="#1a1a1a" text-anchor="start">explore codebase</text>
+  <circle cx="750" cy="171" r="3" fill="#00A6DB" opacity="0.6"/>
+  <text x="760" y="175" class="mono" font-size="10.5" fill="#1a1a1a" text-anchor="start">implement feature</text>
+  <circle cx="750" cy="189" r="3" fill="#00A6DB" opacity="0.6"/>
+  <text x="760" y="193" class="mono" font-size="10.5" fill="#1a1a1a" text-anchor="start">run tests + lint</text>
+  <circle cx="750" cy="207" r="3" fill="#00A6DB" opacity="0.6"/>
+  <text x="760" y="211" class="mono" font-size="10.5" fill="#1a1a1a" text-anchor="start">commit with /commit</text>
+  <circle cx="750" cy="225" r="3" fill="#00A6DB" opacity="0.6"/>
+  <text x="760" y="229" class="mono" font-size="10.5" fill="#1a1a1a" text-anchor="start">self-review</text>
+  <path d="M 930 135 A 50 70 0 1 1 930 225" fill="none" stroke="#00A6DB" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.4"/>
+  <text x="968" y="185" class="body" font-size="10" fill="#00A6DB" text-anchor="middle">iterate</text>
+  <rect x="130" y="370" width="840" height="210" rx="30" fill="rgba(0,0,0,0.06)"/>
+  <text x="550.0" y="400" class="label" font-size="20" fill="#000000" text-anchor="middle">Outputs</text>
+  <rect x="160" y="420" width="175" height="135" rx="18" fill="#FFFFFF" opacity="0.95"/>
+  <rect x="160" y="420" width="175" height="36" rx="18" fill="#007C35" opacity="0.15"/>
+  <rect x="160" y="438" width="175" height="18" rx="0" fill="#007C35" opacity="0.15"/>
+  <text x="247.5" y="444" class="label" font-size="13" fill="#007C35" text-anchor="middle" font-weight="bold">Feature Branch</text>
+  <circle cx="178" cy="469" r="3.5" fill="#007C35" opacity="0.5"/>
+  <text x="190" y="472" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">committed code</text>
+  <circle cx="178" cy="491" r="3.5" fill="#007C35" opacity="0.5"/>
+  <text x="190" y="494" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">tests passing</text>
+  <circle cx="178" cy="513" r="3.5" fill="#007C35" opacity="0.5"/>
+  <text x="190" y="516" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">clean clippy</text>
+  <rect x="365" y="420" width="175" height="135" rx="18" fill="#FFFFFF" opacity="0.95"/>
+  <rect x="365" y="420" width="175" height="36" rx="18" fill="#FFCE02" opacity="0.15"/>
+  <rect x="365" y="438" width="175" height="18" rx="0" fill="#FFCE02" opacity="0.15"/>
+  <text x="452.5" y="444" class="label" font-size="13" fill="#FFCE02" text-anchor="middle" font-weight="bold">Crosslink Trail</text>
+  <circle cx="383" cy="469" r="3.5" fill="#FFCE02" opacity="0.5"/>
+  <text x="395" y="472" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">issue comments</text>
+  <circle cx="383" cy="491" r="3.5" fill="#FFCE02" opacity="0.5"/>
+  <text x="395" y="494" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">breadcrumbs</text>
+  <circle cx="383" cy="513" r="3.5" fill="#FFCE02" opacity="0.5"/>
+  <text x="395" y="516" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">handoff notes</text>
+  <rect x="570" y="420" width="175" height="135" rx="18" fill="#FFFFFF" opacity="0.95"/>
+  <rect x="570" y="420" width="175" height="36" rx="18" fill="#00A6DB" opacity="0.15"/>
+  <rect x="570" y="438" width="175" height="18" rx="0" fill="#00A6DB" opacity="0.15"/>
+  <text x="657.5" y="444" class="label" font-size="13" fill="#00A6DB" text-anchor="middle" font-weight="bold">Kickoff Report</text>
+  <circle cx="588" cy="469" r="3.5" fill="#00A6DB" opacity="0.5"/>
+  <text x="600" y="472" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">spec validation</text>
+  <circle cx="588" cy="491" r="3.5" fill="#00A6DB" opacity="0.5"/>
+  <text x="600" y="494" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">phase timings</text>
+  <circle cx="588" cy="513" r="3.5" fill="#00A6DB" opacity="0.5"/>
+  <text x="600" y="516" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">verdict: pass/fail</text>
+  <rect x="775" y="420" width="175" height="135" rx="18" fill="#FFFFFF" opacity="0.95"/>
+  <rect x="775" y="420" width="175" height="36" rx="18" fill="#F95838" opacity="0.15"/>
+  <rect x="775" y="438" width="175" height="18" rx="0" fill="#F95838" opacity="0.15"/>
+  <text x="862.5" y="444" class="label" font-size="13" fill="#F95838" text-anchor="middle" font-weight="bold">Ready for Review</text>
+  <circle cx="793" cy="469" r="3.5" fill="#F95838" opacity="0.5"/>
+  <text x="805" y="472" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">draft PR (if --verify ci)</text>
+  <circle cx="793" cy="491" r="3.5" fill="#F95838" opacity="0.5"/>
+  <text x="805" y="494" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">self-review done</text>
+  <circle cx="793" cy="513" r="3.5" fill="#F95838" opacity="0.5"/>
+  <text x="805" y="516" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">status: DONE</text>
+  <line x1="830.0" y1="270.0" x2="830.0" y2="415.0" stroke="#00A6DB" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <polygon points="830.0,415.0 826.6,405.6 833.4,405.6" fill="#00A6DB"/>
+  <line x1="455.0" y1="258.0" x2="455.0" y2="415.0" stroke="#007C35" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <polygon points="455.0,415.0 451.6,405.6 458.4,405.6" fill="#007C35"/>
+  <circle cx="77.3025940277384" cy="350.0382249464711" r="1.9706212692721452" fill="rgba(0,0,0,0.06)" opacity="0.6750891938595842"/>
+  <circle cx="69.66747952989877" cy="343.7513580657276" r="1.6031444241102908" fill="#FFB6C6" opacity="0.9723405475539687"/>
+  <circle cx="67.40983374196445" cy="333.13217643797395" r="1.5910041413958296" fill="rgba(0,0,0,0.06)" opacity="0.6548036882546874"/>
+  <circle cx="77.79462307177181" cy="334.498973978713" r="2.1684611508763827" fill="rgba(0,0,0,0.06)" opacity="0.6928957212233554"/>
+  <circle cx="86.86527158841882" cy="281.8050342444471" r="2.192542929449649" fill="#FFB6C6" opacity="0.8054597717415384"/>
+  <circle cx="69.36929945569815" cy="297.4566219855744" r="1.9311478897482925" fill="rgba(0,0,0,0.06)" opacity="0.6238074168484571"/>
+  <circle cx="59.094970313322705" cy="349.71375793010395" r="1.620871951800208" fill="#F95838" opacity="0.7008221281671521"/>
+  <circle cx="47.78391307844507" cy="290.9540914412021" r="2.1457824766336135" fill="rgba(0,0,0,0.06)" opacity="0.6392105322569486"/>
+  <circle cx="1021.5296517211699" cy="125.87711653316248" r="2.8262892407973252" fill="#00A6DB" opacity="0.5754604528955545"/>
+  <circle cx="997.621772849037" cy="113.19568668195357" r="1.8500041255212918" fill="#007C35" opacity="0.9155467807841431"/>
+  <circle cx="998.2342873981197" cy="118.19307223267377" r="1.7185145886869708" fill="rgba(0,0,0,0.06)" opacity="0.6846267864473627"/>
+  <circle cx="1036.6341223706393" cy="185.30979255250952" r="2.535740485703967" fill="rgba(0,0,0,0.06)" opacity="0.9751119748413293"/>
+  <circle cx="1045.4966463716328" cy="163.97847477644152" r="2.184965583304312" fill="rgba(0,0,0,0.06)" opacity="0.8989365605982831"/>
+  <circle cx="1019.2378906891269" cy="129.8978832320273" r="1.6553056405654865" fill="rgba(0,0,0,0.06)" opacity="0.7002213152581744"/>
+  <circle cx="999.0609537566808" cy="188.46676007566094" r="2.1609403024871257" fill="#00A6DB" opacity="0.6700268261161717"/>
+  <circle cx="985.2575603890267" cy="90.02332819013566" r="1.7268973984191418" fill="#00A6DB" opacity="0.9744743792847168"/>
+  <circle cx="1041.373726297543" cy="97.03155761534897" r="1.8119290241681298" fill="#007C35" opacity="0.5742752426654457"/>
+  <circle cx="1005.2257756557077" cy="124.73895460537015" r="2.0462451592924236" fill="#00A6DB" opacity="0.5576767580544089"/>
+  <circle cx="79.28408354212465" cy="578.6693800088716" r="2.220592656923473" fill="#FFB6C6" opacity="0.5429423307780827"/>
+  <circle cx="56.13125700489011" cy="540.5581502945801" r="1.89713533757577" fill="rgba(0,0,0,0.06)" opacity="0.5807193052632158"/>
+  <circle cx="51.38574326271489" cy="577.0591343724822" r="2.292386092563187" fill="#FFCE02" opacity="0.8450337929396794"/>
+  <circle cx="104.84874696748368" cy="565.4885775721563" r="1.94713453551942" fill="rgba(0,0,0,0.06)" opacity="0.9316625151448344"/>
+  <circle cx="91.77180715446812" cy="535.6669118337617" r="2.050049687641768" fill="#FFCE02" opacity="0.6778480849114727"/>
+  <circle cx="63.36756536331433" cy="552.4940273668117" r="2.254045534837972" fill="rgba(0,0,0,0.06)" opacity="0.6115208365515925"/>
+  <circle cx="1054.9208997418875" cy="528.7940840472713" r="2.7789431981199906" fill="#F95838" opacity="0.9091664716626866"/>
+  <circle cx="1049.1898416300571" cy="468.1391592025268" r="2.2764580863652584" fill="#007C35" opacity="0.8655019962377106"/>
+  <circle cx="1069.1682869362455" cy="513.209130930554" r="2.208360093748283" fill="#F95838" opacity="0.8462609708500617"/>
+  <circle cx="1066.521206107307" cy="485.77821422133786" r="2.905531801914363" fill="#007C35" opacity="0.9775003156606665"/>
+  <circle cx="1019.1708708289493" cy="467.636985839699" r="1.840268740096092" fill="#F95838" opacity="0.6688687399192652"/>
+  <circle cx="1028.6122641706863" cy="528.8199197651793" r="2.4153932203401123" fill="#F95838" opacity="0.739736713130769"/>
+  <circle cx="1042.2382434272806" cy="513.9714995879729" r="1.6271677296755702" fill="rgba(0,0,0,0.06)" opacity="0.5599518154180688"/>
+  <circle cx="1021.0828595055955" cy="506.91943869003086" r="1.798979105182358" fill="#F95838" opacity="0.7169625378740409"/>
+  <g opacity="0.25">
+    <mask id="deco-crescent">
+      <rect x="1000" y="20" width="100" height="100" fill="white"/>
+      <circle cx="1060" cy="62" r="28" fill="black"/>
+    </mask>
+    <circle cx="1050" cy="58" r="35" fill="#FFB6C6" mask="url(#deco-crescent)"/>
+  </g>
+  <polygon points="80,590 60,607.3 100,607.3" fill="#007C35" opacity="0.3"/>
+</svg>

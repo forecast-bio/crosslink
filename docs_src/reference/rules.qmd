@@ -2,6 +2,8 @@
 title: "Rules Customization"
 ---
 
+Rules are injected into agent sessions automatically and shape how agents write code, handle errors, and follow project conventions. Most teams only need to edit `project.md` — the rest works out of the box.
+
 Crosslink uses markdown files in `.crosslink/rules/` to define behavioral rules that are injected into AI sessions. You can customize these files to match your project's conventions.
 
 ## Rule Files

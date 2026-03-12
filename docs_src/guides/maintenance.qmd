@@ -1,0 +1,157 @@
+---
+title: "Maintenance Operations"
+---
+
+Keep your crosslink data lean and your agent infrastructure clean. Over time, the coordination and knowledge branches accumulate history, worktrees pile up, and stale tmux sessions or containers linger. These maintenance operations keep everything tidy.
+
+## Pruning History
+
+The `crosslink/hub` and `crosslink/knowledge` branches grow with every lock operation, heartbeat, and knowledge entry. Pruning squashes old history to keep these branches fast.
+
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
+
+> "The hub branch is getting bloated. Clean up anything older than 30 days."
+
+You want to squash old coordination history while keeping recent state intact.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+crosslink prune --hub --before 30d
+```
+
+Squashes hub branch history older than 30 days into a single root commit. Current lock and heartbeat state is preserved.
+:::
+:::
+
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
+
+> "Prune the knowledge branch too."
+
+Knowledge entries accumulate revision history. Pruning compacts old revisions while keeping the latest version of each entry.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+crosslink prune --knowledge --before 30d
+```
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+# Prune hub branch history
+crosslink prune --hub
+crosslink prune --hub --before 30d
+crosslink prune --hub --before 2024-01-01
+
+# Prune knowledge branch history
+crosslink prune --knowledge
+crosslink prune --knowledge --before 30d
+
+# Dry run -- see what would be pruned without changing anything
+crosslink prune --hub --dry-run
+crosslink prune --knowledge --dry-run
+
+# Prune both at once
+crosslink prune --hub --knowledge --before 30d
+```
+:::
+
+## Kickoff Cleanup
+
+After agents finish their work, worktrees, tmux sessions, and Docker containers remain until explicitly cleaned up.
+
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
+
+> "Clean up all the finished agent infrastructure."
+
+You want to reclaim disk space and remove stale processes from completed agents.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+crosslink kickoff cleanup
+```
+
+Removes worktrees for completed agents (`.kickoff-status` is `DONE` or process is dead), kills orphaned tmux sessions, and removes stopped Docker containers.
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+# Automated cleanup
+crosslink kickoff cleanup
+
+# Dry run -- see what would be removed
+crosslink kickoff cleanup --dry-run
+
+# Manual cleanup for a single agent
+git worktree remove .worktrees/add-batch-retry-logic
+tmux kill-session -t feat-add-batch-retry-logic
+docker rm crosslink-add-batch-retry-logic
+```
+:::
+
+## The `/maintain` Skill
+
+From Claude Code, you can run an automated maintenance pass that combines pruning and cleanup:
+
+```bash
+/maintain
+```
+
+This runs the equivalent of:
+
+```bash
+crosslink prune --hub --knowledge --before 30d
+crosslink kickoff cleanup
+crosslink sync
+```
+
+It prunes both coordination branches, cleans up stale agent infrastructure, and re-syncs to verify everything is consistent.
+
+## Routine Checklist
+
+Use this checklist to keep your crosslink installation healthy:
+
+| When | What to do | Command |
+|------|------------|---------|
+| After a swarm completes | Clean up finished agent worktrees and sessions | `crosslink kickoff cleanup` |
+| Weekly (active projects) | Prune hub and knowledge history older than 30 days | `crosslink prune --hub --knowledge --before 30d` |
+| Before a release | Verify no stale locks or orphaned agents | `crosslink locks list` and `crosslink kickoff list` |
+| After pruning | Re-sync to verify branch integrity | `crosslink sync` |
+| When disk space is low | Dry-run cleanup to see what can be reclaimed | `crosslink kickoff cleanup --dry-run` |
+
+### Verifying After Maintenance
+
+After any maintenance operation, verify that state is consistent:
+
+```bash
+# Re-sync and verify signatures
+crosslink sync
+
+# Check that no locks were lost
+crosslink locks list
+
+# Verify agents can still coordinate
+crosslink agent status
+```

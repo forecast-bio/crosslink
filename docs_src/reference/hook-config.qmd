@@ -2,6 +2,8 @@
 title: "Hook Configuration"
 ---
 
+Hooks run automatically during agent sessions and rarely need manual configuration. This reference documents the full configuration surface for fine-tuning enforcement behavior.
+
 Hook behavior is controlled by `.crosslink/hook-config.json`. This file is created by `crosslink init` and can be edited to customize enforcement.
 
 ## Configuration File

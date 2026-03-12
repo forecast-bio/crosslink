@@ -15,34 +15,34 @@ Set TypingSpeed 35ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# Show current config
-Type "# View current tracking mode"
+# Agent checks its current enforcement level
+Type "# Agent checks current tracking mode"
 Enter
 Type "crosslink config get tracking_mode"
 Enter
 Sleep 2s
 
-# Show config file
-Type `cat .crosslink/hook-config.json | head -3`
+# Show how modes affect agent behavior
+Type "# Strict: agent must have an active issue before writing code"
+Enter
+Type `crosslink config set tracking_mode strict`
 Enter
 Sleep 2s
 
-# Switch modes
-Type "# Switch to normal mode"
+Type "# Normal: agent gets a reminder but can proceed"
 Enter
 Type `crosslink config set tracking_mode normal`
 Enter
 Sleep 2s
 
-# Switch to relaxed
-Type "# Switch to relaxed mode"
+Type "# Relaxed: no enforcement, agent works freely"
 Enter
 Type `crosslink config set tracking_mode relaxed`
 Enter
 Sleep 2s
 
-# Back to strict
-Type "# Back to strict"
+# Reset to recommended default
+Type "# Reset to strict (recommended for multi-agent setups)"
 Enter
 Type `crosslink config set tracking_mode strict`
 Enter

@@ -2,61 +2,94 @@
 title: "Multi-Agent Coordination"
 ---
 
-Crosslink supports multiple AI agents working on the same repository simultaneously through distributed issue locking.
+Crosslink lets you tell your agent to work on multiple features at once. Behind the scenes, agents self-coordinate through distributed locking so they never step on each other. You describe the work; the agents sort out who does what.
+
+![](../assets/img/multi-agent.gif)
 
 ## How It Works
 
-Lock state is stored on a `crosslink/hub` git branch and synchronized via git. Each agent registers a machine-local identity and claims issues through locks. Other agents see which issues are taken and work on available ones instead.
+Lock state is stored on a `crosslink/hub` git branch and synchronized via git. Each agent registers a machine-local identity and claims issues through locks. Other agents see which issues are taken and work on available ones instead. All of this happens automatically -- you never need to manage locks yourself.
 
-## Agent Setup
+## Agent Registration
 
-### Register an Agent
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
 
+> "Work on these three features in parallel."
+
+You describe the features. The agent (or agents) each register unique identities before starting work.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+crosslink agent init agent-frontend -d "Frontend specialist"
+crosslink agent init agent-backend -d "API work"
+crosslink agent init agent-infra -d "Infrastructure"
+```
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
 ```bash
 crosslink agent init my-agent-1
 crosslink agent init my-agent-1 -d "Frontend specialist"
-```
 
-Agent identity is stored in `.crosslink/agent.json` (machine-local, gitignored).
-
-### Check Agent Status
-
-```bash
+# Check agent identity
 crosslink agent status
 ```
+Agent identity is stored in `.crosslink/agent.json` (machine-local, gitignored).
+:::
 
-Shows agent ID, machine ID, and currently held locks.
+## Lock Coordination
 
-## Working with Locks
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
 
-### View Active Locks
+> "Go ahead, all three of you."
+
+You launch multiple agents. Each one automatically claims its issue via a distributed lock. No two agents will work on the same issue.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
 
 ```bash
+# Each agent automatically locks its issue
+crosslink session work 12   # agent-frontend claims #12
+crosslink session work 15   # agent-backend claims #15
+crosslink session work 18   # agent-infra claims #18
+
+# If an agent tries a locked issue, it moves on
+crosslink next              # skips locked issues
+```
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+# View all active locks
 crosslink locks list
 crosslink locks list --json
-```
 
-Shows all issue locks with owner, age, and stale detection.
-
-### Check Lock Availability
-
-```bash
+# Check if a specific issue is available
 crosslink locks check 5
-```
 
-Reports whether issue #5 is available or locked by another agent.
-
-### Sync Lock State
-
-```bash
+# Sync lock state from the coordination branch
 crosslink sync
 ```
+:::
 
-Fetches the latest lock state from the coordination branch and verifies signatures.
+### Lock-Aware Commands
 
-## Lock-Aware Commands
-
-These commands automatically respect lock state:
+These commands automatically respect lock state -- no manual lock management required:
 
 | Command | Lock Behavior |
 |---------|---------------|
@@ -64,21 +97,38 @@ These commands automatically respect lock state:
 | `crosslink session work <id>` | Warns if issue is locked by another agent |
 | `crosslink create --work` | Only sets as active if not locked |
 
-## Daemon (Optional)
+## Daemon Operation
 
-The daemon provides background services for multi-agent setups:
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
 
+> "Keep everything in sync while the agents work."
+
+The daemon runs in the background, pushing heartbeats and flushing state so agents stay coordinated without any manual intervention.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+crosslink daemon start    # background process
+crosslink daemon status   # verify it's running
+```
+
+The daemon auto-flushes session state every 30s, pushes heartbeats every 2.5 min, and detects stale locks from dead agents.
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
 ```bash
 crosslink daemon start   # Start background daemon
 crosslink daemon status  # Check if running
 crosslink daemon stop    # Stop daemon
 ```
-
-The daemon:
-
-- Auto-flushes session state every 30 seconds
-- Pushes agent heartbeats every 2.5 minutes
-- Enables stale lock detection (locks from agents with no recent heartbeat)
+:::
 
 ## Coordination Branch
 
@@ -92,8 +142,37 @@ Agents push to this branch when claiming/releasing locks and pull from it during
 
 ## Signature Verification
 
-Crosslink supports SSH signature verification for the coordination branch:
+Crosslink supports SSH signature verification for the coordination branch to ensure lock state comes from trusted agents.
 
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
+
+> "Make sure only our agents can modify coordination state."
+
+You set up trust once, and all subsequent sync operations verify signatures automatically.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+# Each agent generates a signing key on init
+crosslink agent init my-agent-1
+
+# Add trusted agent keys
+crosslink trust add /path/to/agent-key.pub
+crosslink trust list
+
+# Sync with automatic verification
+crosslink sync
+```
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
 ```bash
 # Set up trust
 crosslink trust add <public-key-path>
@@ -101,17 +180,6 @@ crosslink trust list
 
 # Sync with signature verification
 crosslink sync
-```
-
-When signatures are configured, `crosslink sync` verifies that lock state was written by a trusted agent.
-
-## SSH Signing
-
-Each agent can generate an SSH signing key for per-commit signing:
-
-```bash
-# Initialize agent identity (includes key generation)
-crosslink agent init my-agent-1
 
 # View agent key fingerprint
 crosslink agent status
@@ -119,17 +187,8 @@ crosslink agent status
 
 Agent keys are stored in `.crosslink/agent.json` (machine-local, gitignored). Per-commit signing ensures every commit on the hub branch is attributable to a specific agent.
 
-### Trust Management
-
-```bash
-# Add a trusted agent's public key
-crosslink trust add /path/to/agent-key.pub
-
-# List trusted keys
-crosslink trust list
-```
-
 When signature verification is enabled, lock operations and hub branch commits from untrusted agents are flagged.
+:::
 
 ## Launching Agents
 

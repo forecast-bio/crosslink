@@ -20,8 +20,10 @@ website:
           - guides/container-agents.qmd
           - guides/knowledge.qmd
           - guides/tui.qmd
+          - guides/web-dashboard.qmd
           - guides/hooks.qmd
           - guides/tracking-modes.qmd
+          - guides/maintenance.qmd
       - text: Reference
         menu:
           - reference/commands.qmd
@@ -47,8 +49,10 @@ website:
         - guides/container-agents.qmd
         - guides/knowledge.qmd
         - guides/tui.qmd
+        - guides/web-dashboard.qmd
         - guides/hooks.qmd
         - guides/tracking-modes.qmd
+        - guides/maintenance.qmd
     - title: "Reference"
       contents:
         - reference/commands.qmd

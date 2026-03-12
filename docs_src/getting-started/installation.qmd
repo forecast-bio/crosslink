@@ -50,4 +50,6 @@ After installing, run in any project directory:
 crosslink init
 ```
 
-This sets up the `.crosslink/` directory, Claude Code hooks, and default rules. See [Quick Start](quickstart.qmd) for next steps.
+The interactive TUI walkthrough guides you through initial configuration — choosing tracking mode, setting up hooks, and configuring agent identity. Sensible defaults are pre-selected so you can accept them all to get started fast.
+
+This sets up the `.crosslink/` directory, Claude Code hooks, and default rules. See [Your First Agent Session](quickstart.qmd) for next steps.

@@ -1,8 +1,10 @@
 ---
-title: "Quick Start"
+title: "Your First Agent Session"
 ---
 
-Get up and running with crosslink in under a minute.
+Get crosslink running and watch your agent handle a task with persistent memory — in under a minute.
+
+![](../assets/img/quickstart.gif)
 
 ## 1. Install
 
@@ -12,57 +14,153 @@ cargo install crosslink
 
 See [Installation](installation.qmd) for more options.
 
-## 2. Initialize
+## 2. Initialize Your Project
 
+::: {.columns}
+::: {.column width="45%"}
+**You say:**
+
+> "Set up crosslink in this project"
+:::
+::: {.column width="10%"}
+:::
+::: {.column width="45%"}
+**Your agent runs:**
+
+```bash
+crosslink init
+```
+
+This creates `.crosslink/` (config, rules, database), `.claude/hooks/` (behavioral hooks), and `.claude/settings.json` (hook configuration).
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
 ```bash
 cd your-project
 crosslink init
 ```
 
-This creates:
-
-- `.crosslink/` — config, rules, and database
-- `.claude/hooks/` — behavioral hooks for Claude Code
-- `.claude/settings.json` — hook configuration
+The interactive TUI walkthrough guides you through initial configuration.
+:::
 
 ## 3. Start a Session
+
+::: {.columns}
+::: {.column width="45%"}
+**You say:**
+
+> "What was I working on?"
+
+Your agent picks up where the last session left off — handoff notes appear automatically.
+:::
+::: {.column width="10%"}
+:::
+::: {.column width="45%"}
+**Your agent runs:**
 
 ```bash
 crosslink session start
 ```
 
-If a previous session left handoff notes, you'll see them here.
+If a previous session left handoff notes, they are displayed immediately.
+:::
+:::
 
-## 4. Create Issues
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+crosslink session start
+# Read the handoff notes yourself
+```
+:::
+
+## 4. Create an Issue
+
+::: {.columns}
+::: {.column width="45%"}
+**You say:**
+
+> "Fix the login bug — it's high priority"
+:::
+::: {.column width="10%"}
+:::
+::: {.column width="45%"}
+**Your agent runs:**
 
 ```bash
-# Simple issue
-crosslink create "Fix login bug" -p high
-
-# Quick mode: create + label + start working
 crosslink quick "Fix login bug" -p high -l bug
 ```
 
-## 5. Work on Issues
+One command: creates the issue, labels it, and marks it as the active work item.
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+crosslink create "Fix login bug" -p high
+crosslink label 1 bug
+crosslink session work 1
+```
+:::
+
+## 5. Work With Breadcrumbs
+
+::: {.columns}
+::: {.column width="45%"}
+**You say:**
+
+> "Dig into the auth module and find the root cause"
+
+Your agent explores the code, leaving breadcrumbs as it goes. These survive context compression — if the context window fills up, the trail of what was found and decided persists.
+:::
+::: {.column width="10%"}
+:::
+::: {.column width="45%"}
+**Your agent runs:**
 
 ```bash
-# Mark what you're working on
-crosslink session work 1
-
-# Record breadcrumbs as you go (survives context compression)
 crosslink session action "Found root cause in refresh_token()"
-
-# Add comments with findings
-crosslink comment 1 "The token wasn't being refreshed on 401 responses"
+crosslink comment 1 "Token wasn't refreshed on 401 responses"
+# ... implements the fix, runs tests ...
 ```
+:::
+:::
 
-## 6. End Your Session
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+crosslink session work 1
+crosslink session action "Found root cause in refresh_token()"
+crosslink comment 1 "Token wasn't refreshed on 401 responses"
+# ... fix it yourself ...
+```
+:::
+
+## 6. End the Session
+
+::: {.columns}
+::: {.column width="45%"}
+**You say:**
+
+> "Wrap up and leave notes for next time"
+:::
+::: {.column width="10%"}
+:::
+::: {.column width="45%"}
+**Your agent runs:**
 
 ```bash
 crosslink session end --notes "Fixed auth bug #1. Dark mode (#2) is next."
 ```
 
-The next session will see these handoff notes automatically.
+The next session — whether it is you, another agent, or the same agent after a restart — will see these handoff notes automatically.
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+crosslink session end --notes "Fixed auth bug #1. Dark mode (#2) is next."
+```
+:::
 
 ## What's Next?
 
@@ -70,7 +168,9 @@ The next session will see these handoff notes automatically.
 - [Kickoff](../guides/kickoff.qmd) — launch autonomous background agents
 - [Swarm Orchestration](../guides/swarm.qmd) — multi-agent phased builds
 - [Knowledge Management](../guides/knowledge.qmd) — shared research across agents
+- [Web Dashboard](../guides/web-dashboard.qmd) — browser-based project oversight
 - [Terminal Dashboard](../guides/tui.qmd) — interactive TUI for browsing issues
+- [Maintenance](../guides/maintenance.qmd) — pruning and health checks
 - [Multi-Agent](../guides/multi-agent.qmd) — coordinate multiple AI agents
 - [Hooks Guide](../guides/hooks.qmd) — behavioral guardrails for AI coding
 - [CLI Reference](../reference/commands.qmd) — full command reference

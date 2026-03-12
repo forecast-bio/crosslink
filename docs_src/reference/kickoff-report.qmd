@@ -4,6 +4,8 @@ title: "Kickoff Report Schema"
 
 ## Overview
 
+Kickoff reports are generated automatically when an agent finishes its task. You typically consume them via `crosslink kickoff report` rather than reading the JSON directly. This reference documents the schema for tooling integration and custom dashboards.
+
 When a kickoff agent completes its work, it writes a `.kickoff-report.json` file to the worktree root. This file captures criteria verdicts, phase timing, metrics, and traceability data.
 
 ## Schema (v1)

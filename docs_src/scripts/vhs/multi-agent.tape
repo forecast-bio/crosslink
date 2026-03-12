@@ -1,4 +1,4 @@
-# Multi-Agent Coordination — lock management demo
+# Multi-Agent Coordination — agent lock management demo
 # Output: docs_src/assets/img/multi-agent.gif
 
 Output ../assets/img/multi-agent.gif
@@ -15,50 +15,45 @@ Set TypingSpeed 35ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# Register an agent
-Type "# Register this machine as an agent"
+# Agent registers itself on startup
+Type "# Agent alpha registers automatically on session start"
 Enter
 Type `crosslink agent init agent-alpha -d "Frontend specialist"`
 Enter
 Sleep 2s
 
-# Check agent status
-Type "crosslink agent status"
-Enter
-Sleep 2s
-
-# List locks
-Type "# See which issues are taken"
+# Agent checks what's available
+Type "# Agent checks which issues are available"
 Enter
 Type "crosslink locks list"
 Enter
 Sleep 2s
 
-# Check a specific issue
-Type "crosslink locks check 5"
+# Agent picks an unblocked, unlocked issue
+Type "crosslink ready"
 Enter
 Sleep 1.5s
 
-# Start working — lock is auto-claimed
-Type "# Start work — lock auto-claimed"
+# Agent claims work — lock auto-acquired
+Type "# Agent claims issue #3 — lock acquired automatically"
 Enter
 Type "crosslink session work 3"
 Enter
 Sleep 2s
 
-# Show locks again
+# Show lock state
 Type "crosslink locks list"
 Enter
 Sleep 2s
 
-# Sync coordination state
-Type "# Sync with other agents"
+# Agent syncs with other agents
+Type "# Agent syncs coordination state with other agents"
 Enter
 Type "crosslink sync"
 Enter
 Sleep 2s
 
-# Next — skips locked issues
+# Agent picks next available issue (skips locked ones)
 Type "crosslink next"
 Enter
 Sleep 3s

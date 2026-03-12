@@ -2,6 +2,8 @@
 title: "CLI Reference"
 ---
 
+These commands are typically executed by agents automatically. This reference documents the full CLI for manual use and scripting.
+
 Complete command reference for the crosslink CLI.
 
 ## Global Flags
@@ -181,6 +183,8 @@ Complete command reference for the crosslink CLI.
 | `crosslink knowledge list --tag t --contributor id --since DATE --json` | Filter and format |
 | `crosslink knowledge edit <slug> --append "text"` | Append content to a page |
 | `crosslink knowledge edit <slug> --content "text"` | Replace page content |
+| `crosslink knowledge edit <slug> --replace-section <heading>` | Replace an entire section by heading |
+| `crosslink knowledge edit <slug> --append-to-section <heading>` | Append content to a section |
 | `crosslink knowledge edit <slug> --tag t --source url` | Add tags or sources |
 | `crosslink knowledge remove <slug>` | Remove a knowledge page |
 | `crosslink knowledge sync` | Manually sync from remote |
@@ -242,6 +246,8 @@ Complete command reference for the crosslink CLI.
 | `crosslink kickoff run <desc> --doc DESIGN.md` | Launch from a design document |
 | `crosslink kickoff run <desc> --timeout 2h --model opus` | With timeout and model |
 | `crosslink kickoff run <desc> --dry_run` | Print prompt without launching |
+| `crosslink kickoff list` | List active kickoff agents with worktree, tmux, and Docker discovery |
+| `crosslink kickoff cleanup` | Remove stale worktrees, tmux sessions, and Docker containers from previous runs |
 | `crosslink kickoff status <agent>` | Check agent status |
 | `crosslink kickoff logs <agent>` | Tail agent event log |
 | `crosslink kickoff logs <agent> -l 50` | Show last 50 events |
@@ -290,6 +296,24 @@ Complete command reference for the crosslink CLI.
 | `crosslink container rm <name>` | Remove a stopped container |
 | `crosslink container shell <name>` | Open a shell in a running container |
 | `crosslink container snapshot <name> --tag cached` | Save container state as image |
+
+## History Pruning
+
+| Command | Description |
+|---------|-------------|
+| `crosslink prune` | Prune git history on coordination branches |
+| `crosslink prune --hub` | Squash hub branch history |
+| `crosslink prune --knowledge` | Squash knowledge branch history |
+| `crosslink prune --before <date>` | Only prune commits before date |
+| `crosslink prune --dry-run` | Show what would be pruned without acting |
+
+## Web Dashboard
+
+| Command | Description |
+|---------|-------------|
+| `crosslink serve` | Start the web dashboard HTTP server |
+| `crosslink serve --port <port>` | Port to listen on (default: 3000) |
+| `crosslink serve --open` | Open browser automatically |
 
 ## Terminal UI
 

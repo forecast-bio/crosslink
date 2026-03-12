@@ -1,0 +1,79 @@
+---
+title: "Web Dashboard"
+---
+
+Monitor your agents and browse project state through a browser-based dashboard. The web dashboard provides real-time visibility into agent activity, issue state, knowledge entries, and orchestration progress -- all without touching the CLI.
+
+## Starting the Dashboard
+
+::: {.columns}
+::: {.column width="45%"}
+**You say / do:**
+
+> "Open the dashboard so I can watch the agents work."
+
+You want a visual overview of everything happening in the project. The dashboard opens in your browser and streams live updates.
+:::
+::: {.column width="10%"}
+&rarr;
+:::
+::: {.column width="45%"}
+**Agent executes:**
+
+```bash
+crosslink serve --open
+```
+
+Starts the web server and opens your default browser. Real-time agent data streams in via WebSocket.
+:::
+:::
+
+::: {.callout-note collapse="true" title="Manual CLI equivalent"}
+```bash
+# Start on default port (9746)
+crosslink serve
+
+# Custom port
+crosslink serve --port 8080
+
+# Start and open browser automatically
+crosslink serve --open
+```
+:::
+
+## Navigating the UI
+
+The dashboard provides these main pages:
+
+| Page | What it shows |
+|------|---------------|
+| **Issues** | All crosslink issues with status, priority, labels, assignee, and blockers |
+| **Agents** | Registered agents, their lock state, heartbeat status, and current work item |
+| **Knowledge** | Browsable knowledge entries stored on the `crosslink/knowledge` branch |
+| **Sessions** | Active and historical sessions with timeline, actions, and handoff notes |
+| **Milestones** | Milestone progress, linked issues, and completion percentage |
+| **Config** | Current crosslink configuration, hook status, and trust settings |
+| **Sync** | Hub branch sync status, last sync time, and signature verification results |
+
+## Agent Monitoring
+
+The Agents page provides real-time visibility into what each agent is doing:
+
+- **Heartbeat timeline** -- see when each agent last checked in, with stale detection highlighted
+- **Lock visualization** -- which issues are locked by which agents, with lock age
+- **WebSocket updates** -- the page updates live as agents claim locks, release them, and push heartbeats
+
+No polling required. Open the page and watch agents coordinate in real time.
+
+## Orchestrator View
+
+For swarm builds, the dashboard includes an orchestrator view:
+
+- **DAG visualization** -- see the dependency graph between phases and work units
+- **Gantt chart** -- timeline view of phase execution, agent start/end times, and idle gaps
+- **Document decomposition** -- how the design document was split into phases and assigned to agents
+- **Budget tracking** -- estimated vs. actual cost per phase, remaining budget in the current window
+
+## REST API
+
+The dashboard is backed by a REST API that you can use for custom integrations and scripting. See `docs/api.md` for the full API reference, including endpoints for issues, agents, locks, sessions, knowledge, and swarm state.

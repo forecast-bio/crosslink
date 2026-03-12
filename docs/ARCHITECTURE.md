@@ -253,3 +253,35 @@ User types prompt
 | Hook-based enforcement | Python scripts on Claude tool calls | Non-intrusive, configurable strictness |
 | Adaptive context injection | Drift counter, threshold-based reminders | Saves ~33% context tokens over 50 prompts |
 | On-demand skills | /preflight, /review, /audit | Rules loaded only when needed, not every prompt |
+
+## Web Dashboard
+
+`crosslink serve` starts a local HTTP server built on [axum](https://github.com/tokio-rs/axum) that provides a browser-based interface for monitoring and managing crosslink state.
+
+### Frontend
+
+The dashboard is a React single-page application built with TypeScript, Vite, and TailwindCSS 4. UI components come from shadcn/ui. The SPA is embedded into the crosslink binary at compile time and served as static assets.
+
+### REST API
+
+The server exposes REST endpoints for all core crosslink data:
+
+- `/api/issues` — issue CRUD, filtering, search
+- `/api/sessions` — session lifecycle and history
+- `/api/agents` — agent registration and status
+- `/api/knowledge` — knowledge page listing and content
+- `/api/milestones` — milestone progress tracking
+- `/api/sync` — trigger coordination branch sync
+- `/api/config` — read and update hook configuration
+
+### WebSocket
+
+A WebSocket endpoint at `/ws` provides real-time updates for agent monitoring. Clients receive push notifications for heartbeat changes, lock acquisitions/releases, issue state transitions, and session events.
+
+### DAG Execution Engine
+
+The orchestrator workflow system uses a directed acyclic graph (DAG) engine to plan and execute multi-step agent workflows. The dashboard visualizes DAG state, phase progress, and dependency edges.
+
+### Data Sources
+
+All reads come from the same SQLite database and git coordination branches (`crosslink/hub`, `crosslink/knowledge`) used by the CLI. The web server holds no separate state — it is a read/write interface to the existing crosslink data layer.
