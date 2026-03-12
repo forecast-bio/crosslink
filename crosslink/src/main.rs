@@ -35,7 +35,7 @@ use db::Database;
 #[derive(Parser)]
 #[command(name = "crosslink")]
 #[command(about = "A simple, lean issue tracker CLI")]
-#[command(version)]
+#[command(version = option_env!("CROSSLINK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))]
 struct Cli {
     /// Quiet mode: only output essential data (IDs, counts)
     #[arg(short, long, global = true)]
