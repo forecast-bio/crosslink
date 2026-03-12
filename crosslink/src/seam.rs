@@ -274,7 +274,7 @@ fn find_cargo_tomls(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(results)
 }
 
-fn find_cargo_tomls_recurse(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+fn find_cargo_tomls_recurse(_root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     let ct = dir.join("Cargo.toml");
     if ct.is_file() {
         out.push(dir.to_path_buf());
@@ -285,7 +285,7 @@ fn find_cargo_tomls_recurse(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> 
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if path.is_dir() && !IGNORED_DIRS.contains(&name_str.as_ref()) {
-                find_cargo_tomls_recurse(root, &path, out)?;
+                find_cargo_tomls_recurse(_root, &path, out)?;
             }
         }
     }
@@ -600,7 +600,7 @@ fn apply_coupling(mut partitions: Vec<Partition>, coupling: &CouplingMap) -> Vec
             let mut files: Vec<PathBuf> = Vec::new();
             let mut line_count = 0;
             for &i in &indices {
-                files.extend(partitions[i].files.drain(..));
+                files.append(&mut partitions[i].files);
                 line_count += partitions[i].line_count;
             }
             files.sort();
@@ -771,7 +771,7 @@ fn merge_smallest_pair(mut partitions: Vec<Partition>) -> Vec<Partition> {
         .enumerate()
         .min_by_key(|(_, p)| p.line_count)
         .map(|(i, _)| i)
-        .unwrap();
+        .expect("partitions guaranteed non-empty by len() > 1 guard");
 
     // Find the best merge partner: the next smallest that isn't the same.
     let partner_idx = partitions
@@ -780,7 +780,7 @@ fn merge_smallest_pair(mut partitions: Vec<Partition>) -> Vec<Partition> {
         .filter(|(i, _)| *i != min_idx)
         .min_by_key(|(_, p)| p.line_count)
         .map(|(i, _)| i)
-        .unwrap();
+        .expect("partitions guaranteed len >= 2 by guard");
 
     // Merge the two.
     let (lo, hi) = if min_idx < partner_idx {

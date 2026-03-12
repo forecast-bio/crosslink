@@ -229,10 +229,8 @@ pub fn consolidate(reports: Vec<ReviewReport>) -> ConsolidatedReport {
     }
 
     // Convert raw groups into FindingGroup structs.
-    let mut finding_groups: Vec<FindingGroup> = groups
-        .into_iter()
-        .map(|members| build_finding_group(members))
-        .collect();
+    let mut finding_groups: Vec<FindingGroup> =
+        groups.into_iter().map(build_finding_group).collect();
 
     // Sort: effective severity ascending (Critical < High < … is the Ord),
     // then descending consensus count.
@@ -297,15 +295,15 @@ pub fn generate_markdown_report(report: &ConsolidatedReport) -> String {
     md.push_str(&format!("# {}\n\n", report.title));
     md.push_str(&format!("Generated: {}\n\n", report.generated_at));
     md.push_str("## Summary\n\n");
-    md.push_str(&format!("| Metric | Value |\n"));
-    md.push_str(&format!("|--------|-------|\n"));
+    md.push_str("| Metric | Value |\n");
+    md.push_str("|--------|-------|\n");
     md.push_str(&format!("| Agents | {} |\n", report.agent_count));
     md.push_str(&format!("| Total findings | {} |\n", report.total_findings));
     md.push_str(&format!(
         "| After deduplication | {} |\n",
         report.deduplicated_findings
     ));
-    md.push_str("\n");
+    md.push('\n');
 
     // Group findings by severity for rendering.
     let severity_order = [
