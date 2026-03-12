@@ -5,7 +5,7 @@
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::commands::design_doc::{self, DesignDoc};
 use crate::commands::kickoff::{self, tmux_session_name, ContainerMode, KickoffOpts, VerifyLevel};
@@ -1945,6 +1945,300 @@ pub fn plan_show(crosslink_dir: &Path) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// swarm review — parallel adversarial review
+// ---------------------------------------------------------------------------
+
+/// Severity level for a review finding.
+///
+/// These types define the data contract for review agent output. They are
+/// serialized/deserialized by agents but not yet consumed by the CLI itself.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingSeverity {
+    Critical,
+    High,
+    Medium,
+    Low,
+    Info,
+}
+
+impl std::fmt::Display for FindingSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FindingSeverity::Critical => write!(f, "critical"),
+            FindingSeverity::High => write!(f, "high"),
+            FindingSeverity::Medium => write!(f, "medium"),
+            FindingSeverity::Low => write!(f, "low"),
+            FindingSeverity::Info => write!(f, "info"),
+        }
+    }
+}
+
+/// A single finding produced by a review agent.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Finding {
+    pub title: String,
+    pub severity: FindingSeverity,
+    pub file: String,
+    pub line: Option<usize>,
+    pub description: String,
+    pub suggested_fix: Option<String>,
+    pub agent: String,
+}
+
+/// Report from a single review agent.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewReport {
+    pub agent: String,
+    pub partition_label: String,
+    pub mandate: String,
+    pub findings: Vec<Finding>,
+    pub completed_at: Option<String>,
+}
+
+/// The overall review plan stored at `swarm/review-plan.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewPlan {
+    pub mandate: String,
+    pub mandate_prompt: String,
+    pub agent_count: usize,
+    pub created_at: String,
+    pub agents: Vec<ReviewAgentAssignment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc_output: Option<PathBuf>,
+}
+
+/// Assignment of a partition to a review agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewAgentAssignment {
+    pub agent_slug: String,
+    pub partition_label: String,
+    pub files: Vec<String>,
+}
+
+// Mandate prompt templates
+const MANDATE_ADVERSARIAL: &str = "You are the ha-satan, the loyal accuser. \
+    Find real problems that would cause failures in production. \
+    Ignore style nits, focus on correctness, safety, and robustness.";
+
+const MANDATE_SECURITY: &str = "Review for trust boundary violations, injection vectors, \
+    data integrity issues, and unsafe operations.";
+
+const MANDATE_ROBUSTNESS: &str = "Find crash paths, resource leaks, error handling gaps, \
+    and unhandled edge cases.";
+
+const MANDATE_CORRECTNESS: &str = "Find logic errors, race conditions, invariant violations, \
+    and incorrect algorithm implementations.";
+
+/// Map a mandate name to its prompt text.
+pub fn mandate_prompt(mandate: &str) -> &str {
+    match mandate {
+        "adversarial" => MANDATE_ADVERSARIAL,
+        "security" => MANDATE_SECURITY,
+        "robustness" => MANDATE_ROBUSTNESS,
+        "correctness" => MANDATE_CORRECTNESS,
+        _ => mandate, // Custom mandate text passed through as-is
+    }
+}
+
+/// Discover source partitions by listing top-level directories that contain
+/// source files. Returns `(label, files)` pairs.
+fn discover_partitions(repo_root: &Path) -> Result<Vec<(String, Vec<String>)>> {
+    let mut partitions: Vec<(String, Vec<String>)> = Vec::new();
+
+    let source_extensions = [
+        "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "h", "hpp", "rb", "ex",
+        "exs", "zig", "swift", "kt", "scala",
+    ];
+
+    let entries = std::fs::read_dir(repo_root)
+        .with_context(|| format!("Failed to read repo root: {}", repo_root.display()))?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Skip hidden dirs and common non-source dirs
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.')
+            || name == "target"
+            || name == "node_modules"
+            || name == "vendor"
+            || name == "dist"
+            || name == "build"
+        {
+            continue;
+        }
+
+        if path.is_dir() {
+            let files = collect_source_files(&path, repo_root, &source_extensions)?;
+            if !files.is_empty() {
+                partitions.push((name, files));
+            }
+        }
+    }
+
+    // Sort partitions by label for deterministic output
+    partitions.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(partitions)
+}
+
+/// Recursively collect source files within a directory, returning paths
+/// relative to `repo_root`.
+fn collect_source_files(dir: &Path, repo_root: &Path, extensions: &[&str]) -> Result<Vec<String>> {
+    let mut files = Vec::new();
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(files),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        if name.starts_with('.') {
+            continue;
+        }
+
+        if path.is_dir() {
+            if name == "target" || name == "node_modules" || name == "vendor" {
+                continue;
+            }
+            files.extend(collect_source_files(&path, repo_root, extensions)?);
+        } else if let Some(ext) = path.extension() {
+            if extensions.contains(&ext.to_string_lossy().as_ref()) {
+                if let Ok(rel) = path.strip_prefix(repo_root) {
+                    files.push(rel.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    Ok(files)
+}
+
+/// Assign partitions to agents using round-robin distribution.
+pub fn assign_partitions(
+    partitions: Vec<(String, Vec<String>)>,
+    agent_count: usize,
+) -> Vec<ReviewAgentAssignment> {
+    let agent_count = agent_count.max(1);
+    let mut assignments: Vec<ReviewAgentAssignment> = (0..agent_count)
+        .map(|i| ReviewAgentAssignment {
+            agent_slug: format!("reviewer-{}", i + 1),
+            partition_label: String::new(),
+            files: Vec::new(),
+        })
+        .collect();
+
+    for (i, (label, files)) in partitions.into_iter().enumerate() {
+        let agent_idx = i % agent_count;
+        if !assignments[agent_idx].partition_label.is_empty() {
+            assignments[agent_idx].partition_label.push_str(", ");
+        }
+        assignments[agent_idx].partition_label.push_str(&label);
+        assignments[agent_idx].files.extend(files);
+    }
+
+    // Filter out agents with no files assigned
+    assignments.retain(|a| !a.files.is_empty());
+    assignments
+}
+
+/// Launch a parallel adversarial review across codebase partitions.
+pub fn review(
+    crosslink_dir: &Path,
+    agent_count: usize,
+    mandate: &str,
+    doc: Option<&Path>,
+    file_issues: bool,
+    fix: bool,
+) -> Result<()> {
+    let repo_root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let sync = SyncManager::new(crosslink_dir)?;
+    sync.init_cache()?;
+    sync.fetch()?;
+
+    // Discover source partitions
+    let partitions = discover_partitions(repo_root)?;
+    if partitions.is_empty() {
+        bail!("No source directories found in repo root. Nothing to review.");
+    }
+
+    println!(
+        "Discovered {} source partition(s) in {}",
+        partitions.len(),
+        repo_root.display()
+    );
+    for (label, files) in &partitions {
+        println!("  {} ({} files)", label, files.len());
+    }
+    println!();
+
+    // Assign partitions to agents
+    let assignments = assign_partitions(partitions, agent_count);
+    let prompt_text = mandate_prompt(mandate);
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let plan = ReviewPlan {
+        mandate: mandate.to_string(),
+        mandate_prompt: prompt_text.to_string(),
+        agent_count: assignments.len(),
+        created_at: now,
+        agents: assignments.clone(),
+        doc_output: doc.map(|p| p.to_path_buf()),
+    };
+
+    // Persist plan to hub branch
+    write_hub_json(&sync, "swarm/review-plan.json", &plan)?;
+    commit_hub_files(
+        &sync,
+        &["swarm/review-plan.json"],
+        "swarm: store review plan",
+    )?;
+
+    // Print summary
+    println!("Review plan ({} mandate):", mandate);
+    println!("  Prompt: {}", prompt_text);
+    println!();
+    println!("Agent assignments:");
+    for agent in &plan.agents {
+        println!(
+            "  {} — partitions: [{}] ({} files)",
+            agent.agent_slug,
+            agent.partition_label,
+            agent.files.len()
+        );
+    }
+    println!();
+
+    if let Some(doc_path) = doc {
+        println!("Findings will be consolidated to: {}", doc_path.display());
+    }
+
+    println!("Plan saved to hub branch at swarm/review-plan.json");
+
+    if file_issues {
+        println!();
+        println!("--file-issues: not yet implemented (see #344)");
+    }
+    if fix {
+        println!();
+        println!("--fix: not yet implemented (see #348)");
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -2648,5 +2942,262 @@ mod tests {
         assert_eq!(json_tight, "\"tight\"");
         let json_overflow = serde_json::to_string(&WindowFit::Overflow).unwrap();
         assert_eq!(json_overflow, "\"overflow\"");
+    }
+
+    // -----------------------------------------------------------------------
+    // swarm review tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_mandate_prompt_adversarial() {
+        let prompt = mandate_prompt("adversarial");
+        assert!(prompt.contains("ha-satan"));
+        assert!(prompt.contains("correctness, safety, and robustness"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_security() {
+        let prompt = mandate_prompt("security");
+        assert!(prompt.contains("trust boundary"));
+        assert!(prompt.contains("injection vectors"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_robustness() {
+        let prompt = mandate_prompt("robustness");
+        assert!(prompt.contains("crash paths"));
+        assert!(prompt.contains("resource leaks"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_correctness() {
+        let prompt = mandate_prompt("correctness");
+        assert!(prompt.contains("logic errors"));
+        assert!(prompt.contains("race conditions"));
+    }
+
+    #[test]
+    fn test_mandate_prompt_custom_passthrough() {
+        let custom = "Check for off-by-one errors everywhere";
+        assert_eq!(mandate_prompt(custom), custom);
+    }
+
+    #[test]
+    fn test_finding_serde_roundtrip() {
+        let finding = Finding {
+            title: "Unchecked unwrap in parser".to_string(),
+            severity: FindingSeverity::High,
+            file: "src/parser.rs".to_string(),
+            line: Some(42),
+            description: "This unwrap will panic on malformed input".to_string(),
+            suggested_fix: Some("Use ? operator instead".to_string()),
+            agent: "reviewer-1".to_string(),
+        };
+        let json = serde_json::to_string(&finding).unwrap();
+        let parsed: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.title, finding.title);
+        assert_eq!(parsed.severity, finding.severity);
+        assert_eq!(parsed.file, finding.file);
+        assert_eq!(parsed.line, finding.line);
+        assert_eq!(parsed.description, finding.description);
+        assert_eq!(parsed.suggested_fix, finding.suggested_fix);
+        assert_eq!(parsed.agent, finding.agent);
+    }
+
+    #[test]
+    fn test_finding_minimal_serde_roundtrip() {
+        let finding = Finding {
+            title: "Minor issue".to_string(),
+            severity: FindingSeverity::Info,
+            file: "src/lib.rs".to_string(),
+            line: None,
+            description: "Consider adding docs".to_string(),
+            suggested_fix: None,
+            agent: "reviewer-2".to_string(),
+        };
+        let json = serde_json::to_string(&finding).unwrap();
+        let parsed: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.line, None);
+        assert_eq!(parsed.suggested_fix, None);
+    }
+
+    #[test]
+    fn test_review_report_serde_roundtrip() {
+        let report = ReviewReport {
+            agent: "reviewer-1".to_string(),
+            partition_label: "src, lib".to_string(),
+            mandate: "adversarial".to_string(),
+            findings: vec![Finding {
+                title: "Buffer overflow".to_string(),
+                severity: FindingSeverity::Critical,
+                file: "src/buffer.rs".to_string(),
+                line: Some(100),
+                description: "Writes past allocated size".to_string(),
+                suggested_fix: Some("Add bounds check".to_string()),
+                agent: "reviewer-1".to_string(),
+            }],
+            completed_at: Some("2026-03-12T10:00:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: ReviewReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.agent, report.agent);
+        assert_eq!(parsed.partition_label, report.partition_label);
+        assert_eq!(parsed.mandate, report.mandate);
+        assert_eq!(parsed.findings.len(), 1);
+        assert_eq!(parsed.findings[0].title, "Buffer overflow");
+        assert_eq!(parsed.completed_at, report.completed_at);
+    }
+
+    #[test]
+    fn test_finding_severity_ordering() {
+        // Derived PartialOrd/Ord uses variant declaration order
+        assert!(FindingSeverity::Critical < FindingSeverity::High);
+        assert!(FindingSeverity::High < FindingSeverity::Medium);
+        assert!(FindingSeverity::Medium < FindingSeverity::Low);
+        assert!(FindingSeverity::Low < FindingSeverity::Info);
+
+        // Sort a mixed list and verify order
+        let mut severities = vec![
+            FindingSeverity::Low,
+            FindingSeverity::Critical,
+            FindingSeverity::Info,
+            FindingSeverity::High,
+            FindingSeverity::Medium,
+        ];
+        severities.sort();
+        assert_eq!(
+            severities,
+            vec![
+                FindingSeverity::Critical,
+                FindingSeverity::High,
+                FindingSeverity::Medium,
+                FindingSeverity::Low,
+                FindingSeverity::Info,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_assign_partitions_round_robin() {
+        let partitions = vec![
+            ("alpha".to_string(), vec!["a/1.rs".to_string()]),
+            ("beta".to_string(), vec!["b/1.rs".to_string()]),
+            ("gamma".to_string(), vec!["c/1.rs".to_string()]),
+            ("delta".to_string(), vec!["d/1.rs".to_string()]),
+            ("epsilon".to_string(), vec!["e/1.rs".to_string()]),
+        ];
+        let assignments = assign_partitions(partitions, 3);
+
+        assert_eq!(assignments.len(), 3);
+        // Agent 0 gets partitions 0, 3 (alpha, delta)
+        assert!(assignments[0].partition_label.contains("alpha"));
+        assert!(assignments[0].partition_label.contains("delta"));
+        assert_eq!(assignments[0].files.len(), 2);
+        // Agent 1 gets partition 1, 4 (beta, epsilon)
+        assert!(assignments[1].partition_label.contains("beta"));
+        assert!(assignments[1].partition_label.contains("epsilon"));
+        assert_eq!(assignments[1].files.len(), 2);
+        // Agent 2 gets partition 2 (gamma)
+        assert!(assignments[2].partition_label.contains("gamma"));
+        assert_eq!(assignments[2].files.len(), 1);
+    }
+
+    #[test]
+    fn test_assign_partitions_more_agents_than_partitions() {
+        let partitions = vec![
+            ("src".to_string(), vec!["src/main.rs".to_string()]),
+            ("lib".to_string(), vec!["lib/mod.rs".to_string()]),
+        ];
+        let assignments = assign_partitions(partitions, 5);
+
+        // Only 2 agents should have files; the rest are filtered out
+        assert_eq!(assignments.len(), 2);
+        assert_eq!(assignments[0].agent_slug, "reviewer-1");
+        assert_eq!(assignments[1].agent_slug, "reviewer-2");
+    }
+
+    #[test]
+    fn test_assign_partitions_single_agent() {
+        let partitions = vec![
+            ("a".to_string(), vec!["a/1.rs".to_string()]),
+            ("b".to_string(), vec!["b/1.rs".to_string()]),
+            ("c".to_string(), vec!["c/1.rs".to_string()]),
+        ];
+        let assignments = assign_partitions(partitions, 1);
+
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].files.len(), 3);
+        assert!(assignments[0].partition_label.contains("a"));
+        assert!(assignments[0].partition_label.contains("b"));
+        assert!(assignments[0].partition_label.contains("c"));
+    }
+
+    #[test]
+    fn test_assign_partitions_empty() {
+        let partitions: Vec<(String, Vec<String>)> = vec![];
+        let assignments = assign_partitions(partitions, 4);
+        assert!(assignments.is_empty());
+    }
+
+    #[test]
+    fn test_assign_partitions_zero_agents_defaults_to_one() {
+        let partitions = vec![("src".to_string(), vec!["src/main.rs".to_string()])];
+        let assignments = assign_partitions(partitions, 0);
+        assert_eq!(assignments.len(), 1);
+    }
+
+    #[test]
+    fn test_review_plan_serde_roundtrip() {
+        let plan = ReviewPlan {
+            mandate: "adversarial".to_string(),
+            mandate_prompt: MANDATE_ADVERSARIAL.to_string(),
+            agent_count: 2,
+            created_at: "2026-03-12T10:00:00Z".to_string(),
+            agents: vec![
+                ReviewAgentAssignment {
+                    agent_slug: "reviewer-1".to_string(),
+                    partition_label: "src".to_string(),
+                    files: vec!["src/main.rs".to_string()],
+                },
+                ReviewAgentAssignment {
+                    agent_slug: "reviewer-2".to_string(),
+                    partition_label: "lib".to_string(),
+                    files: vec!["lib/mod.rs".to_string()],
+                },
+            ],
+            doc_output: Some(std::path::PathBuf::from("review-findings.md")),
+        };
+        let json = serde_json::to_string_pretty(&plan).unwrap();
+        let parsed: ReviewPlan = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.mandate, plan.mandate);
+        assert_eq!(parsed.agent_count, 2);
+        assert_eq!(parsed.agents.len(), 2);
+        assert_eq!(parsed.agents[0].agent_slug, "reviewer-1");
+        assert_eq!(parsed.doc_output, plan.doc_output);
+    }
+
+    #[test]
+    fn test_finding_severity_serde_values() {
+        // Verify the rename_all = "snake_case" produces expected strings
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Critical).unwrap(),
+            "\"critical\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::High).unwrap(),
+            "\"high\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Low).unwrap(),
+            "\"low\""
+        );
+        assert_eq!(
+            serde_json::to_string(&FindingSeverity::Info).unwrap(),
+            "\"info\""
+        );
     }
 }
