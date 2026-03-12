@@ -11,12 +11,14 @@ mod events;
 mod hydration;
 mod identity;
 mod issue_file;
+mod issue_filing;
 mod knowledge;
 mod lock_check;
 mod locks;
 mod models;
 #[allow(dead_code)]
 mod orchestrator;
+mod seam;
 mod server;
 #[allow(dead_code)]
 mod shared_writer;
@@ -1412,6 +1414,21 @@ enum SwarmCommands {
     },
     /// Show the current window plan (alias for plan with saved config)
     PlanShow,
+    /// Launch parallel fix agents, one per issue
+    Fix {
+        /// Comma-separated issue numbers (e.g., "326,327,328")
+        #[arg(long, value_name = "IDS")]
+        issues: Option<String>,
+        /// Label filter to select issues (e.g., "review-finding")
+        #[arg(long, value_name = "LABEL")]
+        from_label: Option<String>,
+        /// Maximum number of concurrent agents
+        #[arg(long, default_value = "6")]
+        max_agents: usize,
+        /// Check budget before launching
+        #[arg(long)]
+        budget_aware: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2283,6 +2300,18 @@ fn main() -> Result<()> {
                     commands::swarm::plan(&crosslink_dir, budget_window.as_deref())
                 }
                 SwarmCommands::PlanShow => commands::swarm::plan_show(&crosslink_dir),
+                SwarmCommands::Fix {
+                    issues,
+                    from_label,
+                    max_agents,
+                    budget_aware,
+                } => commands::swarm::fix(
+                    &crosslink_dir,
+                    issues.as_deref(),
+                    from_label.as_deref(),
+                    max_agents,
+                    budget_aware,
+                ),
             }
         }
         Commands::Tui => {
