@@ -98,7 +98,7 @@ One command: creates the issue, labels it, and marks it as the active work item.
 ::: {.callout-note collapse="true" title="Manual CLI equivalent"}
 ```bash
 crosslink create "Fix login bug" -p high
-crosslink label 1 bug
+crosslink issue label 1 bug
 crosslink session work 1
 ```
 :::

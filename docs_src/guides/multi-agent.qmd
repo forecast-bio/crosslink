@@ -68,7 +68,7 @@ crosslink session work 15   # agent-backend claims #15
 crosslink session work 18   # agent-infra claims #18
 
 # If an agent tries a locked issue, it moves on
-crosslink next              # skips locked issues
+crosslink issue next        # skips locked issues
 ```
 :::
 :::
@@ -77,7 +77,7 @@ crosslink next              # skips locked issues
 ```bash
 # View all active locks
 crosslink locks list
-crosslink locks list --json
+crosslink --json locks list
 
 # Check if a specific issue is available
 crosslink locks check 5
@@ -93,7 +93,7 @@ These commands automatically respect lock state -- no manual lock management req
 
 | Command | Lock Behavior |
 |---------|---------------|
-| `crosslink next` | Skips locked issues when recommending work |
+| `crosslink issue next` | Skips locked issues when recommending work |
 | `crosslink session work <id>` | Warns if issue is locked by another agent |
 | `crosslink create --work` | Only sets as active if not locked |
 

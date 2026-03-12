@@ -46,8 +46,12 @@ Changes take effect on the next prompt.
 
 Regardless of tracking mode, these are **always blocked**:
 
-- **Git mutations**: `git push`, `git commit`, `git merge`, `git rebase`, etc.
-- These are human-only operations. Agents should never push code or create commits without explicit instruction through the `/commit` skill.
+- **Git mutations**: `git push`, `git merge`, `git rebase`, `git reset`, `git stash`, `git tag`, etc.
+- These are human-only operations. Agents should never push code without explicit instruction.
+
+**Gated** (require an active crosslink issue):
+
+- `git commit` — allowed only when the agent has an active work item via `crosslink session work <id>` or the `/commit` skill.
 
 Read-only git commands (`git status`, `git diff`, `git log`, `git show`, `git branch`) are always allowed.
 

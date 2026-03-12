@@ -231,6 +231,8 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink integrity hydration` | Verify SQLite matches JSON issue files |
 | `crosslink integrity locks` | Check for stale or orphaned locks |
 | `crosslink integrity schema` | Verify SQLite schema version |
+| `crosslink compact` | Run event compaction manually |
+| `crosslink compact --force` | Force compaction even if lease is held by another agent |
 
 ## Migration
 
@@ -320,6 +322,7 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 |---------|-------------|
 | `crosslink serve` | Start the web dashboard HTTP server (default port: 3100) |
 | `crosslink serve --port <port>` | Port to listen on |
+| `crosslink serve --dashboard-dir <path>` | Serve a custom React dashboard directory |
 
 ## Terminal UI
 

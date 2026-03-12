@@ -168,7 +168,7 @@ Once trust is approved, the background agent:
 
 1. Starts a crosslink session and marks the feature issue as its focus
 2. Reads `CLAUDE.md` and explores relevant code
-3. Documents its plan via `crosslink comment`
+3. Documents its plan via `crosslink issue comment`
 4. Implements the feature (no stubs, full error handling)
 5. Records breadcrumbs with `crosslink session action` to survive context compression
 6. Runs tests and linters
