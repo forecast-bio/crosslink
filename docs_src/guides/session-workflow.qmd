@@ -2,23 +2,35 @@
 title: "Session Workflow"
 ---
 
+ 
+
+::: {.feature-card}
+## tl;dr
+
 Sessions are crosslink's memory system. Your agents use them automatically to preserve context across conversations — tracking what's being worked on, recording breadcrumbs, and passing handoff notes to the next session.
+:::
+
+ 
+
+---
+
+## The session lifecycle
+
+Every agent conversation follows this cycle. The hooks handle most of it automatically — you just provide direction.
 
 ![](../assets/img/session-flow.svg)
 
 <!-- ![](../assets/img/session-workflow.gif) -->
 
-## The Session Lifecycle
 
-```
+<!-- ```
 session start → session work <id> → session action "..." → session end --notes "..."
      ↑                                                              ↓
      └──────────────── next session reads handoff notes ────────────┘
-```
+``` -->
 
-Every agent conversation follows this cycle. The hooks handle most of it automatically — you just provide direction.
 
-## Starting a Session
+### Starting a session
 
 ::: {.columns}
 ::: {.column width="35%"}
@@ -45,7 +57,7 @@ crosslink session start
 :::
 :::
 
-## Setting Focus
+### Setting focus
 
 ::: {.columns}
 ::: {.column width="35%"}
@@ -75,7 +87,7 @@ crosslink quick "Add dark mode toggle" -p high -l feature
 :::
 :::
 
-## Recording Breadcrumbs
+### Recording breadcrumbs
 
 ::: {.columns}
 ::: {.column width="35%"}
@@ -98,7 +110,7 @@ crosslink session action "Dark mode CSS done, writing tests"
 :::
 :::
 
-## Ending a Session
+### Ending a session
 
 ::: {.columns}
 ::: {.column width="35%"}
@@ -123,7 +135,7 @@ crosslink session end --notes "Implemented dark mode \
 :::
 :::
 
-## Checking Status
+### Checking status
 
 ::: {.columns}
 ::: {.column width="35%"}
@@ -146,11 +158,17 @@ crosslink session status
 :::
 :::
 
-## Stale Session Detection
+ 
+
+---
+
+## Extra features
+
+### Stale session detection
 
 Sessions idle for more than 4 hours are automatically ended on the next `session start`. This prevents "ghost sessions" from accumulating when an agent session is abandoned without a clean end. The auto-end message notes that handoff notes may be incomplete.
 
-## Context Compression Recovery
+### Context compression recovery
 
 When Claude Code's context window fills up, it compresses earlier messages. The `session-start.py` hook fires on resume and:
 
@@ -160,6 +178,10 @@ When Claude Code's context window fills up, it compresses earlier messages. The 
 4. Displays current session state
 
 This happens transparently — the agent recovers and continues working without losing track of what it was doing.
+
+ 
+
+---
 
 ## Tips
 

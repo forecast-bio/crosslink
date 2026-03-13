@@ -1,5 +1,25 @@
 /* css styles */
 
+/* ── Column-page-right / TOC interaction fix ─────────────────────────
+   Quarto overlays .column-page-right (z-index 998) above the margin
+   sidebar TOC (z-index 1). The margin sidebar's `position: sticky`
+   creates a competing stacking context and the transparent div
+   background lets the TOC bleed through. Fix: solid bg + relative
+   positioning to ensure the overlay is opaque and stacks correctly. */
+.column-page-right {
+  position: relative;
+  background: #F9F4F5;
+}
+
+/* On pages with wide content, collapse the margin TOC to prevent
+   it from showing beside the image on mid-width viewports where
+   the grid doesn't fully overlap. */
+@media (min-width: 992px) {
+  .page-columns:has(.column-page-right) #quarto-margin-sidebar {
+    z-index: 0;
+  }
+}
+
 /* Full-width banner — breaks out of Quarto's content container */
 .full-width-banner {
   width: 100vw;

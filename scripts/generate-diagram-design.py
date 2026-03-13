@@ -39,7 +39,7 @@ def generate():
     nodes = [
         (100,  P["blue"],   "Explore",   "search code +\nknowledge pages"),
         (260,  P["green"],  "Interview", "3-5 grounded\nquestions"),
-        (420,  P["yellow"], "Draft",     ".design/<slug>.md"),
+        (420,  P["yellow"], "Draft",     ".design/&lt;slug&gt;.md"),
         (580,  P["red"],    "Validate",  "reqs, ACs,\nreal file refs"),
     ]
 

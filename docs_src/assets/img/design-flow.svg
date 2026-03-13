@@ -24,7 +24,7 @@
   <ellipse cx="420" cy="155" rx="65" ry="45" fill="#FFCE02" opacity="0.12"/>
   <ellipse cx="420" cy="155" rx="55" ry="37" fill="#FFFFFF" opacity="0.85"/>
   <text x="420" y="147" class="heading" font-size="15" fill="#FFCE02" text-anchor="middle">Draft</text>
-  <text x="420" y="169" class="mono" font-size="11" fill="#666666" text-anchor="middle">.design/<slug>.md</text>
+  <text x="420" y="169" class="mono" font-size="11" fill="#666666" text-anchor="middle">.design/&lt;slug&gt;.md</text>
   <ellipse cx="580" cy="155" rx="65" ry="45" fill="#F95838" opacity="0.12"/>
   <ellipse cx="580" cy="155" rx="55" ry="37" fill="#FFFFFF" opacity="0.85"/>
   <text x="580" y="147" class="heading" font-size="15" fill="#F95838" text-anchor="middle">Validate</text>

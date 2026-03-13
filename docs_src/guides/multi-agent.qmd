@@ -10,7 +10,9 @@ Crosslink lets you tell your agent to work on multiple features at once. Behind 
 
 Lock state is stored on a `crosslink/hub` git branch and synchronized via git. Each agent registers a machine-local identity and claims issues through locks. Other agents see which issues are taken and work on available ones instead. All of this happens automatically -- you never need to manage locks yourself.
 
+::: {.column-page-right}
 ![](../assets/img/multi-agent-flow.svg)
+:::
 
 <!-- ![](../assets/img/multi-agent.gif) -->
 

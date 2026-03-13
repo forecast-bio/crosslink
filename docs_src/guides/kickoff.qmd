@@ -21,7 +21,13 @@ The `/kickoff` flow launches an autonomous Claude agent in an isolated git workt
                   explore -> implement -> test -> commit -> done
 ```
 
+---
+
+::: {.column-page-right}
 ![](../assets/img/kickoff-flow.svg)
+:::
+
+---
 
 <!-- ![](../assets/img/kickoff.gif) -->
 
