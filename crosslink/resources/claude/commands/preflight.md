@@ -36,6 +36,9 @@ Check for project manifests and load the corresponding rule files:
 | `Gemfile` | Ruby | `.crosslink/rules/ruby.md` |
 | `composer.json` | PHP | `.crosslink/rules/php.md` |
 | `Package.swift` | Swift | `.crosslink/rules/swift.md` |
+| `mix.exs` | Elixir | `.crosslink/rules/elixir.md` |
+
+Also load `.crosslink/rules/elixir-phoenix.md` if `mix.exs` contains `:phoenix`.
 
 Only read rule files for languages actually detected in this project.
 

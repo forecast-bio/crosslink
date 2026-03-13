@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(crosslink *), Bash(git *), Bash(cargo *), Bash(npm *), Bash(npx *), Bash(uv *), Bash(ruff *), Bash(go *), Read
+allowed-tools: Bash(crosslink *), Bash(git *), Bash(cargo *), Bash(npm *), Bash(npx *), Bash(uv *), Bash(ruff *), Bash(go *), Bash(mix *), Read
 description: Pre-commit quality gate — review changes before committing
 ---
 
@@ -74,6 +74,12 @@ go vet ./...
 gofmt -l .
 ```
 
+**Elixir** (if `mix.exs` exists):
+```bash
+mix format --check-formatted
+mix credo --strict
+```
+
 Fix any issues found before proceeding.
 
 ### 5. Run test suite
@@ -84,6 +90,7 @@ Run the project's test suite:
 - Node: `npm test`
 - Python: `uv run pytest` or `pytest`
 - Go: `go test ./...`
+- Elixir: `mix test --seed 0`
 
 All tests must pass before committing.
 

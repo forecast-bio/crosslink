@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(crosslink *), Bash(git *), Bash(cargo *), Bash(npm *), Bash(npx *), Bash(uv *), Bash(ruff *), Bash(go *), Bash(ls *), Read, Grep
+allowed-tools: Bash(crosslink *), Bash(git *), Bash(cargo *), Bash(npm *), Bash(npx *), Bash(uv *), Bash(ruff *), Bash(go *), Bash(mix *), Bash(ls *), Read, Grep
 description: Codebase maintenance — dependency audit, lint health, dead code, test gaps, issue hygiene
 ---
 
@@ -38,6 +38,12 @@ npm audit --audit-level=moderate 2>/dev/null || echo "npm audit not available"
 uv pip list --outdated 2>/dev/null || pip list --outdated 2>/dev/null || echo "skip"
 ```
 
+**Elixir** (if `mix.exs` exists):
+```bash
+mix hex.outdated 2>/dev/null || echo "mix hex.outdated not available"
+mix deps.audit 2>/dev/null || echo "mix deps.audit not available"
+```
+
 Report: list any dependencies with known vulnerabilities or major version bumps available.
 
 ### 2. Lint and format check
@@ -66,6 +72,12 @@ go vet ./... 2>/dev/null
 gofmt -l . 2>/dev/null
 ```
 
+**Elixir**:
+```bash
+mix format --check-formatted 2>&1
+mix credo --strict 2>&1
+```
+
 Count warnings and errors. If any are found, fix them.
 
 ### 3. Test suite health
@@ -76,6 +88,7 @@ Run the full test suite and assess health:
 **Node**: `npm test 2>&1`
 **Python**: `uv run pytest 2>/dev/null || pytest 2>/dev/null`
 **Go**: `go test ./... 2>/dev/null`
+**Elixir**: `mix test 2>&1`
 
 Report:
 - Total tests, passed, failed, skipped

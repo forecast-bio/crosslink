@@ -20,6 +20,7 @@ const LANGUAGE_MANIFESTS: &[(&str, &str, &str)] = &[
     ("Package.swift", "Swift", "swift.md"),
     ("CMakeLists.txt", "C/C++", "cpp.md"),
     ("Makefile", "C/C++", "c.md"),
+    ("mix.exs", "Elixir", "elixir.md"),
 ];
 
 /// Expected hook files that should exist in .claude/hooks/.

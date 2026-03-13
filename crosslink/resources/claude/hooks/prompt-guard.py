@@ -94,6 +94,8 @@ def load_all_rules(crosslink_dir):
         ('scala.md', 'Scala'),
         ('zig.md', 'Zig'),
         ('odin.md', 'Odin'),
+        ('elixir.md', 'Elixir'),
+        ('elixir-phoenix.md', 'Elixir/Phoenix'),
     ]
 
     for filename, lang_name in language_files:
@@ -144,6 +146,9 @@ def detect_languages():
         '.scala': 'Scala',
         '.zig': 'Zig',
         '.odin': 'Odin',
+        '.ex': 'Elixir',
+        '.exs': 'Elixir',
+        '.heex': 'Elixir/Phoenix',
     }
 
     found = set()
@@ -162,6 +167,7 @@ def detect_languages():
         'Gemfile': 'Ruby',
         'composer.json': 'PHP',
         'Package.swift': 'Swift',
+        'mix.exs': 'Elixir',
     }
 
     # Check cwd and immediate subdirs for config files
@@ -225,7 +231,8 @@ SKIP_DIRS = {
     '.git', 'node_modules', 'target', 'venv', '.venv', 'env', '.env',
     '__pycache__', '.crosslink', '.claude', 'dist', 'build', '.next',
     '.nuxt', 'vendor', '.idea', '.vscode', 'coverage', '.pytest_cache',
-    '.mypy_cache', '.tox', 'eggs', '*.egg-info', '.sass-cache'
+    '.mypy_cache', '.tox', 'eggs', '*.egg-info', '.sass-cache',
+    '_build', 'deps', '.elixir_ls', '.fetch'
 }
 
 
@@ -377,6 +384,23 @@ def get_dependencies(max_deps=30):
             pass
         if deps:
             return "Python (requirements.txt):\n" + "\n".join(deps[:max_deps])
+
+    # Check for Elixir (mix.exs)
+    mix_exs = os.path.join(cwd, 'mix.exs')
+    if os.path.exists(mix_exs):
+        try:
+            import re
+            with open(mix_exs, 'r') as f:
+                content = f.read()
+                # Match {:dep_name, "~> x.y"} or {:dep_name, ">= x.y"} patterns
+                for match in re.finditer(r'\{:(\w+),\s*"([^"]+)"', content):
+                    deps.append(f"  {match.group(1)}: {match.group(2)}")
+                    if len(deps) >= max_deps:
+                        break
+        except (OSError, Exception):
+            pass
+        if deps:
+            return "Elixir (mix.exs):\n" + "\n".join(deps[:max_deps])
 
     # Check for Go (go.mod)
     go_mod = os.path.join(cwd, 'go.mod')

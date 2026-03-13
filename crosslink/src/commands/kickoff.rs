@@ -413,6 +413,71 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(make *)".to_string());
     }
 
+    // Elixir
+    if repo_root.join("mix.exs").is_file() {
+        if conv.test_command.is_none() {
+            conv.test_command = Some("mix test".to_string());
+        }
+        conv.lint_commands
+            .push("mix format --check-formatted".to_string());
+        conv.allowed_tools.push("Bash(mix compile *)".to_string());
+        conv.allowed_tools.push("Bash(mix test *)".to_string());
+        conv.allowed_tools.push("Bash(mix format *)".to_string());
+        conv.allowed_tools.push("Bash(mix deps.get *)".to_string());
+        conv.allowed_tools.push("Bash(mix deps.tree *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix deps.compile *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix ecto.migrate *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix gettext.extract *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix gettext.merge *)".to_string());
+        conv.allowed_tools.push("Bash(mix help *)".to_string());
+        conv.allowed_tools.push("Bash(mix hex.info *)".to_string());
+        conv.allowed_tools.push("Bash(mix xref *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix phx.routes *)".to_string());
+        conv.allowed_tools.push("Bash(mix dialyzer *)".to_string());
+
+        // Credo (check if it's a dep)
+        if let Ok(content) = std::fs::read_to_string(repo_root.join("mix.exs")) {
+            if content.contains(":credo") {
+                conv.lint_commands.push("mix credo --strict".to_string());
+                conv.allowed_tools.push("Bash(mix credo *)".to_string());
+            }
+            if content.contains(":sobelow") {
+                conv.lint_commands.push("mix sobelow --config".to_string());
+                conv.allowed_tools.push("Bash(mix sobelow *)".to_string());
+            }
+            // Tidewave MCP tools (if :tidewave is a dep and a local dev server is running)
+            // NOTE: subagent support for starting mix phx.server is TBD — for now
+            // these tools are available but require a running dev server
+            if content.contains(":tidewave") {
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_logs".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_source_location".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_docs".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_ecto_schemas".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__search_package_docs".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__list_project_files".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__read_project_file".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__grep_project_files".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__execute_sql_query".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__project_eval".to_string());
+            }
+        }
+    }
+
     conv
 }
 
@@ -4181,6 +4246,91 @@ mod tests {
 
         let conv = detect_conventions(dir.path());
         assert!(conv.allowed_tools.contains(&"Bash(make *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_elixir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("mix.exs"),
+            r#"defmodule MyApp.MixProject do
+  use Mix.Project
+  defp deps do
+    [{:phoenix, "~> 1.7"}, {:credo, "~> 1.7", only: [:dev, :test]}, {:sobelow, "~> 0.13", only: :dev}]
+  end
+end"#,
+        )
+        .unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert_eq!(conv.test_command.as_deref(), Some("mix test"));
+        assert!(conv
+            .lint_commands
+            .contains(&"mix format --check-formatted".to_string()));
+        assert!(conv
+            .lint_commands
+            .contains(&"mix credo --strict".to_string()));
+        assert!(conv
+            .lint_commands
+            .contains(&"mix sobelow --config".to_string()));
+        assert!(conv.allowed_tools.contains(&"Bash(mix test *)".to_string()));
+        assert!(conv
+            .allowed_tools
+            .contains(&"Bash(mix credo *)".to_string()));
+        assert!(conv
+            .allowed_tools
+            .contains(&"Bash(mix sobelow *)".to_string()));
+        assert!(conv
+            .allowed_tools
+            .contains(&"Bash(mix phx.routes *)".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_elixir_minimal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("mix.exs"),
+            "defmodule MyApp.MixProject do\n  use Mix.Project\nend",
+        )
+        .unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert_eq!(conv.test_command.as_deref(), Some("mix test"));
+        assert!(conv
+            .lint_commands
+            .contains(&"mix format --check-formatted".to_string()));
+        // No credo/sobelow in a minimal mix.exs
+        assert!(!conv
+            .lint_commands
+            .contains(&"mix credo --strict".to_string()));
+        assert!(!conv
+            .allowed_tools
+            .contains(&"mcp__tidewave__get_logs".to_string()));
+    }
+
+    #[test]
+    fn test_detect_conventions_elixir_with_tidewave() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("mix.exs"),
+            r#"defmodule MyApp.MixProject do
+  defp deps do
+    [{:tidewave, "~> 0.1", only: :dev}]
+  end
+end"#,
+        )
+        .unwrap();
+
+        let conv = detect_conventions(dir.path());
+        assert!(conv
+            .allowed_tools
+            .contains(&"mcp__tidewave__get_logs".to_string()));
+        assert!(conv
+            .allowed_tools
+            .contains(&"mcp__tidewave__get_docs".to_string()));
+        assert!(conv
+            .allowed_tools
+            .contains(&"mcp__tidewave__project_eval".to_string()));
     }
 
     #[test]

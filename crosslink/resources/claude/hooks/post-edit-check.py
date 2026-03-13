@@ -162,6 +162,51 @@ def run_linter(file_path, max_errors=10):
                             if len(errors) >= max_errors:
                                 break
 
+        elif ext in ('.ex', '.exs', '.heex'):
+            # Elixir: run mix format --check-formatted, then mix credo --strict if available
+            project_root = find_project_root(file_path, ['mix.exs'])
+            if project_root:
+                # mix format --check-formatted on the specific file
+                result = subprocess.run(
+                    ['mix', 'format', '--check-formatted', file_path],
+                    cwd=project_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode != 0:
+                    for line in result.stderr.split('\n'):
+                        if line.strip():
+                            errors.append(line.strip()[:100])
+                            if len(errors) >= max_errors:
+                                break
+
+                # Run mix credo --strict only if credo is in deps
+                if len(errors) < max_errors:
+                    mix_exs_path = os.path.join(project_root, 'mix.exs')
+                    has_credo = False
+                    try:
+                        with open(mix_exs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            if ':credo' in f.read():
+                                has_credo = True
+                    except OSError:
+                        pass
+
+                    if has_credo:
+                        result = subprocess.run(
+                            ['mix', 'credo', '--strict', '--format', 'oneline', file_path],
+                            cwd=project_root,
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        if result.stdout:
+                            for line in result.stdout.split('\n'):
+                                if line.strip() and ':' in line:
+                                    errors.append(line.strip()[:100])
+                                    if len(errors) >= max_errors:
+                                        break
+
     except subprocess.TimeoutExpired:
         errors.append("(linter timed out)")
     except (OSError, Exception) as e:
@@ -178,7 +223,7 @@ def is_test_file(file_path):
     # Common test file patterns
     test_patterns = [
         'test_', '_test.', '.test.', 'spec.', '_spec.',
-        'tests.', 'testing.', 'mock.', '_mock.'
+        'tests.', 'testing.', 'mock.', '_mock.', '_test.exs'
     ]
     # Common test directories
     test_dirs = ['test', 'tests', '__tests__', 'spec', 'specs', 'testing']
@@ -229,6 +274,11 @@ def find_test_files(file_path, project_root):
         test_patterns = [
             os.path.join(os.path.dirname(file_path), f'{name_without_ext}_test.go'),
         ]
+    elif ext in ('.ex', '.exs'):
+        test_patterns = [
+            os.path.join(project_root, 'test', '**', f'{name_without_ext}_test.exs'),
+            os.path.join(project_root, 'test', '**', f'*{name_without_ext}*_test.exs'),
+        ]
 
     found = []
     for pattern in test_patterns:
@@ -243,7 +293,7 @@ def get_test_reminder(file_path, project_root):
         return None  # Editing a test file, no reminder needed
 
     ext = os.path.splitext(file_path)[1]
-    code_extensions = ('.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go')
+    code_extensions = ('.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.ex', '.exs', '.heex')
 
     if ext not in code_extensions:
         return None
@@ -286,6 +336,9 @@ def get_test_reminder(file_path, project_root):
             test_cmd = 'npm test'
     elif ext == '.go' and project_root:
         test_cmd = 'go test ./...'
+    elif ext in ('.ex', '.exs', '.heex') and project_root:
+        if os.path.exists(os.path.join(project_root, 'mix.exs')):
+            test_cmd = 'mix test'
 
     if test_files or test_cmd:
         msg = "🧪 TEST REMINDER: Code modified since last test run."
@@ -315,7 +368,7 @@ def main():
     code_extensions = (
         '.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.java',
         '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.swift',
-        '.kt', '.scala', '.zig', '.odin'
+        '.kt', '.scala', '.zig', '.odin', '.ex', '.exs', '.heex'
     )
 
     if not any(file_path.endswith(ext) for ext in code_extensions):
@@ -327,7 +380,7 @@ def main():
     # Find project root for linter and test detection
     project_root = find_project_root(file_path, [
         'Cargo.toml', 'package.json', 'go.mod', 'setup.py',
-        'pyproject.toml', '.git'
+        'pyproject.toml', 'mix.exs', '.git'
     ])
 
     # Detect agent context — agents skip linting and test reminders
