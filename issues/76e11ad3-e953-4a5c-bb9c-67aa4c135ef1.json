@@ -6,5 +6,8 @@
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T02:30:10.364476Z",
-  "updated_at": "2026-03-13T02:30:10.364476Z"
+  "updated_at": "2026-03-13T02:30:12.256812Z",
+  "labels": [
+    "bug"
+  ]
 }
