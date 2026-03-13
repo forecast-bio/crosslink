@@ -138,18 +138,17 @@ fn test_roundtrip_export_import() {
     for i in 1..=5 {
         h.run_ok(&["create", &format!("Export issue {}", i), "-p", "medium"]);
         h.run_ok(&["issue", "label", &i.to_string(), "test-label"]);
-        h.run_ok(&["issue", "comment", &i.to_string(), &format!("Comment on {}", i)]);
+        h.run_ok(&[
+            "issue",
+            "comment",
+            &i.to_string(),
+            &format!("Comment on {}", i),
+        ]);
     }
 
     // Export
     let export_path = h.temp_dir.path().join("export.json");
-    h.run_ok(&[
-        "export",
-        "-f",
-        "json",
-        "-o",
-        export_path.to_str().unwrap(),
-    ]);
+    h.run_ok(&["export", "-f", "json", "-o", export_path.to_str().unwrap()]);
 
     // Verify export file exists and is valid JSON
     assert!(export_path.exists(), "export file was not created");
@@ -428,7 +427,8 @@ fn test_scale_comments_20() {
         let kind = kinds[(i - 1) % kinds.len()];
         h.run_ok(&["create", &format!("Issue for comment {}", i)]);
         h.run_ok(&[
-            "issue", "comment",
+            "issue",
+            "comment",
             &i.to_string(),
             &format!("Comment number {} of twenty", i),
             "--kind",

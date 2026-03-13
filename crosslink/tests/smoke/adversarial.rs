@@ -325,11 +325,15 @@ fn test_inject_shell_comment() {
 fn test_unicode_emoji_title() {
     let h = SmokeHarness::new();
     // Multi-codepoint family emoji (ZWJ sequence)
-    let title = "Fix rendering of \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} emoji";
+    let title =
+        "Fix rendering of \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} emoji";
     h.run_ok(&["create", title]);
 
     let show = h.run_ok(&["show", "1"]);
-    assert_stdout_contains(&show, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}");
+    assert_stdout_contains(
+        &show,
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+    );
 }
 
 #[test]
@@ -373,8 +377,7 @@ fn test_corrupt_db_permissions() {
     assert!(
         !result.success,
         "Expected failure when DB is read-only, but command succeeded.\nstdout: {}\nstderr: {}",
-        result.stdout,
-        result.stderr
+        result.stdout, result.stderr
     );
 
     // Restore permissions for cleanup
@@ -452,8 +455,8 @@ fn test_concurrent_creates_5() {
 
     // The number of issues in the DB should match the number of successful creates
     let result = h.run_ok(&["issue", "list", "-s", "all", "--json"]);
-    let parsed: serde_json::Value = serde_json::from_str(&result.stdout)
-        .expect("failed to parse issue list JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("failed to parse issue list JSON");
     let count = parsed.as_array().map(|a| a.len()).unwrap_or(0);
     assert!(
         count >= 1,

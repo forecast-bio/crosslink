@@ -86,10 +86,7 @@ fn extract_issue_id(stdout: &str) -> String {
             }
         }
     }
-    panic!(
-        "Could not extract issue ID from output:\n{}",
-        stdout
-    );
+    panic!("Could not extract issue ID from output:\n{}", stdout);
 }
 
 // ===========================================================================
@@ -206,13 +203,28 @@ fn test_workflow_trail_basic() {
 
     // Add typed comments
     h.run_ok(&[
-        "issue", "comment", &issue_id, "Planning the approach", "--kind", "plan",
+        "issue",
+        "comment",
+        &issue_id,
+        "Planning the approach",
+        "--kind",
+        "plan",
     ]);
     h.run_ok(&[
-        "issue", "comment", &issue_id, "Decided to use method A", "--kind", "decision",
+        "issue",
+        "comment",
+        &issue_id,
+        "Decided to use method A",
+        "--kind",
+        "decision",
     ]);
     h.run_ok(&[
-        "issue", "comment", &issue_id, "Tests all pass", "--kind", "result",
+        "issue",
+        "comment",
+        &issue_id,
+        "Tests all pass",
+        "--kind",
+        "result",
     ]);
 
     // Trail should show all comments
@@ -243,13 +255,28 @@ fn test_workflow_trail_kind_filter() {
     let issue_id = extract_issue_id(&create_result.stdout);
 
     h.run_ok(&[
-        "issue", "comment", &issue_id, "Plan: do the thing", "--kind", "plan",
+        "issue",
+        "comment",
+        &issue_id,
+        "Plan: do the thing",
+        "--kind",
+        "plan",
     ]);
     h.run_ok(&[
-        "issue", "comment", &issue_id, "Note: something happened", "--kind", "note",
+        "issue",
+        "comment",
+        &issue_id,
+        "Note: something happened",
+        "--kind",
+        "note",
     ]);
     h.run_ok(&[
-        "issue", "comment", &issue_id, "Decision: chose X", "--kind", "decision",
+        "issue",
+        "comment",
+        &issue_id,
+        "Decision: chose X",
+        "--kind",
+        "decision",
     ]);
 
     // Filter to only plan comments

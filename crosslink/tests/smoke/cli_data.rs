@@ -52,7 +52,10 @@ fn test_export_json_format() {
 
     // Check required fields are present
     assert!(first.get("uuid").is_some(), "Issue should have uuid field");
-    assert!(first.get("title").is_some(), "Issue should have title field");
+    assert!(
+        first.get("title").is_some(),
+        "Issue should have title field"
+    );
     assert!(
         first.get("priority").is_some(),
         "Issue should have priority field"
@@ -271,7 +274,9 @@ fn test_import_malformed_json() {
 
     let result = h.run_err(&["import", import_path.to_str().unwrap()]);
     assert!(
-        result.stderr.contains("parse") || result.stderr.contains("JSON") || result.stderr.contains("error"),
+        result.stderr.contains("parse")
+            || result.stderr.contains("JSON")
+            || result.stderr.contains("error"),
         "Should indicate JSON parse error, got stderr: {}",
         result.stderr
     );
@@ -355,13 +360,7 @@ fn test_import_export_roundtrip() {
 
     // Export round 1
     let export1_path = h.temp_dir.path().join("export1.json");
-    h.run_ok(&[
-        "export",
-        "-o",
-        export1_path.to_str().unwrap(),
-        "-f",
-        "json",
-    ]);
+    h.run_ok(&["export", "-o", export1_path.to_str().unwrap(), "-f", "json"]);
     let export1 = fs::read_to_string(&export1_path).unwrap();
     let issues1: Vec<serde_json::Value> = serde_json::from_str(&export1).unwrap();
     assert_eq!(issues1.len(), 10);
@@ -378,13 +377,7 @@ fn test_import_export_roundtrip() {
 
     // Export round 2
     let export2_path = h.temp_dir.path().join("export2.json");
-    h.run_ok(&[
-        "export",
-        "-o",
-        export2_path.to_str().unwrap(),
-        "-f",
-        "json",
-    ]);
+    h.run_ok(&["export", "-o", export2_path.to_str().unwrap(), "-f", "json"]);
     let export2 = fs::read_to_string(&export2_path).unwrap();
     let issues2: Vec<serde_json::Value> = serde_json::from_str(&export2).unwrap();
 
@@ -679,10 +672,7 @@ fn test_knowledge_lifecycle() {
 
     // Verify it's gone
     let show_after = h.run(&["knowledge", "show", "test-page"]);
-    assert!(
-        !show_after.success,
-        "Showing removed page should fail"
-    );
+    assert!(!show_after.success, "Showing removed page should fail");
 }
 
 #[test]
@@ -698,13 +688,7 @@ fn test_knowledge_slug_traversal() {
     ];
 
     for slug in &traversal_slugs {
-        let result = h.run(&[
-            "knowledge",
-            "add",
-            slug,
-            "--content",
-            "malicious content",
-        ]);
+        let result = h.run(&["knowledge", "add", slug, "--content", "malicious content"]);
         // Should either fail outright or sanitize the slug
         if result.success {
             // If it succeeded, the slug must have been sanitized (no path traversal)
@@ -880,8 +864,7 @@ fn test_knowledge_remove_nonexistent() {
     assert!(
         !result.success,
         "Removing nonexistent page should fail, got stdout: {} stderr: {}",
-        result.stdout,
-        result.stderr
+        result.stdout, result.stderr
     );
     assert!(
         result.stderr.contains("not found") || result.stderr.contains("Not found"),

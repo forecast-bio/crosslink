@@ -20,14 +20,10 @@ use std::time::Duration;
 /// Uses `Connection: close` so the server closes the socket after responding,
 /// which avoids having to handle chunked transfer-encoding or keep-alive.
 fn http_request(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
-        .expect("Failed to connect to server");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .ok();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .ok();
+    let mut stream =
+        TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Failed to connect to server");
+    stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
     let body_str = body.unwrap_or("");
     let request = format!(
@@ -84,16 +80,11 @@ fn decode_chunked(raw: &str) -> String {
     let mut result = String::new();
     let mut remaining = raw;
 
-    loop {
+    while let Some(line_end) = remaining.find("\r\n") {
         // Each chunk starts with the hex size followed by \r\n.
-        let line_end = match remaining.find("\r\n") {
-            Some(idx) => idx,
-            None => break,
-        };
         let size_str = remaining[..line_end].trim();
-        let size = match usize::from_str_radix(size_str, 16) {
-            Ok(s) => s,
-            Err(_) => break,
+        let Ok(size) = usize::from_str_radix(size_str, 16) else {
+            break;
         };
         if size == 0 {
             break; // Terminal chunk
@@ -139,7 +130,11 @@ fn test_server_starts_and_stops() {
 
     // Verify the port is listening by opening a TCP connection.
     let stream = TcpStream::connect(format!("127.0.0.1:{}", port));
-    assert!(stream.is_ok(), "Server should be listening on port {}", port);
+    assert!(
+        stream.is_ok(),
+        "Server should be listening on port {}",
+        port
+    );
     drop(stream);
 
     h.stop_server();
@@ -242,10 +237,7 @@ fn test_api_list_issues() {
     assert_eq!(json["total"], 3);
 
     // Verify all titles are present.
-    let titles: Vec<&str> = items
-        .iter()
-        .map(|i| i["title"].as_str().unwrap())
-        .collect();
+    let titles: Vec<&str> = items.iter().map(|i| i["title"].as_str().unwrap()).collect();
     assert!(titles.contains(&"Issue Alpha"));
     assert!(titles.contains(&"Issue Beta"));
     assert!(titles.contains(&"Issue Gamma"));
@@ -458,12 +450,7 @@ fn test_api_milestones() {
     assert_eq!(json["total"], 1);
 
     // Get by ID.
-    let (status, body) = http_request(
-        port,
-        "GET",
-        &format!("/api/v1/milestones/{}", ms_id),
-        None,
-    );
+    let (status, body) = http_request(port, "GET", &format!("/api/v1/milestones/{}", ms_id), None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["name"], "v1.0");
@@ -487,12 +474,7 @@ fn test_api_search() {
     let port = h.start_server();
 
     // Search for "authentication" — should find 2 issues.
-    let (status, body) = http_request(
-        port,
-        "GET",
-        "/api/v1/search?q=authentication",
-        None,
-    );
+    let (status, body) = http_request(port, "GET", "/api/v1/search?q=authentication", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     let total = json["total"].as_u64().unwrap_or(0);
@@ -534,10 +516,7 @@ fn test_api_config() {
         json["tracking_mode"].is_string(),
         "Config should have tracking_mode"
     );
-    assert!(
-        json["remote"].is_string(),
-        "Config should have remote"
-    );
+    assert!(json["remote"].is_string(), "Config should have remote");
     assert!(
         json.get("intervention_tracking").is_some(),
         "Config should have intervention_tracking"
@@ -578,10 +557,7 @@ fn test_api_sync_status() {
         json["hub_branch"], "crosslink/hub",
         "hub_branch should be crosslink/hub"
     );
-    assert!(
-        json.get("remote").is_some(),
-        "Should have remote field"
-    );
+    assert!(json.get("remote").is_some(), "Should have remote field");
     assert!(
         json.get("active_lock_count").is_some(),
         "Should have active_lock_count"
@@ -605,12 +581,8 @@ fn test_ws_connects() {
     // We just verify the server responds with 101 Switching Protocols.
     let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
         .expect("Failed to connect for WebSocket test");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .ok();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(5)))
-        .ok();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
     // Send a WebSocket upgrade request per RFC 6455.
     let ws_request = format!(
@@ -736,7 +708,11 @@ fn test_api_issues_blocked_and_ready() {
     assert_eq!(status, 200);
     let json = parse_json(&body);
     let total = json["total"].as_u64().unwrap_or(0);
-    assert!(total >= 2, "Should have at least 2 ready issues, got {}", total);
+    assert!(
+        total >= 2,
+        "Should have at least 2 ready issues, got {}",
+        total
+    );
 
     // Blocked list should be empty (no dependencies set).
     let (status, body) = http_request(port, "GET", "/api/v1/issues/blocked", None);
@@ -776,12 +752,7 @@ fn test_api_search_no_results() {
     let mut h = SmokeHarness::new();
     let port = h.start_server();
 
-    let (status, body) = http_request(
-        port,
-        "GET",
-        "/api/v1/search?q=xyznonexistent",
-        None,
-    );
+    let (status, body) = http_request(port, "GET", "/api/v1/search?q=xyznonexistent", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["total"], 0);
