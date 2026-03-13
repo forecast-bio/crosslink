@@ -330,6 +330,68 @@ mod tests {
     }
 
     #[test]
+    fn test_read_watermark_legacy_fallback() {
+        // When checkpoint state has no embedded watermark but a legacy
+        // watermark.json file exists, read_watermark should fall back
+        // to reading the separate file (lines 163-167).
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+
+        // Write a checkpoint state WITHOUT an embedded watermark.
+        let state = CheckpointState::default();
+        assert!(state.watermark.is_none());
+        write_checkpoint(cache_dir, &state).unwrap();
+
+        // Manually write a legacy watermark.json file in the checkpoint dir.
+        let checkpoint_dir = cache_dir.join("checkpoint");
+        let legacy_key = OrderingKey {
+            timestamp: Utc::now(),
+            agent_id: "legacy-agent".to_string(),
+            agent_seq: 99,
+        };
+        let watermark_path = checkpoint_dir.join("watermark.json");
+        let content = serde_json::to_string_pretty(&legacy_key).unwrap();
+        std::fs::write(&watermark_path, content).unwrap();
+
+        // read_watermark should fall back to the legacy watermark.json file.
+        let loaded = read_watermark(cache_dir).unwrap().unwrap();
+        assert_eq!(loaded.agent_id, "legacy-agent");
+        assert_eq!(loaded.agent_seq, 99);
+    }
+
+    #[test]
+    fn test_read_watermark_embedded_takes_precedence_over_legacy() {
+        // When checkpoint state has an embedded watermark AND a legacy
+        // watermark.json file exists, the embedded watermark should win.
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+
+        // Write a checkpoint with an embedded watermark.
+        let embedded_key = OrderingKey {
+            timestamp: Utc::now(),
+            agent_id: "embedded-agent".to_string(),
+            agent_seq: 50,
+        };
+        write_watermark(cache_dir, &embedded_key).unwrap();
+
+        // Also write a legacy watermark.json with different data.
+        let checkpoint_dir = cache_dir.join("checkpoint");
+        let legacy_key = OrderingKey {
+            timestamp: Utc::now(),
+            agent_id: "legacy-agent".to_string(),
+            agent_seq: 99,
+        };
+        let watermark_path = checkpoint_dir.join("watermark.json");
+        let content = serde_json::to_string_pretty(&legacy_key).unwrap();
+        std::fs::write(&watermark_path, content).unwrap();
+
+        // Should prefer the embedded watermark, not the legacy file.
+        let loaded = read_watermark(cache_dir).unwrap().unwrap();
+        assert_eq!(loaded.agent_id, "embedded-agent");
+        assert_eq!(loaded.agent_seq, 50);
+    }
+
+    #[test]
     fn test_checkpoint_state_with_warnings() {
         let mut state = CheckpointState::default();
         state.skew_warnings.push(SkewWarning {

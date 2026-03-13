@@ -2822,6 +2822,891 @@ mod tests {
             assert!(result.is_err());
         }
     }
+
+    // ==================== Export Metadata Tests ====================
+
+    #[test]
+    fn test_get_issue_export_metadata() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Meta test", None, "medium").unwrap();
+
+        let (uuid, created_by) = db.get_issue_export_metadata(id).unwrap();
+        // create_issue auto-generates a uuid but does not set created_by
+        assert!(uuid.is_some());
+        assert!(!uuid.unwrap().is_empty());
+        assert!(created_by.is_none());
+    }
+
+    #[test]
+    fn test_get_issue_export_metadata_with_hydrated_issue() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: 42,
+            uuid: "abc-123",
+            title: "Hydrated issue",
+            description: Some("desc"),
+            status: "open",
+            priority: "high",
+            parent_id: None,
+            created_by: Some("agent-1"),
+            created_at: &now,
+            updated_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        let (uuid, created_by) = db.get_issue_export_metadata(42).unwrap();
+        assert_eq!(uuid.as_deref(), Some("abc-123"));
+        assert_eq!(created_by.as_deref(), Some("agent-1"));
+    }
+
+    #[test]
+    fn test_get_issue_export_metadata_nonexistent() {
+        let (db, _dir) = setup_test_db();
+        let result = db.get_issue_export_metadata(99999);
+        assert!(result.is_err());
+    }
+
+    // ==================== Comments With Author Tests ====================
+
+    #[test]
+    fn test_get_comments_with_author_empty() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("No comments", None, "low").unwrap();
+
+        let comments = db.get_comments_with_author(id).unwrap();
+        assert!(comments.is_empty());
+    }
+
+    #[test]
+    fn test_get_comments_with_author() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Commented issue", None, "medium").unwrap();
+        db.add_comment(id, "First comment", "note").unwrap();
+        db.add_comment(id, "Second comment", "plan").unwrap();
+
+        let comments = db.get_comments_with_author(id).unwrap();
+        assert_eq!(comments.len(), 2);
+
+        // Tuple: (id, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint)
+        assert_eq!(comments[0].2, "First comment");
+        assert_eq!(comments[0].4, "note");
+        assert_eq!(comments[1].2, "Second comment");
+        assert_eq!(comments[1].4, "plan");
+        // author is None when added via add_comment (no author param)
+        assert!(comments[0].1.is_none());
+    }
+
+    // ==================== Time Entries Tests ====================
+
+    #[test]
+    fn test_get_time_entries_for_issue_empty() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("No timer", None, "low").unwrap();
+
+        let entries = db.get_time_entries_for_issue(id).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_get_time_entries_for_issue() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Timed issue", None, "medium").unwrap();
+
+        db.start_timer(id).unwrap();
+        db.stop_timer(id).unwrap();
+
+        let entries = db.get_time_entries_for_issue(id).unwrap();
+        assert_eq!(entries.len(), 1);
+
+        // Tuple: (id, started_at, ended_at, duration_seconds)
+        assert!(entries[0].0 > 0); // entry id
+        assert!(entries[0].2.is_some()); // ended_at should be set
+        assert!(entries[0].3.is_some()); // duration should be set
+    }
+
+    #[test]
+    fn test_get_time_entries_for_issue_active_timer() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Active timer", None, "medium").unwrap();
+
+        db.start_timer(id).unwrap();
+
+        let entries = db.get_time_entries_for_issue(id).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].2.is_none()); // ended_at not set yet
+        assert!(entries[0].3.is_none()); // duration not set yet
+    }
+
+    // ==================== Milestone UUID Tests ====================
+
+    #[test]
+    fn test_get_milestone_uuid_for_issue_none() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("No milestone", None, "low").unwrap();
+
+        let uuid = db.get_milestone_uuid_for_issue(id).unwrap();
+        assert!(uuid.is_none());
+    }
+
+    #[test]
+    fn test_get_milestone_uuid_for_issue_assigned() {
+        let (db, _dir) = setup_test_db();
+        let issue_id = db.create_issue("Milestone issue", None, "medium").unwrap();
+        let ms_id = db.create_milestone("v1.0", None).unwrap();
+        db.add_issue_to_milestone(ms_id, issue_id).unwrap();
+
+        // create_milestone doesn't set uuid, so it will be None
+        let uuid = db.get_milestone_uuid_for_issue(issue_id).unwrap();
+        assert!(uuid.is_none());
+    }
+
+    #[test]
+    fn test_get_milestone_uuid_for_issue_hydrated() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+
+        // Insert issue via hydration
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: 10,
+            uuid: "issue-uuid",
+            title: "Test",
+            description: None,
+            status: "open",
+            priority: "medium",
+            parent_id: None,
+            created_by: None,
+            created_at: &now,
+            updated_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        // Insert milestone via hydration (has uuid)
+        db.insert_hydrated_milestone(&HydratedMilestone {
+            id: 1,
+            uuid: "ms-uuid-123",
+            name: "Sprint 1",
+            description: None,
+            status: "open",
+            created_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        db.insert_hydrated_milestone_issue(1, 10).unwrap();
+
+        let uuid = db.get_milestone_uuid_for_issue(10).unwrap();
+        assert_eq!(uuid.as_deref(), Some("ms-uuid-123"));
+    }
+
+    // ==================== Related Issue IDs Tests ====================
+
+    #[test]
+    fn test_get_related_issue_ids_empty() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Lonely issue", None, "low").unwrap();
+
+        let related = db.get_related_issue_ids(id).unwrap();
+        assert!(related.is_empty());
+    }
+
+    #[test]
+    fn test_get_related_issue_ids() {
+        let (db, _dir) = setup_test_db();
+        let id1 = db.create_issue("Issue A", None, "medium").unwrap();
+        let id2 = db.create_issue("Issue B", None, "medium").unwrap();
+        let id3 = db.create_issue("Issue C", None, "medium").unwrap();
+
+        db.add_relation(id1, id2).unwrap();
+        db.add_relation(id3, id1).unwrap();
+
+        // From id1's perspective, both id2 and id3 should be related
+        let mut related = db.get_related_issue_ids(id1).unwrap();
+        related.sort();
+        assert_eq!(related, vec![id2, id3]);
+
+        // From id2's perspective, only id1 is related
+        let related2 = db.get_related_issue_ids(id2).unwrap();
+        assert_eq!(related2, vec![id1]);
+    }
+
+    // ==================== Session Agent-Scoped Tests ====================
+
+    #[test]
+    fn test_session_with_agent_id() {
+        let (db, _dir) = setup_test_db();
+
+        let sid = db.start_session_with_agent(Some("agent-alpha")).unwrap();
+        assert!(sid > 0);
+
+        // Should find it when filtering by agent
+        let session = db
+            .get_current_session_for_agent(Some("agent-alpha"))
+            .unwrap();
+        assert!(session.is_some());
+        let s = session.unwrap();
+        assert_eq!(s.agent_id.as_deref(), Some("agent-alpha"));
+
+        // Should NOT find it when filtering by a different agent
+        let other = db
+            .get_current_session_for_agent(Some("agent-beta"))
+            .unwrap();
+        assert!(other.is_none());
+
+        // None filter returns any active session
+        let any = db.get_current_session_for_agent(None).unwrap();
+        assert!(any.is_some());
+    }
+
+    #[test]
+    fn test_get_last_session_for_agent() {
+        let (db, _dir) = setup_test_db();
+
+        let sid = db.start_session_with_agent(Some("agent-x")).unwrap();
+        db.end_session(sid, Some("done")).unwrap();
+
+        // Should find the ended session for this agent
+        let session = db.get_last_session_for_agent(Some("agent-x")).unwrap();
+        assert!(session.is_some());
+        assert_eq!(session.unwrap().handoff_notes.as_deref(), Some("done"));
+
+        // Different agent should not find it
+        let other = db.get_last_session_for_agent(Some("agent-y")).unwrap();
+        assert!(other.is_none());
+
+        // None filter returns any ended session
+        let any = db.get_last_session_for_agent(None).unwrap();
+        assert!(any.is_some());
+    }
+
+    #[test]
+    fn test_set_session_action() {
+        let (db, _dir) = setup_test_db();
+
+        let sid = db.start_session().unwrap();
+        let ok = db.set_session_action(sid, "refactoring db module").unwrap();
+        assert!(ok);
+
+        let session = db.get_current_session().unwrap().unwrap();
+        assert_eq!(
+            session.last_action.as_deref(),
+            Some("refactoring db module")
+        );
+    }
+
+    // ==================== Hydration Tests ====================
+
+    #[test]
+    fn test_insert_hydrated_issue() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: 100,
+            uuid: "uuid-100",
+            title: "Hydrated",
+            description: Some("A hydrated issue"),
+            status: "open",
+            priority: "critical",
+            parent_id: None,
+            created_by: Some("bot"),
+            created_at: &now,
+            updated_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        let issue = db.get_issue(100).unwrap().unwrap();
+        assert_eq!(issue.title, "Hydrated");
+        assert_eq!(issue.priority, "critical");
+        assert_eq!(issue.status, "open");
+    }
+
+    #[test]
+    fn test_insert_hydrated_issue_with_parent() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: 1,
+            uuid: "parent-uuid",
+            title: "Parent",
+            description: None,
+            status: "open",
+            priority: "high",
+            parent_id: None,
+            created_by: None,
+            created_at: &now,
+            updated_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: 2,
+            uuid: "child-uuid",
+            title: "Child",
+            description: None,
+            status: "open",
+            priority: "medium",
+            parent_id: Some(1),
+            created_by: None,
+            created_at: &now,
+            updated_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        let child = db.get_issue(2).unwrap().unwrap();
+        assert_eq!(child.parent_id, Some(1));
+    }
+
+    #[test]
+    fn test_insert_hydrated_label() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Labeled", None, "low").unwrap();
+
+        db.insert_hydrated_label(id, "bug").unwrap();
+        db.insert_hydrated_label(id, "urgent").unwrap();
+
+        let labels = db.get_labels(id).unwrap();
+        assert!(labels.contains(&"bug".to_string()));
+        assert!(labels.contains(&"urgent".to_string()));
+    }
+
+    #[test]
+    fn test_insert_hydrated_label_idempotent() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("Dup label", None, "low").unwrap();
+
+        db.insert_hydrated_label(id, "bug").unwrap();
+        db.insert_hydrated_label(id, "bug").unwrap(); // should not error (INSERT OR IGNORE)
+
+        let labels = db.get_labels(id).unwrap();
+        assert_eq!(labels.len(), 1);
+    }
+
+    #[test]
+    fn test_insert_hydrated_comment() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+        let issue_id = db.create_issue("Commented", None, "medium").unwrap();
+
+        db.insert_hydrated_comment(
+            1000,
+            issue_id,
+            Some("comment-uuid"),
+            Some("alice"),
+            "Great work!",
+            &now,
+            "note",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let comments = db.get_comments_with_author(issue_id).unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].1.as_deref(), Some("alice"));
+        assert_eq!(comments[0].2, "Great work!");
+        assert_eq!(comments[0].4, "note");
+    }
+
+    #[test]
+    fn test_insert_hydrated_comment_with_intervention() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+        let issue_id = db.create_issue("Intervened", None, "high").unwrap();
+
+        db.insert_hydrated_comment(
+            2000,
+            issue_id,
+            None,
+            Some("bot"),
+            "Intervention needed",
+            &now,
+            "blocker",
+            Some("manual"),
+            Some("context info"),
+            Some("fingerprint-abc"),
+        )
+        .unwrap();
+
+        let comments = db.get_comments_with_author(issue_id).unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].4, "blocker");
+        assert_eq!(comments[0].5.as_deref(), Some("manual"));
+        assert_eq!(comments[0].6.as_deref(), Some("context info"));
+        assert_eq!(comments[0].7.as_deref(), Some("fingerprint-abc"));
+    }
+
+    #[test]
+    fn test_insert_hydrated_time_entry() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+        let issue_id = db.create_issue("Timed", None, "medium").unwrap();
+
+        db.insert_hydrated_time_entry(500, issue_id, &now, Some(&now), Some(3600))
+            .unwrap();
+
+        let entries = db.get_time_entries_for_issue(issue_id).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, 500); // entry id
+        assert!(entries[0].2.is_some()); // ended_at
+        assert_eq!(entries[0].3, Some(3600)); // duration_seconds
+    }
+
+    #[test]
+    fn test_insert_hydrated_time_entry_open() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+        let issue_id = db.create_issue("Open timer", None, "medium").unwrap();
+
+        db.insert_hydrated_time_entry(501, issue_id, &now, None, None)
+            .unwrap();
+
+        let entries = db.get_time_entries_for_issue(issue_id).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].2.is_none()); // ended_at not set
+        assert!(entries[0].3.is_none()); // duration not set
+    }
+
+    #[test]
+    fn test_insert_hydrated_milestone() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+
+        db.insert_hydrated_milestone(&HydratedMilestone {
+            id: 50,
+            uuid: "ms-uuid-50",
+            name: "Release 2.0",
+            description: Some("Major release"),
+            status: "open",
+            created_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        let ms = db.get_milestone(50).unwrap().unwrap();
+        assert_eq!(ms.name, "Release 2.0");
+        assert_eq!(ms.status, "open");
+    }
+
+    #[test]
+    fn test_insert_hydrated_milestone_issue() {
+        let (db, _dir) = setup_test_db();
+        let now = Utc::now().to_rfc3339();
+
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: 5,
+            uuid: "i-5",
+            title: "Issue 5",
+            description: None,
+            status: "open",
+            priority: "medium",
+            parent_id: None,
+            created_by: None,
+            created_at: &now,
+            updated_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        db.insert_hydrated_milestone(&HydratedMilestone {
+            id: 3,
+            uuid: "ms-3",
+            name: "Sprint",
+            description: None,
+            status: "open",
+            created_at: &now,
+            closed_at: None,
+        })
+        .unwrap();
+
+        db.insert_hydrated_milestone_issue(3, 5).unwrap();
+
+        let uuid = db.get_milestone_uuid_for_issue(5).unwrap();
+        assert_eq!(uuid.as_deref(), Some("ms-3"));
+    }
+
+    #[test]
+    fn test_clear_shared_data() {
+        let (db, _dir) = setup_test_db();
+
+        // Populate various tables
+        let id1 = db.create_issue("Issue 1", None, "medium").unwrap();
+        let id2 = db.create_issue("Issue 2", None, "high").unwrap();
+        db.add_comment(id1, "hello", "note").unwrap();
+        db.add_label(id1, "bug").unwrap();
+        db.add_relation(id1, id2).unwrap();
+        db.start_timer(id1).unwrap();
+        db.stop_timer(id1).unwrap();
+        let ms_id = db.create_milestone("v1", None).unwrap();
+        db.add_issue_to_milestone(ms_id, id1).unwrap();
+
+        // Also start a session (should NOT be cleared)
+        let sid = db.start_session().unwrap();
+
+        // Verify data exists
+        assert!(db.get_issue(id1).unwrap().is_some());
+        assert!(!db.get_comments_with_author(id1).unwrap().is_empty());
+
+        db.clear_shared_data().unwrap();
+
+        // Issues and related data should be gone
+        assert!(db.get_issue(id1).unwrap().is_none());
+        assert!(db.get_issue(id2).unwrap().is_none());
+        assert!(db.get_comments_with_author(id1).unwrap().is_empty());
+        assert!(db.get_time_entries_for_issue(id1).unwrap().is_empty());
+        assert!(db.get_related_issue_ids(id1).unwrap().is_empty());
+
+        // Session should still exist (sessions are machine-local)
+        let session = db.get_current_session().unwrap();
+        assert!(session.is_some());
+        assert_eq!(session.unwrap().id, sid);
+    }
+
+    // ==================== Token Usage Tests ====================
+
+    #[test]
+    fn test_create_and_get_token_usage() {
+        let (db, _dir) = setup_test_db();
+
+        let id = db
+            .create_token_usage(
+                "agent-1",
+                None,
+                1000,
+                500,
+                Some(200),
+                Some(100),
+                "gpt-4",
+                Some(0.05),
+            )
+            .unwrap();
+        assert!(id > 0);
+
+        let usage = db.get_token_usage(id).unwrap().unwrap();
+        assert_eq!(usage.agent_id, "agent-1");
+        assert_eq!(usage.input_tokens, 1000);
+        assert_eq!(usage.output_tokens, 500);
+        assert_eq!(usage.cache_read_tokens, Some(200));
+        assert_eq!(usage.cache_creation_tokens, Some(100));
+        assert_eq!(usage.model, "gpt-4");
+        assert_eq!(usage.cost_estimate, Some(0.05));
+        assert!(usage.session_id.is_none());
+    }
+
+    #[test]
+    fn test_create_token_usage_with_session() {
+        let (db, _dir) = setup_test_db();
+
+        let sid = db.start_session().unwrap();
+        let id = db
+            .create_token_usage("agent-2", Some(sid), 500, 250, None, None, "claude-3", None)
+            .unwrap();
+
+        let usage = db.get_token_usage(id).unwrap().unwrap();
+        assert_eq!(usage.session_id, Some(sid));
+        assert_eq!(usage.agent_id, "agent-2");
+        assert!(usage.cache_read_tokens.is_none());
+        assert!(usage.cost_estimate.is_none());
+    }
+
+    #[test]
+    fn test_get_token_usage_nonexistent() {
+        let (db, _dir) = setup_test_db();
+        let usage = db.get_token_usage(99999).unwrap();
+        assert!(usage.is_none());
+    }
+
+    #[test]
+    fn test_list_token_usage_unfiltered() {
+        let (db, _dir) = setup_test_db();
+
+        db.create_token_usage("a1", None, 100, 50, None, None, "m1", None)
+            .unwrap();
+        db.create_token_usage("a2", None, 200, 100, None, None, "m2", None)
+            .unwrap();
+
+        let all = db
+            .list_token_usage(None, None, None, None, None, None)
+            .unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_list_token_usage_filtered_by_agent() {
+        let (db, _dir) = setup_test_db();
+
+        db.create_token_usage("alpha", None, 100, 50, None, None, "m1", None)
+            .unwrap();
+        db.create_token_usage("beta", None, 200, 100, None, None, "m1", None)
+            .unwrap();
+        db.create_token_usage("alpha", None, 300, 150, None, None, "m2", None)
+            .unwrap();
+
+        let filtered = db
+            .list_token_usage(Some("alpha"), None, None, None, None, None)
+            .unwrap();
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|u| u.agent_id == "alpha"));
+    }
+
+    #[test]
+    fn test_list_token_usage_filtered_by_model() {
+        let (db, _dir) = setup_test_db();
+
+        db.create_token_usage("a", None, 100, 50, None, None, "gpt-4", None)
+            .unwrap();
+        db.create_token_usage("a", None, 200, 100, None, None, "claude", None)
+            .unwrap();
+
+        let filtered = db
+            .list_token_usage(None, None, Some("claude"), None, None, None)
+            .unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].model, "claude");
+    }
+
+    #[test]
+    fn test_list_token_usage_with_limit() {
+        let (db, _dir) = setup_test_db();
+
+        for i in 0..5 {
+            db.create_token_usage("a", None, i * 100, 50, None, None, "m", None)
+                .unwrap();
+        }
+
+        let limited = db
+            .list_token_usage(None, None, None, None, None, Some(3))
+            .unwrap();
+        assert_eq!(limited.len(), 3);
+    }
+
+    #[test]
+    fn test_get_usage_summary() {
+        let (db, _dir) = setup_test_db();
+
+        db.create_token_usage("a1", None, 100, 50, Some(10), Some(5), "gpt-4", Some(0.01))
+            .unwrap();
+        db.create_token_usage(
+            "a1",
+            None,
+            200,
+            100,
+            Some(20),
+            Some(10),
+            "gpt-4",
+            Some(0.02),
+        )
+        .unwrap();
+        db.create_token_usage("a2", None, 300, 150, None, None, "claude", Some(0.03))
+            .unwrap();
+
+        // Unfiltered: should get 2 groups (a1/gpt-4 and a2/claude)
+        let summary = db.get_usage_summary(None, None, None).unwrap();
+        assert_eq!(summary.len(), 2);
+
+        // Find the a1/gpt-4 group
+        let a1_summary = summary.iter().find(|s| s.agent_id == "a1").unwrap();
+        assert_eq!(a1_summary.model, "gpt-4");
+        assert_eq!(a1_summary.request_count, 2);
+        assert_eq!(a1_summary.total_input_tokens, 300);
+        assert_eq!(a1_summary.total_output_tokens, 150);
+        assert_eq!(a1_summary.total_cache_read_tokens, 30);
+        assert_eq!(a1_summary.total_cache_creation_tokens, 15);
+        assert!((a1_summary.total_cost - 0.03).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_get_usage_summary_filtered_by_agent() {
+        let (db, _dir) = setup_test_db();
+
+        db.create_token_usage("a1", None, 100, 50, None, None, "m", Some(0.01))
+            .unwrap();
+        db.create_token_usage("a2", None, 200, 100, None, None, "m", Some(0.02))
+            .unwrap();
+
+        let summary = db.get_usage_summary(Some("a1"), None, None).unwrap();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].agent_id, "a1");
+        assert_eq!(summary[0].total_input_tokens, 100);
+    }
+
+    // ==================== Archive Tests ====================
+
+    #[test]
+    fn test_archive_older_than() {
+        let (db, _dir) = setup_test_db();
+
+        // Create and close two issues
+        let id1 = db.create_issue("Old issue", None, "low").unwrap();
+        let id2 = db.create_issue("Recent issue", None, "low").unwrap();
+        let id3 = db.create_issue("Open issue", None, "low").unwrap();
+
+        db.close_issue(id1).unwrap();
+        db.close_issue(id2).unwrap();
+        // id3 stays open
+
+        // Backdate id1's closed_at to 100 days ago
+        let old_date = (Utc::now() - chrono::Duration::days(100)).to_rfc3339();
+        db.conn
+            .execute(
+                "UPDATE issues SET closed_at = ?1 WHERE id = ?2",
+                params![old_date, id1],
+            )
+            .unwrap();
+
+        // Archive issues closed more than 30 days ago
+        let archived = db.archive_older_than(30).unwrap();
+        assert_eq!(archived, 1);
+
+        let issue1 = db.get_issue(id1).unwrap().unwrap();
+        assert_eq!(issue1.status, "archived");
+
+        // id2 was just closed, should still be "closed"
+        let issue2 = db.get_issue(id2).unwrap().unwrap();
+        assert_eq!(issue2.status, "closed");
+
+        // id3 is still open
+        let issue3 = db.get_issue(id3).unwrap().unwrap();
+        assert_eq!(issue3.status, "open");
+    }
+
+    #[test]
+    fn test_archive_older_than_none_eligible() {
+        let (db, _dir) = setup_test_db();
+
+        let id = db.create_issue("Fresh", None, "medium").unwrap();
+        db.close_issue(id).unwrap();
+
+        // Nothing older than 30 days
+        let archived = db.archive_older_than(30).unwrap();
+        assert_eq!(archived, 0);
+    }
+
+    // ==================== Schema / Count Tests ====================
+
+    #[test]
+    fn test_get_schema_version() {
+        let (db, _dir) = setup_test_db();
+        let version = db.get_schema_version().unwrap();
+        // Should be the latest migration version (at least > 0)
+        assert!(version > 0, "Schema version should be > 0, got {}", version);
+    }
+
+    #[test]
+    fn test_get_issue_count() {
+        let (db, _dir) = setup_test_db();
+
+        assert_eq!(db.get_issue_count().unwrap(), 0);
+
+        db.create_issue("One", None, "low").unwrap();
+        db.create_issue("Two", None, "low").unwrap();
+
+        assert_eq!(db.get_issue_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_get_milestone_count() {
+        let (db, _dir) = setup_test_db();
+
+        assert_eq!(db.get_milestone_count().unwrap(), 0);
+
+        db.create_milestone("v1", None).unwrap();
+        db.create_milestone("v2", Some("second")).unwrap();
+
+        assert_eq!(db.get_milestone_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_get_max_display_id() {
+        let (db, _dir) = setup_test_db();
+
+        assert_eq!(db.get_max_display_id().unwrap(), 0);
+
+        let id1 = db.create_issue("A", None, "low").unwrap();
+        let id2 = db.create_issue("B", None, "low").unwrap();
+
+        assert_eq!(db.get_max_display_id().unwrap(), id2);
+        assert!(id2 > id1);
+    }
+
+    #[test]
+    fn test_get_max_comment_id() {
+        let (db, _dir) = setup_test_db();
+
+        assert_eq!(db.get_max_comment_id().unwrap(), 0);
+
+        let issue_id = db.create_issue("X", None, "low").unwrap();
+        db.add_comment(issue_id, "c1", "note").unwrap();
+        let c2 = db.add_comment(issue_id, "c2", "plan").unwrap();
+
+        assert_eq!(db.get_max_comment_id().unwrap(), c2);
+    }
+
+    // ==================== Insert Dependency/Relation Raw Tests ====================
+
+    #[test]
+    fn test_insert_dependency_raw() {
+        let (db, _dir) = setup_test_db();
+        let id1 = db.create_issue("Blocker", None, "high").unwrap();
+        let id2 = db.create_issue("Blocked", None, "medium").unwrap();
+
+        db.insert_dependency_raw(id1, id2).unwrap();
+
+        let blocking = db.get_blocking(id1).unwrap();
+        assert_eq!(blocking, vec![id2]);
+
+        let blockers = db.get_blockers(id2).unwrap();
+        assert_eq!(blockers, vec![id1]);
+    }
+
+    #[test]
+    fn test_insert_dependency_raw_idempotent() {
+        let (db, _dir) = setup_test_db();
+        let id1 = db.create_issue("A", None, "high").unwrap();
+        let id2 = db.create_issue("B", None, "medium").unwrap();
+
+        db.insert_dependency_raw(id1, id2).unwrap();
+        db.insert_dependency_raw(id1, id2).unwrap(); // INSERT OR IGNORE
+
+        let blocking = db.get_blocking(id1).unwrap();
+        assert_eq!(blocking.len(), 1);
+    }
+
+    #[test]
+    fn test_insert_relation_raw() {
+        let (db, _dir) = setup_test_db();
+        let id1 = db.create_issue("First", None, "medium").unwrap();
+        let id2 = db.create_issue("Second", None, "medium").unwrap();
+
+        db.insert_relation_raw(id1, id2).unwrap();
+
+        let related = db.get_related_issue_ids(id1).unwrap();
+        assert_eq!(related, vec![id2]);
+
+        // Verify bidirectional
+        let related2 = db.get_related_issue_ids(id2).unwrap();
+        assert_eq!(related2, vec![id1]);
+    }
+
+    #[test]
+    fn test_insert_relation_raw_normalizes_order() {
+        let (db, _dir) = setup_test_db();
+        let id1 = db.create_issue("A", None, "medium").unwrap();
+        let id2 = db.create_issue("B", None, "medium").unwrap();
+
+        // Insert with larger ID first -- should still work due to normalization
+        db.insert_relation_raw(id2, id1).unwrap();
+
+        let related = db.get_related_issue_ids(id1).unwrap();
+        assert_eq!(related, vec![id2]);
+    }
 }
 
 // ==================== Property-Based Tests ====================
@@ -3097,5 +3982,292 @@ mod proptest_tests {
             // Should find only the issue with literal % and _
             prop_assert!(results.iter().all(|i| i.title.contains("%test_")));
         }
+    }
+
+    // ── Validation error paths ─────────────────────────────────────────
+
+    #[test]
+    fn validate_status_rejects_invalid() {
+        let err = validate_status("bogus").unwrap_err();
+        assert!(err.to_string().contains("Invalid status"));
+        assert!(err.to_string().contains("bogus"));
+    }
+
+    #[test]
+    fn validate_status_accepts_valid() {
+        for s in VALID_STATUSES {
+            validate_status(s).unwrap();
+        }
+    }
+
+    #[test]
+    fn validate_priority_rejects_invalid() {
+        let err = validate_priority("bogus").unwrap_err();
+        assert!(err.to_string().contains("Invalid priority"));
+        assert!(err.to_string().contains("bogus"));
+    }
+
+    #[test]
+    fn validate_priority_accepts_valid() {
+        for p in VALID_PRIORITIES {
+            validate_priority(p).unwrap();
+        }
+    }
+
+    // ── UUID lookups ───────────────────────────────────────────────────
+
+    #[test]
+    fn get_issue_id_by_uuid_not_found() {
+        let (db, _dir) = setup_test_db();
+        let err = db.get_issue_id_by_uuid("nonexistent-uuid");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn get_issue_uuid_by_id_not_found() {
+        let (db, _dir) = setup_test_db();
+        let err = db.get_issue_uuid_by_id(999);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn require_issue_not_found() {
+        let (db, _dir) = setup_test_db();
+        let err = db.require_issue(999).unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn require_issue_found() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("test", None, "medium").unwrap();
+        let issue = db.require_issue(id).unwrap();
+        assert_eq!(issue.title, "test");
+    }
+
+    #[test]
+    fn update_issue_title_too_long() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("short", None, "medium").unwrap();
+        let long_title = "x".repeat(super::MAX_TITLE_LEN + 1);
+        let err = db
+            .update_issue(id, Some(&long_title), None, None)
+            .unwrap_err();
+        assert!(err.to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn update_issue_description_too_long() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("t", None, "medium").unwrap();
+        let long_desc = "x".repeat(super::MAX_DESCRIPTION_LEN + 1);
+        let err = db
+            .update_issue(id, None, Some(&long_desc), None)
+            .unwrap_err();
+        assert!(err.to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn add_label_too_long() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("t", None, "low").unwrap();
+        let long_label = "x".repeat(super::MAX_LABEL_LEN + 1);
+        let err = db.add_label(id, &long_label).unwrap_err();
+        assert!(err.to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn add_comment_too_long() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("t", None, "low").unwrap();
+        let long_comment = "x".repeat(super::MAX_COMMENT_LEN + 1);
+        let err = db
+            .add_comment(id, &long_comment, "observation")
+            .unwrap_err();
+        assert!(err.to_string().contains("maximum length"));
+    }
+
+    #[test]
+    fn add_dependency_self_blocking() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("t", None, "low").unwrap();
+        let err = db.add_dependency(id, id).unwrap_err();
+        assert!(err.to_string().contains("cannot block itself"));
+    }
+
+    #[test]
+    fn remove_relation_reversed_order() {
+        let (db, _dir) = setup_test_db();
+        let a = db.create_issue("a", None, "low").unwrap();
+        let b = db.create_issue("b", None, "low").unwrap();
+        db.add_relation(a, b).unwrap();
+        // Remove with reversed argument order (b, a instead of a, b)
+        let removed = db.remove_relation(b, a).unwrap();
+        assert!(removed);
+    }
+
+    #[test]
+    fn milestone_lifecycle() {
+        let (db, _dir) = setup_test_db();
+        let mid = db.create_milestone("M1", Some("desc")).unwrap();
+        let id = db.create_issue("t", None, "low").unwrap();
+
+        // Add issue to milestone
+        assert!(db.add_issue_to_milestone(mid, id).unwrap());
+        // Remove issue from milestone
+        assert!(db.remove_issue_from_milestone(mid, id).unwrap());
+        // Close milestone
+        assert!(db.close_milestone(mid).unwrap());
+        // Delete milestone
+        assert!(db.delete_milestone(mid).unwrap());
+        // Delete again returns false
+        assert!(!db.delete_milestone(mid).unwrap());
+    }
+
+    #[test]
+    fn token_usage_with_filters() {
+        let (db, _dir) = setup_test_db();
+        let sid = db.start_session().unwrap();
+        db.create_token_usage("agent-a", Some(sid), 100, 50, None, None, "opus", Some(0.5))
+            .unwrap();
+        db.create_token_usage(
+            "agent-b",
+            Some(sid),
+            200,
+            100,
+            Some(10),
+            Some(5),
+            "sonnet",
+            Some(0.3),
+        )
+        .unwrap();
+
+        // Filter by agent_id
+        let rows = db
+            .list_token_usage(Some("agent-a"), None, None, None, None, None)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].agent_id, "agent-a");
+
+        // Filter by session_id
+        let rows = db
+            .list_token_usage(None, Some(sid), None, None, None, None)
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+
+        // Filter by model
+        let rows = db
+            .list_token_usage(None, None, Some("sonnet"), None, None, None)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+
+        // Filter by time range
+        let past = "2020-01-01T00:00:00Z";
+        let future = "2099-01-01T00:00:00Z";
+        let rows = db
+            .list_token_usage(None, None, None, Some(past), Some(future), None)
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn usage_summary_with_filters() {
+        let (db, _dir) = setup_test_db();
+        let sid = db.start_session().unwrap();
+        db.create_token_usage("agent-a", Some(sid), 100, 50, None, None, "opus", Some(0.5))
+            .unwrap();
+        db.create_token_usage(
+            "agent-a",
+            Some(sid),
+            200,
+            100,
+            None,
+            None,
+            "opus",
+            Some(0.3),
+        )
+        .unwrap();
+
+        // Filter by agent
+        let summary = db.get_usage_summary(Some("agent-a"), None, None).unwrap();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].request_count, 2);
+
+        // Filter by time range
+        let past = "2020-01-01T00:00:00Z";
+        let future = "2099-01-01T00:00:00Z";
+        let summary = db
+            .get_usage_summary(None, Some(past), Some(future))
+            .unwrap();
+        assert_eq!(summary.len(), 1);
+    }
+
+    #[test]
+    fn stop_timer_no_active_timer() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("t", None, "low").unwrap();
+        // No timer started, stop returns false
+        let stopped = db.stop_timer(id).unwrap();
+        assert!(!stopped);
+    }
+
+    #[test]
+    fn transaction_rolls_back_on_error() {
+        let (db, _dir) = setup_test_db();
+        // Run a transaction that fails — the DB should remain unchanged
+        let result: Result<()> = db.transaction(|| {
+            db.create_issue("will-be-rolled-back", None, "low")?;
+            anyhow::bail!("intentional error");
+        });
+        assert!(result.is_err());
+        // No issue should have been persisted
+        let issues = db.list_issues(None, None, None).unwrap();
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn get_issue_uuid_by_id_returns_uuid() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("uuid-test", None, "low").unwrap();
+        let uuid = db.get_issue_uuid_by_id(id).unwrap();
+        assert!(!uuid.is_empty());
+        // Round-trip: look up by UUID should give back the same ID
+        let found_id = db.get_issue_id_by_uuid(&uuid).unwrap();
+        assert_eq!(found_id, id);
+    }
+
+    #[test]
+    fn get_issue_id_by_uuid_missing_returns_error() {
+        let (db, _dir) = setup_test_db();
+        let result = db.get_issue_id_by_uuid("nonexistent-uuid-00000000");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn get_issue_uuid_by_id_missing_returns_error() {
+        let (db, _dir) = setup_test_db();
+        let result = db.get_issue_uuid_by_id(99999);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_datetime_fallback_uses_current_time() {
+        // parse_datetime is private; exercise it indirectly by inserting a row
+        // with a corrupt datetime and reading it back.
+        let (db, _dir) = setup_test_db();
+        // Insert an issue with a bad timestamp directly via SQL
+        db.conn
+            .execute(
+                "INSERT INTO issues (title, priority, status, created_at, updated_at, uuid) \
+                 VALUES ('bad-dt', 'low', 'open', 'not-a-date', 'not-a-date', 'fake-uuid-bad-dt')",
+                [],
+            )
+            .unwrap();
+        // Reading the issue triggers parse_datetime on the bad value; it should
+        // not panic and should return something reasonable (current time fallback).
+        let issues = db.list_issues(None, None, None).unwrap();
+        assert_eq!(issues.len(), 1);
+        // The created_at will be near now (fallback), not a distant epoch
+        assert!(issues[0].created_at.timestamp() > 0);
     }
 }

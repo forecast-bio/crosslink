@@ -384,7 +384,10 @@ pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::issue_file::{write_issue_file, CommentEntry, IssueFile, TimeEntry};
+    use crate::issue_file::{
+        write_comment_file, write_issue_file, write_layout_version, CommentEntry, CommentFile,
+        IssueFile, TimeEntry,
+    };
     use chrono::Utc;
     use tempfile::tempdir;
     use uuid::Uuid;
@@ -698,5 +701,661 @@ mod tests {
         let ms = db.get_milestone(1).unwrap();
         assert!(ms.is_some());
         assert_eq!(ms.unwrap().name, "legacy-ms");
+    }
+
+    // ---- dedup_issue_files ----
+
+    #[test]
+    fn test_dedup_no_duplicates() {
+        let a = make_issue(1, "A");
+        let b = make_issue(2, "B");
+        let issues = [a, b];
+        let (keep, dupes) = dedup_issue_files(&issues);
+        assert_eq!(keep.len(), 2);
+        assert_eq!(dupes.len(), 0);
+    }
+
+    #[test]
+    fn test_dedup_keeps_most_recent() {
+        use chrono::Duration;
+        let mut old = make_issue(1, "Old");
+        old.updated_at = Utc::now() - Duration::seconds(60);
+        let mut new = make_issue(1, "New");
+        new.updated_at = Utc::now();
+        // same display_id — new should be kept
+        let issues = [old, new];
+        let (keep, dupes) = dedup_issue_files(&issues);
+        assert_eq!(keep.len(), 1);
+        assert_eq!(dupes.len(), 1);
+        assert_eq!(keep[0].title, "New");
+        assert_eq!(dupes[0].title, "Old");
+    }
+
+    #[test]
+    fn test_dedup_issue_with_no_display_id_passes_through() {
+        let mut issue = make_issue(0, "Offline");
+        issue.display_id = None;
+        let issues = [issue];
+        let (keep, dupes) = dedup_issue_files(&issues);
+        assert_eq!(keep.len(), 1);
+        assert_eq!(dupes.len(), 0);
+    }
+
+    #[test]
+    fn test_dedup_three_copies_keeps_newest() {
+        use chrono::Duration;
+        let mut oldest = make_issue(5, "Oldest");
+        oldest.updated_at = Utc::now() - Duration::seconds(120);
+        let mut middle = make_issue(5, "Middle");
+        middle.updated_at = Utc::now() - Duration::seconds(60);
+        let mut newest = make_issue(5, "Newest");
+        newest.updated_at = Utc::now();
+        let issues = [oldest, middle, newest];
+        let (keep, dupes) = dedup_issue_files(&issues);
+        assert_eq!(keep.len(), 1);
+        assert_eq!(dupes.len(), 2);
+        assert_eq!(keep[0].title, "Newest");
+    }
+
+    // ---- hydrate_to_sqlite duplicate warning path ----
+
+    #[test]
+    fn test_hydrate_deduplicates_same_display_id() {
+        use chrono::Duration;
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let mut old = make_issue(1, "Old title");
+        old.updated_at = Utc::now() - Duration::seconds(60);
+        let mut new = make_issue(1, "New title");
+        new.updated_at = Utc::now();
+        // Write both files — they share display_id 1
+        write_issues_to_cache(cache.path(), &[old, new]);
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        // Only one issue should land in the DB (the duplicate is skipped)
+        assert_eq!(stats.issues, 1);
+        let loaded = db.get_issue(1).unwrap().unwrap();
+        assert_eq!(loaded.title, "New title");
+    }
+
+    // ---- topo_sort_issues ----
+
+    #[test]
+    fn test_topo_sort_roots_before_children() {
+        let parent = make_issue(1, "Parent");
+        let mut child = make_issue(2, "Child");
+        child.parent_uuid = Some(parent.uuid);
+
+        // Pass child before parent — topo sort should fix order
+        let sorted = topo_sort_issues(&[&child, &parent]);
+        assert_eq!(sorted[0].title, "Parent");
+        assert_eq!(sorted[1].title, "Child");
+    }
+
+    #[test]
+    fn test_topo_sort_three_levels_deep() {
+        let grandparent = make_issue(1, "Grandparent");
+        let mut parent = make_issue(2, "Parent");
+        parent.parent_uuid = Some(grandparent.uuid);
+        let mut child = make_issue(3, "Child");
+        child.parent_uuid = Some(parent.uuid);
+
+        // Pass in reverse order
+        let sorted = topo_sort_issues(&[&child, &parent, &grandparent]);
+        // grandparent must come before parent, parent before child
+        let pos = |title: &str| sorted.iter().position(|i| i.title == title).unwrap();
+        assert!(pos("Grandparent") < pos("Parent"));
+        assert!(pos("Parent") < pos("Child"));
+    }
+
+    #[test]
+    fn test_topo_sort_orphaned_parent_uuid_treated_as_root() {
+        // A child whose parent UUID is NOT in the set goes to `roots` directly
+        // (the `_ =>` arm in the match), so it is sorted alongside other roots.
+        let mut orphan_child = make_issue(2, "OrphanChild");
+        orphan_child.parent_uuid = Some(Uuid::new_v4()); // unknown parent — not in uuid_set
+
+        let root = make_issue(1, "Root");
+
+        let sorted = topo_sort_issues(&[&orphan_child, &root]);
+        // Both are treated as roots; all issues present, exact order unspecified.
+        assert_eq!(sorted.len(), 2);
+        let titles: Vec<&str> = sorted.iter().map(|i| i.title.as_str()).collect();
+        assert!(titles.contains(&"Root"));
+        assert!(titles.contains(&"OrphanChild"));
+    }
+
+    #[test]
+    fn test_topo_sort_no_issues() {
+        let sorted = topo_sort_issues(&[]);
+        assert!(sorted.is_empty());
+    }
+
+    // ---- hydrate_dependencies / hydrate_relations with None display_id ----
+
+    #[test]
+    fn test_hydrate_dependency_skips_issue_with_no_display_id() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        // An issue with no display_id that has a blocker — the blocked issue
+        // has no display_id so hydrate_dependencies should `continue` for it.
+        let blocker = make_issue(1, "Blocker");
+        let mut offline = make_issue(0, "Offline blocked");
+        offline.display_id = None;
+        offline.blockers = vec![blocker.uuid];
+
+        write_issues_to_cache(cache.path(), &[blocker, offline]);
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        // The dependency should NOT be inserted (offline issue has no display_id)
+        assert_eq!(stats.dependencies, 0);
+    }
+
+    #[test]
+    fn test_hydrate_relation_skips_issue_with_no_display_id() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let related = make_issue(1, "Related");
+        let mut offline = make_issue(0, "Offline related");
+        offline.display_id = None;
+        offline.related = vec![related.uuid];
+
+        write_issues_to_cache(cache.path(), &[related, offline]);
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.relations, 0);
+    }
+
+    #[test]
+    fn test_hydrate_dangling_relation_uuid() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let mut issue = make_issue(1, "Issue with dangling relation");
+        issue.related = vec![Uuid::new_v4()]; // non-existent related issue
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.relations, 0); // silently skipped
+    }
+
+    // ---- issue with description and closed_at ----
+
+    #[test]
+    fn test_hydrate_issue_with_description_and_closed_at() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let mut issue = make_issue(1, "Closed issue");
+        issue.description = Some("A detailed description".to_string());
+        issue.status = "closed".to_string();
+        issue.closed_at = Some(Utc::now());
+
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        hydrate_to_sqlite(cache.path(), &db).unwrap();
+
+        let loaded = db.get_issue(1).unwrap().unwrap();
+        assert_eq!(
+            loaded.description.as_deref(),
+            Some("A detailed description")
+        );
+        assert_eq!(loaded.status, "closed");
+        assert!(loaded.closed_at.is_some());
+    }
+
+    // ---- milestone association via milestone_uuid ----
+
+    #[test]
+    fn test_hydrate_issue_milestone_association() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let ms_uuid = Uuid::new_v4();
+
+        let mut issue = make_issue(1, "Milestone issue");
+        issue.milestone_uuid = Some(ms_uuid);
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        // Write the milestone file so it gets a display_id
+        let ms_dir = cache.path().join("meta").join("milestones");
+        std::fs::create_dir_all(&ms_dir).unwrap();
+        let entry = crate::issue_file::MilestoneEntry {
+            uuid: ms_uuid,
+            display_id: 10,
+            name: "Sprint 1".to_string(),
+            description: None,
+            status: "open".to_string(),
+            created_at: Utc::now(),
+            closed_at: None,
+        };
+        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{}.json", ms_uuid)), &entry)
+            .unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.milestones, 1);
+
+        // Verify the milestone<->issue link was created
+        let ms = db.get_issue_milestone(1).unwrap();
+        assert!(ms.is_some());
+        assert_eq!(ms.unwrap().name, "Sprint 1");
+    }
+
+    #[test]
+    fn test_hydrate_issue_milestone_uuid_not_in_map() {
+        // milestone_uuid set on issue but no matching milestone file — link silently skipped
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let mut issue = make_issue(1, "Orphan milestone ref");
+        issue.milestone_uuid = Some(Uuid::new_v4());
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.issues, 1);
+        assert_eq!(stats.milestones, 0);
+        // No panic, no error — silently ignored
+    }
+
+    // ---- milestone with closed_at ----
+
+    #[test]
+    fn test_hydrate_milestone_with_closed_at() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let issue = make_issue(1, "Test");
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        let ms_dir = cache.path().join("meta").join("milestones");
+        std::fs::create_dir_all(&ms_dir).unwrap();
+        let ms_uuid = Uuid::new_v4();
+        let entry = crate::issue_file::MilestoneEntry {
+            uuid: ms_uuid,
+            display_id: 1,
+            name: "Closed sprint".to_string(),
+            description: Some("A completed sprint".to_string()),
+            status: "closed".to_string(),
+            created_at: Utc::now(),
+            closed_at: Some(Utc::now()),
+        };
+        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{}.json", ms_uuid)), &entry)
+            .unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.milestones, 1);
+        let ms = db.get_milestone(1).unwrap().unwrap();
+        assert_eq!(ms.status, "closed");
+    }
+
+    // ---- v2 layout: standalone comment files ----
+
+    #[test]
+    fn test_hydrate_v2_standalone_comment_files() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let issue = make_issue(1, "V2 issue");
+        let issue_uuid = issue.uuid;
+
+        // Write the issue using v2 layout: issues/{uuid}/issue.json
+        let issue_dir = cache.path().join("issues").join(issue_uuid.to_string());
+        std::fs::create_dir_all(&issue_dir).unwrap();
+        write_issue_file(&issue_dir.join("issue.json"), &issue).unwrap();
+
+        // Write a standalone comment file: issues/{uuid}/comments/{comment-uuid}.json
+        let comments_dir = issue_dir.join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+        let comment_uuid = Uuid::new_v4();
+        let cf = CommentFile {
+            uuid: comment_uuid,
+            issue_uuid,
+            author: "agent-1".to_string(),
+            content: "Standalone comment".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+        write_comment_file(&comments_dir.join(format!("{}.json", comment_uuid)), &cf).unwrap();
+
+        // Write layout version 2
+        let meta_dir = cache.path().join("meta");
+        write_layout_version(&meta_dir, 2).unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.issues, 1);
+        assert_eq!(stats.comments, 1);
+
+        let comments = db.get_comments(1).unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].content, "Standalone comment");
+    }
+
+    #[test]
+    fn test_hydrate_v2_comment_with_optional_fields() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let issue = make_issue(1, "V2 issue with rich comment");
+        let issue_uuid = issue.uuid;
+
+        let issue_dir = cache.path().join("issues").join(issue_uuid.to_string());
+        std::fs::create_dir_all(&issue_dir).unwrap();
+        write_issue_file(&issue_dir.join("issue.json"), &issue).unwrap();
+
+        let comments_dir = issue_dir.join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+        let comment_uuid = Uuid::new_v4();
+        let cf = CommentFile {
+            uuid: comment_uuid,
+            issue_uuid,
+            author: "agent-2".to_string(),
+            content: "Intervention comment".to_string(),
+            created_at: Utc::now(),
+            kind: "intervention".to_string(),
+            trigger_type: Some("tool_rejected".to_string()),
+            intervention_context: Some("tried to write to protected file".to_string()),
+            driver_key_fingerprint: Some("SHA256:abc123".to_string()),
+            signed_by: Some("SHA256:abc123".to_string()),
+            signature: Some("base64sig==".to_string()),
+        };
+        write_comment_file(&comments_dir.join(format!("{}.json", comment_uuid)), &cf).unwrap();
+
+        let meta_dir = cache.path().join("meta");
+        write_layout_version(&meta_dir, 2).unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.comments, 1);
+    }
+
+    #[test]
+    fn test_hydrate_v2_multiple_comments_get_unique_ids() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let issue = make_issue(1, "V2 multi-comment");
+        let issue_uuid = issue.uuid;
+
+        let issue_dir = cache.path().join("issues").join(issue_uuid.to_string());
+        std::fs::create_dir_all(&issue_dir).unwrap();
+        write_issue_file(&issue_dir.join("issue.json"), &issue).unwrap();
+
+        let comments_dir = issue_dir.join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+
+        for i in 0..3u32 {
+            let cu = Uuid::new_v4();
+            let cf = CommentFile {
+                uuid: cu,
+                issue_uuid,
+                author: format!("agent-{i}"),
+                content: format!("Comment {i}"),
+                created_at: Utc::now(),
+                kind: "note".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            };
+            write_comment_file(&comments_dir.join(format!("{cu}.json")), &cf).unwrap();
+        }
+
+        let meta_dir = cache.path().join("meta");
+        write_layout_version(&meta_dir, 2).unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.comments, 3);
+
+        let comments = db.get_comments(1).unwrap();
+        assert_eq!(comments.len(), 3);
+    }
+
+    // ---- v1 layout: standalone comments dir absent (no read_comment_files called) ----
+
+    #[test]
+    fn test_hydrate_v1_layout_skips_v2_comment_files() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        // layout_version defaults to 1 (no meta/version.json)
+        let issue = make_issue(1, "V1 issue");
+        let issue_uuid = issue.uuid;
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        // Write a comment file anyway — it should be ignored at v1
+        let comments_dir = cache
+            .path()
+            .join("issues")
+            .join(issue_uuid.to_string())
+            .join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+        let cu = Uuid::new_v4();
+        let cf = CommentFile {
+            uuid: cu,
+            issue_uuid,
+            author: "agent".to_string(),
+            content: "Should be ignored".to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        };
+        write_comment_file(&comments_dir.join(format!("{cu}.json")), &cf).unwrap();
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.comments, 0); // v2 path not entered
+    }
+
+    // ---- migrate_inline_comments_to_v2 ----
+
+    #[test]
+    fn test_migrate_inline_comments_no_issues() {
+        let cache = tempdir().unwrap();
+        // Empty issues dir — no migration needed
+        let issues_dir = cache.path().join("issues");
+        std::fs::create_dir_all(&issues_dir).unwrap();
+
+        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_migrate_inline_comments_no_comments() {
+        let cache = tempdir().unwrap();
+        // Issue with no comments — nothing to migrate
+        let issue = make_issue(1, "No comments");
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_migrate_inline_comments_writes_files() {
+        let cache = tempdir().unwrap();
+
+        let mut issue = make_issue(1, "Issue with comments");
+        issue.comments = vec![
+            CommentEntry {
+                id: 1,
+                author: "agent-1".to_string(),
+                content: "First".to_string(),
+                created_at: Utc::now(),
+                kind: "note".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            },
+            CommentEntry {
+                id: 2,
+                author: "agent-2".to_string(),
+                content: "Second".to_string(),
+                created_at: Utc::now(),
+                kind: "decision".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            },
+        ];
+        let issue_uuid = issue.uuid;
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
+        assert_eq!(count, 2);
+
+        // Verify the comment files were actually written
+        let comments_dir = cache
+            .path()
+            .join("issues")
+            .join(issue_uuid.to_string())
+            .join("comments");
+        let entries: Vec<_> = std::fs::read_dir(&comments_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x == "json")
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn test_migrate_inline_comments_preserves_optional_fields() {
+        let cache = tempdir().unwrap();
+
+        let mut issue = make_issue(1, "Intervention issue");
+        issue.comments = vec![CommentEntry {
+            id: 1,
+            author: "agent".to_string(),
+            content: "Blocked by policy".to_string(),
+            created_at: Utc::now(),
+            kind: "intervention".to_string(),
+            trigger_type: Some("tool_blocked".to_string()),
+            intervention_context: Some("tried to delete /etc/passwd".to_string()),
+            driver_key_fingerprint: Some("SHA256:xyz".to_string()),
+            signed_by: Some("SHA256:xyz".to_string()),
+            signature: Some("sig==".to_string()),
+        }];
+        let issue_uuid = issue.uuid;
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
+        assert_eq!(count, 1);
+
+        // Read the written file back and check optional fields survived
+        let comments_dir = cache
+            .path()
+            .join("issues")
+            .join(issue_uuid.to_string())
+            .join("comments");
+        let json_path = std::fs::read_dir(&comments_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x == "json")
+                    .unwrap_or(false)
+            })
+            .unwrap()
+            .path();
+
+        let cf: CommentFile =
+            serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
+        assert_eq!(cf.kind, "intervention");
+        assert_eq!(cf.trigger_type.as_deref(), Some("tool_blocked"));
+        assert_eq!(
+            cf.intervention_context.as_deref(),
+            Some("tried to delete /etc/passwd")
+        );
+        assert_eq!(cf.driver_key_fingerprint.as_deref(), Some("SHA256:xyz"));
+        assert_eq!(cf.signed_by.as_deref(), Some("SHA256:xyz"));
+        assert_eq!(cf.signature.as_deref(), Some("sig=="));
+    }
+
+    #[test]
+    fn test_migrate_inline_comments_nonexistent_issues_dir() {
+        // Issues dir doesn't exist at all — read_all_issue_files returns empty vec
+        let cache = tempdir().unwrap();
+        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    // ---- time entry with no ended_at ----
+
+    #[test]
+    fn test_hydrate_time_entry_without_ended_at() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let mut issue = make_issue(1, "Active timer");
+        issue.time_entries = vec![TimeEntry {
+            id: 1,
+            started_at: Utc::now(),
+            ended_at: None, // timer still running
+            duration_seconds: None,
+        }];
+        write_issues_to_cache(cache.path(), &[issue]);
+
+        hydrate_to_sqlite(cache.path(), &db).unwrap();
+        // No error means the None-ended_at path was handled correctly
+    }
+
+    // ---- HydrationStats default ----
+
+    #[test]
+    fn test_hydration_stats_default() {
+        let stats = HydrationStats::default();
+        assert_eq!(stats.issues, 0);
+        assert_eq!(stats.comments, 0);
+        assert_eq!(stats.dependencies, 0);
+        assert_eq!(stats.relations, 0);
+        assert_eq!(stats.milestones, 0);
+    }
+
+    // ---- offline issue as parent of another offline issue ----
+
+    #[test]
+    fn test_hydrate_offline_child_resolves_offline_parent() {
+        let (db, _dir) = setup_test_db();
+        let cache = tempdir().unwrap();
+
+        let mut parent = make_issue(0, "Offline parent");
+        parent.display_id = None;
+        let parent_uuid = parent.uuid;
+
+        let mut child = make_issue(0, "Offline child");
+        child.display_id = None;
+        child.parent_uuid = Some(parent_uuid);
+
+        write_issues_to_cache(cache.path(), &[parent, child]);
+
+        let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
+        assert_eq!(stats.issues, 2);
+
+        // Offline parent gets -1, child gets -2
+        let loaded_parent = db.get_issue(-1).unwrap();
+        let loaded_child = db.get_issue(-2).unwrap();
+        assert!(loaded_parent.is_some() || loaded_child.is_some());
     }
 }

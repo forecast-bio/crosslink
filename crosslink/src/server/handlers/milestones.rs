@@ -447,4 +447,198 @@ mod tests {
         let all_body = body_json(all_resp).await;
         assert_eq!(all_body["total"], 1);
     }
+
+    #[tokio::test]
+    async fn test_list_milestones_closed_filter() {
+        let (app, _dir) = test_app();
+
+        // Create and close one milestone, leave one open.
+        let r1 = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "Open MS"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let _ = body_json(r1).await;
+
+        let r2 = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "Closed MS2"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created2 = body_json(r2).await;
+        let id2 = created2["id"].as_i64().unwrap();
+
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/milestones/{}/close", id2))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // List closed milestones — should have exactly 1.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/milestones?status=closed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["items"][0]["name"], "Closed MS2");
+    }
+
+    #[tokio::test]
+    async fn test_create_milestone_without_description() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "No Description"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["name"], "No Description");
+        assert_eq!(body["issue_count"], 0);
+        assert_eq!(body["progress_percent"], 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_assign_milestone_success() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+
+        // Seed milestone and issue directly.
+        let milestone_id = db.create_milestone("MS", None).unwrap();
+        let issue_id = db.create_issue("Issue to assign", None, "medium").unwrap();
+
+        let state = crate::server::state::AppState::new(db, dir.path().join(".crosslink"));
+        let app = crate::server::routes::build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/milestones/{}/assign", milestone_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"issue_id": issue_id}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn test_assign_milestone_issue_not_found() {
+        let (app, _dir) = test_app();
+
+        // Create a milestone first.
+        let create_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/milestones")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"name": "MS for assign"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created = body_json(create_resp).await;
+        let milestone_id = created["id"].as_i64().unwrap();
+
+        // Try assigning a non-existent issue.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/milestones/{}/assign", milestone_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"issue_id": 9999}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_helper_functions_directly() {
+        let (status, json) = super::internal_error("ctx", "err detail");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+        assert_eq!(json.detail.as_deref(), Some("err detail"));
+
+        let (status, json) = super::not_found("not there");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json.error, "not found");
+        assert_eq!(json.detail.as_deref(), Some("not there"));
+    }
+
+    #[tokio::test]
+    async fn test_milestone_progress_with_issues() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+
+        // Create a milestone and two issues, close one.
+        let milestone_id = db.create_milestone("Progress MS", None).unwrap();
+        let issue_id1 = db.create_issue("Open issue", None, "medium").unwrap();
+        let issue_id2 = db.create_issue("Closed issue", None, "medium").unwrap();
+        db.add_issue_to_milestone(milestone_id, issue_id1).unwrap();
+        db.add_issue_to_milestone(milestone_id, issue_id2).unwrap();
+        db.close_issue(issue_id2).unwrap();
+
+        let state = crate::server::state::AppState::new(db, dir.path().join(".crosslink"));
+        let app = crate::server::routes::build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/milestones/{}", milestone_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["issue_count"], 2);
+        assert_eq!(body["completed_count"], 1);
+        assert_eq!(body["progress_percent"], 50.0);
+    }
 }

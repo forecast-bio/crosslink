@@ -333,4 +333,82 @@ mod tests {
         let _rx2 = tx.subscribe();
         assert_eq!(tx.receiver_count(), 1);
     }
+
+    #[test]
+    fn test_ws_event_channel_issue_updated() {
+        let ev = WsEvent::IssueUpdated(crate::server::types::WsIssueUpdatedEvent {
+            event_type: "issue_updated",
+            issue_id: 1,
+            field: "status".to_string(),
+        });
+        assert_eq!(ev.channel(), "issues");
+    }
+
+    #[test]
+    fn test_ws_event_channel_lock_changed() {
+        let ev = WsEvent::LockChanged(crate::server::types::WsLockChangedEvent {
+            event_type: "lock_changed",
+            issue_id: 1,
+            action: crate::server::types::LockAction::Claimed,
+            agent_id: "a1".to_string(),
+        });
+        assert_eq!(ev.channel(), "locks");
+    }
+
+    #[test]
+    fn test_ws_event_channel_execution_progress() {
+        let ev = WsEvent::ExecutionProgress(crate::server::types::WsExecutionProgressEvent {
+            event_type: "execution_progress",
+            plan_id: "p1".to_string(),
+            phase_id: "ph1".to_string(),
+            stage_id: "s1".to_string(),
+            status: crate::server::types::StageStatus::Running,
+            agent_id: None,
+        });
+        assert_eq!(ev.channel(), "execution");
+    }
+
+    #[test]
+    fn test_ws_event_to_json_issue_updated() {
+        let ev = WsEvent::IssueUpdated(crate::server::types::WsIssueUpdatedEvent {
+            event_type: "issue_updated",
+            issue_id: 42,
+            field: "title".to_string(),
+        });
+        let json = ev.to_json().unwrap();
+        assert!(json.contains("\"issue_id\":42"));
+        let val = ev.to_json_value().unwrap();
+        assert_eq!(val["type"], "issue_updated");
+    }
+
+    #[test]
+    fn test_ws_event_to_json_lock_changed() {
+        let ev = WsEvent::LockChanged(crate::server::types::WsLockChangedEvent {
+            event_type: "lock_changed",
+            issue_id: 5,
+            action: crate::server::types::LockAction::Released,
+            agent_id: "bot".to_string(),
+        });
+        let json = ev.to_json().unwrap();
+        assert!(json.contains("\"action\":\"released\""));
+        let val = ev.to_json_value().unwrap();
+        assert_eq!(val["type"], "lock_changed");
+    }
+
+    #[test]
+    fn test_ws_event_to_json_execution_progress() {
+        let ev = WsEvent::ExecutionProgress(crate::server::types::WsExecutionProgressEvent {
+            event_type: "execution_progress",
+            plan_id: "p1".to_string(),
+            phase_id: "ph1".to_string(),
+            stage_id: "s1".to_string(),
+            status: crate::server::types::StageStatus::Done,
+            agent_id: Some("agent-x".to_string()),
+        });
+        let json = ev.to_json().unwrap();
+        assert!(json.contains("\"status\":\"done\""));
+        let val = ev.to_json_value().unwrap();
+        assert_eq!(val["type"], "execution_progress");
+        assert_eq!(val["agent_id"], "agent-x");
+    }
 }

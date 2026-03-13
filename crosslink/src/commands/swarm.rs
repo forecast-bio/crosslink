@@ -658,6 +658,14 @@ fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
     let worktree = repo_root.join(".worktrees").join(slug);
 
     if !worktree.exists() {
+        // Worktree removed — check if the agent's branch was merged or exists.
+        // This handles the case where worktrees are cleaned up after PRs are merged.
+        if is_branch_merged(repo_root, slug) {
+            return "completed (merged)".to_string();
+        }
+        if branch_exists(repo_root, slug) {
+            return "completed (worktree removed)".to_string();
+        }
         return "planned".to_string();
     }
 
@@ -703,6 +711,42 @@ fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
 
     // Worktree exists but no status file and no tmux — stale or crashed
     "unknown (worktree exists, no active session)".to_string()
+}
+
+/// Check if a branch has been merged into the default branch (main/master).
+fn is_branch_merged(repo_root: &Path, slug: &str) -> bool {
+    // Try common branch naming patterns for swarm agents
+    for branch in &[slug.to_string(), format!("swarm/{}", slug)] {
+        let output = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["branch", "--merged", "HEAD", "--list", branch])
+            .output();
+        if let Ok(out) = output {
+            if out.status.success() && !out.stdout.is_empty() {
+                let branches = String::from_utf8_lossy(&out.stdout);
+                if branches.lines().any(|l| l.trim() == *branch) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a branch exists locally (even without a worktree).
+fn branch_exists(repo_root: &Path, slug: &str) -> bool {
+    for branch in &[slug.to_string(), format!("swarm/{}", slug)] {
+        let output = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["rev-parse", "--verify", branch])
+            .output();
+        if let Ok(out) = output {
+            if out.status.success() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -3487,7 +3531,135 @@ mod tests {
     #[test]
     fn test_probe_agent_status_nonexistent_worktree() {
         let dir = tempfile::tempdir().unwrap();
+        // No git repo, no worktree, no branch → planned
         assert_eq!(probe_agent_status(dir.path(), "nonexistent"), "planned");
+    }
+
+    #[test]
+    fn test_probe_agent_status_worktree_removed_branch_merged() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+
+        // Set up a git repo with a branch that's been merged
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["init", "-q", "-b", "main"])
+            .output()
+            .unwrap();
+        for args in [
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+        ] {
+            std::process::Command::new("git")
+                .current_dir(repo)
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+        std::fs::write(repo.join("README.md"), "# test\n").unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "init", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+
+        // Create and merge a branch
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["checkout", "-b", "test-agent"])
+            .output()
+            .unwrap();
+        std::fs::write(repo.join("agent-work.txt"), "work\n").unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "agent work", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["checkout", "main"])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["merge", "test-agent", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+
+        // No worktree exists, but branch is merged → should be "completed (merged)"
+        assert_eq!(probe_agent_status(repo, "test-agent"), "completed (merged)");
+    }
+
+    #[test]
+    fn test_probe_agent_status_worktree_removed_branch_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["init", "-q", "-b", "main"])
+            .output()
+            .unwrap();
+        for args in [
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+        ] {
+            std::process::Command::new("git")
+                .current_dir(repo)
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+        std::fs::write(repo.join("README.md"), "# test\n").unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "init", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+
+        // Create a branch with a commit that isn't merged
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["checkout", "-b", "unmerged-agent"])
+            .output()
+            .unwrap();
+        std::fs::write(repo.join("unmerged-work.txt"), "unmerged\n").unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["commit", "-m", "unmerged work", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["checkout", "main"])
+            .output()
+            .unwrap();
+
+        // No worktree, branch exists but not merged → "completed (worktree removed)"
+        assert_eq!(
+            probe_agent_status(repo, "unmerged-agent"),
+            "completed (worktree removed)"
+        );
     }
 
     #[test]

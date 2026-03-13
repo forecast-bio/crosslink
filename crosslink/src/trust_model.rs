@@ -409,4 +409,56 @@ internal = ["db"]
         assert_eq!(loaded.trust.model, "multi-tenant");
         assert!(loaded.trust.description.contains("Multi-tenant"));
     }
+
+    #[test]
+    fn triage_finding_downgrades_internal_boundary_in_title() {
+        let config = TrustConfig {
+            boundaries: BoundaryConfig {
+                internal: vec!["internal-db".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = triage_finding(&config, "SQL injection via internal-db", "some details");
+        match result {
+            TriageResult::Downgraded {
+                original_severity,
+                new_severity,
+                reason,
+            } => {
+                assert_eq!(original_severity, "high");
+                assert_eq!(new_severity, "low");
+                assert!(reason.contains("internal-db"));
+                assert!(reason.contains("implicit trust"));
+            }
+            other => panic!("Expected Downgraded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn triage_finding_downgrades_internal_boundary_in_description() {
+        let config = TrustConfig {
+            boundaries: BoundaryConfig {
+                internal: vec!["message-bus".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        // Pattern only in description, not title
+        let result = triage_finding(&config, "Unvalidated input", "goes through message-bus");
+        match result {
+            TriageResult::Downgraded { .. } => {}
+            other => panic!("Expected Downgraded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn generate_default_config_custom_model() {
+        let config = generate_default_config("my-custom-model");
+        assert_eq!(config.trust.model, "my-custom-model");
+        assert!(config.trust.description.is_empty());
+        assert!(config.ignore.patterns.is_empty());
+        assert!(config.boundaries.external.is_empty());
+        assert!(config.boundaries.internal.is_empty());
+    }
 }

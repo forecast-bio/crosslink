@@ -207,6 +207,8 @@ fn diff_and_broadcast(
 mod tests {
     use super::*;
     use chrono::Utc;
+    use std::process::Command;
+    use tempfile::tempdir;
 
     fn make_heartbeat(agent_id: &str, age_minutes: i64) -> Heartbeat {
         Heartbeat {
@@ -215,6 +217,242 @@ mod tests {
             active_issue_id: None,
             machine_id: "test-machine".to_string(),
         }
+    }
+
+    /// Set up a real git repo with a bare remote, init the hub cache, and
+    /// return a ready-to-use `SyncManager` along with the temp dirs so they
+    /// aren't dropped prematurely.
+    fn setup_watcher_env() -> (tempfile::TempDir, tempfile::TempDir, SyncManager) {
+        let remote_dir = tempdir().unwrap();
+        let work_dir = tempdir().unwrap();
+
+        // Init bare remote
+        Command::new("git")
+            .current_dir(remote_dir.path())
+            .args(["init", "--bare", "-b", "main"])
+            .output()
+            .unwrap();
+
+        // Init work repo
+        Command::new("git")
+            .current_dir(work_dir.path())
+            .args(["init", "-b", "main"])
+            .output()
+            .unwrap();
+
+        for args in [
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+            vec![
+                "remote",
+                "add",
+                "origin",
+                remote_dir.path().to_str().unwrap(),
+            ],
+        ] {
+            Command::new("git")
+                .current_dir(work_dir.path())
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+
+        // Initial commit + push
+        std::fs::write(work_dir.path().join("README.md"), "# test\n").unwrap();
+        Command::new("git")
+            .current_dir(work_dir.path())
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(work_dir.path())
+            .args(["commit", "-m", "init", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(work_dir.path())
+            .args(["push", "-u", "origin", "main"])
+            .output()
+            .unwrap();
+
+        let crosslink_dir = work_dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        std::fs::write(
+            crosslink_dir.join("hook-config.json"),
+            r#"{"remote":"origin"}"#,
+        )
+        .unwrap();
+
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+        sync.init_cache().unwrap();
+
+        (work_dir, remote_dir, sync)
+    }
+
+    /// Write a heartbeat JSON file directly into the hub cache's heartbeats dir.
+    fn write_heartbeat_file(sync: &SyncManager, hb: &Heartbeat) {
+        let hb_dir = sync.cache_path().join("heartbeats");
+        std::fs::create_dir_all(&hb_dir).unwrap();
+        let json = serde_json::to_string_pretty(hb).unwrap();
+        std::fs::write(hb_dir.join(format!("{}.json", hb.agent_id)), json).unwrap();
+    }
+
+    #[test]
+    fn test_diff_and_broadcast_new_agent() {
+        let (_work, _remote, sync) = setup_watcher_env();
+        let (tx, mut rx) = broadcast::channel::<WsEvent>(16);
+        let mut last_state: HashMap<String, Heartbeat> = HashMap::new();
+        let mut last_statuses: HashMap<String, AgentStatus> = HashMap::new();
+
+        // Write a fresh (active) heartbeat
+        let hb = Heartbeat {
+            agent_id: "worker-1".to_string(),
+            last_heartbeat: Utc::now(),
+            active_issue_id: Some(42),
+            machine_id: "test-host".to_string(),
+        };
+        write_heartbeat_file(&sync, &hb);
+
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+
+        // Expect Heartbeat + AgentStatus events
+        let ev1 = rx.try_recv().expect("Heartbeat event");
+        let ev2 = rx.try_recv().expect("AgentStatus event");
+        assert!(rx.try_recv().is_err(), "no extra events");
+
+        assert!(matches!(ev1, WsEvent::Heartbeat(_)));
+        assert!(matches!(ev2, WsEvent::AgentStatus(_)));
+
+        if let WsEvent::Heartbeat(e) = ev1 {
+            assert_eq!(e.agent_id, "worker-1");
+            assert_eq!(e.active_issue_id, Some(42));
+        }
+        if let WsEvent::AgentStatus(e) = ev2 {
+            assert_eq!(e.agent_id, "worker-1");
+            assert_eq!(e.status, AgentStatus::Active);
+        }
+
+        assert_eq!(last_state.len(), 1);
+        assert_eq!(last_statuses.len(), 1);
+    }
+
+    #[test]
+    fn test_diff_and_broadcast_unchanged() {
+        let (_work, _remote, sync) = setup_watcher_env();
+        let (tx, mut rx) = broadcast::channel::<WsEvent>(16);
+        let mut last_state: HashMap<String, Heartbeat> = HashMap::new();
+        let mut last_statuses: HashMap<String, AgentStatus> = HashMap::new();
+
+        let hb = Heartbeat {
+            agent_id: "worker-2".to_string(),
+            last_heartbeat: Utc::now() - Duration::minutes(2),
+            active_issue_id: None,
+            machine_id: "test-host".to_string(),
+        };
+        write_heartbeat_file(&sync, &hb);
+
+        // First call: should emit events
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+        // Drain
+        while rx.try_recv().is_ok() {}
+
+        // Second call with same file: should emit nothing
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+        assert!(rx.try_recv().is_err(), "no events for unchanged heartbeat");
+    }
+
+    #[test]
+    fn test_diff_and_broadcast_updated_timestamp() {
+        let (_work, _remote, sync) = setup_watcher_env();
+        let (tx, mut rx) = broadcast::channel::<WsEvent>(16);
+        let mut last_state: HashMap<String, Heartbeat> = HashMap::new();
+        let mut last_statuses: HashMap<String, AgentStatus> = HashMap::new();
+
+        let hb1 = Heartbeat {
+            agent_id: "worker-3".to_string(),
+            last_heartbeat: Utc::now() - Duration::minutes(2),
+            active_issue_id: None,
+            machine_id: "test-host".to_string(),
+        };
+        write_heartbeat_file(&sync, &hb1);
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+        while rx.try_recv().is_ok() {}
+
+        // Update timestamp (still Active, so status shouldn't change)
+        let hb2 = Heartbeat {
+            last_heartbeat: Utc::now() - Duration::minutes(1),
+            ..hb1
+        };
+        write_heartbeat_file(&sync, &hb2);
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+
+        // Should emit Heartbeat but NOT AgentStatus (status unchanged: Active→Active)
+        let ev = rx.try_recv().expect("Heartbeat event");
+        assert!(matches!(ev, WsEvent::Heartbeat(_)));
+        // No AgentStatus event since status is still Active
+        assert!(
+            rx.try_recv().is_err(),
+            "no AgentStatus when status unchanged"
+        );
+    }
+
+    #[test]
+    fn test_diff_and_broadcast_status_change() {
+        let (_work, _remote, sync) = setup_watcher_env();
+        let (tx, mut rx) = broadcast::channel::<WsEvent>(16);
+        let mut last_state: HashMap<String, Heartbeat> = HashMap::new();
+        let mut last_statuses: HashMap<String, AgentStatus> = HashMap::new();
+
+        // Start as Idle (10 minutes old)
+        let hb1 = Heartbeat {
+            agent_id: "worker-4".to_string(),
+            last_heartbeat: Utc::now() - Duration::minutes(10),
+            active_issue_id: None,
+            machine_id: "test-host".to_string(),
+        };
+        write_heartbeat_file(&sync, &hb1);
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+        while rx.try_recv().is_ok() {}
+
+        // Now change to Stale (35 minutes old) — different timestamp AND different status
+        let hb2 = Heartbeat {
+            last_heartbeat: Utc::now() - Duration::minutes(35),
+            ..hb1
+        };
+        write_heartbeat_file(&sync, &hb2);
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+
+        let ev1 = rx.try_recv().expect("Heartbeat event");
+        let ev2 = rx.try_recv().expect("AgentStatus event");
+        assert!(rx.try_recv().is_err(), "no extra events");
+
+        assert!(matches!(ev1, WsEvent::Heartbeat(_)));
+        assert!(matches!(ev2, WsEvent::AgentStatus(_)));
+        if let WsEvent::AgentStatus(e) = ev2 {
+            assert_eq!(e.status, AgentStatus::Stale);
+        }
+    }
+
+    #[test]
+    fn test_diff_and_broadcast_read_error_returns_gracefully() {
+        // Create a SyncManager pointing to a non-existent crosslink dir.
+        // read_heartbeats_auto will return an error / empty list gracefully.
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // SyncManager::new succeeds; cache dir doesn't exist so read_heartbeats_auto
+        // returns Ok(vec![]) (empty) rather than an error, since the heartbeats dir
+        // simply doesn't exist yet.
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+
+        let (tx, mut rx) = broadcast::channel::<WsEvent>(16);
+        let mut last_state: HashMap<String, Heartbeat> = HashMap::new();
+        let mut last_statuses: HashMap<String, AgentStatus> = HashMap::new();
+
+        // Should not panic; no heartbeats → no events
+        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+        assert!(rx.try_recv().is_err(), "no events when no heartbeats");
     }
 
     #[test]

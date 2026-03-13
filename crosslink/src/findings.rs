@@ -967,4 +967,45 @@ mod tests {
             FindingSeverity::Critical
         );
     }
+
+    #[test]
+    fn severity_display_all_variants() {
+        assert_eq!(format!("{}", FindingSeverity::Critical), "critical");
+        assert_eq!(format!("{}", FindingSeverity::High), "high");
+        assert_eq!(format!("{}", FindingSeverity::Medium), "medium");
+        assert_eq!(format!("{}", FindingSeverity::Low), "low");
+        assert_eq!(format!("{}", FindingSeverity::Info), "info");
+    }
+
+    #[test]
+    fn severity_header_all_variants() {
+        assert_eq!(severity_header(FindingSeverity::Critical), "Critical");
+        assert_eq!(severity_header(FindingSeverity::High), "High");
+        assert_eq!(severity_header(FindingSeverity::Medium), "Medium");
+        assert_eq!(severity_header(FindingSeverity::Low), "Low");
+        assert_eq!(severity_header(FindingSeverity::Info), "Informational");
+    }
+
+    #[test]
+    fn generate_markdown_report_no_line_location() {
+        let findings = vec![Finding {
+            title: "Test finding".to_string(),
+            description: "A test".to_string(),
+            severity: FindingSeverity::Medium,
+            file: "src/lib.rs".to_string(),
+            line: None,
+            suggested_fix: None,
+            agent: "agent-1".to_string(),
+        }];
+        let reports = vec![ReviewReport {
+            agent: "agent-1".to_string(),
+            partition_label: "test".to_string(),
+            mandate: "test mandate".to_string(),
+            findings,
+            completed_at: None,
+        }];
+        let report = consolidate(reports);
+        let md = generate_markdown_report(&report);
+        assert!(md.contains("src/lib.rs"));
+    }
 }

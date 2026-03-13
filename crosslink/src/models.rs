@@ -212,6 +212,19 @@ mod tests {
         assert_eq!(deserialized.content, "");
     }
 
+    #[test]
+    fn test_comment_default_kind_when_missing() {
+        // When `kind` is absent from JSON, the serde default should provide "note"
+        let json = serde_json::json!({
+            "id": 1,
+            "issue_id": 2,
+            "content": "hello",
+            "created_at": "2026-01-01T00:00:00Z"
+        });
+        let comment: Comment = serde_json::from_value(json).unwrap();
+        assert_eq!(comment.kind, "note");
+    }
+
     // ==================== Session Tests ====================
 
     #[test]

@@ -392,4 +392,190 @@ mod tests {
         let body = body_json(resp).await;
         assert_eq!(body["model"], "unknown");
     }
+
+    #[tokio::test]
+    async fn test_list_usage_with_model_filter() {
+        let (app, _dir) = test_app();
+
+        // Create records for two different models.
+        for model in &["claude-sonnet-4-20250514", "claude-opus-4-20250514"] {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/usage")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({
+                                "agent_id": "test-agent",
+                                "input_tokens": 100,
+                                "output_tokens": 50,
+                                "model": model
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Filter by sonnet model only.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/usage?model=claude-sonnet-4-20250514")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["items"][0]["model"], "claude-sonnet-4-20250514");
+    }
+
+    #[tokio::test]
+    async fn test_usage_summary_with_agent_filter() {
+        let (app, _dir) = test_app();
+
+        // Create records for two agents.
+        for agent in &["alpha-agent", "beta-agent"] {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/usage")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({
+                                "agent_id": agent,
+                                "input_tokens": 500,
+                                "output_tokens": 100,
+                                "model": "claude-sonnet-4-20250514",
+                                "cost_estimate": 0.001
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Summary filtered to alpha-agent only.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/usage/summary?agent_id=alpha-agent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["items"][0]["agent_id"], "alpha-agent");
+        assert_eq!(body["total_input_tokens"], 500);
+    }
+
+    #[tokio::test]
+    async fn test_list_usage_with_limit() {
+        let (app, _dir) = test_app();
+
+        // Create three records.
+        for _ in 0..3 {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/usage")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({
+                                "agent_id": "limit-agent",
+                                "input_tokens": 100,
+                                "output_tokens": 50,
+                                "model": "claude-sonnet-4-20250514"
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Limit to 2.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/usage?limit=2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 2);
+    }
+
+    #[test]
+    fn test_internal_error_helper() {
+        let (status, json) = super::internal_error("ctx", "detail msg");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+        assert_eq!(json.detail.as_deref(), Some("detail msg"));
+    }
+
+    #[tokio::test]
+    async fn test_usage_summary_total_cost() {
+        let (app, _dir) = test_app();
+
+        // Create two records with known costs.
+        for cost in &[0.002_f64, 0.003_f64] {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/usage")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({
+                                "agent_id": "cost-agent",
+                                "input_tokens": 100,
+                                "output_tokens": 50,
+                                "model": "claude-sonnet-4-20250514",
+                                "cost_estimate": cost
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/usage/summary")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // total_cost should be ~0.005.
+        let total_cost = body["total_cost"].as_f64().unwrap();
+        assert!((total_cost - 0.005).abs() < 1e-9);
+    }
 }

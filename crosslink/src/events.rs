@@ -635,4 +635,363 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].agent_seq, 1);
     }
+
+    #[test]
+    fn test_verify_event_signature_returns_false_when_unsigned() {
+        let dir = tempfile::tempdir().unwrap();
+        let signers_path = dir.path().join("allowed_signers");
+        std::fs::write(&signers_path, "").unwrap();
+
+        let envelope = make_envelope("agent-1", 1);
+        let result = verify_event_signature(&envelope, &signers_path).unwrap();
+        assert!(!result, "Unsigned event should return false");
+    }
+
+    #[test]
+    fn test_verify_event_signature_returns_false_when_only_signed_by() {
+        let dir = tempfile::tempdir().unwrap();
+        let signers_path = dir.path().join("allowed_signers");
+        std::fs::write(&signers_path, "").unwrap();
+
+        let mut envelope = make_envelope("agent-1", 1);
+        envelope.signed_by = Some("SHA256:abc".to_string());
+        let result = verify_event_signature(&envelope, &signers_path).unwrap();
+        assert!(!result, "Event with only signed_by should return false");
+    }
+
+    #[test]
+    fn test_verify_event_signature_returns_false_when_only_signature() {
+        let dir = tempfile::tempdir().unwrap();
+        let signers_path = dir.path().join("allowed_signers");
+        std::fs::write(&signers_path, "").unwrap();
+
+        let mut envelope = make_envelope("agent-1", 1);
+        envelope.signature = Some("sig123".to_string());
+        let result = verify_event_signature(&envelope, &signers_path).unwrap();
+        assert!(!result, "Event with only signature should return false");
+    }
+
+    #[test]
+    fn test_read_events_after_watermark_returns_empty_when_all_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("events.log");
+
+        let now = Utc::now();
+        let mut e1 = make_envelope("agent-1", 1);
+        e1.timestamp = now - chrono::Duration::seconds(20);
+        let mut e2 = make_envelope("agent-1", 2);
+        e2.timestamp = now - chrono::Duration::seconds(10);
+
+        append_event(&log_path, &e1).unwrap();
+        append_event(&log_path, &e2).unwrap();
+
+        let watermark = OrderingKey {
+            timestamp: now,
+            agent_id: "agent-1".to_string(),
+            agent_seq: 999,
+        };
+        let filtered = read_events_after(&log_path, &watermark).unwrap();
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_read_events_after_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("nonexistent.log");
+
+        let watermark = OrderingKey {
+            timestamp: Utc::now(),
+            agent_id: "a".to_string(),
+            agent_seq: 0,
+        };
+        let events = read_events_after(&log_path, &watermark).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_canonicalize_event_different_events_differ() {
+        let e1 = make_envelope("agent-1", 1);
+        let mut e2 = make_envelope("agent-1", 2);
+        e2.timestamp = e1.timestamp;
+
+        let c1 = canonicalize_event(&e1);
+        let c2 = canonicalize_event(&e2);
+        assert_ne!(
+            c1, c2,
+            "Different agent_seq should produce different canonical forms"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_event_ignores_signature_fields() {
+        let mut e1 = make_envelope("agent-1", 1);
+        let c_before = canonicalize_event(&e1);
+
+        e1.signed_by = Some("SHA256:abc".to_string());
+        e1.signature = Some("sig123".to_string());
+        let c_after = canonicalize_event(&e1);
+        assert_eq!(c_before, c_after);
+    }
+
+    #[test]
+    fn test_ndjson_codec_decode_all_empty_input() {
+        let codec = NdjsonCodec;
+        let events = codec.decode_all(b"").unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_ndjson_codec_decode_all_only_newlines() {
+        let codec = NdjsonCodec;
+        let events = codec.decode_all(b"\n\n\n").unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_ordering_key_equality() {
+        let now = Utc::now();
+        let k1 = OrderingKey {
+            timestamp: now,
+            agent_id: "a".to_string(),
+            agent_seq: 1,
+        };
+        let k2 = OrderingKey {
+            timestamp: now,
+            agent_id: "a".to_string(),
+            agent_seq: 1,
+        };
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn test_ordering_key_serde_roundtrip() {
+        let key = OrderingKey {
+            timestamp: Utc::now(),
+            agent_id: "test-agent".to_string(),
+            agent_seq: 42,
+        };
+        let json = serde_json::to_string(&key).unwrap();
+        let parsed: OrderingKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, key);
+    }
+
+    #[test]
+    fn test_event_issue_created_with_labels_and_parent() {
+        let parent_uuid = Uuid::new_v4();
+        let event = Event::IssueCreated {
+            uuid: Uuid::new_v4(),
+            title: "child issue".to_string(),
+            description: Some("desc".to_string()),
+            priority: "high".to_string(),
+            labels: vec!["bug".to_string(), "urgent".to_string()],
+            parent_uuid: Some(parent_uuid),
+            created_by: "agent-1".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("bug"));
+        assert!(json.contains("urgent"));
+        assert!(json.contains(&parent_uuid.to_string()));
+
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        if let Event::IssueCreated {
+            labels,
+            parent_uuid: p,
+            ..
+        } = parsed
+        {
+            assert_eq!(labels, vec!["bug", "urgent"]);
+            assert_eq!(p, Some(parent_uuid));
+        } else {
+            panic!("Expected IssueCreated variant");
+        }
+    }
+
+    #[test]
+    fn test_event_lock_claimed_without_branch() {
+        let event = Event::LockClaimed {
+            issue_display_id: 5,
+            branch: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(!json.contains("branch"));
+
+        let parsed: Event = serde_json::from_str(&json).unwrap();
+        if let Event::LockClaimed {
+            issue_display_id,
+            branch,
+        } = parsed
+        {
+            assert_eq!(issue_display_id, 5);
+            assert!(branch.is_none());
+        } else {
+            panic!("Expected LockClaimed variant");
+        }
+    }
+
+    #[test]
+    fn test_append_event_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("deep/nested/dir/events.log");
+
+        let e = make_envelope("agent-1", 1);
+        append_event(&log_path, &e).unwrap();
+
+        let events = read_events(&log_path).unwrap();
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn test_ndjson_codec_encode_ends_with_newline() {
+        let codec = NdjsonCodec;
+        let e = make_envelope("agent-1", 1);
+        let bytes = codec.encode(&e).unwrap();
+        assert_eq!(*bytes.last().unwrap(), b'\n');
+    }
+
+    #[test]
+    fn test_ndjson_codec_batch_encode_ends_with_newline() {
+        let codec = NdjsonCodec;
+        let events = vec![make_envelope("a", 1), make_envelope("b", 2)];
+        let bytes = codec.encode_batch(&events).unwrap();
+        assert_eq!(*bytes.last().unwrap(), b'\n');
+    }
+
+    // Coverage for sign_event and verify_event_signature with actual SSH keys
+    #[test]
+    fn test_sign_and_verify_event_roundtrip() {
+        use std::process::Command;
+        if Command::new("ssh-keygen").arg("--help").output().is_err() {
+            eprintln!("Skipping: ssh-keygen not available");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let keys_dir = dir.path().join("keys");
+        std::fs::create_dir_all(&keys_dir).unwrap();
+
+        // Generate a test key pair
+        let private_key_path = keys_dir.join("test_ed25519");
+        let public_key_path = keys_dir.join("test_ed25519.pub");
+        let output = Command::new("ssh-keygen")
+            .args([
+                "-t",
+                "ed25519",
+                "-f",
+                &private_key_path.to_string_lossy(),
+                "-N",
+                "",
+                "-C",
+                "test-agent@test",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "ssh-keygen failed");
+
+        // Get fingerprint
+        let fp_output = Command::new("ssh-keygen")
+            .args(["-l", "-f", &public_key_path.to_string_lossy()])
+            .output()
+            .unwrap();
+        let fp_str = String::from_utf8_lossy(&fp_output.stdout);
+        let fingerprint = fp_str.split_whitespace().nth(1).unwrap().to_string();
+
+        // Sign the event
+        let mut envelope = make_envelope("test-agent", 1);
+        sign_event(&mut envelope, &private_key_path, &fingerprint).unwrap();
+
+        assert_eq!(envelope.signed_by, Some(fingerprint.clone()));
+        assert!(envelope.signature.is_some());
+
+        // Set up allowed_signers file
+        let public_key = std::fs::read_to_string(&public_key_path).unwrap();
+        let public_key = public_key.trim();
+        let signers_path = dir.path().join("allowed_signers");
+        let principal = format!("test-agent@crosslink");
+        std::fs::write(&signers_path, format!("{} {}\n", principal, public_key)).unwrap();
+
+        // Verify the signature
+        let verified = verify_event_signature(&envelope, &signers_path).unwrap();
+        assert!(verified, "Valid event signature should verify successfully");
+    }
+
+    #[test]
+    fn test_verify_event_signature_invalid_signature() {
+        use std::process::Command;
+        if Command::new("ssh-keygen").arg("--help").output().is_err() {
+            eprintln!("Skipping: ssh-keygen not available");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let keys_dir = dir.path().join("keys");
+        std::fs::create_dir_all(&keys_dir).unwrap();
+
+        // Generate a key to have a valid allowed_signers entry
+        let private_key_path = keys_dir.join("test_ed25519");
+        let public_key_path = keys_dir.join("test_ed25519.pub");
+        let output = Command::new("ssh-keygen")
+            .args([
+                "-t",
+                "ed25519",
+                "-f",
+                &private_key_path.to_string_lossy(),
+                "-N",
+                "",
+                "-C",
+                "test-agent@test",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        let public_key = std::fs::read_to_string(&public_key_path).unwrap();
+        let public_key = public_key.trim();
+        let signers_path = dir.path().join("allowed_signers");
+        std::fs::write(
+            &signers_path,
+            format!("test-agent@crosslink {}\n", public_key),
+        )
+        .unwrap();
+
+        // Create an envelope with a tampered/garbage signature
+        let mut envelope = make_envelope("test-agent", 1);
+        envelope.signed_by = Some("SHA256:fake".to_string());
+        envelope.signature = Some("aW52YWxpZHNpZ25hdHVyZQ==".to_string()); // base64("invalidsignature")
+
+        // Verification should return false (not an error) for invalid signatures
+        let result = verify_event_signature(&envelope, &signers_path);
+        // Either Ok(false) or an Err — either way the signature is not valid
+        match result {
+            Ok(false) => {} // expected
+            Ok(true) => panic!("Should not verify a garbage signature"),
+            Err(_) => {} // also acceptable — ssh-keygen may error on garbage input
+        }
+    }
+
+    // Coverage for EventCodec trait object usage (line 132)
+    #[test]
+    fn test_event_codec_trait_object() {
+        let codec: &dyn EventCodec = &NdjsonCodec;
+        let envelope = make_envelope("agent-1", 42);
+        let bytes = codec.encode(&envelope).unwrap();
+        let decoded = codec.decode_all(&bytes).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].agent_seq, 42);
+    }
+
+    // Coverage for the `continue` path in decode_all when line is empty (line 163)
+    #[test]
+    fn test_decode_all_skips_empty_lines_between_events() {
+        let codec = NdjsonCodec;
+        let e1 = make_envelope("agent-1", 1);
+        let e2 = make_envelope("agent-1", 2);
+        let mut bytes = codec.encode(&e1).unwrap();
+        // Insert an extra blank line between the two events
+        bytes.extend_from_slice(b"\n");
+        bytes.extend_from_slice(&codec.encode(&e2).unwrap());
+        let events = codec.decode_all(&bytes).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].agent_seq, 1);
+        assert_eq!(events[1].agent_seq, 2);
+    }
 }

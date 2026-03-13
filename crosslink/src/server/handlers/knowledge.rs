@@ -348,7 +348,7 @@ mod tests {
     }
 
     fn build_router(state: AppState) -> Router {
-        use axum::routing::{get, post};
+        use axum::routing::get;
         Router::new()
             .route("/knowledge/search", get(search_knowledge))
             .route(
@@ -614,5 +614,300 @@ mod tests {
         let raw = "Just plain text.";
         let stripped = strip_frontmatter(raw);
         assert_eq!(stripped, "Just plain text.");
+    }
+
+    #[test]
+    fn test_strip_frontmatter_unclosed_returns_original() {
+        // If there is no closing `---`, the raw string is returned unchanged.
+        let raw = "---\ntitle: Test\ntags: []\nno closing delimiter";
+        let stripped = strip_frontmatter(raw);
+        assert_eq!(stripped, raw);
+    }
+
+    #[tokio::test]
+    async fn test_create_page_empty_slug_returns_400() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let body = serde_json::json!({"slug": "", "title": "Title", "content": "body"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_create_page_empty_title_returns_400() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let body = serde_json::json!({"slug": "some-slug", "title": "", "content": "body"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_create_page_when_cache_missing_attempts_init() {
+        // The cache dir does NOT exist; create_knowledge_page tries init_cache
+        // which calls git. In a test environment without a real repo origin the
+        // git worktree add will fail, so we expect 500 (init failed) rather than
+        // 201. This still exercises the `!km.is_initialized()` branch.
+        let tmp = tempfile::tempdir().unwrap();
+        // Crosslink dir exists but .knowledge-cache does not.
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let body = serde_json::json!({
+            "slug": "auto-init-page",
+            "title": "Auto Init",
+            "content": "Created when cache was absent."
+        });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // init_cache runs git worktree add which fails without a proper remote;
+        // the handler maps that error to 500.
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_create_page_with_tags_and_sources() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let body = serde_json::json!({
+            "slug": "tagged-page",
+            "title": "Tagged Page",
+            "content": "Content here.",
+            "tags": ["rust", "systems"],
+            "sources": [
+                {"url": "https://doc.rust-lang.org", "title": "Rust Docs", "accessed_at": "2026-01-01"}
+            ]
+        });
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed["slug"], "tagged-page");
+        assert!(parsed["tags"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("rust")));
+
+        // Read back and verify tags appear in frontmatter-parsed response.
+        let get_resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge/tagged-page")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), StatusCode::OK);
+        let bytes2 = axum::body::to_bytes(get_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let page: serde_json::Value = serde_json::from_slice(&bytes2).unwrap();
+        assert!(page["tags"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("rust")));
+        assert!(!page["sources"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_page_when_km_not_initialized() {
+        // No .knowledge-cache dir exists — km.is_initialized() is false.
+        let tmp = tempfile::tempdir().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge/anything")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_search_knowledge_when_not_initialized() {
+        // No .knowledge-cache dir exists — returns empty list.
+        let tmp = tempfile::tempdir().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge/search?q=anything")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["total"], 0);
+        assert_eq!(body["items"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_helper_functions_directly() {
+        let (status, json) = super::internal_error("ctx", "detail");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+        assert_eq!(json.detail.as_deref(), Some("detail"));
+
+        let (status, json) = super::not_found("not there");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json.error, "not found");
+        assert_eq!(json.detail.as_deref(), Some("not there"));
+
+        let (status, json) = super::bad_request("invalid");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json.error, "bad request");
+        assert_eq!(json.detail.as_deref(), Some("invalid"));
+    }
+
+    #[tokio::test]
+    async fn test_create_page_with_source_accessed_at() {
+        // Exercise the sources branch that includes accessed_at field.
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let body = serde_json::json!({
+            "slug": "sourced-page",
+            "title": "Sourced Page",
+            "content": "This page has a source with accessed_at.",
+            "sources": [
+                {
+                    "url": "https://example.com/doc",
+                    "title": "Example Doc",
+                    "accessed_at": "2026-03-01"
+                }
+            ]
+        });
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed["slug"], "sourced-page");
+        // Verify the source with accessed_at is reflected.
+        let sources = parsed["sources"].as_array().unwrap();
+        assert!(!sources.is_empty());
+        assert_eq!(sources[0]["accessed_at"], "2026-03-01");
+    }
+
+    #[tokio::test]
+    async fn test_get_page_without_frontmatter() {
+        // A page with no frontmatter falls back to slug as title.
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        let page = "No frontmatter at all. Just raw content.\n";
+        std::fs::write(cache_dir.join("raw-page.md"), page).unwrap();
+
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/knowledge/raw-page")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // title falls back to slug when no frontmatter.
+        assert_eq!(body["slug"], "raw-page");
+        assert_eq!(body["title"], "raw-page");
+        assert!(body["content"].as_str().unwrap().contains("raw content"));
     }
 }

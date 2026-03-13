@@ -528,12 +528,23 @@ pub async fn get_snapshot(
 mod tests {
     use super::*;
     use crate::db::Database;
-    use crate::server::{routes::build_router, state::AppState};
+    use crate::orchestrator::{
+        dag::{Dag, DagNode},
+        executor::ExecutionSnapshot,
+    };
+    use crate::server::{
+        routes::build_router,
+        state::AppState,
+        types::{
+            ExecutionState, OrchestratorPhase, OrchestratorPlan, OrchestratorStage, StageStatus,
+        },
+    };
     use axum::{
         body::Body,
         http::{Method, Request, StatusCode},
     };
     use serde_json::Value;
+    use std::collections::HashMap;
     use tower::util::ServiceExt;
 
     fn test_app() -> (axum::Router, tempfile::TempDir) {
@@ -551,6 +562,220 @@ mod tests {
             .await
             .unwrap();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    /// Build a minimal test plan with one phase and one stage (no dependencies).
+    fn make_simple_plan() -> OrchestratorPlan {
+        OrchestratorPlan {
+            id: "test-plan-1".to_string(),
+            document_slug: "test-doc".to_string(),
+            phases: vec![OrchestratorPhase {
+                id: "phase-1".to_string(),
+                title: "Phase One".to_string(),
+                description: "First phase".to_string(),
+                stages: vec![OrchestratorStage {
+                    id: "stage-a".to_string(),
+                    title: "Stage A".to_string(),
+                    description: "Do A".to_string(),
+                    tasks: vec![],
+                    depends_on: vec![],
+                    agent_count: 1,
+                    complexity_hours: 1.0,
+                }],
+                gate_criteria: vec![],
+            }],
+            created_at: chrono::Utc::now(),
+            total_stages: 1,
+            estimated_hours: 1.0,
+        }
+    }
+
+    /// Write a plan to `crosslink_dir/orchestrator/plan.json` so that
+    /// `OrchestratorExecutor::load_plan` can find it.
+    fn write_plan_file(crosslink_dir: &std::path::Path, plan: &OrchestratorPlan) {
+        let orch_dir = crosslink_dir.join("orchestrator");
+        std::fs::create_dir_all(&orch_dir).unwrap();
+        let json = serde_json::to_string_pretty(plan).unwrap();
+        std::fs::write(orch_dir.join("plan.json"), json).unwrap();
+    }
+
+    /// Write an execution snapshot JSON directly to disk (bypasses `init` to avoid
+    /// database calls, letting us control the exact execution state).
+    fn write_execution_snapshot(
+        crosslink_dir: &std::path::Path,
+        plan: &OrchestratorPlan,
+        state: ExecutionState,
+    ) {
+        let orch_dir = crosslink_dir.join("orchestrator");
+        std::fs::create_dir_all(&orch_dir).unwrap();
+
+        // Build a minimal DAG from the plan.
+        let nodes: Vec<DagNode> = plan
+            .phases
+            .iter()
+            .flat_map(|ph| {
+                ph.stages.iter().map(|s| DagNode {
+                    id: s.id.clone(),
+                    title: s.title.clone(),
+                    status: StageStatus::Pending,
+                    depends_on: s.depends_on.clone(),
+                    issue_id: None,
+                    agent_id: None,
+                    phase_id: ph.id.clone(),
+                })
+            })
+            .collect();
+        let dag = Dag::from_nodes(nodes).unwrap();
+
+        let snapshot = ExecutionSnapshot {
+            plan_id: plan.id.clone(),
+            state,
+            dag,
+            phase_milestones: HashMap::new(),
+            phase_issues: HashMap::new(),
+            started_at: Some(chrono::Utc::now()),
+            completed_at: None,
+            current_phase_id: Some("phase-1".to_string()),
+        };
+        let json = serde_json::to_string_pretty(&snapshot).unwrap();
+        std::fs::write(orch_dir.join("execution.json"), json).unwrap();
+    }
+
+    /// Write an execution snapshot where a specific stage is in "Running" state.
+    fn write_execution_with_running_stage(
+        crosslink_dir: &std::path::Path,
+        plan: &OrchestratorPlan,
+        running_stage_id: &str,
+        agent_id: &str,
+    ) {
+        let orch_dir = crosslink_dir.join("orchestrator");
+        std::fs::create_dir_all(&orch_dir).unwrap();
+
+        let nodes: Vec<DagNode> = plan
+            .phases
+            .iter()
+            .flat_map(|ph| {
+                ph.stages.iter().map(|s| {
+                    let (status, aid) = if s.id == running_stage_id {
+                        (StageStatus::Running, Some(agent_id.to_string()))
+                    } else {
+                        (StageStatus::Pending, None)
+                    };
+                    DagNode {
+                        id: s.id.clone(),
+                        title: s.title.clone(),
+                        status,
+                        depends_on: s.depends_on.clone(),
+                        issue_id: None,
+                        agent_id: aid,
+                        phase_id: ph.id.clone(),
+                    }
+                })
+            })
+            .collect();
+        let dag = Dag::from_nodes(nodes).unwrap();
+
+        let snapshot = ExecutionSnapshot {
+            plan_id: plan.id.clone(),
+            state: ExecutionState::Running,
+            dag,
+            phase_milestones: HashMap::new(),
+            phase_issues: HashMap::new(),
+            started_at: Some(chrono::Utc::now()),
+            completed_at: None,
+            current_phase_id: Some("phase-1".to_string()),
+        };
+        let json = serde_json::to_string_pretty(&snapshot).unwrap();
+        std::fs::write(orch_dir.join("execution.json"), json).unwrap();
+    }
+
+    /// Write an execution snapshot where a specific stage is in "Failed" state.
+    fn write_execution_with_failed_stage(
+        crosslink_dir: &std::path::Path,
+        plan: &OrchestratorPlan,
+        failed_stage_id: &str,
+    ) {
+        let orch_dir = crosslink_dir.join("orchestrator");
+        std::fs::create_dir_all(&orch_dir).unwrap();
+
+        let nodes: Vec<DagNode> = plan
+            .phases
+            .iter()
+            .flat_map(|ph| {
+                ph.stages.iter().map(|s| {
+                    let status = if s.id == failed_stage_id {
+                        StageStatus::Failed
+                    } else {
+                        StageStatus::Pending
+                    };
+                    DagNode {
+                        id: s.id.clone(),
+                        title: s.title.clone(),
+                        status,
+                        depends_on: s.depends_on.clone(),
+                        issue_id: None,
+                        agent_id: None,
+                        phase_id: ph.id.clone(),
+                    }
+                })
+            })
+            .collect();
+        let dag = Dag::from_nodes(nodes).unwrap();
+
+        let snapshot = ExecutionSnapshot {
+            plan_id: plan.id.clone(),
+            state: ExecutionState::Failed,
+            dag,
+            phase_milestones: HashMap::new(),
+            phase_issues: HashMap::new(),
+            started_at: Some(chrono::Utc::now()),
+            completed_at: None,
+            current_phase_id: Some("phase-1".to_string()),
+        };
+        let json = serde_json::to_string_pretty(&snapshot).unwrap();
+        std::fs::write(orch_dir.join("execution.json"), json).unwrap();
+    }
+
+    /// Create an app where a plan file exists at `orchestrator/plan.json`.
+    fn test_app_with_plan(plan: &OrchestratorPlan) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, plan);
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    /// Create an app where an execution file exists (Running state, all stages pending).
+    fn test_app_with_running_execution(
+        plan: &OrchestratorPlan,
+    ) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, plan);
+        write_execution_snapshot(&crosslink_dir, plan, ExecutionState::Running);
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    /// Create an app where an execution file exists (Paused state).
+    fn test_app_with_paused_execution(
+        plan: &OrchestratorPlan,
+    ) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, plan);
+        write_execution_snapshot(&crosslink_dir, plan, ExecutionState::Paused);
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
     }
 
     #[tokio::test]
@@ -637,5 +862,1099 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_decompose_whitespace_only_document() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/decompose")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"document": "   \n\t  "}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = body_json(resp).await;
+        assert!(body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn test_retry_stage_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/some-stage/retry")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_skip_stage_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/some-stage/skip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_resume_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/resume")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_running_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/some-stage/running")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"agent_id": "agent-1"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_done_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/some-stage/done")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_failed_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/some-stage/failed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_poll_agents_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/agents/poll")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_get_snapshot_no_execution_returns_404() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/snapshot")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_list_plans_empty() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/plans")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert!(body.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_plan_by_id_not_found() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/plans/nonexistent-plan-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_get_status_returns_idle_fields() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "idle");
+        assert_eq!(body["progress_pct"], 0);
+        // idle status should not have a detail field
+        assert!(body.get("detail").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_plan_returns_null_when_empty() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/plan")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // No plan has been created yet, so the response should be null
+        assert!(body.is_null());
+    }
+
+    // -----------------------------------------------------------------------
+    // Happy-path tests that require a plan or execution on disk
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_get_plan_returns_plan_when_exists() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_plan(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/plan")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert!(!body.is_null());
+        assert_eq!(body["id"], "test-plan-1");
+        assert_eq!(body["document_slug"], "test-doc");
+    }
+
+    #[tokio::test]
+    async fn test_get_status_with_running_execution() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "running");
+        // detail should be present when execution exists
+        assert!(body.get("detail").is_some());
+        let detail = &body["detail"];
+        assert_eq!(detail["plan_id"], "test-plan-1");
+        assert_eq!(detail["state"], "running");
+    }
+
+    #[tokio::test]
+    async fn test_get_status_with_paused_execution() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_paused_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "paused");
+    }
+
+    #[tokio::test]
+    async fn test_get_status_with_done_execution() {
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        write_execution_snapshot(&crosslink_dir, &plan, ExecutionState::Done);
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "done");
+    }
+
+    #[tokio::test]
+    async fn test_get_status_with_failed_execution() {
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        write_execution_snapshot(&crosslink_dir, &plan, ExecutionState::Failed);
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "failed");
+    }
+
+    #[tokio::test]
+    async fn test_get_status_with_idle_execution_state() {
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        write_execution_snapshot(&crosslink_dir, &plan, ExecutionState::Idle);
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // Execution file exists, but state is "idle"
+        assert_eq!(body["status"], "idle");
+        assert!(body.get("detail").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_plan_starts_execution() {
+        // Start execution when no execution file exists but plan file does.
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_plan(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/execute")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "running");
+        assert!(body.get("detail").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_execute_when_already_running_returns_conflict() {
+        // Attempting to start when already running should return 409 Conflict.
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/execute")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // The executor's start() bails when state is Running → conflict
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_execute_resumes_paused_execution() {
+        // Calling execute on a paused execution should transition it to Running.
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_paused_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/execute")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn test_pause_with_running_execution() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/pause")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "paused");
+    }
+
+    #[tokio::test]
+    async fn test_pause_when_not_running_returns_conflict() {
+        // Pausing a paused execution should fail.
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_paused_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/pause")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_resume_paused_execution() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_paused_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/resume")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn test_resume_when_not_paused_returns_conflict() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/resume")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_running_success() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/running")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"agent_id": "agent-xyz"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["stage_id"], "stage-a");
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_running_unknown_stage_returns_bad_request() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/nonexistent-stage/running")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"agent_id": "agent-xyz"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_done_success() {
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        // Stage must be Running before it can be marked Done
+        write_execution_with_running_stage(&crosslink_dir, &plan, "stage-a", "agent-1");
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/done")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["stage_id"], "stage-a");
+        assert!(body["newly_ready"].as_array().unwrap().is_empty());
+        // Single stage, so marking it done completes execution
+        assert_eq!(body["execution_complete"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_done_wrong_state_returns_bad_request() {
+        // A stage that is still Pending cannot be marked Done
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/done")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_failed_success() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        // mark_failed can be called on any status (it unconditionally sets Failed)
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/failed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["stage_id"], "stage-a");
+    }
+
+    #[tokio::test]
+    async fn test_mark_stage_failed_unknown_stage_returns_bad_request() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/no-such-stage/failed")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_retry_stage_when_failed_succeeds() {
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        write_execution_with_failed_stage(&crosslink_dir, &plan, "stage-a");
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/retry")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["stage_id"], "stage-a");
+        // stage-a has no deps so it should be immediately ready
+        assert_eq!(body["ready_to_launch"], true);
+    }
+
+    #[tokio::test]
+    async fn test_retry_stage_when_not_failed_returns_bad_request() {
+        let plan = make_simple_plan();
+        // Stage is Pending (not Failed) — retry should be rejected
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/retry")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_retry_stage_unknown_stage_returns_bad_request() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/no-such-stage/retry")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_skip_stage_success() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/stage-a/skip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["stage_id"], "stage-a");
+        assert!(body["newly_ready"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_skip_stage_unknown_stage_returns_bad_request() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/stages/no-such-stage/skip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_poll_agents_with_execution_no_running_stages() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/agents/poll")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // No running stages → no agent statuses reported
+        assert!(body["agents"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_poll_agents_with_running_stage_no_status_file() {
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        write_execution_with_running_stage(&crosslink_dir, &plan, "stage-a", "parent--stage-a");
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/agents/poll")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // Stage is running but no .kickoff-status file → nothing reported
+        assert!(body["agents"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_snapshot_with_execution() {
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/snapshot")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["plan_id"], "test-plan-1");
+        assert_eq!(body["state"], "Running");
+        assert_eq!(body["stage_count"], 1);
+        assert_eq!(body["is_empty"], false);
+        assert_eq!(body["pending_count"], 1);
+        assert_eq!(body["done_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_plans_with_stored_plans() {
+        // Use the decompose module's store function to seed a plan.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Write two stored plans using the decompose module's storage format.
+        let orch_dir = crosslink_dir.join("orchestrator");
+        std::fs::create_dir_all(&orch_dir).unwrap();
+        let stored = serde_json::json!({
+            "plan": {
+                "id": "plan-alpha",
+                "document_slug": "alpha",
+                "phases": [],
+                "created_at": "2026-01-01T00:00:00Z",
+                "total_stages": 0,
+                "estimated_hours": 0.0
+            },
+            "source_document": "# Alpha",
+            "stored_at": "2026-01-01T00:00:00Z"
+        });
+        std::fs::write(
+            orch_dir.join("plan-alpha.json"),
+            serde_json::to_string(&stored).unwrap(),
+        )
+        .unwrap();
+        let stored2 = serde_json::json!({
+            "plan": {
+                "id": "plan-beta",
+                "document_slug": "beta",
+                "phases": [],
+                "created_at": "2026-01-01T00:00:00Z",
+                "total_stages": 0,
+                "estimated_hours": 0.0
+            },
+            "source_document": "# Beta",
+            "stored_at": "2026-01-01T00:00:00Z"
+        });
+        std::fs::write(
+            orch_dir.join("plan-beta.json"),
+            serde_json::to_string(&stored2).unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/plans")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        let ids = body.as_array().unwrap();
+        // plan.json is also in the directory (the active plan file) but is not
+        // listed since list_plans returns ALL .json files. Let's check our plans:
+        assert!(ids.iter().any(|v| v == "plan-alpha"));
+        assert!(ids.iter().any(|v| v == "plan-beta"));
+    }
+
+    #[tokio::test]
+    async fn test_get_plan_by_id_found() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        let orch_dir = crosslink_dir.join("orchestrator");
+        std::fs::create_dir_all(&orch_dir).unwrap();
+        let stored = serde_json::json!({
+            "plan": {
+                "id": "my-plan-123",
+                "document_slug": "my-doc",
+                "phases": [],
+                "created_at": "2026-01-01T00:00:00Z",
+                "total_stages": 0,
+                "estimated_hours": 2.5
+            },
+            "source_document": "# My Doc",
+            "stored_at": "2026-01-01T00:00:00Z"
+        });
+        std::fs::write(
+            orch_dir.join("my-plan-123.json"),
+            serde_json::to_string(&stored).unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/plans/my-plan-123")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["plan"]["id"], "my-plan-123");
+        assert_eq!(body["plan"]["document_slug"], "my-doc");
+        assert_eq!(body["source_document"], "# My Doc");
+    }
+
+    #[tokio::test]
+    async fn test_decompose_missing_field_returns_bad_request() {
+        // Sending a body without the required `document` field should fail.
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/decompose")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"slug": "test"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Missing required field → deserialization fails → 422 Unprocessable Entity
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn test_decompose_invalid_json_returns_bad_request() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/orchestrator/decompose")
+                    .header("content-type", "application/json")
+                    .body(Body::from("not json at all"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // axum returns 400 for completely invalid JSON bodies
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_error_helpers_produce_correct_status_codes() {
+        // Exercise the helper functions directly to verify status codes.
+        let (code, Json(body)) = internal_error("ctx", "detail msg");
+        assert_eq!(code, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body.error, "ctx");
+        assert_eq!(body.detail.as_deref(), Some("detail msg"));
+
+        let (code, Json(body)) = bad_request("bad");
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert_eq!(body.error, "bad request");
+        assert_eq!(body.detail.as_deref(), Some("bad"));
+
+        let (code, Json(body)) = not_found("gone");
+        assert_eq!(code, StatusCode::NOT_FOUND);
+        assert_eq!(body.error, "not found");
+        assert_eq!(body.detail.as_deref(), Some("gone"));
+
+        let (code, Json(body)) = conflict("clash");
+        assert_eq!(code, StatusCode::CONFLICT);
+        assert_eq!(body.error, "conflict");
+        assert_eq!(body.detail.as_deref(), Some("clash"));
+    }
+
+    #[tokio::test]
+    async fn test_execution_status_response_no_detail_for_idle() {
+        // Verify the serde skip rule: `detail` omitted when None.
+        let response = ExecutionStatusResponse {
+            status: "idle".to_string(),
+            progress_pct: 0,
+            detail: None,
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("detail"));
+    }
+
+    #[tokio::test]
+    async fn test_mark_running_request_deserializes() {
+        let json = r#"{"agent_id": "agent-123"}"#;
+        let req: MarkRunningRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.agent_id, "agent-123");
+    }
+
+    #[tokio::test]
+    async fn test_poll_agents_with_running_stage_and_status_file() {
+        // Create a worktree with a .kickoff-status file so poll_agents returns it.
+        let plan = make_simple_plan();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_plan_file(&crosslink_dir, &plan);
+        // The agent_id used in worktrees must match the slug derivation:
+        // agent_tmux_session uses "parent--stage-a" → last part is "stage-a".
+        write_execution_with_running_stage(&crosslink_dir, &plan, "stage-a", "parent--stage-a");
+
+        // Create the worktree directory with a .kickoff-status file.
+        // poll_agent_status extracts slug via rsplit("--"), so "parent--stage-a" → "stage-a"
+        let wt_dir = dir.path().join(".worktrees").join("stage-a");
+        std::fs::create_dir_all(&wt_dir).unwrap();
+        std::fs::write(wt_dir.join(".kickoff-status"), "running\n").unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/agents/poll")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // The running stage should now appear in agents.
+        let agents = body["agents"].as_array().unwrap();
+        assert!(!agents.is_empty());
+        assert_eq!(agents[0]["stage_id"], "stage-a");
+        assert_eq!(agents[0]["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn test_get_snapshot_running_with_details() {
+        // Verify that the snapshot response includes all expected fields.
+        let plan = make_simple_plan();
+        let (app, _dir) = test_app_with_running_execution(&plan);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/orchestrator/snapshot")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // Check all the key snapshot fields.
+        assert_eq!(body["plan_id"], "test-plan-1");
+        assert_eq!(body["state"], "Running");
+        assert_eq!(body["stage_count"], 1);
+        assert_eq!(body["is_empty"], false);
+        assert_eq!(body["running"].as_array().unwrap().len(), 0);
+        assert_eq!(body["pending_count"], 1);
+        assert_eq!(body["done_count"], 0);
+        assert_eq!(body["failed_count"], 0);
+        // dependency_graph should contain the stage-a entry.
+        assert!(body["dependency_graph"]["stage-a"].is_object());
     }
 }

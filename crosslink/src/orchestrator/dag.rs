@@ -765,4 +765,391 @@ mod tests {
         let dag = Dag::from_nodes(nodes).unwrap();
         assert_eq!(dag.ready_nodes().len(), 10);
     }
+
+    #[test]
+    fn test_default_creates_empty_dag() {
+        let dag = Dag::default();
+        assert!(dag.is_empty());
+        assert_eq!(dag.len(), 0);
+    }
+
+    #[test]
+    fn test_is_empty_false_with_nodes() {
+        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(!dag.is_empty());
+    }
+
+    #[test]
+    fn test_has_failures_false_when_clean() {
+        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(!dag.has_failures());
+    }
+
+    #[test]
+    fn test_nodes_with_status() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &[]),
+            make_node("c", "p1", &[]),
+        ])
+        .unwrap();
+
+        // All start pending
+        assert_eq!(dag.nodes_with_status(&StageStatus::Pending).len(), 3);
+        assert_eq!(dag.nodes_with_status(&StageStatus::Running).len(), 0);
+        assert_eq!(dag.nodes_with_status(&StageStatus::Done).len(), 0);
+
+        dag.mark_running("a", "agent-1").unwrap();
+        assert_eq!(dag.nodes_with_status(&StageStatus::Pending).len(), 2);
+        assert_eq!(dag.nodes_with_status(&StageStatus::Running).len(), 1);
+
+        dag.mark_done("a").unwrap();
+        assert_eq!(dag.nodes_with_status(&StageStatus::Done).len(), 1);
+
+        dag.mark_failed("b").unwrap();
+        assert_eq!(dag.nodes_with_status(&StageStatus::Failed).len(), 1);
+
+        dag.mark_skipped("c").unwrap();
+        assert_eq!(dag.nodes_with_status(&StageStatus::Skipped).len(), 1);
+    }
+
+    #[test]
+    fn test_mark_running_nonexistent_node() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let result = dag.mark_running("nonexistent", "agent-1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_mark_done_nonexistent_node() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let result = dag.mark_done("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_mark_failed_nonexistent_node() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let result = dag.mark_failed("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_mark_skipped_nonexistent_node() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let result = dag.mark_skipped("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_set_issue_id_nonexistent_node() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let result = dag.set_issue_id("nonexistent", 42);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_dependents_nonexistent_node() {
+        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(dag.dependents("nonexistent").is_empty());
+    }
+
+    #[test]
+    fn test_dependencies_nonexistent_node() {
+        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(dag.dependencies("nonexistent").is_empty());
+    }
+
+    #[test]
+    fn test_get_returns_none_for_missing() {
+        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(dag.get("nonexistent").is_none());
+        assert!(dag.get("a").is_some());
+    }
+
+    #[test]
+    fn test_get_mut_returns_none_for_missing() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(dag.get_mut("nonexistent").is_none());
+        assert!(dag.get_mut("a").is_some());
+    }
+
+    #[test]
+    fn test_get_mut_modifies_node() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        dag.get_mut("a").unwrap().title = "Modified".to_string();
+        assert_eq!(dag.get("a").unwrap().title, "Modified");
+    }
+
+    #[test]
+    fn test_node_ids_returns_all_ids() {
+        let dag = Dag::from_nodes(vec![
+            make_node("x", "p1", &[]),
+            make_node("y", "p1", &[]),
+            make_node("z", "p1", &[]),
+        ])
+        .unwrap();
+        let mut ids = dag.node_ids();
+        ids.sort();
+        assert_eq!(ids, vec!["x", "y", "z"]);
+    }
+
+    #[test]
+    fn test_nodes_returns_all_nodes() {
+        let dag =
+            Dag::from_nodes(vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+        let nodes = dag.nodes();
+        assert_eq!(nodes.len(), 2);
+        assert!(nodes.contains_key("a"));
+        assert!(nodes.contains_key("b"));
+    }
+
+    #[test]
+    fn test_running_nodes_empty_when_none_running() {
+        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        assert!(dag.running_nodes().is_empty());
+    }
+
+    #[test]
+    fn test_ready_nodes_blocked_by_running_dep() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &["a"]),
+        ])
+        .unwrap();
+
+        dag.mark_running("a", "agent-1").unwrap();
+        // b should NOT be ready since a is running, not done
+        assert!(dag.ready_nodes().is_empty());
+    }
+
+    #[test]
+    fn test_ready_nodes_blocked_by_failed_dep() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &["a"]),
+        ])
+        .unwrap();
+
+        dag.mark_failed("a").unwrap();
+        // b should NOT be ready since a is failed, not done
+        assert!(dag.ready_nodes().is_empty());
+    }
+
+    #[test]
+    fn test_mark_done_no_dependents_returns_empty() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        dag.mark_running("a", "agent-1").unwrap();
+        let unblocked = dag.mark_done("a").unwrap();
+        assert!(unblocked.is_empty());
+    }
+
+    #[test]
+    fn test_mark_done_dependent_not_pending_not_unblocked() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &["a"]),
+        ])
+        .unwrap();
+
+        // Mark b as failed before a completes
+        dag.mark_failed("b").unwrap();
+
+        dag.mark_running("a", "agent-1").unwrap();
+        let unblocked = dag.mark_done("a").unwrap();
+        // b is failed, not pending, so it should NOT appear in unblocked
+        assert!(unblocked.is_empty());
+    }
+
+    #[test]
+    fn test_progress_with_mixed_terminal_states() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &[]),
+            make_node("c", "p1", &[]),
+            make_node("d", "p1", &[]),
+        ])
+        .unwrap();
+
+        dag.mark_running("a", "agent-1").unwrap();
+        dag.mark_done("a").unwrap();
+        dag.mark_skipped("b").unwrap();
+        // c and d still pending
+        assert!((dag.progress() - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_is_complete_with_all_terminal_states() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &[]),
+            make_node("c", "p1", &[]),
+        ])
+        .unwrap();
+
+        dag.mark_running("a", "agent-1").unwrap();
+        dag.mark_done("a").unwrap();
+        dag.mark_failed("b").unwrap();
+        dag.mark_skipped("c").unwrap();
+
+        assert!(dag.is_complete());
+    }
+
+    #[test]
+    fn test_is_complete_false_with_running() {
+        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        dag.mark_running("a", "agent-1").unwrap();
+        assert!(!dag.is_complete());
+    }
+
+    #[test]
+    fn test_topological_sort_empty_dag() {
+        let dag = Dag::new();
+        let order = dag.topological_sort().unwrap();
+        assert!(order.is_empty());
+    }
+
+    #[test]
+    fn test_has_cycle_empty_dag() {
+        let dag = Dag::new();
+        assert!(!dag.has_cycle());
+    }
+
+    #[test]
+    fn test_stages_by_phase_multiple_phases() {
+        let dag = Dag::from_nodes(vec![
+            make_node("a", "phase-1", &[]),
+            make_node("b", "phase-1", &["a"]),
+            make_node("c", "phase-2", &[]),
+            make_node("d", "phase-2", &["c"]),
+            make_node("e", "phase-3", &[]),
+        ])
+        .unwrap();
+
+        let by_phase = dag.stages_by_phase();
+        assert_eq!(by_phase.len(), 3);
+        assert_eq!(by_phase["phase-1"].len(), 2);
+        assert_eq!(by_phase["phase-2"].len(), 2);
+        assert_eq!(by_phase["phase-3"].len(), 1);
+        // Within phase-1, a should come before b (topological order)
+        let p1 = &by_phase["phase-1"];
+        let pos_a = p1.iter().position(|x| x == "a").unwrap();
+        let pos_b = p1.iter().position(|x| x == "b").unwrap();
+        assert!(pos_a < pos_b);
+    }
+
+    #[test]
+    fn test_agent_map_only_includes_agents() {
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &[]),
+            make_node("c", "p1", &[]),
+        ])
+        .unwrap();
+
+        // Only a has an agent
+        dag.mark_running("a", "agent-1").unwrap();
+        let map = dag.agent_map();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["a"], "agent-1");
+    }
+
+    #[test]
+    fn test_status_map_all_nodes() {
+        let mut dag =
+            Dag::from_nodes(vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+
+        dag.mark_running("a", "agent-1").unwrap();
+        dag.mark_done("a").unwrap();
+        dag.mark_skipped("b").unwrap();
+
+        let map = dag.status_map();
+        assert_eq!(map["a"], StageStatus::Done);
+        assert_eq!(map["b"], StageStatus::Skipped);
+    }
+
+    #[test]
+    fn test_mark_done_diamond_partial_unblock() {
+        // d depends on both b and c. Completing b should NOT unblock d.
+        let mut dag = Dag::from_nodes(vec![
+            make_node("a", "p1", &[]),
+            make_node("b", "p1", &["a"]),
+            make_node("c", "p1", &["a"]),
+            make_node("d", "p1", &["b", "c"]),
+        ])
+        .unwrap();
+
+        dag.mark_running("a", "agent-1").unwrap();
+        dag.mark_done("a").unwrap();
+
+        dag.mark_running("b", "agent-2").unwrap();
+        let unblocked = dag.mark_done("b").unwrap();
+        // d should NOT be unblocked yet because c is still pending
+        assert!(!unblocked.contains(&"d".to_string()));
+
+        dag.mark_running("c", "agent-3").unwrap();
+        let unblocked = dag.mark_done("c").unwrap();
+        // NOW d should be unblocked
+        assert!(unblocked.contains(&"d".to_string()));
+    }
+
+    #[test]
+    fn test_topological_sort_cycle_error() {
+        // Manually construct a DAG with a cycle (bypassing from_nodes validation)
+        let mut dag = Dag::new();
+        dag.nodes.insert(
+            "a".to_string(),
+            DagNode {
+                id: "a".to_string(),
+                title: "A".to_string(),
+                status: StageStatus::Pending,
+                depends_on: vec!["b".to_string()],
+                issue_id: None,
+                agent_id: None,
+                phase_id: "p1".to_string(),
+            },
+        );
+        dag.nodes.insert(
+            "b".to_string(),
+            DagNode {
+                id: "b".to_string(),
+                title: "B".to_string(),
+                status: StageStatus::Pending,
+                depends_on: vec!["a".to_string()],
+                issue_id: None,
+                agent_id: None,
+                phase_id: "p1".to_string(),
+            },
+        );
+        // Set up edges for the cycle
+        dag.forward
+            .entry("a".to_string())
+            .or_default()
+            .insert("b".to_string());
+        dag.forward
+            .entry("b".to_string())
+            .or_default()
+            .insert("a".to_string());
+        dag.reverse
+            .entry("a".to_string())
+            .or_default()
+            .insert("b".to_string());
+        dag.reverse
+            .entry("b".to_string())
+            .or_default()
+            .insert("a".to_string());
+
+        // topological_sort should fail with cycle error
+        let err = dag.topological_sort().unwrap_err();
+        assert!(err.to_string().contains("Cycle"));
+
+        // stages_by_phase should fall back to arbitrary order
+        let by_phase = dag.stages_by_phase();
+        assert_eq!(by_phase["p1"].len(), 2);
+    }
 }

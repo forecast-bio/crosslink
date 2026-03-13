@@ -289,4 +289,46 @@ mod tests {
         assert!(!is_windows_reserved_name("com10"));
         assert!(!is_windows_reserved_name("lpt10"));
     }
+
+    #[test]
+    fn test_format_issue_id_positive() {
+        assert_eq!(format_issue_id(1), "#1");
+        assert_eq!(format_issue_id(42), "#42");
+        assert_eq!(format_issue_id(0), "#0");
+    }
+
+    #[test]
+    fn test_format_issue_id_negative() {
+        assert_eq!(format_issue_id(-1), "L1");
+        assert_eq!(format_issue_id(-99), "L99");
+    }
+
+    #[test]
+    fn test_atomic_write_creates_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.txt");
+        atomic_write(&path, b"hello world").unwrap();
+        let contents = std::fs::read(&path).unwrap();
+        assert_eq!(contents, b"hello world");
+    }
+
+    #[test]
+    fn test_atomic_write_overwrites_existing() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.txt");
+        atomic_write(&path, b"first").unwrap();
+        atomic_write(&path, b"second").unwrap();
+        let contents = std::fs::read(&path).unwrap();
+        assert_eq!(contents, b"second");
+    }
+
+    #[test]
+    fn test_atomic_write_leaves_no_tmp_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("output.txt");
+        atomic_write(&path, b"data").unwrap();
+        // The .output.txt.tmp file should not remain after a successful write
+        let tmp_path = dir.path().join(".output.txt.tmp");
+        assert!(!tmp_path.exists());
+    }
 }

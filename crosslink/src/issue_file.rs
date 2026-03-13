@@ -995,4 +995,148 @@ mod tests {
         write_layout_version(&meta_dir, 3).unwrap();
         assert_eq!(read_layout_version(&meta_dir).unwrap(), 3);
     }
+
+    #[test]
+    fn test_default_comment_kind() {
+        assert_eq!(default_comment_kind(), "note");
+    }
+
+    #[test]
+    fn test_validate_comment_kind_valid() {
+        for kind in KNOWN_COMMENT_KINDS {
+            assert!(
+                validate_comment_kind(kind),
+                "expected {kind:?} to be a valid comment kind"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_comment_kind_invalid() {
+        assert!(!validate_comment_kind("bogus"));
+        assert!(!validate_comment_kind(""));
+        assert!(!validate_comment_kind("NOTE")); // case-sensitive
+    }
+
+    #[test]
+    fn test_validate_trigger_type_valid() {
+        for trigger in KNOWN_TRIGGER_TYPES {
+            assert!(
+                validate_trigger_type(trigger),
+                "expected {trigger:?} to be a valid trigger type"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_trigger_type_invalid() {
+        assert!(!validate_trigger_type("bogus"));
+        assert!(!validate_trigger_type(""));
+        assert!(!validate_trigger_type("REDIRECT")); // case-sensitive
+    }
+
+    #[test]
+    fn test_read_all_issue_files_v2_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let issues_dir = dir.path().join("issues");
+
+        // Create two issues using the V2 directory layout: issues/{uuid}/issue.json
+        for i in 0..2 {
+            let issue = IssueFile {
+                uuid: Uuid::new_v4(),
+                display_id: Some(i + 1),
+                title: format!("V2 Issue {}", i + 1),
+                description: None,
+                status: "open".to_string(),
+                priority: "medium".to_string(),
+                parent_uuid: None,
+                created_by: "test".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                closed_at: None,
+                labels: vec![],
+                comments: vec![],
+                blockers: vec![],
+                related: vec![],
+                milestone_uuid: None,
+                time_entries: vec![],
+            };
+            let subdir = issues_dir.join(issue.uuid.to_string());
+            std::fs::create_dir_all(&subdir).unwrap();
+            write_issue_file(&subdir.join("issue.json"), &issue).unwrap();
+        }
+
+        let loaded = read_all_issue_files(&issues_dir).unwrap();
+        assert_eq!(loaded.len(), 2);
+        // Both titles should start with "V2 Issue"
+        for issue in &loaded {
+            assert!(issue.title.starts_with("V2 Issue"));
+        }
+    }
+
+    #[test]
+    fn test_read_all_issue_files_v2_malformed_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let issues_dir = dir.path().join("issues");
+
+        // Create one valid V2 issue
+        let valid_uuid = Uuid::new_v4();
+        let valid_issue = IssueFile {
+            uuid: valid_uuid,
+            display_id: Some(1),
+            title: "Valid V2".to_string(),
+            description: None,
+            status: "open".to_string(),
+            priority: "medium".to_string(),
+            parent_uuid: None,
+            created_by: "test".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            closed_at: None,
+            labels: vec![],
+            comments: vec![],
+            blockers: vec![],
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        };
+        let valid_subdir = issues_dir.join(valid_uuid.to_string());
+        std::fs::create_dir_all(&valid_subdir).unwrap();
+        write_issue_file(&valid_subdir.join("issue.json"), &valid_issue).unwrap();
+
+        // Create a V2 directory with malformed issue.json
+        let bad_subdir = issues_dir.join(Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&bad_subdir).unwrap();
+        std::fs::write(bad_subdir.join("issue.json"), "not valid json").unwrap();
+
+        let loaded = read_all_issue_files(&issues_dir).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].title, "Valid V2");
+    }
+
+    #[test]
+    fn test_read_all_milestone_files_skips_malformed() {
+        let dir = tempfile::tempdir().unwrap();
+        let ms_dir = dir.path().join("milestones");
+        std::fs::create_dir_all(&ms_dir).unwrap();
+
+        // Write a valid milestone file
+        let entry = MilestoneEntry {
+            uuid: Uuid::new_v4(),
+            display_id: 1,
+            name: "v1.0".to_string(),
+            description: None,
+            status: "open".to_string(),
+            created_at: Utc::now(),
+            closed_at: None,
+        };
+        write_milestone_file(&ms_dir.join(format!("{}.json", entry.uuid)), &entry).unwrap();
+
+        // Write a malformed milestone file
+        std::fs::write(ms_dir.join("bad.json"), "not valid json").unwrap();
+
+        let loaded = read_all_milestone_files(&ms_dir).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].name, "v1.0");
+    }
 }

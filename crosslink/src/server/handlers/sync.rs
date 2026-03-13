@@ -299,4 +299,119 @@ mod tests {
         let body = body_json(resp).await;
         assert!(body["error"].as_str().unwrap().contains("not initialized"));
     }
+
+    /// Build a test app where the hub cache directory exists (making
+    /// `SyncManager::is_initialized()` return true), but contains no real
+    /// git data so network-touching operations will fail gracefully.
+    fn test_app_with_hub() -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        // Create the hub cache dir so is_initialized() returns true.
+        let hub_cache = crosslink_dir.join(".hub-cache");
+        std::fs::create_dir_all(&hub_cache).unwrap();
+        // Write a minimal locks.json so read_locks_auto doesn't error.
+        let locks_json = serde_json::json!({
+            "version": 1,
+            "locks": {},
+            "settings": {"stale_lock_timeout_minutes": 30},
+            "updated_at": chrono::Utc::now().to_rfc3339()
+        });
+        std::fs::write(
+            hub_cache.join("locks.json"),
+            serde_json::to_string(&locks_json).unwrap(),
+        )
+        .unwrap();
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    #[tokio::test]
+    async fn test_sync_status_with_hub_initialized() {
+        let (app, _dir) = test_app_with_hub();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/sync/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // Hub is initialized now
+        assert_eq!(body["hub_initialized"], true);
+        assert_eq!(body["hub_branch"], "crosslink/hub");
+        // No locks seeded
+        assert_eq!(body["active_lock_count"], 0);
+        assert_eq!(body["stale_lock_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_sync_fetch_with_hub_initialized_offline() {
+        // When hub is initialized but remote is unreachable (offline env),
+        // the fetch attempt should not panic — it either succeeds or returns
+        // an internal error. We only assert that the request completes.
+        let (app, _dir) = test_app_with_hub();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sync/fetch")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Either 200 (fetch ran, possibly offline OK) or 500 (git error)
+        // — we just verify the request doesn't return 409 Conflict.
+        assert_ne!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_sync_push_with_hub_initialized_offline() {
+        // Similar to fetch — verifies the push handler exercises the
+        // hub-initialized branch and completes without panicking.
+        let (app, _dir) = test_app_with_hub();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sync/push")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Either 200 (push ran) or 500 (git error — no remote configured)
+        assert_ne!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn test_internal_error_helper() {
+        let (status, json) = super::internal_error("sync failed", "some error");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "sync failed");
+        assert_eq!(json.detail.as_deref(), Some("some error"));
+    }
+
+    #[test]
+    fn test_push_hub_cache_no_git_repo_bails() {
+        // Call push_hub_cache with a SyncManager pointing at a temp dir
+        // that has no git repo — the git push will fail.
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        let hub_cache = crosslink_dir.join(".hub-cache");
+        std::fs::create_dir_all(&hub_cache).unwrap();
+
+        let sm = crate::sync::SyncManager::new(&crosslink_dir).unwrap();
+        // push_hub_cache runs `git push` which will fail in a non-git directory.
+        // It should return an error (not panic).
+        let result = super::push_hub_cache(&sm);
+        // Either Ok (git offline path) or Err (git command failed) — not panic.
+        let _ = result;
+    }
 }

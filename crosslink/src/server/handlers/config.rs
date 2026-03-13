@@ -430,4 +430,134 @@ mod tests {
         assert_eq!(body["tracking_mode"], "strict");
         assert_eq!(body["intervention_tracking"], true);
     }
+
+    #[tokio::test]
+    async fn test_update_config_all_fields() {
+        let (app, dir) = test_app();
+        std::fs::create_dir_all(dir.path().join(".crosslink")).unwrap();
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri("/api/v1/config")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "tracking_mode": "strict",
+                            "stale_lock_timeout_minutes": 45,
+                            "signing_enforcement": "enforce",
+                            "remote": "upstream",
+                            "intervention_tracking": true,
+                            "auto_steal_stale_locks": true
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["tracking_mode"], "strict");
+        assert_eq!(body["signing_enforcement"], "enforce");
+        assert_eq!(body["remote"], "upstream");
+        assert_eq!(body["intervention_tracking"], true);
+        assert_eq!(body["auto_steal_stale_locks"], true);
+
+        // Verify written file has stale_lock_timeout_minutes
+        let written =
+            std::fs::read_to_string(dir.path().join(".crosslink/hook-config.json")).unwrap();
+        let parsed: Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(parsed["stale_lock_timeout_minutes"], 45);
+    }
+
+    #[test]
+    fn test_helper_functions() {
+        let (status, json) = super::internal_error("ctx", "err");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+
+        let (status, json) = super::bad_request("invalid");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json.detail.as_deref(), Some("invalid"));
+    }
+
+    #[test]
+    fn test_config_from_value_defaults() {
+        // Verify config_from_value returns sensible defaults when fields are missing.
+        let empty = serde_json::json!({});
+        let cfg = super::config_from_value(&empty);
+        assert_eq!(cfg.tracking_mode, "normal");
+        assert_eq!(cfg.stale_lock_timeout_minutes, 30);
+        assert_eq!(cfg.remote, "origin");
+        assert_eq!(cfg.signing_enforcement, "off");
+        assert!(!cfg.intervention_tracking);
+        assert!(!cfg.auto_steal_stale_locks);
+    }
+
+    #[test]
+    fn test_config_from_value_with_all_fields() {
+        let value = serde_json::json!({
+            "tracking_mode": "strict",
+            "stale_lock_timeout_minutes": 60,
+            "tracker_remote": "upstream",
+            "signing_enforcement": "enforce",
+            "intervention_tracking": true,
+            "auto_steal_stale_locks": true
+        });
+        let cfg = super::config_from_value(&value);
+        assert_eq!(cfg.tracking_mode, "strict");
+        assert_eq!(cfg.stale_lock_timeout_minutes, 60);
+        assert_eq!(cfg.remote, "upstream");
+        assert_eq!(cfg.signing_enforcement, "enforce");
+        assert!(cfg.intervention_tracking);
+        assert!(cfg.auto_steal_stale_locks);
+    }
+
+    #[tokio::test]
+    async fn test_update_config_sets_remote() {
+        let (app, dir) = test_app();
+        std::fs::create_dir_all(dir.path().join(".crosslink")).unwrap();
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri("/api/v1/config")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"remote": "upstream"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["remote"], "upstream");
+    }
+
+    #[tokio::test]
+    async fn test_update_config_sets_auto_steal() {
+        let (app, dir) = test_app();
+        std::fs::create_dir_all(dir.path().join(".crosslink")).unwrap();
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri("/api/v1/config")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"auto_steal_stale_locks": true}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["auto_steal_stale_locks"], true);
+    }
 }

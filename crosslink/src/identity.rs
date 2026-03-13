@@ -300,6 +300,74 @@ mod tests {
         assert!(resolve_driver_fingerprint(dir.path()).is_none());
     }
 
+    #[test]
+    fn test_anonymous_produces_valid_config() {
+        let dir = tempdir().unwrap();
+        let config = AgentConfig::anonymous(dir.path());
+        assert!(config.agent_id.starts_with("anon-"));
+        assert_eq!(config.agent_id.len(), "anon-".len() + 8);
+        assert_eq!(
+            config.description,
+            Some("Anonymous agent (pre-init)".to_string())
+        );
+        assert!(!config.machine_id.is_empty());
+        assert!(config.ssh_key_path.is_none());
+        assert!(config.ssh_fingerprint.is_none());
+        assert!(config.ssh_public_key.is_none());
+    }
+
+    #[test]
+    fn test_anonymous_is_stable_for_same_path() {
+        let dir = tempdir().unwrap();
+        let config1 = AgentConfig::anonymous(dir.path());
+        let config2 = AgentConfig::anonymous(dir.path());
+        assert_eq!(config1.agent_id, config2.agent_id);
+    }
+
+    #[test]
+    fn test_anonymous_differs_for_different_paths() {
+        let dir1 = tempdir().unwrap();
+        let dir2 = tempdir().unwrap();
+        let config1 = AgentConfig::anonymous(dir1.path());
+        let config2 = AgentConfig::anonymous(dir2.path());
+        // Different paths should (almost certainly) yield different IDs
+        // (hash collision possible but astronomically unlikely)
+        assert_ne!(config1.agent_id, config2.agent_id);
+    }
+
+    #[test]
+    fn test_detect_hostname_with_computername_env() {
+        // Temporarily set COMPUTERNAME to verify it's picked up
+        // We can't unset the existing value safely cross-platform, so
+        // we just verify detect_hostname returns something non-empty
+        // and that setting the env var works.
+        std::env::set_var("COMPUTERNAME", "test-host-win");
+        let hostname = detect_hostname();
+        assert_eq!(hostname, "test-host-win");
+        std::env::remove_var("COMPUTERNAME");
+    }
+
+    #[test]
+    fn test_detect_hostname_from_hostname_env() {
+        // Ensure COMPUTERNAME is absent so the HOSTNAME branch is exercised.
+        std::env::remove_var("COMPUTERNAME");
+        std::env::set_var("HOSTNAME", "my-linux-host");
+        let hostname = detect_hostname();
+        assert_eq!(hostname, "my-linux-host");
+        std::env::remove_var("HOSTNAME");
+    }
+
+    #[test]
+    fn test_detect_hostname_returns_non_empty() {
+        // Without forcing any particular env var, detect_hostname falls back to
+        // the `hostname` command (or returns "unknown"). Either way it should
+        // be non-empty.
+        std::env::remove_var("COMPUTERNAME");
+        std::env::remove_var("HOSTNAME");
+        let hostname = detect_hostname();
+        assert!(!hostname.is_empty());
+    }
+
     proptest! {
         #[test]
         fn prop_valid_ids_roundtrip(id in "[a-zA-Z0-9_-]{3,64}") {

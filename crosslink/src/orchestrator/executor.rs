@@ -1101,4 +1101,462 @@ mod tests {
         assert_eq!(executor.state(), &ExecutionState::Done);
         assert!(executor.start().is_err());
     }
+
+    #[test]
+    fn test_build_stage_description_no_tasks_no_deps() {
+        let stage = OrchestratorStage {
+            id: "test".to_string(),
+            title: "Simple Stage".to_string(),
+            description: "Just a description".to_string(),
+            tasks: vec![],
+            depends_on: vec![],
+            agent_count: 1,
+            complexity_hours: 1.0,
+        };
+
+        let desc = build_stage_description(&stage);
+        assert!(desc.contains("Just a description"));
+        // Should NOT contain Tasks or Dependencies sections
+        assert!(!desc.contains("## Tasks"));
+        assert!(!desc.contains("## Dependencies"));
+        // Should always contain Estimates
+        assert!(desc.contains("## Estimates"));
+        assert!(desc.contains("1.0 agent-hours"));
+        assert!(desc.contains("Suggested agents: 1"));
+    }
+
+    #[test]
+    fn test_build_stage_description_multiple_tasks() {
+        let stage = OrchestratorStage {
+            id: "multi".to_string(),
+            title: "Multi-task".to_string(),
+            description: "Has tasks".to_string(),
+            tasks: vec![
+                OrchestratorTask {
+                    id: "t1".to_string(),
+                    title: "First".to_string(),
+                    description: "Do first".to_string(),
+                    complexity_hours: 1.0,
+                },
+                OrchestratorTask {
+                    id: "t2".to_string(),
+                    title: "Second".to_string(),
+                    description: "Do second".to_string(),
+                    complexity_hours: 2.0,
+                },
+            ],
+            depends_on: vec![],
+            agent_count: 2,
+            complexity_hours: 3.0,
+        };
+
+        let desc = build_stage_description(&stage);
+        assert!(desc.contains("## Tasks"));
+        assert!(desc.contains("**First**: Do first"));
+        assert!(desc.contains("**Second**: Do second"));
+    }
+
+    #[test]
+    fn test_build_stage_description_multiple_deps() {
+        let stage = OrchestratorStage {
+            id: "deps".to_string(),
+            title: "Dependent".to_string(),
+            description: "Has dependencies".to_string(),
+            tasks: vec![],
+            depends_on: vec!["dep-a".to_string(), "dep-b".to_string()],
+            agent_count: 1,
+            complexity_hours: 2.0,
+        };
+
+        let desc = build_stage_description(&stage);
+        assert!(desc.contains("## Dependencies"));
+        assert!(desc.contains("dep-a, dep-b"));
+    }
+
+    #[test]
+    fn test_pause_when_not_running_errors() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+
+        // Should fail when idle
+        let result = executor.pause();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Cannot pause"));
+    }
+
+    #[test]
+    fn test_resume_when_not_paused_errors() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        // Should fail when running (not paused)
+        let result = executor.resume();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Cannot resume"));
+    }
+
+    #[test]
+    fn test_retry_nonexistent_stage_errors() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        let result = executor.retry_stage("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_retry_non_failed_stage_errors() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        // p1-server is pending, not failed
+        let result = executor.retry_stage("p1-server");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be Failed"));
+    }
+
+    #[test]
+    fn test_retry_resets_execution_state_from_failed() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+
+        // Simple single-stage plan
+        let plan = OrchestratorPlan {
+            id: "retry-test".to_string(),
+            document_slug: "doc".to_string(),
+            phases: vec![OrchestratorPhase {
+                id: "p1".to_string(),
+                title: "Phase 1".to_string(),
+                description: "Test".to_string(),
+                stages: vec![OrchestratorStage {
+                    id: "s1".to_string(),
+                    title: "Stage 1".to_string(),
+                    description: "Do it".to_string(),
+                    tasks: vec![],
+                    depends_on: vec![],
+                    agent_count: 1,
+                    complexity_hours: 1.0,
+                }],
+                gate_criteria: vec![],
+            }],
+            created_at: Utc::now(),
+            total_stages: 1,
+            estimated_hours: 1.0,
+        };
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+        executor.mark_stage_running("s1", "agent-1").unwrap();
+        executor.mark_stage_failed("s1").unwrap();
+
+        // Complete the single stage so execution becomes Failed
+        // Actually the execution won't auto-complete to Failed from mark_stage_failed alone;
+        // it only transitions when is_complete() is true via mark_stage_done.
+        // But is_complete checks all terminal. Failed IS terminal.
+        // So we need to check if execution was set to Failed via mark_stage_done path.
+        // Let's check: the dag has one node in Failed state -> is_complete = true.
+        // But mark_stage_failed doesn't check is_complete. Only mark_stage_done does.
+        // So the state is still Running even though the only stage failed.
+        // The retry should still work from Running state.
+        assert_eq!(executor.state(), &ExecutionState::Running);
+
+        let ready = executor.retry_stage("s1").unwrap();
+        assert_eq!(ready, Some("s1".to_string()));
+        assert_eq!(
+            executor.dag().get("s1").unwrap().status,
+            StageStatus::Pending
+        );
+        // Agent should be cleared
+        assert!(executor.dag().get("s1").unwrap().agent_id.is_none());
+    }
+
+    #[test]
+    fn test_retry_blocked_stage_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        // Fail p2-backend (which depends on p1-server)
+        // First we need to mark it running to fail it. But it's blocked.
+        // Mark it failed directly via dag manipulation.
+        executor.mark_stage_failed("p2-backend").unwrap();
+
+        // Retry it - should return None since p1-server is still pending
+        let ready = executor.retry_stage("p2-backend").unwrap();
+        assert_eq!(ready, None);
+    }
+
+    #[test]
+    fn test_exists_false_for_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        assert!(!OrchestratorExecutor::exists(&crosslink_dir));
+    }
+
+    #[test]
+    fn test_exists_true_after_init() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        assert!(OrchestratorExecutor::exists(&crosslink_dir));
+    }
+
+    #[test]
+    fn test_load_nonexistent_errors() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        let result = OrchestratorExecutor::load(&crosslink_dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_plan_from_disk() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+
+        let loaded_plan = OrchestratorExecutor::load_plan(&crosslink_dir).unwrap();
+        assert_eq!(loaded_plan.id, "test-plan-1");
+        assert_eq!(loaded_plan.phases.len(), 2);
+        assert_eq!(loaded_plan.total_stages, 4);
+    }
+
+    #[test]
+    fn test_poll_agent_status_no_running_stages() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        // No stages marked as running
+        let completions = executor.poll_agent_status(tmp.path());
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn test_poll_agent_status_no_status_file() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+        executor
+            .mark_stage_running("p1-server", "driver--rust-server")
+            .unwrap();
+
+        // Worktree dir exists but no .kickoff-status file
+        let worktree = tmp.path().join(".worktrees").join("rust-server");
+        std::fs::create_dir_all(&worktree).unwrap();
+
+        let completions = executor.poll_agent_status(tmp.path());
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn test_poll_agent_status_empty_status_file() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+        executor
+            .mark_stage_running("p1-server", "driver--rust-server")
+            .unwrap();
+
+        // Worktree dir with empty .kickoff-status
+        let worktree = tmp.path().join(".worktrees").join("rust-server");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(worktree.join(".kickoff-status"), "").unwrap();
+
+        let completions = executor.poll_agent_status(tmp.path());
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn test_poll_agent_status_agent_id_without_double_dash() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+        // Agent ID without "--" separator
+        executor
+            .mark_stage_running("p1-server", "simple-agent")
+            .unwrap();
+
+        let worktree = tmp.path().join(".worktrees").join("simple-agent");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(worktree.join(".kickoff-status"), "DONE").unwrap();
+
+        let completions = executor.poll_agent_status(tmp.path());
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].1, "DONE");
+    }
+
+    #[test]
+    fn test_mark_stage_running_updates_current_phase() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        executor.mark_stage_running("p1-server", "agent-1").unwrap();
+        assert_eq!(
+            executor.snapshot().current_phase_id,
+            Some("phase-1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_skip_stage_with_no_dependents() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+
+        // Plan with a leaf stage (no dependents)
+        let plan = OrchestratorPlan {
+            id: "skip-test".to_string(),
+            document_slug: "doc".to_string(),
+            phases: vec![OrchestratorPhase {
+                id: "p1".to_string(),
+                title: "Phase 1".to_string(),
+                description: "Test".to_string(),
+                stages: vec![OrchestratorStage {
+                    id: "s1".to_string(),
+                    title: "Leaf stage".to_string(),
+                    description: "No deps depend on me".to_string(),
+                    tasks: vec![],
+                    depends_on: vec![],
+                    agent_count: 1,
+                    complexity_hours: 1.0,
+                }],
+                gate_criteria: vec![],
+            }],
+            created_at: Utc::now(),
+            total_stages: 1,
+            estimated_hours: 1.0,
+        };
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        let (newly_ready, event) = executor.skip_stage("s1").unwrap();
+        assert!(newly_ready.is_empty());
+        assert_eq!(event.status, StageStatus::Skipped);
+    }
+
+    #[test]
+    fn test_start_from_paused_state() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+        executor.pause().unwrap();
+
+        // start() should also work from Paused state
+        let ready = executor.start().unwrap();
+        assert_eq!(executor.state(), &ExecutionState::Running);
+        assert_eq!(ready.len(), 2);
+    }
+
+    #[test]
+    fn test_plan_id_accessor() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        assert_eq!(executor.plan_id(), "test-plan-1");
+    }
+
+    #[test]
+    fn test_phase_complete_check_via_skip() {
+        let tmp = TempDir::new().unwrap();
+        let crosslink_dir = tmp.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let db = make_test_db(&tmp);
+        let plan = make_test_plan();
+
+        let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
+        executor.start().unwrap();
+
+        // Complete phase 1 by running one and skipping the other
+        executor.mark_stage_running("p1-server", "agent-1").unwrap();
+        executor.mark_stage_done("p1-server", &db).unwrap();
+        executor.skip_stage("p1-frontend").unwrap();
+
+        // Phase 1 should be complete now (both stages terminal)
+        // Verify via the status - phase milestones should reflect this
+        // (internal check_phase_complete is called by mark_stage_done)
+        let status = executor.status();
+        // Progress should be 50% (2 of 4 stages done)
+        assert!((status.progress_percent - 50.0).abs() < f64::EPSILON);
+    }
 }

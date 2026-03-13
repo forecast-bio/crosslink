@@ -548,4 +548,295 @@ mod tests {
             violations[0].skew_seconds
         );
     }
+
+    #[test]
+    fn test_describe_event_all_variants() {
+        let uuid_a = Uuid::new_v4();
+        let uuid_b = Uuid::new_v4();
+
+        let cases: Vec<(Event, &str)> = vec![
+            (
+                Event::IssueCreated {
+                    uuid: uuid_a,
+                    title: "Test".to_string(),
+                    description: None,
+                    priority: "medium".to_string(),
+                    labels: vec![],
+                    parent_uuid: None,
+                    created_by: "agent-1".to_string(),
+                },
+                "IssueCreated(",
+            ),
+            (
+                Event::IssueUpdated {
+                    uuid: uuid_a,
+                    title: Some("New".to_string()),
+                    description: None,
+                    priority: None,
+                },
+                "IssueUpdated(",
+            ),
+            (
+                Event::StatusChanged {
+                    uuid: uuid_a,
+                    new_status: "closed".to_string(),
+                    closed_at: None,
+                },
+                "StatusChanged(",
+            ),
+            (
+                Event::LockClaimed {
+                    issue_display_id: 42,
+                    branch: None,
+                },
+                "LockClaimed(#42)",
+            ),
+            (
+                Event::LockReleased {
+                    issue_display_id: 7,
+                },
+                "LockReleased(#7)",
+            ),
+            (
+                Event::DependencyAdded {
+                    blocked_uuid: uuid_a,
+                    blocker_uuid: uuid_b,
+                },
+                "DependencyAdded(",
+            ),
+            (
+                Event::DependencyRemoved {
+                    blocked_uuid: uuid_a,
+                    blocker_uuid: uuid_b,
+                },
+                "DependencyRemoved(",
+            ),
+            (Event::RelationAdded { uuid_a, uuid_b }, "RelationAdded("),
+            (
+                Event::RelationRemoved { uuid_a, uuid_b },
+                "RelationRemoved(",
+            ),
+            (
+                Event::MilestoneAssigned {
+                    issue_uuid: uuid_a,
+                    milestone_uuid: Some(uuid_b),
+                },
+                "MilestoneAssigned(",
+            ),
+            (
+                Event::LabelAdded {
+                    issue_uuid: uuid_a,
+                    label: "bug".to_string(),
+                },
+                "LabelAdded(",
+            ),
+            (
+                Event::LabelRemoved {
+                    issue_uuid: uuid_a,
+                    label: "feature".to_string(),
+                },
+                "LabelRemoved(",
+            ),
+            (
+                Event::ParentChanged {
+                    issue_uuid: uuid_a,
+                    new_parent_uuid: None,
+                },
+                "ParentChanged(",
+            ),
+        ];
+
+        for (event, expected_prefix) in cases {
+            let desc = describe_event(&event);
+            assert!(
+                desc.contains(expected_prefix),
+                "describe_event should contain '{}', got '{}'",
+                expected_prefix,
+                desc
+            );
+        }
+    }
+
+    #[test]
+    fn test_describe_event_issue_updated() {
+        let uuid = Uuid::new_v4();
+        let desc = describe_event(&Event::IssueUpdated {
+            uuid,
+            title: None,
+            description: None,
+            priority: None,
+        });
+        assert_eq!(desc, format!("IssueUpdated({})", uuid));
+    }
+
+    #[test]
+    fn test_describe_event_status_changed() {
+        let uuid = Uuid::new_v4();
+        let desc = describe_event(&Event::StatusChanged {
+            uuid,
+            new_status: "open".to_string(),
+            closed_at: None,
+        });
+        assert_eq!(desc, format!("StatusChanged({}, open)", uuid));
+    }
+
+    #[test]
+    fn test_describe_event_lock_released() {
+        let desc = describe_event(&Event::LockReleased {
+            issue_display_id: 99,
+        });
+        assert_eq!(desc, "LockReleased(#99)");
+    }
+
+    #[test]
+    fn test_describe_event_dependency_added() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let desc = describe_event(&Event::DependencyAdded {
+            blocked_uuid: a,
+            blocker_uuid: b,
+        });
+        assert_eq!(desc, format!("DependencyAdded({} blocked by {})", a, b));
+    }
+
+    #[test]
+    fn test_describe_event_dependency_removed() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let desc = describe_event(&Event::DependencyRemoved {
+            blocked_uuid: a,
+            blocker_uuid: b,
+        });
+        assert_eq!(
+            desc,
+            format!("DependencyRemoved({} unblocked from {})", a, b)
+        );
+    }
+
+    #[test]
+    fn test_describe_event_relation_added() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let desc = describe_event(&Event::RelationAdded {
+            uuid_a: a,
+            uuid_b: b,
+        });
+        assert_eq!(desc, format!("RelationAdded({}, {})", a, b));
+    }
+
+    #[test]
+    fn test_describe_event_relation_removed() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let desc = describe_event(&Event::RelationRemoved {
+            uuid_a: a,
+            uuid_b: b,
+        });
+        assert_eq!(desc, format!("RelationRemoved({}, {})", a, b));
+    }
+
+    #[test]
+    fn test_describe_event_milestone_assigned() {
+        let uuid = Uuid::new_v4();
+        let desc = describe_event(&Event::MilestoneAssigned {
+            issue_uuid: uuid,
+            milestone_uuid: None,
+        });
+        assert_eq!(desc, format!("MilestoneAssigned({})", uuid));
+    }
+
+    #[test]
+    fn test_describe_event_label_removed() {
+        let uuid = Uuid::new_v4();
+        let desc = describe_event(&Event::LabelRemoved {
+            issue_uuid: uuid,
+            label: "wontfix".to_string(),
+        });
+        assert_eq!(desc, format!("LabelRemoved({}, wontfix)", uuid));
+    }
+
+    #[test]
+    fn test_describe_event_parent_changed() {
+        let uuid = Uuid::new_v4();
+        let desc = describe_event(&Event::ParentChanged {
+            issue_uuid: uuid,
+            new_parent_uuid: Some(Uuid::new_v4()),
+        });
+        assert_eq!(desc, format!("ParentChanged({})", uuid));
+    }
+
+    #[test]
+    fn test_skew_violation_serde_roundtrip() {
+        let v = SkewViolation {
+            agent_id: "agent-test".to_string(),
+            event_description: "IssueCreated(abc, Test)".to_string(),
+            event_timestamp: Utc::now(),
+            commit_timestamp: Utc::now() - Duration::seconds(300),
+            skew_seconds: 300,
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let parsed: SkewViolation = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, v);
+    }
+
+    #[test]
+    fn test_write_skew_violations_creates_checkpoint_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+
+        let violations = vec![SkewViolation {
+            agent_id: "agent-1".to_string(),
+            event_description: "test".to_string(),
+            event_timestamp: Utc::now(),
+            commit_timestamp: Utc::now(),
+            skew_seconds: 0,
+        }];
+
+        write_skew_violations(cache_dir, &violations).unwrap();
+
+        assert!(cache_dir.join("checkpoint").exists());
+        assert!(cache_dir.join("checkpoint/skew_warnings.json").exists());
+
+        let loaded = read_skew_violations(cache_dir).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].agent_id, "agent-1");
+    }
+
+    #[test]
+    fn test_write_and_read_empty_violations() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+
+        write_skew_violations(cache_dir, &[]).unwrap();
+
+        let loaded = read_skew_violations(cache_dir).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_agents_dir_with_non_dir_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_git_repo(cache_dir);
+
+        let agents_dir = cache_dir.join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        // Create a file (not directory) in agents dir - should be skipped
+        std::fs::write(agents_dir.join("not-a-dir.txt"), "file").unwrap();
+
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(cache_dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "add files"])
+            .current_dir(cache_dir)
+            .output()
+            .unwrap();
+
+        let violations = detect_git_skew_violations(cache_dir).unwrap();
+        assert!(violations.is_empty());
+    }
 }

@@ -594,4 +594,256 @@ mod tests {
         let result = load_plan(dir.path(), "nonexistent");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_build_system_prompt_contains_schema() {
+        let prompt = build_system_prompt();
+        assert!(prompt.contains("phases"));
+        assert!(prompt.contains("stages"));
+        assert!(prompt.contains("tasks"));
+        assert!(prompt.contains("depends_on"));
+        assert!(prompt.contains("complexity_hours"));
+        assert!(prompt.contains("agent_count"));
+        assert!(prompt.contains("gate_criteria"));
+        assert!(prompt.contains("estimated_hours"));
+    }
+
+    #[test]
+    fn test_extract_json_block_malformed_brace_order() {
+        // Only a closing brace, no opening brace
+        let input = "some text } and { more";
+        // `{` at index 16, `}` at index 10 -> end <= start
+        let result = extract_json_block(input);
+        // find('{') is at 16, rfind('}') is at 10 => end <= start => bail
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Malformed JSON"));
+    }
+
+    #[test]
+    fn test_extract_json_block_only_opening_brace() {
+        let input = "{ no closing brace here";
+        // find('{') succeeds, rfind('}') fails
+        let result = extract_json_block(input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("closing brace"));
+    }
+
+    #[test]
+    fn test_extract_json_block_empty_string() {
+        let result = extract_json_block("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_json_block_whitespace_only() {
+        let result = extract_json_block("   \n\t  ");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_json_block_fences_without_lang() {
+        let input = "```\n{\"key\": \"value\"}\n```";
+        let result = extract_json_block(input).unwrap();
+        assert_eq!(result, "{\"key\": \"value\"}");
+    }
+
+    #[test]
+    fn test_extract_json_from_response_envelope_non_string_result() {
+        // Envelope has "result" but it's a number, not a string
+        let envelope = serde_json::json!({
+            "type": "result",
+            "result": 42
+        });
+        let raw = serde_json::to_string(&envelope).unwrap();
+        // Should fall through to extract_json_block on the full text
+        let result = extract_json_from_response(&raw);
+        // The raw text is `{"type":"result","result":42}` which is valid JSON
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_extract_json_from_response_envelope_with_fenced_result() {
+        let envelope = serde_json::json!({
+            "type": "result",
+            "result": "```json\n{\"phases\": [], \"estimated_hours\": 1.0}\n```"
+        });
+        let raw = serde_json::to_string(&envelope).unwrap();
+        let result = extract_json_from_response(&raw).unwrap();
+        assert!(result.contains("phases"));
+    }
+
+    #[test]
+    fn test_parse_llm_response_invalid_json() {
+        let result = parse_llm_response("this is not json");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to parse"));
+    }
+
+    #[test]
+    fn test_parse_llm_response_wrong_schema() {
+        // Valid JSON but wrong schema (missing required "phases" field with stages)
+        let result = parse_llm_response(r#"{"foo": "bar"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_llm_response_full() {
+        let json = r#"{
+            "phases": [{
+                "title": "Phase 1",
+                "description": "desc",
+                "stages": [{
+                    "title": "S1",
+                    "description": "do stuff",
+                    "tasks": [
+                        {"title": "T1", "description": "impl", "complexity_hours": 1.5}
+                    ],
+                    "depends_on": [],
+                    "agent_count": 2,
+                    "complexity_hours": 3.0
+                }],
+                "gate_criteria": ["tests pass"]
+            }],
+            "estimated_hours": 3.0
+        }"#;
+        let resp = parse_llm_response(json).unwrap();
+        assert_eq!(resp.phases.len(), 1);
+        assert_eq!(resp.phases[0].stages[0].tasks.len(), 1);
+        assert_eq!(resp.phases[0].stages[0].agent_count, 2);
+        assert_eq!(resp.estimated_hours, 3.0);
+    }
+
+    #[test]
+    fn test_transform_to_plan_empty_phases() {
+        let response = LlmDecomposeResponse {
+            phases: vec![],
+            estimated_hours: 0.0,
+        };
+        let plan = transform_to_plan(response, "empty");
+        assert_eq!(plan.total_stages, 0);
+        assert_eq!(plan.phases.len(), 0);
+        assert_eq!(plan.document_slug, "empty");
+    }
+
+    #[test]
+    fn test_transform_to_plan_preserves_task_fields() {
+        let response = LlmDecomposeResponse {
+            phases: vec![crate::orchestrator::models::LlmPhase {
+                title: "P".to_string(),
+                description: "phase desc".to_string(),
+                stages: vec![crate::orchestrator::models::LlmStage {
+                    title: "S".to_string(),
+                    description: "stage desc".to_string(),
+                    tasks: vec![
+                        crate::orchestrator::models::LlmTask {
+                            title: "Task A".to_string(),
+                            description: "Do A".to_string(),
+                            complexity_hours: 1.0,
+                        },
+                        crate::orchestrator::models::LlmTask {
+                            title: "Task B".to_string(),
+                            description: "Do B".to_string(),
+                            complexity_hours: 2.5,
+                        },
+                    ],
+                    depends_on: vec![],
+                    agent_count: 1,
+                    complexity_hours: 3.5,
+                }],
+                gate_criteria: vec!["gate".to_string()],
+            }],
+            estimated_hours: 3.5,
+        };
+        let plan = transform_to_plan(response, "detail");
+        let stage = &plan.phases[0].stages[0];
+        assert_eq!(stage.tasks.len(), 2);
+        assert_eq!(stage.tasks[0].title, "Task A");
+        assert_eq!(stage.tasks[0].description, "Do A");
+        assert_eq!(stage.tasks[0].complexity_hours, 1.0);
+        assert_eq!(stage.tasks[1].title, "Task B");
+        assert_eq!(stage.tasks[1].complexity_hours, 2.5);
+        // Check task IDs are sequential
+        assert!(stage.tasks[0].id.contains("-t0"));
+        assert!(stage.tasks[1].id.contains("-t1"));
+        // Phase fields
+        assert_eq!(plan.phases[0].title, "P");
+        assert_eq!(plan.phases[0].description, "phase desc");
+        assert_eq!(plan.phases[0].gate_criteria, vec!["gate"]);
+    }
+
+    #[test]
+    fn test_store_plan_creates_orchestrator_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path();
+
+        let plan = OrchestratorPlan {
+            id: "dir-test".to_string(),
+            document_slug: "doc".to_string(),
+            phases: vec![],
+            created_at: Utc::now(),
+            total_stages: 0,
+            estimated_hours: 0.0,
+        };
+
+        // The orchestrator directory should not exist yet
+        assert!(!crosslink_dir.join(PLANS_DIR).exists());
+
+        store_plan(crosslink_dir, &plan, "content").unwrap();
+
+        // Now it should exist
+        assert!(crosslink_dir.join(PLANS_DIR).exists());
+    }
+
+    #[test]
+    fn test_list_plans_ignores_non_json_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path();
+
+        // Create the orchestrator directory
+        let orch_dir = crosslink_dir.join(PLANS_DIR);
+        std::fs::create_dir_all(&orch_dir).unwrap();
+
+        // Write a json file and a non-json file
+        std::fs::write(orch_dir.join("plan-1.json"), "{}").unwrap();
+        std::fs::write(orch_dir.join("readme.txt"), "hello").unwrap();
+        std::fs::write(orch_dir.join("plan-2.json"), "{}").unwrap();
+
+        let ids = list_plans(crosslink_dir).unwrap();
+        assert_eq!(ids, vec!["plan-1", "plan-2"]);
+    }
+
+    #[test]
+    fn test_load_plan_corrupt_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path();
+        let orch_dir = crosslink_dir.join(PLANS_DIR);
+        std::fs::create_dir_all(&orch_dir).unwrap();
+        std::fs::write(orch_dir.join("bad.json"), "not valid json!").unwrap();
+
+        let result = load_plan(crosslink_dir, "bad");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to parse"));
+    }
+
+    #[tokio::test]
+    async fn test_decompose_document_empty_document_bails() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = decompose_document(dir.path(), "", None).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Document is empty"));
+    }
+
+    #[tokio::test]
+    async fn test_decompose_document_whitespace_only_bails() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = decompose_document(dir.path(), "   \n\t  ", Some("my-slug")).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Document is empty"));
+    }
 }

@@ -363,4 +363,159 @@ mod tests {
         let body = body_json(end_resp).await;
         assert_eq!(body["ok"], true);
     }
+
+    /// Helper that returns (Router, TempDir) with an active session and a created issue.
+    fn test_app_with_session_and_issue() -> (Router, tempfile::TempDir, i64) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        // Start a session and create an issue directly via db
+        db.start_session().unwrap();
+        let issue_id = db.create_issue("work item", None, "medium").unwrap();
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir, issue_id)
+    }
+
+    #[tokio::test]
+    async fn test_work_on_issue_success() {
+        let (app, _dir, issue_id) = test_app_with_session_and_issue();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(&format!("/api/v1/sessions/work/{}", issue_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn test_work_on_issue_not_found() {
+        let (app, _dir, _) = test_app_with_session_and_issue();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sessions/work/9999")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = body_json(resp).await;
+        assert!(body["detail"].as_str().unwrap().contains("9999"));
+    }
+
+    #[test]
+    fn test_helper_functions() {
+        let (status, json) = super::internal_error("ctx", "err");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+
+        let (status, json) = super::not_found("gone");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json.detail.as_deref(), Some("gone"));
+
+        let (status, json) = super::bad_request("invalid");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json.detail.as_deref(), Some("invalid"));
+    }
+
+    #[tokio::test]
+    async fn test_get_current_session_with_agent_id_scoping() {
+        // Start two sessions for different agents, verify current session
+        // returns the right one when scoped by agent_id.
+        let (app, _dir) = test_app();
+
+        // Start session for agent-alpha
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sessions/start")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"agent_id": "agent-alpha"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Start session for agent-beta
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sessions/start")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"agent_id": "agent-beta"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Fetch current session for agent-beta
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/sessions/current?agent_id=agent-beta")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // SessionResponse wraps the session object
+        assert_eq!(body["agent_id"], "agent-beta");
+    }
+
+    #[tokio::test]
+    async fn test_end_session_with_notes() {
+        // Start a session and end it with notes.
+        let (app, _dir) = test_app();
+
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sessions/start")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"agent_id": "note-agent"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let end_resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/sessions/end?agent_id=note-agent")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"notes": "finished implementing feature X"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(end_resp.status(), StatusCode::OK);
+        let body = body_json(end_resp).await;
+        assert_eq!(body["ok"], true);
+    }
 }

@@ -1220,4 +1220,710 @@ mod tests {
         assert!(ids.contains(&blocker_id));
         assert!(!ids.contains(&blocked_id));
     }
+
+    #[tokio::test]
+    async fn test_create_issue_with_parent_id() {
+        let (state, _dir) = test_state();
+        let parent_id = {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Parent via create", None, "medium")
+                .unwrap()
+        };
+
+        let app = build_router(state);
+        let body = format!(
+            r#"{{"title": "Child via create", "priority": "low", "parent_id": {}}}"#,
+            parent_id
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(created["parent_id"], parent_id);
+        assert_eq!(created["title"], "Child via create");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_filter_by_label() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            let id1 = db.create_issue("Has bug label", None, "medium").unwrap();
+            let _id2 = db.create_issue("No label", None, "medium").unwrap();
+            db.add_label(id1, "bug").unwrap();
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?label=bug")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "Has bug label");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_filter_by_priority() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.create_issue("High prio", None, "high").unwrap();
+            db.create_issue("Low prio", None, "low").unwrap();
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?priority=high")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "High prio");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_search() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Fix authentication bug", None, "high")
+                .unwrap();
+            db.create_issue("Add new feature", None, "medium").unwrap();
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?search=authentication")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "Fix authentication bug");
+    }
+
+    #[tokio::test]
+    async fn test_delete_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/issues/9999")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_close_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues/9999/close")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_reopen_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues/9999/reopen")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_update_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/issues/9999")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"title": "nope"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_add_comment_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues/9999/comments")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"content": "hello", "kind": "note"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_list_comments_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues/9999/comments")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_add_label_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues/9999/labels")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"label": "bug"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_remove_label_not_found() {
+        let (state, _dir) = test_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            db.create_issue("No labels", None, "medium").unwrap()
+        };
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/issues/{}/labels/nonexistent", id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_add_blocker_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues/9999/block")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"blocker_id": 1}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_add_blocker_blocker_not_found() {
+        let (state, _dir) = test_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Exists", None, "medium").unwrap()
+        };
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/issues/{}/block", id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"blocker_id": 9999}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_remove_blocker_not_a_blocker() {
+        let (state, _dir) = test_state();
+        let (id, other_id) = {
+            let db = state.db.lock().unwrap();
+            let a = db.create_issue("Issue A", None, "medium").unwrap();
+            let b = db.create_issue("Issue B", None, "medium").unwrap();
+            (a, b)
+        };
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/issues/{}/block/{}", id, other_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_create_subissue_parent_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/issues/9999/subissue")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"title": "Child", "priority": "medium"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_remove_label_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/issues/9999/labels/bug")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_remove_blocker_issue_not_found() {
+        let (state, _dir) = test_state();
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/issues/9999/block/1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_filter_by_parent_id() {
+        let (state, _dir) = test_state();
+        let (parent_id, child_id) = {
+            let db = state.db.lock().unwrap();
+            let p = db.create_issue("Parent issue", None, "high").unwrap();
+            let c = db
+                .create_subissue(p, "Child issue", None, "medium")
+                .unwrap();
+            (p, c)
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/issues?parent_id={}", parent_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["id"], child_id);
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_search_with_priority_filter() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Widget high", None, "high").unwrap();
+            db.create_issue("Widget low", None, "low").unwrap();
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?search=Widget&priority=high")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "Widget high");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_search_with_label_filter() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            let id1 = db.create_issue("Gadget with bug", None, "medium").unwrap();
+            db.create_issue("Gadget no label", None, "medium").unwrap();
+            db.add_label(id1, "bug").unwrap();
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?search=Gadget&label=bug")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "Gadget with bug");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_search_with_parent_id_filter() {
+        let (state, _dir) = test_state();
+        let parent_id = {
+            let db = state.db.lock().unwrap();
+            let p = db.create_issue("Parent task", None, "high").unwrap();
+            db.create_subissue(p, "Gizmo sub-task", None, "medium")
+                .unwrap();
+            // Create an unrelated issue that also matches search.
+            db.create_issue("Gizmo standalone", None, "medium").unwrap();
+            p
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/issues?search=Gizmo&parent_id={}", parent_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "Gizmo sub-task");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_search_status_all() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            let id1 = db.create_issue("Sprocket open", None, "medium").unwrap();
+            let id2 = db.create_issue("Sprocket closed", None, "medium").unwrap();
+            db.close_issue(id2).unwrap();
+            let _ = id1;
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?search=Sprocket&status=all")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        // Both open and closed should appear when status=all.
+        assert_eq!(list["total"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_add_intervention_comment() {
+        let (state, _dir) = test_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Intervention test", None, "medium")
+                .unwrap()
+        };
+
+        let app = build_router(state);
+        let body = serde_json::json!({
+            "content": "Manual intervention needed",
+            "kind": "intervention",
+            "trigger_type": "user_request",
+            "intervention_context": "CI pipeline failed"
+        });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/issues/{}/comments", id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let comment: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(comment["content"], "Manual intervention needed");
+        assert_eq!(comment["kind"], "intervention");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_search_with_status_filter() {
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            let id1 = db.create_issue("Auth bug open", None, "high").unwrap();
+            let id2 = db.create_issue("Auth bug closed", None, "high").unwrap();
+            db.close_issue(id2).unwrap();
+            let _ = (id1, id2);
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?search=Auth+bug&status=open")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["title"], "Auth bug open");
+    }
+
+    #[test]
+    fn test_helper_functions_directly() {
+        // Directly cover the helper functions to ensure they produce correct responses.
+        let (status, json) = super::internal_error("ctx", "detail");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+        assert_eq!(json.detail.as_deref(), Some("detail"));
+
+        let (status, json) = super::not_found("gone");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json.error, "not found");
+        assert_eq!(json.detail.as_deref(), Some("gone"));
+
+        let (status, json) = super::bad_request("invalid input");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json.error, "bad request");
+        assert_eq!(json.detail.as_deref(), Some("invalid input"));
+    }
+
+    #[tokio::test]
+    async fn test_get_issue_with_milestone() {
+        // Assign an issue to a milestone and verify that the detail response
+        // includes the milestone object (exercises lines 268-270).
+        let (state, _dir) = test_state();
+        let (issue_id, milestone_id) = {
+            let db = state.db.lock().unwrap();
+            let iid = db.create_issue("Has milestone", None, "medium").unwrap();
+            let mid = db.create_milestone("Sprint 1", None).unwrap();
+            db.add_issue_to_milestone(mid, iid).unwrap();
+            (iid, mid)
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/issues/{}", issue_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let detail: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        // Milestone should be present and have the correct id.
+        assert!(!detail["milestone"].is_null());
+        assert_eq!(detail["milestone"]["id"], milestone_id);
+        assert_eq!(detail["milestone"]["name"], "Sprint 1");
+    }
+
+    #[tokio::test]
+    async fn test_update_issue_priority_only() {
+        // Updating priority alone should succeed and broadcast the change.
+        let (state, _dir) = test_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Priority update", None, "low").unwrap()
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/issues/{id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"priority": "high"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let updated: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(updated["priority"], "high");
+        assert_eq!(updated["title"], "Priority update");
+    }
+
+    #[tokio::test]
+    async fn test_list_issues_no_label_match_in_search() {
+        // Search path where label filter removes all results.
+        let (state, _dir) = test_state();
+        {
+            let db = state.db.lock().unwrap();
+            // Create issue with search term but wrong label.
+            let id = db.create_issue("Widget thing", None, "medium").unwrap();
+            db.add_label(id, "enhancement").unwrap();
+        };
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/issues?search=Widget&label=bug")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        // Label doesn't match — should return 0 results.
+        assert_eq!(list["total"], 0);
+    }
 }

@@ -138,3 +138,20 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
 
     app
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+
+    #[test]
+    fn test_build_router_with_dashboard_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::open(&dir.path().join("test.db")).unwrap();
+        let state = AppState::new(db, dir.path().join(".crosslink"));
+        let dashboard = dir.path().join("dashboard");
+        std::fs::create_dir_all(&dashboard).unwrap();
+        // Should not panic
+        let _router = build_router(state, Some(dashboard));
+    }
+}

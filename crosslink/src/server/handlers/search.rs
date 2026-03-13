@@ -370,4 +370,109 @@ mod tests {
         assert_eq!(knowledge_results[0]["id"], "enzyme-kinetics");
         assert_eq!(knowledge_results[0]["title"], "Enzyme Kinetics");
     }
+
+    #[tokio::test]
+    async fn test_search_whitespace_only_query_returns_400() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/search?q=+++")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_search_issue_without_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(tmp.path());
+
+        // Create an issue with no description so the snippet is empty.
+        {
+            let db = state.db.lock().unwrap();
+            db.create_issue("Undescribed widget", None, "low").unwrap();
+        }
+
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/search?q=widget")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body["total"].as_u64().unwrap() >= 1);
+        let items = body["items"].as_array().unwrap();
+        let issue_result = items.iter().find(|i| i["kind"] == "issue").unwrap();
+        // snippet should be empty string when no description.
+        assert_eq!(issue_result["snippet"], "");
+    }
+
+    #[test]
+    fn test_helper_functions_directly() {
+        let (status, json) = super::internal_error("ctx", "detail");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+        assert_eq!(json.detail.as_deref(), Some("detail"));
+
+        let (status, json) = super::bad_request("bad input");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json.error, "bad request");
+        assert_eq!(json.detail.as_deref(), Some("bad input"));
+    }
+
+    #[tokio::test]
+    async fn test_search_knowledge_page_title_fallback() {
+        // When a page file exists but has no frontmatter, its slug is used as the title.
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(".crosslink").join(".knowledge-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        // Write a page without frontmatter.
+        let page = "No frontmatter here. Just a raw doc about widgets.\n";
+        std::fs::write(cache_dir.join("raw-widget-doc.md"), page).unwrap();
+
+        let state = test_state(tmp.path());
+        let app = build_router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/search?q=widgets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let items = body["items"].as_array().unwrap();
+        let knowledge_results: Vec<_> = items.iter().filter(|i| i["kind"] == "knowledge").collect();
+        // The slug is used as title when no frontmatter title is present.
+        assert!(!knowledge_results.is_empty());
+        assert_eq!(knowledge_results[0]["id"], "raw-widget-doc");
+        // title falls back to slug when not in title_map
+        assert_eq!(knowledge_results[0]["title"], "raw-widget-doc");
+    }
 }

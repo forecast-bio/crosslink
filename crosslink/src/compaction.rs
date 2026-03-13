@@ -2374,4 +2374,1098 @@ mod tests {
         let lock_file: LockFileV2 = serde_json::from_str(&lock_content).unwrap();
         assert_eq!(lock_file.claimed_at, claim_time);
     }
+
+    // ── Coverage gap tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_no_clock_skew_within_threshold() {
+        // Events with timestamps within the threshold should NOT produce skew warnings
+        let mut state = CheckpointState::default();
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Recent".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        // timestamp is Utc::now(), well within the 60s threshold
+        detect_clock_skew(&mut state, &env);
+        assert!(state.skew_warnings.is_empty());
+    }
+
+    #[test]
+    fn test_check_unsigned_with_signed_event_no_trust_file() {
+        // A signed event when there is no allowed_signers file should NOT produce a warning
+        let mut state = CheckpointState::default();
+        let mut env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Signed".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        env.signed_by = Some("agent-1".to_string());
+        env.signature = Some("fake-signature".to_string());
+
+        let nonexistent = PathBuf::from("/tmp/nonexistent_trust_dir/allowed_signers");
+        check_unsigned(&mut state, &env, &nonexistent);
+        assert!(
+            state.unsigned_event_warnings.is_empty(),
+            "Signed event without trust file should not warn"
+        );
+    }
+
+    #[test]
+    fn test_apply_events_on_nonexistent_issue_are_noop() {
+        // All mutation events referencing unknown UUIDs should be no-ops
+        let mut state = CheckpointState::default();
+        let unknown = Uuid::new_v4();
+        let mut changed_issues = HashSet::new();
+        let mut changed_locks = HashSet::new();
+
+        // IssueUpdated on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueUpdated {
+                uuid: unknown,
+                title: Some("Ghost".to_string()),
+                description: None,
+                priority: None,
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+        assert!(changed_issues.is_empty());
+
+        // StatusChanged on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            2,
+            Event::StatusChanged {
+                uuid: unknown,
+                new_status: "closed".to_string(),
+                closed_at: Some(Utc::now()),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // DependencyAdded on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            3,
+            Event::DependencyAdded {
+                blocked_uuid: unknown,
+                blocker_uuid: Uuid::new_v4(),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // DependencyRemoved on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            4,
+            Event::DependencyRemoved {
+                blocked_uuid: unknown,
+                blocker_uuid: Uuid::new_v4(),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // RelationAdded on nonexistent (both sides)
+        let env = make_envelope(
+            "agent-1",
+            5,
+            Event::RelationAdded {
+                uuid_a: unknown,
+                uuid_b: Uuid::new_v4(),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // RelationRemoved on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            6,
+            Event::RelationRemoved {
+                uuid_a: unknown,
+                uuid_b: Uuid::new_v4(),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // MilestoneAssigned on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            7,
+            Event::MilestoneAssigned {
+                issue_uuid: unknown,
+                milestone_uuid: Some(Uuid::new_v4()),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // LabelAdded on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            8,
+            Event::LabelAdded {
+                issue_uuid: unknown,
+                label: "ghost-label".to_string(),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // LabelRemoved on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            9,
+            Event::LabelRemoved {
+                issue_uuid: unknown,
+                label: "ghost-label".to_string(),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // ParentChanged on nonexistent
+        let env = make_envelope(
+            "agent-1",
+            10,
+            Event::ParentChanged {
+                issue_uuid: unknown,
+                new_parent_uuid: Some(Uuid::new_v4()),
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.issues.is_empty());
+
+        // No issues or locks should have been marked as changed
+        assert!(changed_issues.is_empty());
+        assert!(changed_locks.is_empty());
+    }
+
+    #[test]
+    fn test_dependency_removed() {
+        // Test the DependencyRemoved branch through full compaction
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let blocked = Uuid::new_v4();
+        let blocker = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: blocked,
+                title: "Blocked".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(10);
+
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::DependencyAdded {
+                blocked_uuid: blocked,
+                blocker_uuid: blocker,
+            },
+        );
+        e2.timestamp = now - Duration::seconds(5);
+
+        let e3 = make_envelope(
+            "agent-1",
+            3,
+            Event::DependencyRemoved {
+                blocked_uuid: blocked,
+                blocker_uuid: blocker,
+            },
+        );
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(
+            state.issues[&blocked].blockers.is_empty(),
+            "Dependency should be removed after DependencyRemoved event"
+        );
+    }
+
+    #[test]
+    fn test_relation_removed() {
+        // Test the RelationRemoved branch through full compaction
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let uuid_a = Uuid::new_v4();
+        let uuid_b = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: uuid_a,
+                title: "A".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(10);
+
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::IssueCreated {
+                uuid: uuid_b,
+                title: "B".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e2.timestamp = now - Duration::seconds(9);
+
+        let mut e3 = make_envelope("agent-1", 3, Event::RelationAdded { uuid_a, uuid_b });
+        e3.timestamp = now - Duration::seconds(5);
+
+        let e4 = make_envelope("agent-1", 4, Event::RelationRemoved { uuid_a, uuid_b });
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+        append_event(&log, &e4).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(
+            state.issues[&uuid_a].related.is_empty(),
+            "Relation should be removed from A"
+        );
+        assert!(
+            state.issues[&uuid_b].related.is_empty(),
+            "Relation should be removed from B"
+        );
+    }
+
+    #[test]
+    fn test_issue_update_description_and_priority() {
+        // Cover the description and priority update branches in IssueUpdated
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let mut e_create = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid,
+                title: "Original".to_string(),
+                description: None,
+                priority: "low".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e_create.timestamp = Utc::now() - Duration::seconds(10);
+
+        let e_update = make_envelope(
+            "agent-1",
+            2,
+            Event::IssueUpdated {
+                uuid,
+                title: None,
+                description: Some("New description".to_string()),
+                priority: Some("critical".to_string()),
+            },
+        );
+
+        append_event(&log, &e_create).unwrap();
+        append_event(&log, &e_update).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let issue = &state.issues[&uuid];
+        assert_eq!(issue.title, "Original", "Title should be unchanged");
+        assert_eq!(
+            issue.description.as_deref(),
+            Some("New description"),
+            "Description should be updated"
+        );
+        assert_eq!(issue.priority, "critical", "Priority should be updated");
+    }
+
+    #[test]
+    fn test_prune_events_no_watermark() {
+        // prune_events should return 0 when no watermark exists
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Unprunable".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        append_event(&log, &env).unwrap();
+
+        // No compaction done, so no watermark
+        let pruned = prune_events(cache_dir, "agent-1").unwrap();
+        assert_eq!(pruned, 0);
+
+        // Events should still be there
+        let remaining = crate::events::read_events(&log).unwrap();
+        assert_eq!(remaining.len(), 1);
+    }
+
+    #[test]
+    fn test_prune_events_no_log_file() {
+        // prune_events should return 0 when the agent's log file doesn't exist
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        // Create a watermark so we pass the first check
+        let watermark = OrderingKey {
+            timestamp: Utc::now(),
+            agent_id: "agent-1".to_string(),
+            agent_seq: 1,
+        };
+        crate::checkpoint::write_watermark(cache_dir, &watermark).unwrap();
+
+        // Agent dir exists but no events.log
+        std::fs::create_dir_all(cache_dir.join("agents/agent-1")).unwrap();
+
+        let pruned = prune_events(cache_dir, "agent-1").unwrap();
+        assert_eq!(pruned, 0);
+    }
+
+    #[test]
+    fn test_prune_events_nothing_to_prune() {
+        // When all events are after the watermark, nothing should be pruned
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let env = make_envelope(
+            "agent-1",
+            5,
+            Event::LabelAdded {
+                issue_uuid: Uuid::new_v4(),
+                label: "test".to_string(),
+            },
+        );
+        append_event(&log, &env).unwrap();
+
+        // Set watermark before the event
+        let watermark = OrderingKey {
+            timestamp: now - Duration::seconds(100),
+            agent_id: "agent-1".to_string(),
+            agent_seq: 1,
+        };
+        crate::checkpoint::write_watermark(cache_dir, &watermark).unwrap();
+
+        let pruned = prune_events(cache_dir, "agent-1").unwrap();
+        assert_eq!(pruned, 0);
+
+        let remaining = crate::events::read_events(&log).unwrap();
+        assert_eq!(remaining.len(), 1);
+    }
+
+    #[test]
+    fn test_compact_no_agents_dir() {
+        // compact should succeed when agents dir doesn't exist (no events)
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        // Only set up checkpoint dir, not agents dir
+        std::fs::create_dir_all(cache_dir.join("checkpoint")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
+
+        let result = compact(cache_dir, "agent-1", false).unwrap().unwrap();
+        assert_eq!(result.events_processed, 0);
+        assert_eq!(result.issues_materialized, 0);
+    }
+
+    #[test]
+    fn test_read_lock_info_malformed_json() {
+        // read_lock_info should return None for malformed lock files
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("compaction.lock");
+
+        // Empty file
+        std::fs::write(&lock_path, "").unwrap();
+        assert!(CompactionLockGuard::read_lock_info(&lock_path).is_none());
+
+        // Not JSON
+        std::fs::write(&lock_path, "not json at all").unwrap();
+        assert!(CompactionLockGuard::read_lock_info(&lock_path).is_none());
+
+        // JSON missing agent_id
+        std::fs::write(&lock_path, r#"{"acquired_at": "2025-01-01T00:00:00Z"}"#).unwrap();
+        assert!(CompactionLockGuard::read_lock_info(&lock_path).is_none());
+
+        // JSON missing acquired_at
+        std::fs::write(&lock_path, r#"{"agent_id": "test"}"#).unwrap();
+        assert!(CompactionLockGuard::read_lock_info(&lock_path).is_none());
+
+        // JSON with bad date format
+        std::fs::write(
+            &lock_path,
+            r#"{"agent_id": "test", "acquired_at": "not-a-date"}"#,
+        )
+        .unwrap();
+        assert!(CompactionLockGuard::read_lock_info(&lock_path).is_none());
+    }
+
+    #[test]
+    fn test_read_lock_info_nonexistent_file() {
+        let nonexistent = PathBuf::from("/tmp/does_not_exist_lock_file");
+        assert!(CompactionLockGuard::read_lock_info(&nonexistent).is_none());
+    }
+
+    #[test]
+    fn test_force_acquire_with_malformed_lock_file() {
+        // force=true with an unreadable lock should remove it and acquire
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let lock_path = cache_dir.join("checkpoint").join(COMPACTION_LOCK_FILE);
+        std::fs::write(&lock_path, "totally broken json").unwrap();
+
+        // Without force, should fail since lock file exists but can't be read
+        let result = CompactionLockGuard::try_acquire(cache_dir, "agent-1", false).unwrap();
+        assert!(
+            result.is_none(),
+            "Should not acquire when lock has unreadable info and force=false"
+        );
+
+        // With force, should remove the malformed lock and acquire
+        let guard = CompactionLockGuard::try_acquire(cache_dir, "agent-1", true)
+            .unwrap()
+            .unwrap();
+        assert!(lock_path.exists());
+        drop(guard);
+    }
+
+    #[test]
+    fn test_compact_to_issue_file_with_blockers_and_related() {
+        // Verify that compact_to_issue_file correctly maps blockers and related
+        let uuid = Uuid::new_v4();
+        let blocker = Uuid::new_v4();
+        let related = Uuid::new_v4();
+
+        let compact = CompactIssue {
+            uuid,
+            display_id: Some(42),
+            title: "Full issue".to_string(),
+            description: Some("With all fields".to_string()),
+            status: "open".to_string(),
+            priority: "high".to_string(),
+            parent_uuid: Some(Uuid::new_v4()),
+            created_by: "agent-1".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            closed_at: Some(Utc::now()),
+            labels: {
+                let mut s = BTreeSet::new();
+                s.insert("bug".to_string());
+                s.insert("urgent".to_string());
+                s
+            },
+            blockers: {
+                let mut s = BTreeSet::new();
+                s.insert(blocker);
+                s
+            },
+            related: {
+                let mut s = BTreeSet::new();
+                s.insert(related);
+                s
+            },
+            milestone_uuid: Some(Uuid::new_v4()),
+        };
+
+        let issue_file = compact_to_issue_file(&compact);
+        assert_eq!(issue_file.uuid, uuid);
+        assert_eq!(issue_file.display_id, Some(42));
+        assert_eq!(issue_file.title, "Full issue");
+        assert_eq!(issue_file.description.as_deref(), Some("With all fields"));
+        assert_eq!(issue_file.priority, "high");
+        assert!(issue_file.closed_at.is_some());
+        assert_eq!(issue_file.blockers, vec![blocker]);
+        assert_eq!(issue_file.related, vec![related]);
+        assert_eq!(
+            issue_file.labels,
+            vec!["bug".to_string(), "urgent".to_string()]
+        );
+        assert!(issue_file.comments.is_empty());
+        assert!(issue_file.time_entries.is_empty());
+        assert_eq!(issue_file.milestone_uuid, compact.milestone_uuid);
+        assert_eq!(issue_file.parent_uuid, compact.parent_uuid);
+        assert_eq!(issue_file.created_by, "agent-1");
+    }
+
+    #[test]
+    fn test_incremental_compaction_no_new_events() {
+        // After initial compaction with a watermark, a second compact with no new
+        // events should return early with events_processed=0
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid,
+                title: "Once".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        append_event(&log, &env).unwrap();
+
+        // First compaction sets watermark
+        let r1 = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        assert_eq!(r1.events_processed, 1);
+
+        // Second compaction with no new events should hit the early return
+        let r2 = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        assert_eq!(r2.events_processed, 0);
+        assert_eq!(r2.issues_materialized, 0);
+    }
+
+    #[test]
+    fn test_lock_release_on_nonexistent_lock_entry() {
+        // LockReleased where the lock doesn't exist in state should be a no-op
+        let mut state = CheckpointState::default();
+        let mut changed_issues = HashSet::new();
+        let mut changed_locks: HashSet<i64> = HashSet::new();
+
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::LockReleased {
+                issue_display_id: 999,
+            },
+        );
+        apply(&mut state, &env, &mut changed_issues, &mut changed_locks);
+        assert!(state.locks.is_empty());
+        assert!(changed_locks.is_empty());
+    }
+
+    #[test]
+    fn test_compact_skips_non_directory_entries_in_agents() {
+        // Files (not directories) inside the agents dir should be skipped
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        // Create a regular file inside agents/ (not a directory)
+        std::fs::write(cache_dir.join("agents/stray-file.txt"), "junk").unwrap();
+
+        // Also create a valid agent with an event
+        let uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid,
+                title: "Valid".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        append_event(&log, &env).unwrap();
+
+        // Should succeed, skipping the stray file
+        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        assert_eq!(result.events_processed, 1);
+        assert_eq!(result.issues_materialized, 1);
+    }
+
+    #[test]
+    fn test_milestone_unassigned() {
+        // Setting milestone_uuid to None should clear the milestone
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let issue_uuid = Uuid::new_v4();
+        let milestone_uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: issue_uuid,
+                title: "Ms test".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(10);
+
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::MilestoneAssigned {
+                issue_uuid,
+                milestone_uuid: Some(milestone_uuid),
+            },
+        );
+        e2.timestamp = now - Duration::seconds(5);
+
+        let e3 = make_envelope(
+            "agent-1",
+            3,
+            Event::MilestoneAssigned {
+                issue_uuid,
+                milestone_uuid: None,
+            },
+        );
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert_eq!(
+            state.issues[&issue_uuid].milestone_uuid, None,
+            "Milestone should be cleared"
+        );
+    }
+
+    #[test]
+    fn test_parent_changed_to_none() {
+        // Clearing the parent should work
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let parent = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: child,
+                title: "Child".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: Some(parent),
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(10);
+
+        let e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::ParentChanged {
+                issue_uuid: child,
+                new_parent_uuid: None,
+            },
+        );
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert_eq!(
+            state.issues[&child].parent_uuid, None,
+            "Parent should be cleared"
+        );
+    }
+
+    #[test]
+    fn test_clock_skew_past_timestamp() {
+        // Events with timestamps far in the past should also trigger skew
+        let mut state = CheckpointState::default();
+        let mut env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Old".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        // Set timestamp far in the past (well beyond 60s threshold)
+        env.timestamp = Utc::now() - Duration::seconds(300);
+
+        detect_clock_skew(&mut state, &env);
+        assert_eq!(state.skew_warnings.len(), 1);
+        assert_eq!(state.skew_warnings[0].agent_id, "agent-1");
+    }
+
+    #[test]
+    fn test_check_unsigned_missing_signature_only() {
+        // signed_by present but signature missing should still warn
+        let mut state = CheckpointState::default();
+        let mut env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Half-signed".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        env.signed_by = Some("agent-1".to_string());
+        env.signature = None; // Missing signature
+
+        let nonexistent = PathBuf::from("/tmp/nonexistent_trust");
+        check_unsigned(&mut state, &env, &nonexistent);
+        assert_eq!(
+            state.unsigned_event_warnings.len(),
+            1,
+            "Should warn when signature is None"
+        );
+    }
+
+    #[test]
+    fn test_check_unsigned_missing_signed_by_only() {
+        // signature present but signed_by missing should still warn
+        let mut state = CheckpointState::default();
+        let mut env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Half-signed".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        env.signed_by = None;
+        env.signature = Some("fake-sig".to_string());
+
+        let nonexistent = PathBuf::from("/tmp/nonexistent_trust");
+        check_unsigned(&mut state, &env, &nonexistent);
+        assert_eq!(
+            state.unsigned_event_warnings.len(),
+            1,
+            "Should warn when signed_by is None"
+        );
+    }
+
+    // Coverage for lines 186, 188: watermark migration path
+    // When state has no embedded watermark but a legacy watermark.json exists,
+    // compact() should migrate it into the checkpoint state.
+    #[test]
+    fn test_compact_migrates_legacy_watermark() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        // Create and compact a first event to establish state
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid,
+                title: "First".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        e1.timestamp = Utc::now() - Duration::seconds(10);
+        append_event(&log, &e1).unwrap();
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        // Now simulate a legacy migration scenario:
+        // Read the current checkpoint, strip the embedded watermark, write it back
+        // so the next compaction finds no embedded watermark but does find a legacy file.
+        let state = read_checkpoint(cache_dir).unwrap();
+        let embedded_watermark = state.watermark.clone().unwrap();
+
+        // Write a legacy watermark.json file
+        let checkpoint_dir = cache_dir.join("checkpoint");
+        let legacy_wm_path = checkpoint_dir.join("watermark.json");
+        let wm_json = serde_json::to_string(&embedded_watermark).unwrap();
+        std::fs::write(&legacy_wm_path, &wm_json).unwrap();
+
+        // Strip embedded watermark from checkpoint state to simulate legacy state
+        let mut state_no_wm = state.clone();
+        state_no_wm.watermark = None;
+        write_checkpoint(cache_dir, &state_no_wm).unwrap();
+
+        // Add a second event that is after the watermark
+        let e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::LabelAdded {
+                issue_uuid: uuid,
+                label: "migrated".to_string(),
+            },
+        );
+        append_event(&log, &e2).unwrap();
+
+        // This compaction should:
+        // 1. Find no embedded watermark (state.watermark = None)
+        // 2. Fall back to legacy watermark.json (lines 186, 188 covered)
+        // 3. Process only the new event (incremental)
+        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        assert_eq!(
+            result.events_processed, 1,
+            "Only the new event should be processed"
+        );
+
+        // Verify the migration happened and the issue has the label
+        let final_state = read_checkpoint(cache_dir).unwrap();
+        assert!(
+            final_state.issues[&uuid].labels.contains("migrated"),
+            "Label should be applied after migration"
+        );
+        // Embedded watermark should now be set
+        assert!(
+            final_state.watermark.is_some(),
+            "Checkpoint should have embedded watermark after migration"
+        );
+    }
+
+    // Coverage for line 556: remove_file path in materialize when lock was previously
+    // materialized and then released in an incremental compaction.
+    #[test]
+    fn test_materialize_removes_released_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let lock_path = cache_dir.join("locks/7.json");
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        // Step 1: claim — this materializes the lock file
+        let mut e_claim = make_envelope(
+            "agent-1",
+            1,
+            Event::LockClaimed {
+                issue_display_id: 7,
+                branch: Some("feature/remove-test".to_string()),
+            },
+        );
+        e_claim.timestamp = now - Duration::seconds(5);
+        append_event(&log, &e_claim).unwrap();
+        compact(cache_dir, "agent-1", true).unwrap();
+        assert!(
+            lock_path.exists(),
+            "Lock file should exist after claim compaction"
+        );
+
+        // Step 2: release — this should delete the materialized lock file (line 556)
+        let mut e_release = make_envelope(
+            "agent-1",
+            2,
+            Event::LockReleased {
+                issue_display_id: 7,
+            },
+        );
+        e_release.timestamp = now - Duration::seconds(2);
+        append_event(&log, &e_release).unwrap();
+        compact(cache_dir, "agent-1", true).unwrap();
+
+        // The lock file should have been deleted by the materialize function (line 556)
+        assert!(
+            !lock_path.exists(),
+            "Lock file should be removed after release compaction"
+        );
+    }
+
+    // Coverage for lines 615-619: check_unsigned path where allowed_signers exists
+    // but the signature fails verification (invalid signature on a signed event).
+    #[test]
+    fn test_check_unsigned_with_invalid_signature_and_trust_file() {
+        use std::process::Command;
+        if Command::new("ssh-keygen").arg("--help").output().is_err() {
+            eprintln!("Skipping: ssh-keygen not available");
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        // Create a real key so allowed_signers file is valid
+        let keys_dir = dir.path().join("keys");
+        std::fs::create_dir_all(&keys_dir).unwrap();
+        let private_key_path = keys_dir.join("agent_ed25519");
+        let public_key_path = keys_dir.join("agent_ed25519.pub");
+        let output = Command::new("ssh-keygen")
+            .args([
+                "-t",
+                "ed25519",
+                "-f",
+                &private_key_path.to_string_lossy(),
+                "-N",
+                "",
+                "-C",
+                "check-test@host",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        let public_key = std::fs::read_to_string(&public_key_path).unwrap();
+        let public_key = public_key.trim();
+
+        // Create an allowed_signers file with the real public key
+        let signers_path = cache_dir.join("trust").join("allowed_signers");
+        std::fs::create_dir_all(signers_path.parent().unwrap()).unwrap();
+        // Use "check-agent@crosslink" as the principal (matching envelope.agent_id + "@crosslink")
+        std::fs::write(
+            &signers_path,
+            format!("check-agent@crosslink {}\n", public_key),
+        )
+        .unwrap();
+
+        // Create an envelope with garbage signature (not matching real sig)
+        let mut env = make_envelope(
+            "check-agent",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Invalid sig".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "check-agent".to_string(),
+            },
+        );
+        env.signed_by = Some("SHA256:fake".to_string());
+        env.signature = Some("aW52YWxpZHNpZw==".to_string()); // base64("invalidsig")
+
+        // check_unsigned with a valid allowed_signers path and a bad sig
+        // should call verify_event_signature -> Ok(false) -> push warning (lines 615-619)
+        let mut state = CheckpointState::default();
+        check_unsigned(&mut state, &env, &signers_path);
+        assert_eq!(
+            state.unsigned_event_warnings.len(),
+            1,
+            "Should warn when signature is present but invalid"
+        );
+        assert_eq!(state.unsigned_event_warnings[0].agent_id, "check-agent");
+    }
+
+    #[test]
+    fn test_read_lock_info_valid() {
+        // read_lock_info should successfully parse a well-formed lock file
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("compaction.lock");
+
+        let now = Utc::now();
+        let content = serde_json::json!({
+            "agent_id": "agent-test",
+            "acquired_at": now.to_rfc3339(),
+            "pid": 12345,
+        });
+        std::fs::write(&lock_path, content.to_string()).unwrap();
+
+        let info = CompactionLockGuard::read_lock_info(&lock_path).unwrap();
+        assert_eq!(info.agent_id, "agent-test");
+        // Check that the parsed time is close to what we wrote
+        let diff = (info.acquired_at - now).num_milliseconds().abs();
+        assert!(diff < 1000, "Parsed time should be close to written time");
+    }
 }

@@ -691,4 +691,626 @@ mod tests {
         let loaded = load_pipeline(dir.path()).unwrap();
         assert!(loaded.is_none());
     }
+
+    #[test]
+    fn test_summary_no_history() {
+        let p = Pipeline::new(test_config());
+        let summary = p.summary();
+        assert!(summary.contains("Pipeline:"));
+        assert!(summary.contains("Stage:    partition"));
+        assert!(summary.contains("Agents:   4"));
+        assert!(summary.contains("Mandate:  security review"));
+        assert!(summary.contains("Branch:   main"));
+        assert!(summary.contains("Auto-fix: true"));
+        assert!(summary.contains("Auto-file-issues: true"));
+        assert!(!summary.contains("History:"));
+    }
+
+    #[test]
+    fn test_summary_with_notes_in_history() {
+        let mut p = Pipeline::new(test_config());
+        p.advance().unwrap();
+        p.fail("something went wrong");
+        let summary = p.summary();
+        assert!(summary.contains("History:"));
+        assert!(summary.contains("(something went wrong)"));
+        assert!(summary.contains("review -> failed"));
+    }
+
+    #[test]
+    fn test_summary_history_without_notes() {
+        let mut p = Pipeline::new(test_config());
+        p.advance().unwrap();
+        let summary = p.summary();
+        assert!(summary.contains("History:"));
+        assert!(summary.contains("partition -> review"));
+        assert!(!summary.contains("("));
+    }
+
+    #[test]
+    fn test_advance_full_happy_path_after_checkpoint() {
+        let mut p = Pipeline::new(test_config());
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.advance().unwrap();
+
+        p.confirm_checkpoint().unwrap();
+        assert_eq!(p.current_stage, PipelineStage::FileIssues);
+
+        p.advance().unwrap();
+        assert_eq!(p.current_stage, PipelineStage::Fix);
+        p.advance().unwrap();
+        assert_eq!(p.current_stage, PipelineStage::AwaitFix);
+        p.advance().unwrap();
+        assert_eq!(p.current_stage, PipelineStage::Merge);
+        p.advance().unwrap();
+        assert_eq!(p.current_stage, PipelineStage::PullRequest);
+        p.advance().unwrap();
+        assert_eq!(p.current_stage, PipelineStage::Done);
+    }
+
+    #[test]
+    fn test_pipeline_config_auto_flags() {
+        let config = PipelineConfig {
+            agent_count: 2,
+            mandate: "test".to_string(),
+            auto_fix: false,
+            auto_file_issues: false,
+            target_branch: "develop".to_string(),
+        };
+        let p = Pipeline::new(config);
+        assert!(!p.config.auto_fix);
+        assert!(!p.config.auto_file_issues);
+        assert_eq!(p.config.target_branch, "develop");
+        assert_eq!(p.config.agent_count, 2);
+    }
+
+    #[test]
+    fn test_fail_from_partition() {
+        let mut p = Pipeline::new(test_config());
+        assert_eq!(p.current_stage, PipelineStage::Partition);
+        p.fail("partition error");
+        assert_eq!(p.current_stage, PipelineStage::Failed);
+        assert_eq!(p.history.len(), 1);
+        assert_eq!(p.history[0].from, PipelineStage::Partition);
+        assert_eq!(p.history[0].to, PipelineStage::Failed);
+    }
+
+    #[test]
+    fn test_serde_stage_rename_all() {
+        let stages = vec![
+            PipelineStage::Partition,
+            PipelineStage::Review,
+            PipelineStage::AwaitReview,
+            PipelineStage::Consolidate,
+            PipelineStage::HumanCheckpoint,
+            PipelineStage::FileIssues,
+            PipelineStage::Fix,
+            PipelineStage::AwaitFix,
+            PipelineStage::Merge,
+            PipelineStage::PullRequest,
+            PipelineStage::Done,
+            PipelineStage::Failed,
+        ];
+        for stage in stages {
+            let json = serde_json::to_string(&stage).unwrap();
+            let parsed: PipelineStage = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, stage);
+        }
+    }
+
+    #[test]
+    fn test_save_pipeline_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = Pipeline::new(test_config());
+        save_pipeline(dir.path(), &p).unwrap();
+
+        p.advance().unwrap();
+        save_pipeline(dir.path(), &p).unwrap();
+
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Review);
+        assert_eq!(loaded.history.len(), 1);
+    }
+
+    #[test]
+    fn test_load_pipeline_invalid_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pipeline.json");
+        std::fs::write(&path, "not valid json").unwrap();
+        let result = load_pipeline(dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_pipeline_creates_and_pauses_at_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config();
+        run_pipeline(dir.path(), config).unwrap();
+
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::HumanCheckpoint);
+    }
+
+    #[test]
+    fn test_run_pipeline_resume_at_done() {
+        let dir = tempfile::tempdir().unwrap();
+        // Manually create a pipeline at Done stage
+        let mut p = Pipeline::new(test_config());
+        p.current_stage = PipelineStage::Done;
+        save_pipeline(dir.path(), &p).unwrap();
+
+        // Running should resume and detect terminal stage
+        run_pipeline(dir.path(), test_config()).unwrap();
+
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Done);
+    }
+
+    #[test]
+    fn test_transition_notes_preserved() {
+        let mut p = Pipeline::new(test_config());
+        p.record_transition(PipelineStage::Review, Some("custom note"));
+        assert_eq!(p.history.len(), 1);
+        assert_eq!(p.history[0].notes.as_deref(), Some("custom note"));
+    }
+
+    #[test]
+    fn test_transition_notes_none() {
+        let mut p = Pipeline::new(test_config());
+        p.record_transition(PipelineStage::Review, None);
+        assert_eq!(p.history.len(), 1);
+        assert!(p.history[0].notes.is_none());
+    }
+
+    #[test]
+    fn test_pipeline_id_format() {
+        let p = Pipeline::new(test_config());
+        assert!(p.id.starts_with("pipeline-"));
+        let parts: Vec<&str> = p.id.splitn(2, '-').collect();
+        assert_eq!(parts[0], "pipeline");
+        assert!(parts[1].len() > 15);
+    }
+
+    #[test]
+    fn test_pipeline_created_at_is_rfc3339() {
+        let p = Pipeline::new(test_config());
+        let parsed = chrono::DateTime::parse_from_rfc3339(&p.created_at);
+        assert!(
+            parsed.is_ok(),
+            "created_at should be valid RFC3339: {}",
+            p.created_at
+        );
+    }
+
+    #[test]
+    fn test_is_checkpoint_all_stages() {
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Partition));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Review));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::AwaitReview));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Consolidate));
+        assert!(Pipeline::is_checkpoint(PipelineStage::HumanCheckpoint));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::FileIssues));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Fix));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::AwaitFix));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Merge));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::PullRequest));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Done));
+        assert!(!Pipeline::is_checkpoint(PipelineStage::Failed));
+    }
+
+    // -----------------------------------------------------------------------
+    // Additional coverage tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_print_stage_action_all_stages() {
+        // Exercise every branch in print_stage_action to ensure no panics
+        // and to cover all match arms.
+        let config_auto = test_config(); // auto_fix: true, auto_file_issues: true
+        let config_manual = PipelineConfig {
+            agent_count: 2,
+            mandate: "manual review".to_string(),
+            auto_fix: false,
+            auto_file_issues: false,
+            target_branch: "develop".to_string(),
+        };
+
+        let all_stages = [
+            PipelineStage::Partition,
+            PipelineStage::Review,
+            PipelineStage::AwaitReview,
+            PipelineStage::Consolidate,
+            PipelineStage::HumanCheckpoint,
+            PipelineStage::FileIssues,
+            PipelineStage::Fix,
+            PipelineStage::AwaitFix,
+            PipelineStage::Merge,
+            PipelineStage::PullRequest,
+            PipelineStage::Done,
+            PipelineStage::Failed,
+        ];
+
+        for stage in all_stages {
+            print_stage_action(stage, &config_auto);
+            print_stage_action(stage, &config_manual);
+        }
+    }
+
+    #[test]
+    fn test_run_pipeline_resume_at_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = Pipeline::new(test_config());
+        p.fail("earlier failure");
+        save_pipeline(dir.path(), &p).unwrap();
+
+        // Running should resume and detect the Failed terminal stage
+        run_pipeline(dir.path(), test_config()).unwrap();
+
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Failed);
+    }
+
+    #[test]
+    fn test_serde_stage_snake_case_values() {
+        // Verify the rename_all = "snake_case" produces expected JSON strings
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::Partition).unwrap(),
+            "\"partition\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::AwaitReview).unwrap(),
+            "\"await_review\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::HumanCheckpoint).unwrap(),
+            "\"human_checkpoint\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::FileIssues).unwrap(),
+            "\"file_issues\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::AwaitFix).unwrap(),
+            "\"await_fix\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::PullRequest).unwrap(),
+            "\"pull_request\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::Done).unwrap(),
+            "\"done\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PipelineStage::Failed).unwrap(),
+            "\"failed\""
+        );
+    }
+
+    #[test]
+    fn test_serde_stage_deserialize_from_snake_case_string() {
+        // Confirm we can deserialize from the snake_case JSON strings
+        let stage: PipelineStage = serde_json::from_str("\"await_review\"").unwrap();
+        assert_eq!(stage, PipelineStage::AwaitReview);
+
+        let stage: PipelineStage = serde_json::from_str("\"human_checkpoint\"").unwrap();
+        assert_eq!(stage, PipelineStage::HumanCheckpoint);
+
+        let stage: PipelineStage = serde_json::from_str("\"file_issues\"").unwrap();
+        assert_eq!(stage, PipelineStage::FileIssues);
+
+        let stage: PipelineStage = serde_json::from_str("\"pull_request\"").unwrap();
+        assert_eq!(stage, PipelineStage::PullRequest);
+    }
+
+    #[test]
+    fn test_serde_stage_invalid_value_errors() {
+        let result = serde_json::from_str::<PipelineStage>("\"nonexistent_stage\"");
+        assert!(result.is_err());
+
+        let result = serde_json::from_str::<PipelineStage>("42");
+        assert!(result.is_err());
+
+        let result = serde_json::from_str::<PipelineStage>("null");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_pipeline_to_nonexistent_directory() {
+        let dir = Path::new("/tmp/crosslink_test_nonexistent_dir_that_should_not_exist_29384");
+        assert!(!dir.exists());
+        let p = Pipeline::new(test_config());
+        let result = save_pipeline(dir, &p);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Failed to write"),
+            "Expected write error, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_load_pipeline_partial_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pipeline.json");
+        // Valid JSON but missing required fields
+        std::fs::write(&path, r#"{"id": "test"}"#).unwrap();
+        let result = load_pipeline(dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_confirm_checkpoint_rejects_at_various_stages() {
+        // Test confirm_checkpoint fails at stages other than Partition (already tested)
+        let stages = [
+            PipelineStage::Review,
+            PipelineStage::AwaitReview,
+            PipelineStage::Consolidate,
+            PipelineStage::FileIssues,
+            PipelineStage::Fix,
+            PipelineStage::AwaitFix,
+            PipelineStage::Merge,
+            PipelineStage::PullRequest,
+            PipelineStage::Done,
+            PipelineStage::Failed,
+        ];
+        for stage in stages {
+            let mut p = Pipeline::new(test_config());
+            p.current_stage = stage;
+            let err = p.confirm_checkpoint().unwrap_err();
+            assert!(
+                err.to_string().contains("not at a human checkpoint"),
+                "Stage {:?} should reject confirm_checkpoint, got: {}",
+                stage,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn test_summary_with_auto_flags_false() {
+        let config = PipelineConfig {
+            agent_count: 1,
+            mandate: "perf audit".to_string(),
+            auto_fix: false,
+            auto_file_issues: false,
+            target_branch: "release".to_string(),
+        };
+        let p = Pipeline::new(config);
+        let summary = p.summary();
+        assert!(summary.contains("Auto-fix: false"));
+        assert!(summary.contains("Auto-file-issues: false"));
+        assert!(summary.contains("Branch:   release"));
+        assert!(summary.contains("Agents:   1"));
+        assert!(summary.contains("Mandate:  perf audit"));
+    }
+
+    #[test]
+    fn test_fail_at_every_non_terminal_stage() {
+        let stages = [
+            PipelineStage::Partition,
+            PipelineStage::Review,
+            PipelineStage::AwaitReview,
+            PipelineStage::Consolidate,
+            PipelineStage::HumanCheckpoint,
+            PipelineStage::FileIssues,
+            PipelineStage::Fix,
+            PipelineStage::AwaitFix,
+            PipelineStage::Merge,
+            PipelineStage::PullRequest,
+        ];
+        for stage in stages {
+            let mut p = Pipeline::new(test_config());
+            p.current_stage = stage;
+            p.fail("forced failure");
+            assert_eq!(
+                p.current_stage,
+                PipelineStage::Failed,
+                "fail() should set Failed from {:?}",
+                stage
+            );
+            let last = p.history.last().unwrap();
+            assert_eq!(last.from, stage);
+            assert_eq!(last.to, PipelineStage::Failed);
+            assert_eq!(last.notes.as_deref(), Some("forced failure"));
+        }
+    }
+
+    #[test]
+    fn test_multiple_save_load_cycles() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = Pipeline::new(test_config());
+
+        // Save at Partition
+        save_pipeline(dir.path(), &p).unwrap();
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Partition);
+        assert_eq!(loaded.history.len(), 0);
+
+        // Advance, save, load
+        p.advance().unwrap();
+        save_pipeline(dir.path(), &p).unwrap();
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Review);
+        assert_eq!(loaded.history.len(), 1);
+
+        // Fail, save, load
+        p.fail("oops");
+        save_pipeline(dir.path(), &p).unwrap();
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Failed);
+        assert_eq!(loaded.history.len(), 2);
+        assert_eq!(loaded.history[1].notes.as_deref(), Some("oops"));
+    }
+
+    #[test]
+    fn test_history_timestamps_are_rfc3339() {
+        let mut p = Pipeline::new(test_config());
+        p.advance().unwrap();
+        p.advance().unwrap();
+        p.fail("done");
+
+        for (i, t) in p.history.iter().enumerate() {
+            let parsed = chrono::DateTime::parse_from_rfc3339(&t.timestamp);
+            assert!(
+                parsed.is_ok(),
+                "history[{}] timestamp should be valid RFC3339: {}",
+                i,
+                t.timestamp
+            );
+        }
+    }
+
+    #[test]
+    fn test_record_transition_updates_current_stage() {
+        let mut p = Pipeline::new(test_config());
+        assert_eq!(p.current_stage, PipelineStage::Partition);
+
+        p.record_transition(PipelineStage::Failed, Some("direct fail"));
+        assert_eq!(p.current_stage, PipelineStage::Failed);
+        assert_eq!(p.history.len(), 1);
+        assert_eq!(p.history[0].from, PipelineStage::Partition);
+        assert_eq!(p.history[0].to, PipelineStage::Failed);
+    }
+
+    #[test]
+    fn test_stage_transition_serde_without_notes() {
+        let t = StageTransition {
+            from: PipelineStage::Partition,
+            to: PipelineStage::Review,
+            timestamp: "2026-03-13T12:00:00Z".to_string(),
+            notes: None,
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        let parsed: StageTransition = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.from, PipelineStage::Partition);
+        assert_eq!(parsed.to, PipelineStage::Review);
+        assert!(parsed.notes.is_none());
+    }
+
+    #[test]
+    fn test_pipeline_config_preserves_empty_mandate() {
+        let config = PipelineConfig {
+            agent_count: 0,
+            mandate: String::new(),
+            auto_fix: false,
+            auto_file_issues: false,
+            target_branch: String::new(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: PipelineConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.agent_count, 0);
+        assert!(parsed.mandate.is_empty());
+        assert!(parsed.target_branch.is_empty());
+    }
+
+    #[test]
+    fn test_valid_transitions_always_have_failed_or_empty() {
+        // Every non-terminal stage should include Failed as a valid transition;
+        // terminal stages should have empty transitions.
+        let non_terminal = [
+            PipelineStage::Partition,
+            PipelineStage::Review,
+            PipelineStage::AwaitReview,
+            PipelineStage::Consolidate,
+            PipelineStage::HumanCheckpoint,
+            PipelineStage::FileIssues,
+            PipelineStage::Fix,
+            PipelineStage::AwaitFix,
+            PipelineStage::Merge,
+            PipelineStage::PullRequest,
+        ];
+        for stage in non_terminal {
+            let v = Pipeline::valid_transitions(stage);
+            assert!(
+                v.contains(&PipelineStage::Failed),
+                "{:?} should have Failed as valid transition",
+                stage
+            );
+            assert!(
+                v.len() == 2,
+                "{:?} should have exactly 2 transitions (happy + Failed), got {}",
+                stage,
+                v.len()
+            );
+        }
+        assert!(Pipeline::valid_transitions(PipelineStage::Done).is_empty());
+        assert!(Pipeline::valid_transitions(PipelineStage::Failed).is_empty());
+    }
+
+    #[test]
+    fn test_summary_contains_created_at() {
+        let p = Pipeline::new(test_config());
+        let summary = p.summary();
+        assert!(
+            summary.contains("Created:"),
+            "Summary should include Created: field"
+        );
+        assert!(
+            summary.contains(&p.created_at),
+            "Summary should include the actual created_at value"
+        );
+    }
+
+    #[test]
+    fn test_advance_from_each_non_terminal_non_checkpoint_stage() {
+        // Ensure advance() works for every non-terminal, non-checkpoint stage
+        let test_cases = [
+            (PipelineStage::Partition, PipelineStage::Review),
+            (PipelineStage::Review, PipelineStage::AwaitReview),
+            (PipelineStage::AwaitReview, PipelineStage::Consolidate),
+            (PipelineStage::Consolidate, PipelineStage::HumanCheckpoint),
+            (PipelineStage::FileIssues, PipelineStage::Fix),
+            (PipelineStage::Fix, PipelineStage::AwaitFix),
+            (PipelineStage::AwaitFix, PipelineStage::Merge),
+            (PipelineStage::Merge, PipelineStage::PullRequest),
+            (PipelineStage::PullRequest, PipelineStage::Done),
+        ];
+        for (from, expected_to) in test_cases {
+            let mut p = Pipeline::new(test_config());
+            p.current_stage = from;
+            let result = p.advance().unwrap();
+            assert_eq!(
+                result, expected_to,
+                "advance from {:?} should go to {:?}",
+                from, expected_to
+            );
+            assert_eq!(p.current_stage, expected_to);
+        }
+    }
+
+    #[test]
+    fn test_pipeline_clone() {
+        let mut p = Pipeline::new(test_config());
+        p.advance().unwrap();
+        let cloned = p.clone();
+        assert_eq!(cloned.id, p.id);
+        assert_eq!(cloned.current_stage, p.current_stage);
+        assert_eq!(cloned.history.len(), p.history.len());
+        assert_eq!(cloned.config.mandate, p.config.mandate);
+    }
+
+    #[test]
+    fn test_run_pipeline_full_happy_path_after_checkpoint_resume() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // First run: creates pipeline, stops at HumanCheckpoint
+        run_pipeline(dir.path(), test_config()).unwrap();
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::HumanCheckpoint);
+
+        // Manually confirm checkpoint and save
+        let mut p = loaded;
+        p.confirm_checkpoint().unwrap();
+        save_pipeline(dir.path(), &p).unwrap();
+
+        // Second run: resumes from FileIssues, runs through to Done
+        // (the pipeline won't hit HumanCheckpoint again since we're past it)
+        run_pipeline(dir.path(), test_config()).unwrap();
+        let loaded = load_pipeline(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.current_stage, PipelineStage::Done);
+    }
 }

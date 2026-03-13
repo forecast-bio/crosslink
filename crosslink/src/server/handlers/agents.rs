@@ -601,4 +601,655 @@ mod tests {
         let branch = read_worktree_branch(dir.path());
         assert!(branch.is_none());
     }
+
+    #[test]
+    fn test_read_worktree_branch_bare_git_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let branch = read_worktree_branch(dir.path());
+        assert_eq!(branch, Some("main".to_string()));
+    }
+
+    #[test]
+    fn test_read_worktree_branch_no_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let branch = read_worktree_branch(dir.path());
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn test_agent_tmux_session_double_dash_split() {
+        let name = agent_tmux_session("parent--child-slug");
+        assert_eq!(name, "feat-child-slug");
+    }
+
+    #[test]
+    fn test_agent_tmux_session_feat_prefix() {
+        let name = agent_tmux_session("feat-my-task");
+        assert_eq!(name, "feat-my-task");
+    }
+
+    #[test]
+    fn test_agent_tmux_session_colons_sanitized() {
+        let name = agent_tmux_session("fix:auth:bug");
+        assert_eq!(name, "feat-fix-auth-bug");
+    }
+
+    #[test]
+    fn test_find_worktree_partial_match_agent_contains_slug() {
+        let dir = tempfile::tempdir().unwrap();
+        let worktrees = dir.path().join(".worktrees");
+        std::fs::create_dir_all(worktrees.join("short")).unwrap();
+
+        // agent_id "long-short-name" contains slug "short"
+        let result = find_worktree_for_agent(dir.path(), "long-short-name");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_find_worktree_partial_match_slug_contains_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let worktrees = dir.path().join(".worktrees");
+        std::fs::create_dir_all(worktrees.join("my-agent-extended")).unwrap();
+
+        // slug "my-agent-extended" contains agent_id "my-agent"
+        let result = find_worktree_for_agent(dir.path(), "my-agent");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_classify_status_boundary_values() {
+        // Exactly at active threshold -> idle
+        assert_eq!(classify_status(ACTIVE_THRESHOLD_SECS), AgentStatus::Idle);
+        // One below active threshold -> active
+        assert_eq!(
+            classify_status(ACTIVE_THRESHOLD_SECS - 1),
+            AgentStatus::Active
+        );
+        // Exactly at idle threshold -> stale
+        assert_eq!(classify_status(IDLE_THRESHOLD_SECS), AgentStatus::Stale);
+        // One below idle threshold -> idle
+        assert_eq!(classify_status(IDLE_THRESHOLD_SECS - 1), AgentStatus::Idle);
+        // Negative age (clock skew) -> active
+        assert_eq!(classify_status(-10), AgentStatus::Active);
+    }
+
+    // -----------------------------------------------------------------------
+    // Handler integration tests
+    // -----------------------------------------------------------------------
+
+    use crate::db::Database;
+    use crate::server::{routes::build_router, state::AppState};
+    use axum::{
+        body::Body,
+        http::{Method, Request, StatusCode},
+    };
+    use tower::util::ServiceExt;
+
+    fn test_app() -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    /// Create a test app with a heartbeat file seeded in the hub cache.
+    fn test_app_with_heartbeat(agent_id: &str) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Seed a heartbeat file in the hub cache
+        let heartbeats_dir = crosslink_dir.join(".hub-cache").join("heartbeats");
+        std::fs::create_dir_all(&heartbeats_dir).unwrap();
+        let hb = serde_json::json!({
+            "agent_id": agent_id,
+            "last_heartbeat": chrono::Utc::now().to_rfc3339(),
+            "active_issue_id": null,
+            "machine_id": "test-machine"
+        });
+        std::fs::write(
+            heartbeats_dir.join(format!("{}.json", agent_id)),
+            serde_json::to_string(&hb).unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    async fn body_json(resp: axum::response::Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_list_agents_empty() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 0);
+        assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_agents_with_heartbeat() {
+        let (app, _dir) = test_app_with_heartbeat("test-agent-1");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 1);
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items[0]["agent_id"], "test-agent-1");
+        assert_eq!(items[0]["machine_id"], "test-machine");
+        assert_eq!(items[0]["status"], "active");
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_not_found() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents/nonexistent-agent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_found() {
+        let (app, _dir) = test_app_with_heartbeat("my-agent");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents/my-agent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // AgentDetail uses #[serde(flatten)] on summary, so fields are top-level
+        assert_eq!(body["agent_id"], "my-agent");
+        assert_eq!(body["status"], "active");
+        assert!(body["heartbeat_history"].as_array().unwrap().len() == 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_status_unknown() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents/unknown-agent/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["agent_id"], "unknown-agent");
+        assert_eq!(body["kickoff_status"], "unknown");
+        assert_eq!(body["tmux_session_active"], false);
+    }
+
+    #[tokio::test]
+    async fn test_list_locks_empty() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/locks")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 0);
+        assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_stale_locks_empty() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/locks/stale")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 0);
+        assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_notify_lock_changed_claimed() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/locks/notify")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "issue_id": 1,
+                            "action": "claimed",
+                            "agent_id": "agent-1"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn test_notify_lock_changed_released() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/locks/notify")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "issue_id": 42,
+                            "action": "released",
+                            "agent_id": "agent-2"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn test_notify_lock_changed_invalid_action() {
+        let (app, _dir) = test_app();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/locks/notify")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "issue_id": 1,
+                            "action": "stolen",
+                            "agent_id": "agent-1"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = body_json(resp).await;
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("Invalid lock action"));
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_status_with_worktree_no_kickoff_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Create a worktree directory matching the agent name
+        let worktrees_dir = dir.path().join(".worktrees").join("my-wt-agent");
+        std::fs::create_dir_all(&worktrees_dir).unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents/my-wt-agent/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["agent_id"], "my-wt-agent");
+        // No .kickoff-status file → defaults to "running"
+        assert_eq!(body["kickoff_status"], "running");
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_status_with_worktree_and_kickoff_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Create a worktree directory matching the agent name
+        let worktrees_dir = dir.path().join(".worktrees").join("my-wt-agent2");
+        std::fs::create_dir_all(&worktrees_dir).unwrap();
+        // Write a .kickoff-status file
+        std::fs::write(worktrees_dir.join(".kickoff-status"), "completed\n").unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        let app = build_router(state, None);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents/my-wt-agent2/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["agent_id"], "my-wt-agent2");
+        assert_eq!(body["kickoff_status"], "completed");
+        assert!(body["worktree_path"].as_str().is_some());
+    }
+
+    #[test]
+    fn test_internal_error_helper() {
+        let (status, json) = super::internal_error("ctx", "boom");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "ctx");
+        assert_eq!(json.detail.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn test_not_found_helper() {
+        let (status, json) = super::not_found("missing");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json.error, "not found");
+        assert_eq!(json.detail.as_deref(), Some("missing"));
+    }
+
+    /// Test app with a seeded heartbeat AND a worktree directory that contains
+    /// a .kickoff-status file, so get_agent returns kickoff_status.
+    fn test_app_with_heartbeat_and_kickoff(
+        agent_id: &str,
+        kickoff_status: &str,
+    ) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // Seed a heartbeat file in the hub cache.
+        let heartbeats_dir = crosslink_dir.join(".hub-cache").join("heartbeats");
+        std::fs::create_dir_all(&heartbeats_dir).unwrap();
+        let hb = serde_json::json!({
+            "agent_id": agent_id,
+            "last_heartbeat": chrono::Utc::now().to_rfc3339(),
+            "active_issue_id": null,
+            "machine_id": "test-machine"
+        });
+        std::fs::write(
+            heartbeats_dir.join(format!("{}.json", agent_id)),
+            serde_json::to_string(&hb).unwrap(),
+        )
+        .unwrap();
+
+        // Create a matching worktree with a .kickoff-status file.
+        let worktrees_dir = dir.path().join(".worktrees").join(agent_id);
+        std::fs::create_dir_all(&worktrees_dir).unwrap();
+        std::fs::write(
+            worktrees_dir.join(".kickoff-status"),
+            format!("{}\n", kickoff_status),
+        )
+        .unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_with_kickoff_status() {
+        let (app, _dir) = test_app_with_heartbeat_and_kickoff("kickoff-agent", "completed");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/agents/kickoff-agent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["agent_id"], "kickoff-agent");
+        // kickoff_status should be populated from the .kickoff-status file
+        assert_eq!(body["kickoff_status"], "completed");
+    }
+
+    /// Seed a locks.json file in the hub cache with one active lock.
+    fn test_app_with_lock(agent_id: &str, issue_id: i64) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        let hub_cache = crosslink_dir.join(".hub-cache");
+        std::fs::create_dir_all(&hub_cache).unwrap();
+
+        let locks_json = serde_json::json!({
+            "version": 1,
+            "locks": {
+                issue_id.to_string(): {
+                    "agent_id": agent_id,
+                    "branch": "feature/test",
+                    "claimed_at": chrono::Utc::now().to_rfc3339(),
+                    "signed_by": ""
+                }
+            },
+            "settings": {
+                "stale_lock_timeout_minutes": 30
+            }
+        });
+        std::fs::write(
+            hub_cache.join("locks.json"),
+            serde_json::to_string(&locks_json).unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    #[tokio::test]
+    async fn test_list_locks_with_one_lock() {
+        let (app, _dir) = test_app_with_lock("lock-agent", 42);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/locks")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_eq!(body["total"], 1);
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items[0]["issue_id"], 42);
+        assert_eq!(items[0]["agent_id"], "lock-agent");
+        assert_eq!(items[0]["branch"], "feature/test");
+        assert_eq!(items[0]["is_stale"], false);
+    }
+
+    /// Build a test app where the hub cache has a lock and a stale heartbeat so
+    /// that `list_stale_locks` returns at least one entry (exercises lines 407-417).
+    fn test_app_with_stale_lock(
+        agent_id: &str,
+        issue_id: i64,
+    ) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        let db = Database::open(&db_path).expect("test db");
+        let crosslink_dir = dir.path().join(".crosslink");
+        let hub_cache = crosslink_dir.join(".hub-cache");
+        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
+
+        // A heartbeat that is 120 minutes old → agent is stale (threshold is 30 min)
+        let old_time = chrono::Utc::now() - chrono::Duration::minutes(120);
+        let hb = serde_json::json!({
+            "agent_id": agent_id,
+            "last_heartbeat": old_time.to_rfc3339(),
+            "active_issue_id": issue_id,
+            "machine_id": "test-machine"
+        });
+        std::fs::write(
+            hub_cache
+                .join("heartbeats")
+                .join(format!("{}.json", agent_id)),
+            serde_json::to_string(&hb).unwrap(),
+        )
+        .unwrap();
+
+        // A lock entry claimed at the same old time
+        let locks_json = serde_json::json!({
+            "version": 1,
+            "locks": {
+                issue_id.to_string(): {
+                    "agent_id": agent_id,
+                    "branch": "feature/stale-test",
+                    "claimed_at": old_time.to_rfc3339(),
+                    "signed_by": ""
+                }
+            },
+            "settings": {
+                "stale_lock_timeout_minutes": 30
+            }
+        });
+        std::fs::write(
+            hub_cache.join("locks.json"),
+            serde_json::to_string(&locks_json).unwrap(),
+        )
+        .unwrap();
+
+        let state = AppState::new(db, crosslink_dir);
+        (build_router(state, None), dir)
+    }
+
+    #[tokio::test]
+    async fn test_list_stale_locks_with_stale_entry() {
+        let (app, _dir) = test_app_with_stale_lock("stale-agent", 77);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/locks/stale")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        // There should be at least one stale lock entry
+        let total = body["total"].as_u64().unwrap_or(0);
+        assert!(
+            total >= 1,
+            "expected at least one stale lock, got {}",
+            total
+        );
+        let items = body["items"].as_array().unwrap();
+        let entry = &items[0];
+        assert_eq!(entry["issue_id"], 77);
+        assert_eq!(entry["agent_id"], "stale-agent");
+        assert_eq!(entry["branch"], "feature/stale-test");
+        assert_eq!(entry["is_stale"], true);
+        // age_seconds should be positive
+        assert!(entry["age_seconds"].as_i64().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn test_internal_error_helper_detail_none_via_display() {
+        // Verify internal_error formats any Display type correctly
+        let (status, json) = super::internal_error("db error", std::io::Error::other("disk full"));
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(json.error, "db error");
+        assert!(json.detail.as_deref().unwrap().contains("disk full"));
+    }
+
+    #[test]
+    fn test_not_found_helper_with_owned_string() {
+        // Verify not_found accepts an owned String (exercises the Into<String> bound)
+        let msg = format!("agent '{}' not found", "worker-1");
+        let (status, json) = super::not_found(msg);
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(json.error, "not found");
+        assert!(json.detail.as_deref().unwrap().contains("worker-1"));
+    }
 }
