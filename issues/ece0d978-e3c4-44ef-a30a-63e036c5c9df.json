@@ -6,8 +6,17 @@
   "priority": "high",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-13T12:22:36.821596505Z",
-  "updated_at": "2026-03-13T12:23:20.486962653Z",
+  "updated_at": "2026-03-13T12:23:22.385899610Z",
   "labels": [
     "feature"
+  ],
+  "comments": [
+    {
+      "id": 289,
+      "author": "anon-295fd0bb",
+      "content": "Implementing the smoke test harness from DESIGN-SMOKE-TEST-HARNESS.md (GH#350). Splitting into 11 parallel agents: 1) Harness foundation, 2) Issue CRUD+boundaries, 3) Issue org, 4) Comments+sessions+timer, 5) Data management, 6) Infrastructure commands, 7) Tooling commands, 8) Server API+WebSocket, 9) Coordination, 10) Adversarial, 11) TUI+proptest.",
+      "created_at": "2026-03-13T12:23:22.385899256Z",
+      "kind": "plan"
+    }
   ]
 }
