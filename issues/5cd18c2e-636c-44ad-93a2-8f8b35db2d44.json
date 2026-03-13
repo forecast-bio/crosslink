@@ -6,8 +6,19 @@
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T02:56:54.502747Z",
-  "updated_at": "2026-03-13T02:56:56.352277Z",
+  "updated_at": "2026-03-13T02:57:13.383107Z",
   "labels": [
     "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 288,
+      "author": "maxine--basel",
+      "content": "Pattern from session-workflow: (1) tl;dr in feature-card box at top, (2) nbsp spacers between major sections, (3) --- dividers between major sections, (4) sentence case headings, (5) H2 for major sections, H3 for subsections, (6) arrow → in column spacers. Also: comment out banner confetti, enable page-navigation, toc-depth: 3.",
+      "created_at": "2026-03-13T02:57:13.383107Z",
+      "kind": "plan",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmvUjutaEG3OctR0d3WqHEwRFcXRQ2NJfe6CDyTm/YSW9GvtmU+Z7U45w0r+O8xbpAjCZCnYTaDePpwNP25KcAg=="
+    }
   ]
 }
