@@ -1,11 +1,12 @@
 name: CI
 
-# Triggers: develop, hotfix/*, and release/* branch validation.
+# Triggers: develop and hotfix/* push validation + PRs to main/develop.
 # Feature branches use ci-feature.yml (fast path) instead.
-# PRs to main or develop run the full suite.
+# Release branches are validated via PR trigger (not push) to avoid
+# concurrency conflicts where push and PR runs cancel each other.
 on:
   push:
-    branches: [develop, 'hotfix/**', 'release/**']
+    branches: [develop, 'hotfix/**']
   pull_request:
     branches: [develop, main]
 
@@ -132,7 +133,7 @@ jobs:
     needs: test
     name: Property Tests
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
     defaults:
       run:
         working-directory: crosslink
@@ -165,7 +166,7 @@ jobs:
     needs: test
     name: Fuzz Tests
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    if: startsWith(github.head_ref, 'release/') || (github.event_name == 'pull_request' && github.base_ref == 'main')
     defaults:
       run:
         working-directory: crosslink
