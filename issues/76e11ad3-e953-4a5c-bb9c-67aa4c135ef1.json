@@ -6,7 +6,7 @@
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T02:30:10.364476Z",
-  "updated_at": "2026-03-13T02:41:01.051738Z",
+  "updated_at": "2026-03-13T02:54:41.277573Z",
   "labels": [
     "bug"
   ],
@@ -28,6 +28,15 @@
       "kind": "result",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
       "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAIGKxPz4UdZmM6iJ2JKm+JCG6ai1WGrRiAXCqc68uyw5hd1ke7ihmKq5nTKDRk8kdWBYoh5kMZODmNyta9lMBAQ=="
+    },
+    {
+      "id": 287,
+      "author": "maxine--basel",
+      "content": "Committed a631b3c: fixed design-flow SVG <slug> escaping, restored .column-page-right with CSS fix for TOC overlay (background + z-index adjustment for sticky stacking context), incorporated user page edits. 7 files changed.",
+      "created_at": "2026-03-13T02:54:41.277572Z",
+      "kind": "result",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjplevZy6Djx6M13CkPK1l69Klj2av6msNvg7wDqsi1vfj180JewQLnsDMqcXyR4ZHMBVzTQx5acjhIcoAHueCA=="
     }
   ]
 }
