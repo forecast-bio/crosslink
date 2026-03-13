@@ -447,10 +447,8 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
                 conv.allowed_tools.push("Bash(mix credo *)".to_string());
             }
             if content.contains(":sobelow") {
-                conv.lint_commands
-                    .push("mix sobelow --config".to_string());
-                conv.allowed_tools
-                    .push("Bash(mix sobelow *)".to_string());
+                conv.lint_commands.push("mix sobelow --config".to_string());
+                conv.allowed_tools.push("Bash(mix sobelow *)".to_string());
             }
             // Tidewave MCP tools (if :tidewave is a dep and a local dev server is running)
             // NOTE: subagent support for starting mix phx.server is TBD — for now
@@ -4275,9 +4273,7 @@ end"#,
         assert!(conv
             .lint_commands
             .contains(&"mix sobelow --config".to_string()));
-        assert!(conv
-            .allowed_tools
-            .contains(&"Bash(mix test *)".to_string()));
+        assert!(conv.allowed_tools.contains(&"Bash(mix test *)".to_string()));
         assert!(conv
             .allowed_tools
             .contains(&"Bash(mix credo *)".to_string()));
