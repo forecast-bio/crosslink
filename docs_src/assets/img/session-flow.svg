@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 720" width="520" height="720">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 620" width="520" height="620">
   <defs>
     <style>
       .heading { font-family: Helvetica, Arial, sans-serif; }
@@ -8,56 +8,54 @@
       .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
     </style>
   </defs>
-  <rect width="520" height="720" fill="#F9F4F5"/>
+  <rect width="520" height="620" fill="#F9F4F5"/>
   <text x="260.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Session lifecycle</text>
   <text x="260.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">persistent memory across conversations</text>
-  <line x1="260.0" y1="80" x2="260.0" y2="600" stroke="rgba(0,0,0,0.06)" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="260.0" cy="120" r="16" fill="#007C35" opacity="0.2"/>
-  <circle cx="260.0" cy="120" r="10" fill="#FFFFFF"/>
-  <circle cx="260.0" cy="120" r="6" fill="#007C35"/>
-  <text x="290.0" y="116" class="mono" font-size="14" fill="#007C35" text-anchor="start" font-weight="bold">session start</text>
-  <text x="290.0" y="136" class="body" font-size="12" fill="#666666" text-anchor="start">Reads handoff notes from previous session</text>
-  <circle cx="260.0" cy="240" r="16" fill="#00A6DB" opacity="0.2"/>
-  <circle cx="260.0" cy="240" r="10" fill="#FFFFFF"/>
-  <circle cx="260.0" cy="240" r="6" fill="#00A6DB"/>
-  <text x="290.0" y="236" class="mono" font-size="14" fill="#00A6DB" text-anchor="start" font-weight="bold">session work &lt;id&gt;</text>
-  <text x="290.0" y="256" class="body" font-size="12" fill="#666666" text-anchor="start">Marks focus issue, starts timer</text>
-  <circle cx="260.0" cy="360" r="16" fill="#FFCE02" opacity="0.2"/>
-  <circle cx="260.0" cy="360" r="10" fill="#FFFFFF"/>
-  <circle cx="260.0" cy="360" r="6" fill="#FFCE02"/>
-  <text x="290.0" y="356" class="mono" font-size="14" fill="#FFCE02" text-anchor="start" font-weight="bold">session action</text>
-  <text x="290.0" y="376" class="body" font-size="12" fill="#666666" text-anchor="start">Records breadcrumbs that survive compression</text>
-  <circle cx="260.0" cy="480" r="16" fill="#F95838" opacity="0.2"/>
-  <circle cx="260.0" cy="480" r="10" fill="#FFFFFF"/>
-  <circle cx="260.0" cy="480" r="6" fill="#F95838"/>
-  <text x="290.0" y="476" class="mono" font-size="14" fill="#F95838" text-anchor="start" font-weight="bold">/commit</text>
-  <text x="290.0" y="496" class="body" font-size="12" fill="#666666" text-anchor="start">Commits changes, records result on issue</text>
-  <circle cx="260.0" cy="600" r="16" fill="#007C35" opacity="0.2"/>
-  <circle cx="260.0" cy="600" r="10" fill="#FFFFFF"/>
-  <circle cx="260.0" cy="600" r="6" fill="#007C35"/>
-  <text x="290.0" y="596" class="mono" font-size="14" fill="#007C35" text-anchor="start" font-weight="bold">session end</text>
-  <text x="290.0" y="616" class="body" font-size="12" fill="#666666" text-anchor="start">Writes handoff notes for next session</text>
-  <path d="M 240.0 616 Q 60 616 60 360 Q 60 104 240.0 104" fill="none" stroke="#007C35" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round" opacity="0.6"/>
-  <polygon points="240.0,104 230.0,114 240.0,114" fill="#007C35" opacity="0.6"/>
-  <text x="55" y="365" class="subheading" font-size="12" fill="#007C35" text-anchor="middle">next conversation</text>
-  <text x="55" y="382" class="subheading" font-size="12" fill="#007C35" text-anchor="middle">picks up here</text>
-  <rect x="285.0" y="310" width="210" height="28" rx="14" fill="#FFCE02" opacity="0.15"/>
-  <text x="390.0" y="329" class="body" font-size="11" fill="#FFCE02" text-anchor="middle">survives context window reset</text>
-  <rect x="80" y="640" width="360" height="50" rx="18" fill="rgba(0,0,0,0.06)"/>
-  <text x="260.0" y="670" class="body" font-size="13" fill="#1a1a1a" text-anchor="middle">Every breadcrumb and handoff note persists across restarts</text>
-  <g style="mix-blend-mode: multiply">
-    <circle cx="445.2" cy="147.2" r="5" fill="#FFCE02"/>
-    <circle cx="445.2" cy="182.6" r="5" fill="#007C35"/>
-    <circle cx="418.5" cy="141.4" r="5" fill="#FFB6C6"/>
-    <circle cx="479.3" cy="91.3" r="5" fill="#00A6DB"/>
-    <circle cx="414.2" cy="144.6" r="5" fill="#F95838"/>
-    <circle cx="459.5" cy="127.5" r="5" fill="#FFCE02"/>
+  <line x1="260.0" y1="80" x2="260.0" y2="510" stroke="rgba(0,0,0,0.06)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="260.0" cy="110" r="16" fill="#007C35" opacity="0.2"/>
+  <circle cx="260.0" cy="110" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="110" r="6" fill="#007C35"/>
+  <text x="290.0" y="106" class="mono" font-size="14" fill="#007C35" text-anchor="start" font-weight="bold">session start</text>
+  <text x="290.0" y="126" class="body" font-size="11" fill="#666666" text-anchor="start">Reads handoff notes from previous session</text>
+  <circle cx="260.0" cy="210" r="16" fill="#00A6DB" opacity="0.2"/>
+  <circle cx="260.0" cy="210" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="210" r="6" fill="#00A6DB"/>
+  <text x="290.0" y="206" class="mono" font-size="14" fill="#00A6DB" text-anchor="start" font-weight="bold">session work &lt;id&gt;</text>
+  <text x="290.0" y="226" class="body" font-size="11" fill="#666666" text-anchor="start">Marks focus issue, starts timer</text>
+  <circle cx="260.0" cy="310" r="16" fill="#FFCE02" opacity="0.2"/>
+  <circle cx="260.0" cy="310" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="310" r="6" fill="#FFCE02"/>
+  <text x="290.0" y="306" class="mono" font-size="14" fill="#FFCE02" text-anchor="start" font-weight="bold">session action</text>
+  <text x="290.0" y="326" class="body" font-size="11" fill="#666666" text-anchor="start">Records breadcrumbs that survive compression</text>
+  <circle cx="260.0" cy="410" r="16" fill="#F95838" opacity="0.2"/>
+  <circle cx="260.0" cy="410" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="410" r="6" fill="#F95838"/>
+  <text x="290.0" y="406" class="mono" font-size="14" fill="#F95838" text-anchor="start" font-weight="bold">/commit</text>
+  <text x="290.0" y="426" class="body" font-size="11" fill="#666666" text-anchor="start">Commits changes, records result on issue</text>
+  <circle cx="260.0" cy="510" r="16" fill="#007C35" opacity="0.2"/>
+  <circle cx="260.0" cy="510" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="510" r="6" fill="#007C35"/>
+  <text x="290.0" y="506" class="mono" font-size="14" fill="#007C35" text-anchor="start" font-weight="bold">session end</text>
+  <text x="290.0" y="526" class="body" font-size="11" fill="#666666" text-anchor="start">Writes handoff notes for next session</text>
+  <path d="M 240.0 526 Q 90 526 90 310 Q 90 94 240.0 94" fill="none" stroke="#007C35" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <polygon points="240.0,94 232.0,104 242.0,104" fill="#007C35" opacity="0.7"/>
+  <text x="78" y="300" class="subheading" font-size="12" fill="#007C35" text-anchor="end">next conversation</text>
+  <text x="78" y="317" class="subheading" font-size="12" fill="#007C35" text-anchor="end">picks up here</text>
+  <rect x="80" y="550" width="360" height="50" rx="18" fill="rgba(0,0,0,0.06)"/>
+  <text x="260.0" y="580" class="body" font-size="13" fill="#1a1a1a" text-anchor="middle">Every breadcrumb and handoff note persists across restarts</text>
+  <g style="mix-blend-mode: multiply" opacity="0.5">
+    <circle cx="445.2" cy="147.2" r="8" fill="#FFCE02"/>
+    <circle cx="445.2" cy="182.6" r="8" fill="#007C35"/>
+    <circle cx="418.5" cy="141.4" r="8" fill="#FFB6C6"/>
+    <circle cx="479.3" cy="91.3" r="8" fill="#00A6DB"/>
+    <circle cx="414.2" cy="144.6" r="8" fill="#F95838"/>
+    <circle cx="459.5" cy="127.5" r="8" fill="#FFCE02"/>
   </g>
-  <g style="mix-blend-mode: multiply">
-    <circle cx="465.4" cy="561.6" r="5" fill="#007C35"/>
-    <circle cx="462.3" cy="583.2" r="5" fill="#F95838"/>
-    <circle cx="406.0" cy="519.0" r="5" fill="#007C35"/>
-    <circle cx="460.0" cy="577.8" r="5" fill="#00A6DB"/>
-    <circle cx="444.1" cy="584.2" r="5" fill="#FFB6C6"/>
+  <g style="mix-blend-mode: multiply" opacity="0.5">
+    <circle cx="465.4" cy="481.6" r="8" fill="#007C35"/>
+    <circle cx="462.3" cy="503.2" r="8" fill="#F95838"/>
+    <circle cx="406.0" cy="439.0" r="8" fill="#007C35"/>
+    <circle cx="460.0" cy="497.8" r="8" fill="#00A6DB"/>
+    <circle cx="444.1" cy="504.2" r="8" fill="#FFB6C6"/>
   </g>
 </svg>

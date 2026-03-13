@@ -5,6 +5,8 @@ title: "Kickoff: Autonomous Feature Agents"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/workflow.svg){.card-icon}
+
 ## tl;dr
 
 The `/kickoff` flow launches an autonomous Claude agent in an isolated git worktree to implement a feature in the background. You describe what you want, and a fully instrumented agent handles the rest -- tracked through crosslink the entire way.

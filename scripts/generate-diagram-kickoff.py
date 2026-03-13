@@ -81,9 +81,9 @@ def generate():
         cls = "mono" if is_code else "body"
         svg += text(ax - 58, yy, act, cls=cls, size=12, fill=P["text"], anchor="start")
 
-    # Loop arrow
+    # Loop arrow (solid)
     svg += (f'  <path d="M {ax + 90} {ay - 35} A 45 65 0 1 1 {ax + 90} {ay + 48}" '
-            f'fill="none" stroke="{P["blue"]}" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.5"/>\n')
+            f'fill="none" stroke="{P["blue"]}" stroke-width="1.5" opacity="0.5"/>\n')
     svg += text(ax + 126, ay + 10, "iterate", cls="body", size=11, fill=P["blue"])
 
     # ── Phase 4: Results (bottom) ─────────────────────────────────────────
@@ -104,8 +104,8 @@ def generate():
         svg += card(cx_, ry + 46, cw, 150, color, title, items)
 
     # Arrows from agent/orchestration → results
-    svg += arrow_straight(690, 255, 690, ry + 40, P["blue"], stroke_width=2, dashed=True)
-    svg += arrow_straight(370, 248, 370, ry + 40, P["green"], stroke_width=2, dashed=True)
+    svg += arrow_straight(690, 255, 690, ry + 40, P["blue"], stroke_width=2)
+    svg += arrow_straight(370, 248, 370, ry + 40, P["green"], stroke_width=2)
 
     # ── Confetti ──────────────────────────────────────────────────────────
     svg += confetti(rng, 15, 80, 60, 80, 6)

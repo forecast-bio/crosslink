@@ -13,37 +13,39 @@
   <text x="350.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">from idea to validated, codebase-grounded spec</text>
   <ellipse cx="100" cy="155" rx="65" ry="45" fill="#00A6DB" opacity="0.12"/>
   <ellipse cx="100" cy="155" rx="55" ry="37" fill="#FFFFFF" opacity="0.85"/>
-  <text x="100" y="147" class="heading" font-size="15" fill="#00A6DB" text-anchor="middle">Explore</text>
-  <text x="100" y="169" class="body" font-size="11" fill="#666666" text-anchor="middle">search code +</text>
-  <text x="100" y="185" class="body" font-size="11" fill="#666666" text-anchor="middle">knowledge pages</text>
+  <text x="100" y="145" class="heading" font-size="15" fill="#00A6DB" text-anchor="middle">Explore</text>
+  <text x="100" y="165" class="body" font-size="11" fill="#666666" text-anchor="middle">search code +</text>
+  <text x="100" y="181" class="body" font-size="11" fill="#666666" text-anchor="middle">knowledge pages</text>
   <ellipse cx="260" cy="155" rx="65" ry="45" fill="#007C35" opacity="0.12"/>
   <ellipse cx="260" cy="155" rx="55" ry="37" fill="#FFFFFF" opacity="0.85"/>
-  <text x="260" y="147" class="heading" font-size="15" fill="#007C35" text-anchor="middle">Interview</text>
-  <text x="260" y="169" class="body" font-size="11" fill="#666666" text-anchor="middle">3-5 grounded</text>
-  <text x="260" y="185" class="body" font-size="11" fill="#666666" text-anchor="middle">questions</text>
+  <text x="260" y="145" class="heading" font-size="15" fill="#007C35" text-anchor="middle">Interview</text>
+  <text x="260" y="165" class="body" font-size="11" fill="#666666" text-anchor="middle">3-5 grounded</text>
+  <text x="260" y="181" class="body" font-size="11" fill="#666666" text-anchor="middle">questions</text>
   <ellipse cx="420" cy="155" rx="65" ry="45" fill="#FFCE02" opacity="0.12"/>
   <ellipse cx="420" cy="155" rx="55" ry="37" fill="#FFFFFF" opacity="0.85"/>
-  <text x="420" y="147" class="heading" font-size="15" fill="#FFCE02" text-anchor="middle">Draft</text>
-  <text x="420" y="169" class="mono" font-size="11" fill="#666666" text-anchor="middle">.design/&lt;slug&gt;.md</text>
+  <text x="420" y="145" class="heading" font-size="15" fill="#FFCE02" text-anchor="middle">Draft</text>
+  <text x="420" y="165" class="mono" font-size="11" fill="#666666" text-anchor="middle">.design/&lt;slug&gt;.md</text>
   <ellipse cx="580" cy="155" rx="65" ry="45" fill="#F95838" opacity="0.12"/>
   <ellipse cx="580" cy="155" rx="55" ry="37" fill="#FFFFFF" opacity="0.85"/>
-  <text x="580" y="147" class="heading" font-size="15" fill="#F95838" text-anchor="middle">Validate</text>
-  <text x="580" y="169" class="body" font-size="11" fill="#666666" text-anchor="middle">reqs, ACs,</text>
-  <text x="580" y="185" class="body" font-size="11" fill="#666666" text-anchor="middle">real file refs</text>
-  <path d="M 165.0 155.0 Q 180.0 150.5 195.0 155.0" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
-  <polygon points="195.0,155.0 185.0,155.6 187.0,149.0" fill="#1a1a1a"/>
-  <path d="M 325.0 155.0 Q 340.0 150.5 355.0 155.0" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
-  <polygon points="355.0,155.0 345.0,155.6 347.0,149.0" fill="#1a1a1a"/>
-  <path d="M 485.0 155.0 Q 500.0 150.5 515.0 155.0" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
-  <polygon points="515.0,155.0 505.0,155.6 507.0,149.0" fill="#1a1a1a"/>
-  <path d="M 580 205 Q 580 245 420 245 Q 260 245 260 205" fill="none" stroke="#F95838" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round" opacity="0.6"/>
-  <polygon points="260,205 255,215 265,215" fill="#F95838" opacity="0.6"/>
-  <text x="420" y="241" class="mono" font-size="12" fill="#F95838" text-anchor="middle">/design --continue &lt;slug&gt;</text>
+  <text x="580" y="145" class="heading" font-size="15" fill="#F95838" text-anchor="middle">Validate</text>
+  <text x="580" y="165" class="body" font-size="11" fill="#666666" text-anchor="middle">reqs, ACs,</text>
+  <text x="580" y="181" class="body" font-size="11" fill="#666666" text-anchor="middle">real file refs</text>
+  <line x1="165.0" y1="155.0" x2="195.0" y2="155.0" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="195.0,155.0 185.6,158.4 185.6,151.6" fill="#1a1a1a"/>
+  <line x1="325.0" y1="155.0" x2="355.0" y2="155.0" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="355.0,155.0 345.6,158.4 345.6,151.6" fill="#1a1a1a"/>
+  <line x1="485.0" y1="155.0" x2="515.0" y2="155.0" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="515.0,155.0 505.6,158.4 505.6,151.6" fill="#1a1a1a"/>
+  <path d="M 580 203 Q 580 225 420 225 Q 260 225 260 203" fill="none" stroke="#F95838" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <polygon points="260,203 263.1,210.4 256.9,210.4" fill="#F95838" opacity="0.7"/>
+  <text x="420" y="219" class="mono" font-size="12" fill="#F95838" text-anchor="middle">/design --continue &lt;slug&gt;</text>
   <rect x="180" y="275" width="340" height="65" rx="16" fill="rgba(0,0,0,0.06)"/>
   <text x="350.0" y="295" class="mono" font-size="11" fill="#007C35" text-anchor="middle">[PASS] requirements: 3</text>
   <text x="350.0" y="313" class="mono" font-size="11" fill="#007C35" text-anchor="middle">[PASS] acceptance criteria: 4</text>
   <text x="350.0" y="331" class="mono" font-size="11" fill="#FFCE02" text-anchor="middle">[OPEN] 1 unresolved question</text>
   <text x="350.0" y="360" class="heading" font-size="16" fill="#000000" text-anchor="middle">From design to implementation</text>
+  <line x1="350.0" y1="340.0" x2="350.0" y2="375.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="350.0,375.0 346.6,365.6 353.4,365.6" fill="#666666"/>
   <rect x="30" y="380" width="155" height="130" rx="18" fill="#FFFFFF" opacity="0.95"/>
   <rect x="30" y="380" width="155" height="36" rx="18" fill="#007C35" opacity="0.15"/>
   <rect x="30" y="398" width="155" height="18" rx="0" fill="#007C35" opacity="0.15"/>
@@ -59,7 +61,7 @@
   <rect x="200" y="398" width="155" height="18" rx="0" fill="#00A6DB" opacity="0.15"/>
   <text x="277.5" y="405" class="subheading" font-size="15" fill="#00A6DB" text-anchor="middle" font-weight="bold">Gap analysis</text>
   <circle cx="218" cy="432" r="4" fill="#00A6DB" opacity="0.5"/>
-  <text x="232" y="435" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">kickoff plan</text>
+  <text x="232" y="435" class="mono" font-size="13" fill="#1a1a1a" text-anchor="start">kickoff plan</text>
   <circle cx="218" cy="456" r="4" fill="#00A6DB" opacity="0.5"/>
   <text x="232" y="459" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">files to modify</text>
   <circle cx="218" cy="480" r="4" fill="#00A6DB" opacity="0.5"/>
@@ -69,7 +71,7 @@
   <rect x="370" y="398" width="155" height="18" rx="0" fill="#FFCE02" opacity="0.15"/>
   <text x="447.5" y="405" class="subheading" font-size="15" fill="#FFCE02" text-anchor="middle" font-weight="bold">Single agent</text>
   <circle cx="388" cy="432" r="4" fill="#FFCE02" opacity="0.5"/>
-  <text x="402" y="435" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">kickoff run --doc</text>
+  <text x="402" y="435" class="mono" font-size="13" fill="#1a1a1a" text-anchor="start">kickoff run --doc</text>
   <circle cx="388" cy="456" r="4" fill="#FFCE02" opacity="0.5"/>
   <text x="402" y="459" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">validates ACs</text>
   <circle cx="388" cy="480" r="4" fill="#FFCE02" opacity="0.5"/>
@@ -79,25 +81,23 @@
   <rect x="540" y="398" width="140" height="18" rx="0" fill="#F95838" opacity="0.15"/>
   <text x="610.0" y="405" class="subheading" font-size="15" fill="#F95838" text-anchor="middle" font-weight="bold">Swarm build</text>
   <circle cx="558" cy="432" r="4" fill="#F95838" opacity="0.5"/>
-  <text x="572" y="435" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">swarm init --doc</text>
+  <text x="572" y="435" class="mono" font-size="13" fill="#1a1a1a" text-anchor="start">swarm init --doc</text>
   <circle cx="558" cy="456" r="4" fill="#F95838" opacity="0.5"/>
   <text x="572" y="459" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">phased execution</text>
   <circle cx="558" cy="480" r="4" fill="#F95838" opacity="0.5"/>
   <text x="572" y="483" class="body" font-size="13" fill="#1a1a1a" text-anchor="start">budget-aware</text>
-  <line x1="350.0" y1="340.0" x2="350.0" y2="375.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
-  <polygon points="350.0,375.0 346.6,365.6 353.4,365.6" fill="#666666"/>
-  <g style="mix-blend-mode: multiply">
-    <circle cx="10.7" cy="89.0" r="5" fill="#FFCE02"/>
-    <circle cx="18.5" cy="83.5" r="5" fill="#F95838"/>
-    <circle cx="42.1" cy="136.9" r="5" fill="#007C35"/>
-    <circle cx="18.8" cy="139.3" r="5" fill="#F95838"/>
-    <circle cx="18.2" cy="122.9" r="5" fill="#FFCE02"/>
+  <g style="mix-blend-mode: multiply" opacity="0.5">
+    <circle cx="10.7" cy="89.0" r="8" fill="#FFCE02"/>
+    <circle cx="18.5" cy="83.5" r="8" fill="#F95838"/>
+    <circle cx="42.1" cy="136.9" r="8" fill="#007C35"/>
+    <circle cx="18.8" cy="139.3" r="8" fill="#F95838"/>
+    <circle cx="18.2" cy="122.9" r="8" fill="#FFCE02"/>
   </g>
-  <g style="mix-blend-mode: multiply">
-    <circle cx="661.6" cy="96.4" r="5" fill="#FFB6C6"/>
-    <circle cx="635.6" cy="81.6" r="5" fill="#FFCE02"/>
-    <circle cx="650.5" cy="96.5" r="5" fill="#FFCE02"/>
-    <circle cx="651.9" cy="156.4" r="5" fill="#007C35"/>
-    <circle cx="673.4" cy="113.3" r="5" fill="#FFB6C6"/>
+  <g style="mix-blend-mode: multiply" opacity="0.5">
+    <circle cx="661.6" cy="96.4" r="8" fill="#FFB6C6"/>
+    <circle cx="635.6" cy="81.6" r="8" fill="#FFCE02"/>
+    <circle cx="650.5" cy="96.5" r="8" fill="#FFCE02"/>
+    <circle cx="651.9" cy="156.4" r="8" fill="#007C35"/>
+    <circle cx="673.4" cy="113.3" r="8" fill="#FFB6C6"/>
   </g>
 </svg>

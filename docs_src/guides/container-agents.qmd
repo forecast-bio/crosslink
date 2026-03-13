@@ -2,9 +2,9 @@
 title: "Container-Based Agents"
 ---
 
-&nbsp;
-
 ::: {.feature-card}
+![](../assets/img/cards/containers.svg){.card-icon}
+
 ## tl;dr
 
 Container execution gives your agents the same workflow with stronger sandboxing. Agents run inside Docker or Podman containers instead of local tmux sessions -- they cannot access your host filesystem outside the worktree, and crosslink hooks still enforce all policy automatically.

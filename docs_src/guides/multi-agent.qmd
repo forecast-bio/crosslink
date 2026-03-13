@@ -5,6 +5,8 @@ title: "Multi-Agent Coordination"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/multi-agent.svg){.card-icon}
+
 ## tl;dr
 
 Crosslink lets you tell your agent to work on multiple features at once. Behind the scenes, agents self-coordinate through distributed locking so they never step on each other. You describe the work; the agents sort out who does what.
@@ -18,7 +20,7 @@ Crosslink lets you tell your agent to work on multiple features at once. Behind 
 
 Lock state is stored on a `crosslink/hub` git branch and synchronized via git. Each agent registers a machine-local identity and claims issues through locks. Other agents see which issues are taken and work on available ones instead. All of this happens automatically -- you never need to manage locks yourself.
 
-::: {.column-page-right}
+::: {.column-body-outset .center}
 ![](../assets/img/multi-agent-flow.svg)
 :::
 

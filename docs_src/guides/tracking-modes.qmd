@@ -5,6 +5,8 @@ title: "Tracking Modes"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/local-first.svg){.card-icon}
+
 ## tl;dr
 
 Crosslink enforces issue tracking at three levels. You set the mode once; agents are automatically held to it on every action.

@@ -5,6 +5,8 @@ title: "Swarm Orchestration"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/swarm.svg){.card-icon}
+
 ## tl;dr
 
 Swarm orchestration lets you build a complex feature across multiple phases. You hand the system a design document and a budget, and the swarm decomposes it into phases, launches agents, gates quality between phases, and manages spending -- all automatically.

@@ -51,42 +51,61 @@ def generate():
 
     # ── Coordination branch (center hub) ──────────────────────────────────
     hub_y = 270
-    svg += container(80, hub_y - 40, 520, 100, P["yellow"], "crosslink/hub branch")
+    # Draw container shell without title, then add black title manually
+    svg += rrect(80, hub_y - 40, 520, 100, P["yellow"], rx=30, opacity=0.12)
+    svg += rrect(84, hub_y - 36, 512, 92, P["white"], rx=28, opacity=0.85)
+    svg += text(340, hub_y - 10, "crosslink/hub branch",
+                cls="subheading", size=18, fill=P["black"])
 
-    # Lock pills inside the hub
+    # Lock pills inside the hub (squeezed to fit without overflow)
     for lx, lw, color, label in [
-        (110, 150, P["blue"],  "#12 → frontend"),
-        (280, 150, P["green"], "#15 → backend"),
-        (450, 150, P["red"],   "#18 → infra"),
+        (100, 140, P["blue"],  "#12 → frontend"),
+        (255, 140, P["green"], "#15 → backend"),
+        (410, 140, P["red"],   "#18 → infra"),
     ]:
         svg += pill(lx, hub_y, lw, 28, color, label, rx=14)
 
-    # ── Arrows: agents → hub ──────────────────────────────────────────────
+    # ── Arrows: agents → hub (solid) ─────────────────────────────────────
     for ax, color in [(130, P["blue"]), (340, P["green"]), (550, P["red"])]:
         target_x = min(max(ax, 150), 530)
         svg += arrow_straight(ax, 175, target_x, hub_y - 45,
-                              color, stroke_width=1.5, dashed=True)
+                              color, stroke_width=1.5)
 
     # ── Sync label ────────────────────────────────────────────────────────
     svg += text(cx, hub_y + 78, "sync via git push/pull to coordination branch",
                 cls="body", size=12, fill=P["muted"])
 
-    # ── Daemon indicator ──────────────────────────────────────────────────
-    svg += rrect(470, hub_y + 62, 155, 28, P["green"], rx=14, opacity=0.12)
-    svg += circle(484, hub_y + 76, 4, P["green"])
-    svg += text(548, hub_y + 80, "daemon running", cls="body", size=11, fill=P["green"])
+    # ── Daemon indicator (connected to what it does) ─────────────────────
+    svg += rrect(380, hub_y + 60, 220, 28, P["green"], rx=14, opacity=0.12)
+    svg += circle(394, hub_y + 74, 4, P["green"])
+    svg += text(490, hub_y + 78, "daemon: auto-sync + heartbeat",
+                cls="body", size=11, fill=P["green"])
 
     # ── Bottom: result summary ────────────────────────────────────────────
-    svg += rrect(60, 410, WIDTH - 120, 80, P["gray"], rx=20)
-    svg += text(cx, 438, "Agents self-coordinate — no manual lock management",
+    svg += rrect(40, 400, WIDTH - 80, 95, P["gray"], rx=20)
+    svg += text(cx, 428, "Agents self-coordinate — no manual lock management",
                 cls="heading", size=15, fill=P["black"])
 
-    features = ["lock before work", "heartbeat monitoring",
-                "stale lock detection", "signature verification"]
-    for i, label in enumerate(features):
-        fx = 100 + i * 140
-        svg += circle(fx, 462, 4, P["green"])
-        svg += text(fx + 12, 466, label, cls="body", size=11, fill=P["text"], anchor="start")
+    features = [
+        ("lock before work",      P["green"]),
+        ("heartbeat monitoring",  P["blue"]),
+        ("stale lock recovery",   P["yellow"]),
+        ("conflict-free merges",  P["red"]),
+    ]
+    for i, (label, color) in enumerate(features):
+        fx = 80 + i * 145
+        svg += circle(fx, 455, 4, color)
+        svg += text(fx + 12, 459, label, cls="body", size=11, fill=P["text"], anchor="start")
+
+    # Second row of capabilities
+    extras = [
+        ("machine identity",   P["green"]),
+        ("automatic retry",    P["blue"]),
+    ]
+    for i, (label, color) in enumerate(extras):
+        fx = 80 + i * 145
+        svg += circle(fx, 477, 4, color)
+        svg += text(fx + 12, 481, label, cls="body", size=11, fill=P["text"], anchor="start")
 
     # ── Confetti ──────────────────────────────────────────────────────────
     svg += confetti(rng, 10, 80, 50, 80, 5)

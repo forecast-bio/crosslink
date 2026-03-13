@@ -5,6 +5,8 @@ title: "Knowledge Management"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/knowledge.svg){.card-icon}
+
 ## tl;dr
 
 Crosslink's knowledge system is shared memory for your agents. When one agent researches an API, evaluates a library, or documents an architectural decision, that knowledge is automatically available to every other agent working on the project. Knowledge pages live on a dedicated `crosslink/knowledge` git branch (separate from your code) and sync automatically when agents start sessions.

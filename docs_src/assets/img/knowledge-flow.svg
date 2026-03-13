@@ -24,11 +24,11 @@
   <ellipse cx="115" cy="280" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
   <text x="115" y="278" class="body" font-size="13" fill="#FFB6C6" text-anchor="middle" font-weight="bold">Human</text>
   <text x="115" y="298" class="body" font-size="10" fill="#666666" text-anchor="middle">imports design docs</text>
-  <line x1="180.0" y1="140.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <line x1="180.0" y1="140.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
   <polygon points="240.0,210.0 231.3,205.1 236.5,200.6" fill="#666666"/>
-  <line x1="180.0" y1="210.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <line x1="180.0" y1="210.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
   <polygon points="240.0,210.0 230.6,213.4 230.6,206.6" fill="#666666"/>
-  <line x1="180.0" y1="280.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <line x1="180.0" y1="280.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
   <polygon points="240.0,210.0 236.5,219.4 231.3,214.9" fill="#666666"/>
   <rect x="250" y="130" width="200" height="175" rx="30" fill="#FFCE02" opacity="0.12"/>
   <rect x="254" y="134" width="192" height="167" rx="28" fill="#FFFFFF" opacity="0.85"/>
@@ -41,11 +41,11 @@
   <text x="350.0" y="249" class="mono" font-size="11" fill="#F95838" text-anchor="middle">error-handling</text>
   <rect x="265" y="262" width="170" height="22" rx="11" fill="#FFCE02" opacity="0.12"/>
   <text x="350.0" y="277" class="mono" font-size="11" fill="#FFCE02" text-anchor="middle">deploy-runbook</text>
-  <line x1="455.0" y1="210.0" x2="505.0" y2="140.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <line x1="455.0" y1="210.0" x2="505.0" y2="140.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
   <polygon points="505.0,140.0 502.3,149.6 496.7,145.7" fill="#666666"/>
-  <line x1="455.0" y1="210.0" x2="505.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <line x1="455.0" y1="210.0" x2="505.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
   <polygon points="505.0,210.0 495.6,213.4 495.6,206.6" fill="#666666"/>
-  <line x1="455.0" y1="210.0" x2="505.0" y2="280.0" stroke="#666666" stroke-width="1.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+  <line x1="455.0" y1="210.0" x2="505.0" y2="280.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
   <polygon points="505.0,280.0 496.7,274.3 502.3,270.4" fill="#666666"/>
   <text x="575" y="95" class="heading" font-size="16" fill="#000000" text-anchor="middle">Readers</text>
   <ellipse cx="575" cy="140" rx="65" ry="30" fill="#00A6DB" opacity="0.15"/>
@@ -71,16 +71,16 @@
   <text x="540" y="395" class="heading" font-size="14" fill="#F95838" text-anchor="middle">Tagged &amp; filtered</text>
   <text x="540" y="416" class="mono" font-size="10" fill="#666666" text-anchor="middle">--tag, --since, --contributor</text>
   <text x="540" y="434" class="body" font-size="10" fill="#666666" text-anchor="middle"></text>
-  <g style="mix-blend-mode: multiply">
-    <circle cx="37.3" cy="85.5" r="5" fill="#FFB6C6"/>
-    <circle cx="36.6" cy="124.8" r="5" fill="#FFB6C6"/>
-    <circle cx="11.4" cy="139.0" r="5" fill="#FFCE02"/>
-    <circle cx="31.1" cy="86.5" r="5" fill="#FFCE02"/>
+  <g style="mix-blend-mode: multiply" opacity="0.5">
+    <circle cx="37.3" cy="85.5" r="8" fill="#FFB6C6"/>
+    <circle cx="36.6" cy="124.8" r="8" fill="#FFB6C6"/>
+    <circle cx="11.4" cy="139.0" r="8" fill="#FFCE02"/>
+    <circle cx="31.1" cy="86.5" r="8" fill="#FFCE02"/>
   </g>
-  <g style="mix-blend-mode: multiply">
-    <circle cx="654.0" cy="96.9" r="5" fill="#FFCE02"/>
-    <circle cx="668.9" cy="105.4" r="5" fill="#007C35"/>
-    <circle cx="668.4" cy="138.3" r="5" fill="#F95838"/>
-    <circle cx="633.6" cy="84.5" r="5" fill="#00A6DB"/>
+  <g style="mix-blend-mode: multiply" opacity="0.5">
+    <circle cx="654.0" cy="96.9" r="8" fill="#FFCE02"/>
+    <circle cx="668.9" cy="105.4" r="8" fill="#007C35"/>
+    <circle cx="668.4" cy="138.3" r="8" fill="#F95838"/>
+    <circle cx="633.6" cy="84.5" r="8" fill="#00A6DB"/>
   </g>
 </svg>

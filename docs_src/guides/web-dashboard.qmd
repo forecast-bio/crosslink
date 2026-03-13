@@ -5,6 +5,8 @@ title: "Web Dashboard"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/web-dashboard.svg){.card-icon}
+
 ## tl;dr
 
 Monitor your agents and browse project state through a browser-based dashboard. The web dashboard provides real-time visibility into agent activity, issue state, knowledge entries, and orchestration progress -- all without touching the CLI.

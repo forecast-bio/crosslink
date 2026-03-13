@@ -5,6 +5,8 @@ title: "Design Document Workflow"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/workflow.svg){.card-icon}
+
 ## tl;dr
 
 The `/design` flow turns a rough feature idea into a validated, codebase-grounded design document through interactive iteration. The output feeds directly into `/kickoff` and `crosslink swarm` for implementation.

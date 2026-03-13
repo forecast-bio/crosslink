@@ -5,6 +5,8 @@ title: "Maintenance Operations"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/maintenance.svg){.card-icon}
+
 ## tl;dr
 
 Keep your crosslink data lean and your agent infrastructure clean. Over time, the coordination and knowledge branches accumulate history, worktrees pile up, and stale tmux sessions or containers linger. These maintenance operations keep everything tidy.

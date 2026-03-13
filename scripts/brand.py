@@ -8,7 +8,8 @@ Palette from docs_src/_brand.yml. Typography follows Forecast house style:
   - IBM Plex Mono ONLY for code references and slash-commands
 
 Shape vocabulary: ellipses, rounded rectangles, circles, confetti dots.
-Confetti dots use multiplicative blend mode and full opacity.
+Confetti dots use multiplicative blend mode with 50% opacity.
+All arrows are solid (no dashed lines).
 """
 
 import math
@@ -87,7 +88,7 @@ def text(x, y, content, cls="body", size=14, fill=None, anchor="middle", weight=
 
 # ── Arrows ────────────────────────────────────────────────────────────────────
 
-def arrow_curved(x1, y1, x2, y2, color, stroke_width=2.5, dashed=False):
+def arrow_curved(x1, y1, x2, y2, color, stroke_width=2.5):
     dx, dy = x2 - x1, y2 - y1
     mx = (x1 + x2) / 2 + dy * 0.15
     my = (y1 + y2) / 2 - dx * 0.15
@@ -97,37 +98,35 @@ def arrow_curved(x1, y1, x2, y2, color, stroke_width=2.5, dashed=False):
     ay1 = y2 - hl * math.sin(angle - 0.35)
     ax2 = x2 - hl * math.cos(angle + 0.35)
     ay2 = y2 - hl * math.sin(angle + 0.35)
-    dash = ' stroke-dasharray="6 4"' if dashed else ""
     svg = (f'  <path d="M {x1:.1f} {y1:.1f} Q {mx:.1f} {my:.1f} {x2:.1f} {y2:.1f}" '
-           f'fill="none" stroke="{color}" stroke-width="{stroke_width}"{dash} stroke-linecap="round"/>\n')
+           f'fill="none" stroke="{color}" stroke-width="{stroke_width}" stroke-linecap="round"/>\n')
     svg += f'  <polygon points="{x2:.1f},{y2:.1f} {ax1:.1f},{ay1:.1f} {ax2:.1f},{ay2:.1f}" fill="{color}"/>\n'
     return svg
 
 
-def arrow_straight(x1, y1, x2, y2, color, stroke_width=2.5, dashed=False):
+def arrow_straight(x1, y1, x2, y2, color, stroke_width=2.5):
     angle = math.atan2(y2 - y1, x2 - x1)
     hl = 10
     ax1 = x2 - hl * math.cos(angle - 0.35)
     ay1 = y2 - hl * math.sin(angle - 0.35)
     ax2 = x2 - hl * math.cos(angle + 0.35)
     ay2 = y2 - hl * math.sin(angle + 0.35)
-    dash = ' stroke-dasharray="6 4"' if dashed else ""
     svg = (f'  <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-           f'stroke="{color}" stroke-width="{stroke_width}"{dash} stroke-linecap="round"/>\n')
+           f'stroke="{color}" stroke-width="{stroke_width}" stroke-linecap="round"/>\n')
     svg += f'  <polygon points="{x2:.1f},{y2:.1f} {ax1:.1f},{ay1:.1f} {ax2:.1f},{ay2:.1f}" fill="{color}"/>\n'
     return svg
 
 
-# ── Confetti dots (multiplicative blend, opaque, bigger) ─────────────────────
+# ── Confetti dots (multiplicative blend, 50% opacity, bigger) ────────────────
 
-CONFETTI_RADIUS = 5  # uniform size — tune this one value
+CONFETTI_RADIUS = 8  # uniform size — tune this one value
 
 def confetti(rng, x, y, w, h, count, colors=None, r=None):
-    """Scattered confetti dots with multiply blend mode. Uniform radius."""
+    """Scattered confetti dots with multiply blend mode and 50% opacity."""
     if colors is None:
         colors = CONFETTI_COLORS
     dot_r = r if r is not None else CONFETTI_RADIUS
-    svg = '  <g style="mix-blend-mode: multiply">\n'
+    svg = '  <g style="mix-blend-mode: multiply" opacity="0.5">\n'
     for _ in range(count):
         dx = x + rng.random() * w
         dy = y + rng.random() * h
@@ -148,7 +147,10 @@ def pill(x, y, w, h, color, label, rx=None, label_cls="mono"):
 
 
 def card(x, y, w, h, color, title, items):
-    """A white card with a colored header band and bullet items."""
+    """A white card with a colored header band and bullet items.
+
+    Items starting with a known command prefix are rendered in monospace.
+    """
     svg = rrect(x, y, w, h, P["white"], rx=18, opacity=0.95)
     svg += rrect(x, y, w, 36, color, rx=18, opacity=0.15)
     svg += rrect(x, y + 18, w, 18, color, rx=0, opacity=0.15)
@@ -156,7 +158,12 @@ def card(x, y, w, h, color, title, items):
     for j, item in enumerate(items):
         iy = y + 55 + j * 24
         svg += circle(x + 18, iy - 3, 4, color, opacity=0.5)
-        svg += text(x + 32, iy, item, cls="body", size=13, fill=P["text"], anchor="start")
+        # Detect command-like items and render in monospace
+        is_cmd = any(item.startswith(p) for p in [
+            "kickoff ", "swarm ", "crosslink ", "/", "knowledge ",
+        ])
+        cls = "mono" if is_cmd else "body"
+        svg += text(x + 32, iy, item, cls=cls, size=13, fill=P["text"], anchor="start")
     return svg
 
 

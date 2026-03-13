@@ -50,7 +50,7 @@ def generate():
 
     # ── Arrows: writers → knowledge branch ────────────────────────────────
     for wy in [140, 210, 280]:
-        svg += arrow_straight(180, wy, 240, 210, P["muted"], stroke_width=1.5, dashed=True)
+        svg += arrow_straight(180, wy, 240, 210, P["muted"], stroke_width=1.5)
 
     # ── Knowledge branch (center) ─────────────────────────────────────────
     kb_x, kb_y = 250, 130
@@ -71,7 +71,7 @@ def generate():
 
     # ── Arrows: knowledge → readers ───────────────────────────────────────
     for wy in [140, 210, 280]:
-        svg += arrow_straight(455, 210, 505, wy, P["muted"], stroke_width=1.5, dashed=True)
+        svg += arrow_straight(455, 210, 505, wy, P["muted"], stroke_width=1.5)
 
     # ── Readers (right column) ────────────────────────────────────────────
     svg += text(575, 95, "Readers", cls="heading", size=16, fill=P["black"])

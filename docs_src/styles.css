@@ -1,14 +1,28 @@
 /* css styles */
 
+.center {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* ── Column-page-right / TOC interaction fix ─────────────────────────
    Quarto overlays .column-page-right (z-index 998) above the margin
    sidebar TOC (z-index 1). The margin sidebar's `position: sticky`
    creates a competing stacking context and the transparent div
    background lets the TOC bleed through. Fix: solid bg + relative
    positioning to ensure the overlay is opaque and stacks correctly. */
+.column-body-outset {
+  position: relative;
+  background: rgba(249, 244, 245, 0.2);
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
+}
 .column-page-right {
   position: relative;
-  background: #F9F4F5;
+  background: rgba(249, 244, 245, 0.2);
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
 }
 
 /* On pages with wide content, collapse the margin TOC to prevent
@@ -43,6 +57,25 @@
   margin: 0 auto 0.5rem auto;
   height: 80px;
   width: auto;
+}
+
+/* Center standalone diagram figures that don't use column-page-right */
+.quarto-figure {
+  text-align: center;
+}
+.quarto-figure img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Make column-page-right SVGs scale to fill available width */
+.column-body-outset img {
+  width: 100%;
+  height: auto;
+}
+.column-page-right img {
+  width: 100%;
+  height: auto;
 }
 
 /* Hero section */

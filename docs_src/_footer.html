@@ -11,14 +11,21 @@
 
 <script>
 (function() {
-  // Move footer inside the Quarto content area so it aligns with body text
+  // Move footer below Quarto's page navigation links
   var footer = document.getElementById('forecast-footer');
-  var contentArea = document.querySelector('#quarto-content main.content');
-  if (!contentArea) {
-    contentArea = document.querySelector('#quarto-content > .page-columns');
-  }
-  if (footer && contentArea) {
-    contentArea.appendChild(footer);
+  var pageNav = document.querySelector('nav.page-navigation');
+  if (footer && pageNav && pageNav.parentNode) {
+    // Insert footer after the page navigation element
+    pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
+  } else {
+    // Fallback: append to content area
+    var contentArea = document.querySelector('#quarto-content main.content');
+    if (!contentArea) {
+      contentArea = document.querySelector('#quarto-content > .page-columns');
+    }
+    if (footer && contentArea) {
+      contentArea.appendChild(footer);
+    }
   }
 
   // Resolve wordmark path

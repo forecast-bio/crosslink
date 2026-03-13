@@ -5,6 +5,8 @@ title: "Terminal Dashboard"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/tui.svg){.card-icon}
+
 ## tl;dr
 
 The terminal dashboard is your window into agent activity — browse issues, monitor running agents, view shared knowledge, and check project configuration without leaving the terminal.

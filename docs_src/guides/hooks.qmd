@@ -5,6 +5,8 @@ title: "Behavioral Hooks"
 &nbsp;
 
 ::: {.feature-card}
+![](../assets/img/cards/hooks.svg){.card-icon}
+
 ## tl;dr
 
 Crosslink's hooks are guardrails that agents follow automatically. You configure them once; every agent session is checked on every action — enforcing code quality, issue tracking, and security without manual prompting.
