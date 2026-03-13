@@ -1083,7 +1083,7 @@ mod inline_mod {
         record_pairs(&files, &mut counts);
         // Should record 3 pairs: (a,b), (a,c), (b,c).
         assert_eq!(counts.len(), 3);
-        for (_, count) in &counts {
+        for count in counts.values() {
             assert_eq!(*count, 1);
         }
     }

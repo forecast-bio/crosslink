@@ -499,7 +499,7 @@ mod tests {
 
         // Simulate diff logic directly.
         for (agent_id, hb) in &current {
-            let is_new = last_state.get(agent_id).is_none();
+            let is_new = !last_state.contains_key(agent_id);
             if is_new {
                 let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
                     event_type: "heartbeat",

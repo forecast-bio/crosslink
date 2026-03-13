@@ -1072,6 +1072,7 @@ pub fn launch(
             quiet,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {
@@ -3335,10 +3336,7 @@ mod tests {
     fn make_partition(label: &str, files: Vec<&str>) -> seam::Partition {
         seam::Partition {
             label: label.to_string(),
-            files: files
-                .into_iter()
-                .map(|s| std::path::PathBuf::from(s))
-                .collect(),
+            files: files.into_iter().map(std::path::PathBuf::from).collect(),
             line_count: 0,
         }
     }

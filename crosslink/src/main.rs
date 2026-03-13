@@ -1238,6 +1238,9 @@ enum KickoffCommands {
         /// Path to a design document (markdown) with structured requirements
         #[arg(long, value_name = "PATH")]
         doc: Option<PathBuf>,
+        /// Pass --dangerously-skip-permissions to the claude CLI (for sandboxed agents)
+        #[arg(long)]
+        skip_permissions: bool,
     },
     /// Check status of a running kickoff agent
     Status {

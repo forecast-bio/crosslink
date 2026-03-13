@@ -523,7 +523,7 @@ mod tests {
 
         let db = temp_db();
         let result = auto_steal_if_configured(&crosslink_dir, 1, "other-agent", &db);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     /// When config is disabled (false), auto_steal returns Ok(false).
@@ -540,7 +540,7 @@ mod tests {
 
         let db = temp_db();
         let result = auto_steal_if_configured(&crosslink_dir, 1, "other-agent", &db);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     /// When multiplier > 0 but hub cache doesn't exist, auto_steal returns Ok(false).
@@ -559,7 +559,7 @@ mod tests {
         let db = temp_db();
         // No hub cache → is_initialized() returns false → Ok(false)
         let result = auto_steal_if_configured(&crosslink_dir, 1, "other-agent", &db);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     // ─── enforce_lock: LockedByOther (non-stale) → error ─────────────────────
@@ -1071,7 +1071,7 @@ mod tests {
 
         let db = temp_db();
         let result = auto_steal_if_configured(&crosslink_dir, 50, "other-agent", &db);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     #[test]
@@ -1091,7 +1091,7 @@ mod tests {
 
         let db = temp_db();
         let result = auto_steal_if_configured(&crosslink_dir, 30, "other-agent", &db);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     #[test]
@@ -1111,7 +1111,7 @@ mod tests {
 
         let db = temp_db();
         let result = auto_steal_if_configured(&crosslink_dir, 40, "other-agent", &db);
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     #[test]

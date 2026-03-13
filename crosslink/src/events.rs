@@ -906,7 +906,7 @@ mod tests {
         let public_key = std::fs::read_to_string(&public_key_path).unwrap();
         let public_key = public_key.trim();
         let signers_path = dir.path().join("allowed_signers");
-        let principal = format!("test-agent@crosslink");
+        let principal = "test-agent@crosslink".to_string();
         std::fs::write(&signers_path, format!("{} {}\n", principal, public_key)).unwrap();
 
         // Verify the signature

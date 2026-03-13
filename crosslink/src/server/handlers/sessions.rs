@@ -385,7 +385,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(&format!("/api/v1/sessions/work/{}", issue_id))
+                    .uri(format!("/api/v1/sessions/work/{}", issue_id))
                     .body(Body::empty())
                     .unwrap(),
             )

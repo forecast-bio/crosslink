@@ -681,7 +681,7 @@ mod tests {
 
         let agent_map = dag.agent_map();
         assert_eq!(agent_map.get("a"), Some(&"agent-1".to_string()));
-        assert!(agent_map.get("b").is_none());
+        assert!(!agent_map.contains_key("b"));
     }
 
     #[test]

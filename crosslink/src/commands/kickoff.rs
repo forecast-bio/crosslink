@@ -31,6 +31,7 @@ pub fn dispatch(
             dry_run,
             branch,
             doc,
+            skip_permissions,
         } => {
             let parsed_doc = if let Some(ref path) = doc {
                 let content = std::fs::read_to_string(path)
@@ -56,6 +57,7 @@ pub fn dispatch(
                 quiet,
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
+                skip_permissions,
             };
             run(crosslink_dir, db, writer, &opts)
         }
@@ -182,6 +184,7 @@ pub struct KickoffOpts<'a> {
     pub quiet: bool,
     pub design_doc: Option<&'a super::design_doc::DesignDoc>,
     pub doc_path: Option<&'a str>,
+    pub skip_permissions: bool,
 }
 
 /// Parse a container mode string into the enum.
@@ -1400,6 +1403,7 @@ fn spawn_watchdog(session_name: &str, worktree_dir: &Path, cfg: &WatchdogConfig)
 /// ```text
 /// timeout 3600s env -u CLAUDECODE claude ...
 /// ```
+#[allow(clippy::too_many_arguments)]
 fn build_agent_command(
     timeout_cmd: &str,
     timeout_secs: u64,
@@ -1408,10 +1412,16 @@ fn build_agent_command(
     kickoff_file: &str,
     sandbox_command: Option<&str>,
     worktree_dir: &Path,
+    skip_permissions: bool,
 ) -> String {
+    let skip_flag = if skip_permissions {
+        " --dangerously-skip-permissions"
+    } else {
+        ""
+    };
     let claude_cmd = format!(
-        "env -u CLAUDECODE claude --model {} --allowedTools '{}' -- \"$(cat {})\"",
-        model, allowed_tools, kickoff_file
+        "env -u CLAUDECODE claude{} --model {} --allowedTools '{}' -- \"$(cat {})\"",
+        skip_flag, model, allowed_tools, kickoff_file
     );
     match sandbox_command {
         Some(cmd) => {
@@ -1688,6 +1698,7 @@ fn launch_local(
     timeout_cmd: &str,
     sandbox_command: Option<&str>,
     crosslink_dir: &Path,
+    skip_permissions: bool,
 ) -> Result<()> {
     // Create the tmux session
     let output = Command::new("tmux")
@@ -1716,6 +1727,7 @@ fn launch_local(
         "KICKOFF.md",
         sandbox_command,
         worktree_dir,
+        skip_permissions,
     );
 
     // Send the command to the tmux session
@@ -1998,6 +2010,7 @@ pub fn run(
                 preflight.timeout_cmd,
                 preflight.sandbox_command.as_deref(),
                 crosslink_dir,
+                opts.skip_permissions,
             )?;
 
             // 10. Report
@@ -3226,6 +3239,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         "PLAN_KICKOFF.md",
         preflight.sandbox_command.as_deref(),
         &worktree_dir,
+        false, // plan mode never skips permissions
     );
 
     let output = Command::new("tmux")
@@ -3914,6 +3928,7 @@ mod tests {
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -3945,6 +3960,7 @@ mod tests {
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -3973,6 +3989,7 @@ mod tests {
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -4415,6 +4432,7 @@ end"#,
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -4443,6 +4461,7 @@ end"#,
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -4472,6 +4491,7 @@ end"#,
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -4501,6 +4521,7 @@ end"#,
             quiet: false,
             design_doc: None,
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -4541,6 +4562,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
 
@@ -4681,6 +4703,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
 
@@ -4847,6 +4870,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
         assert!(prompt.contains("Spec Validation"));
@@ -4885,6 +4909,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
         assert!(!prompt.contains("Spec Validation"));
@@ -4920,6 +4945,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: None,
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
         let test_pos = prompt.find("Run tests").expect("should have test section");
@@ -5263,6 +5289,7 @@ end"#,
             "KICKOFF.md",
             None,
             Path::new("/tmp/worktree"),
+            false,
         );
         assert_eq!(
             cmd,
@@ -5280,9 +5307,29 @@ end"#,
             "KICKOFF.md",
             Some("bwrap --bind {{worktree}} /workspace --"),
             Path::new("/tmp/my-worktree"),
+            false,
         );
         assert!(cmd.starts_with("timeout 3600s bwrap --bind /tmp/my-worktree /workspace --"));
         assert!(cmd.contains("env -u CLAUDECODE claude"));
+    }
+
+    #[test]
+    fn test_build_agent_command_with_skip_permissions() {
+        let cmd = build_agent_command(
+            "timeout",
+            3600,
+            "opus",
+            "Read,Write",
+            "KICKOFF.md",
+            None,
+            Path::new("/tmp/worktree"),
+            true,
+        );
+        assert!(
+            cmd.contains("--dangerously-skip-permissions"),
+            "Should include skip permissions flag"
+        );
+        assert!(cmd.contains("claude --dangerously-skip-permissions --model opus"));
     }
 
     #[test]
@@ -5295,6 +5342,7 @@ end"#,
             "PLAN_KICKOFF.md",
             None,
             Path::new("/tmp/worktree"),
+            false,
         );
         assert!(cmd.starts_with("gtimeout 1800s"));
         assert!(cmd.contains("$(cat PLAN_KICKOFF.md)"));
@@ -5556,6 +5604,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: Some("test.md"),
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -5601,6 +5650,7 @@ end"#,
             quiet: false,
             design_doc: Some(&doc),
             doc_path: Some("test.md"),
+            skip_permissions: false,
         };
         let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
 

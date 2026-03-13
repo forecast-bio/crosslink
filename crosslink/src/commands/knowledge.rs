@@ -1451,8 +1451,7 @@ mod tests {
 
         // Simulate the add flow with from_doc
         let now = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let mut tags = Vec::new();
-        tags.push("design-doc".to_string());
+        let tags = vec!["design-doc".to_string()];
 
         let fm = PageFrontmatter {
             title: doc.title.clone(),
