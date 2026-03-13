@@ -3336,10 +3336,7 @@ mod tests {
     fn make_partition(label: &str, files: Vec<&str>) -> seam::Partition {
         seam::Partition {
             label: label.to_string(),
-            files: files
-                .into_iter()
-                .map(|s| std::path::PathBuf::from(s))
-                .collect(),
+            files: files.into_iter().map(std::path::PathBuf::from).collect(),
             line_count: 0,
         }
     }

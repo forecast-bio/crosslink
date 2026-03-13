@@ -1338,6 +1338,7 @@ fn spawn_watchdog(session_name: &str, worktree_dir: &Path, cfg: &WatchdogConfig)
 /// ```text
 /// timeout 3600s env -u CLAUDECODE claude ...
 /// ```
+#[allow(clippy::too_many_arguments)]
 fn build_agent_command(
     timeout_cmd: &str,
     timeout_secs: u64,

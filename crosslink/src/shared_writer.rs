@@ -2388,8 +2388,10 @@ mod tests {
             };
 
             // Compact to materialize (watermark is embedded in checkpoint state)
-            let mut state = CheckpointState::default();
-            state.watermark = Some(watermark);
+            let mut state = CheckpointState {
+                watermark: Some(watermark),
+                ..CheckpointState::default()
+            };
             state.locks.insert(
                 5,
                 LockEntry {
