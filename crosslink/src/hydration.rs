@@ -138,6 +138,10 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
 
         // Insert issues (offline issues get sequential negative IDs)
         let mut next_local_id: i64 = -1;
+        // V2 standalone comments use UUIDs, not sequential integer IDs.
+        // Assign unique negative IDs during hydration so each row satisfies
+        // the PRIMARY KEY UNIQUE constraint on the comments table.
+        let mut next_v2_comment_id: i64 = -1;
         for issue in &sorted_issues {
             let display_id = match issue.display_id {
                 Some(id) => id,
@@ -202,8 +206,10 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 if let Ok(v2_comments) = read_comment_files(&comments_dir) {
                     for cf in &v2_comments {
                         let comment_created = cf.created_at.to_rfc3339();
+                        let v2_id = next_v2_comment_id;
+                        next_v2_comment_id -= 1;
                         db.insert_hydrated_comment(
-                            -1, // v2 comments use uuid, not sequential id
+                            v2_id,
                             display_id,
                             Some(&cf.uuid.to_string()),
                             Some(&cf.author),
