@@ -709,8 +709,9 @@ fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
         }
     }
 
-    // Worktree exists but no status file and no tmux — stale or crashed
-    "unknown (worktree exists, no active session)".to_string()
+    // Worktree exists but no status file and no tmux — the session died
+    // before it could write any status. Treat as failed so gate can proceed.
+    "failed (session died)".to_string()
 }
 
 /// Check if a branch has been merged into the default branch (main/master).
@@ -3676,6 +3677,30 @@ mod tests {
         std::fs::create_dir_all(&wt).unwrap();
         std::fs::write(wt.join(".kickoff-status"), "FAILED\n").unwrap();
         assert_eq!(probe_agent_status(dir.path(), "bad-agent"), "FAILED");
+    }
+
+    #[test]
+    fn test_probe_agent_status_worktree_no_status_no_tmux() {
+        // Worktree exists but no .kickoff-status and no tmux session
+        // → should report "failed (session died)" not "unknown"
+        let dir = tempfile::tempdir().unwrap();
+        let wt = dir.path().join(".worktrees").join("dead-agent");
+        std::fs::create_dir_all(&wt).unwrap();
+        // No .kickoff-status file, no tmux → session died
+        assert_eq!(
+            probe_agent_status(dir.path(), "dead-agent"),
+            "failed (session died)"
+        );
+    }
+
+    #[test]
+    fn test_probe_agent_status_launching() {
+        // Agent wrote LAUNCHING status but tmux session has since exited
+        let dir = tempfile::tempdir().unwrap();
+        let wt = dir.path().join(".worktrees").join("launch-agent");
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(wt.join(".kickoff-status"), "LAUNCHING\n").unwrap();
+        assert_eq!(probe_agent_status(dir.path(), "launch-agent"), "LAUNCHING");
     }
 
     #[test]

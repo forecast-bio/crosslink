@@ -1730,6 +1730,11 @@ fn launch_local(
         skip_permissions,
     );
 
+    // Write initial status sentinel BEFORE sending the command.
+    // This ensures we never have a worktree in limbo with no status.
+    std::fs::write(worktree_dir.join(".kickoff-status"), "LAUNCHING\n")
+        .context("Failed to write initial .kickoff-status")?;
+
     // Send the command to the tmux session
     let output = Command::new("tmux")
         .args(["send-keys", "-t", session_name, &cmd, "Enter"])
@@ -1737,9 +1742,14 @@ fn launch_local(
         .context("Failed to send command to tmux session")?;
 
     if !output.status.success() {
+        // Mark as failed before bailing
+        let _ = std::fs::write(worktree_dir.join(".kickoff-status"), "FAILED\n");
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("Failed to send keys to tmux: {}", stderr.trim());
     }
+
+    // Update status to RUNNING now that the command has been sent
+    let _ = std::fs::write(worktree_dir.join(".kickoff-status"), "RUNNING\n");
 
     // Spawn watchdog sidecar to nudge idle agents
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
