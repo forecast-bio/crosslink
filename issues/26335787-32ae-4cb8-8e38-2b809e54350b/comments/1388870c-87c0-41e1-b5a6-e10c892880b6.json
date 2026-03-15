@@ -1,0 +1,10 @@
+{
+  "uuid": "1388870c-87c0-41e1-b5a6-e10c892880b6",
+  "issue_uuid": "26335787-32ae-4cb8-8e38-2b809e54350b",
+  "author": "maxine--basel",
+  "content": "Design docs drafted: .design/adversarial-review-v1.md and .design/dashboard-extraction.md — comprehensive adversarial review with 10 requirements each, covering correctness hardening, structural decomposition, test coverage, observability, and dashboard extraction to standalone multi-repo app",
+  "created_at": "2026-03-15T22:16:05.436254Z",
+  "kind": "plan",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAr3aItIcfDnL6zaCwzkeP8bT+ojIRLt5tomOSyAsSK5llfPYev6SDrV0KROdB4+MitsUp6Re6Wi7wvSgizf/XAg=="
+}
