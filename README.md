@@ -57,25 +57,34 @@ crosslink session end --notes "Fixed token refresh."
 - **Time tracking, milestones, archiving** — Full project management in the CLI
 - **Templates** — Built-in templates for bugs, features, refactors, and research
 
+### Design Document Workflow
+
+Turn ideas into validated, codebase-grounded specs before writing code.
+
+- **`/design`** — Interactive design document authoring through explore → interview → draft → validate loop
+- **Codebase-grounded** — Explores real code, asks questions informed by what it finds, references real files
+- **Validation** — Requirements, acceptance criteria, and open questions tracked in the document
+- **Iteration** — `/design --continue <slug>` to refine an existing design across sessions
+- **Feeds into implementation** — Design docs drive `kickoff --doc` and `swarm init --doc`
+
 ### Multi-Agent Orchestration
 
 Launch multiple agents and let them coordinate automatically.
 
 - **Distributed locking** — Agents claim issues via a shared git coordination branch, preventing conflicts
 - **Agent identity** — Each agent gets a unique ID and SSH signing key (`crosslink agent init`)
-- **`crosslink kickoff`** — Launch background agents in isolated git worktrees (local tmux or container)
+- **`crosslink kickoff`** — Launch autonomous agents in isolated git worktrees
+  - Agents explore, implement, test, commit, and self-review — fully tracked through crosslink
+  - `--verify local|ci|thorough` — Configurable verification levels from local tests to CI + adversarial self-review
   - Design doc-driven: pass `--doc` to generate implementation plans from a design document
   - `kickoff plan` — Read-only gap analysis against the codebase before committing to a build
   - `kickoff report` — Spec validation reports from completed agents
-  - Pre-flight checks for required external commands with platform-specific install guidance
-- **`crosslink swarm`** — Multi-agent swarm coordination across phased builds
-  - `swarm init` — Initialize a swarm plan from a design document
-  - `swarm plan` — Plan multi-phase builds across budget windows with cost estimation
-  - `swarm launch` — Launch all agents for a phase
-  - `swarm gate` — Run the test suite as a phase gate before proceeding
-  - `swarm checkpoint` — Record progress after a phase completes
-  - `swarm resume` — Reconstruct state and continue after a budget cap or session restart
-  - Budget-aware scheduling with configurable window duration and model cost tracking
+  - `kickoff list` / `kickoff cleanup` — Monitor and manage running agents
+- **`crosslink swarm`** — Multi-agent phased builds from design documents
+  - `swarm init --doc` — Decompose a design document into phases and work units
+  - `swarm launch` / `swarm gate` / `swarm checkpoint` — Execute, gate, and record phase progress
+  - `swarm resume` — Reconstruct state and continue after interruption
+  - Budget-aware scheduling with cost estimation and configurable window duration
 - **Container execution** — Run agents in isolated Docker containers (`crosslink container`)
 
 ### Knowledge Management
@@ -83,9 +92,10 @@ Launch multiple agents and let them coordinate automatically.
 Research done by one agent is available to all.
 
 - **`crosslink knowledge`** — CRUD for markdown knowledge pages with YAML frontmatter
-- **Full-text search** — `knowledge search` across all pages
+- **Full-text search** — `knowledge search` across all pages with tag and date filtering
+- **Section-based editing** — `--replace-section` and `--append-to-section` for surgical updates
 - **Bulk import** — `knowledge import` from existing markdown files or design documents
-- **Auto-injection** — Relevant knowledge pages injected into agent context automatically
+- **Auto-injection** — Relevant knowledge pages injected into agent context via MCP server
 - **Conflict resolution** — Accept-both merge strategy for concurrent knowledge edits
 
 ### Behavioral Hooks & Rules
@@ -154,18 +164,28 @@ Also available as a [VS Code extension](https://marketplace.visualstudio.com/ite
 
 ## Documentation
 
+**Getting started:**
+
 - [Your First Agent Session](https://forecast-bio.github.io/crosslink/getting-started/quickstart.html) — Get running in under a minute
-- [Session Workflow](https://forecast-bio.github.io/crosslink/guides/session-workflow.html) — Deep dive into session management
+- [Installation](https://forecast-bio.github.io/crosslink/getting-started/installation.html) — All install methods and requirements
+
+**Guides:**
+
+- [Session Workflow](https://forecast-bio.github.io/crosslink/guides/session-workflow.html) — Persistent memory across conversations
+- [Multi-Agent Coordination](https://forecast-bio.github.io/crosslink/guides/multi-agent.html) — Distributed locking for parallel AI work
+- [Design Document Workflow](https://forecast-bio.github.io/crosslink/guides/design-workflow.html) — Interactive, codebase-grounded design authoring
 - [Kickoff: Autonomous Agents](https://forecast-bio.github.io/crosslink/guides/kickoff.html) — Launch background agents in worktrees
 - [Swarm Orchestration](https://forecast-bio.github.io/crosslink/guides/swarm.html) — Multi-agent phased builds from design documents
 - [Container-Based Agents](https://forecast-bio.github.io/crosslink/guides/container-agents.html) — Run agents in isolated Docker containers
 - [Knowledge Management](https://forecast-bio.github.io/crosslink/guides/knowledge.html) — Shared research pages synced via git
+- [Terminal Dashboard](https://forecast-bio.github.io/crosslink/guides/tui.html) — Interactive TUI for issues and agents
 - [Web Dashboard](https://forecast-bio.github.io/crosslink/guides/web-dashboard.html) — Browser-based project oversight
-- [Terminal Dashboard](https://forecast-bio.github.io/crosslink/guides/tui.html) — Interactive TUI for browsing issues and agents
-- [Maintenance](https://forecast-bio.github.io/crosslink/guides/maintenance.html) — Pruning, health checks, and database compaction
-- [Multi-Agent Coordination](https://forecast-bio.github.io/crosslink/guides/multi-agent.html) — Distributed locking for parallel AI work
-- [Claude Code Hooks](https://forecast-bio.github.io/crosslink/guides/hooks.html) — Behavioral guardrails for AI coding
+- [Behavioral Hooks](https://forecast-bio.github.io/crosslink/guides/hooks.html) — Guardrails for AI coding agents
 - [Tracking Modes](https://forecast-bio.github.io/crosslink/guides/tracking-modes.html) — Strict, normal, and relaxed enforcement
+- [Maintenance](https://forecast-bio.github.io/crosslink/guides/maintenance.html) — Pruning, health checks, and database compaction
+
+**Reference:**
+
 - [CLI Reference](https://forecast-bio.github.io/crosslink/reference/commands.html) — Full command reference
 - [Hook Configuration](https://forecast-bio.github.io/crosslink/reference/hook-config.html) — Customize enforcement behavior
 - [Rules Customization](https://forecast-bio.github.io/crosslink/reference/rules.html) — Edit behavioral rules
