@@ -6,8 +6,19 @@
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-15T15:45:57.121726Z",
-  "updated_at": "2026-03-15T15:45:59.077546Z",
+  "updated_at": "2026-03-15T15:48:36.298179Z",
   "labels": [
     "bug"
+  ],
+  "comments": [
+    {
+      "id": 301,
+      "author": "maxine--basel",
+      "content": "Two issues found: (1) index.qmd references ../images/banner.svg which escapes the docs/ output dir -- GitHub Pages only deploys docs/ so the path 404s. A copy already exists at docs_src/assets/img/banner.svg. (2) forecast-wordmark.svg is only referenced via JS in _footer.html, not in .qmd files, so Quarto may not copy it during CI. Fix: change banner ref to assets/img/banner.svg and add explicit resources config to _quarto.yml.",
+      "created_at": "2026-03-15T15:48:36.298179Z",
+      "kind": "plan",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALL/MXStZOwB3TyTsfjmsFRkqhXbV+bGdhTSoG660Ua5wkfsTLVHkzbSWNz5fJ0qiUtrArouuuenwd0FD3k04Bg=="
+    }
   ]
 }
