@@ -6,7 +6,7 @@
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-15T16:38:35.208249Z",
-  "updated_at": "2026-03-15T16:38:52.571777Z",
+  "updated_at": "2026-03-15T16:50:01.479722Z",
   "labels": [
     "enhancement"
   ],
@@ -19,6 +19,15 @@
       "kind": "plan",
       "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
       "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYqUP3WVl4gAz4YxkLK/cSw5ahZJU/JnocqKRmNlF974zvFvZry7wBjMUuTTgPOqVN/NCI0wxtkKSYUhzSkWyDA=="
+    },
+    {
+      "id": 310,
+      "author": "maxine--basel",
+      "content": "Committed: chore: bump version to v0.5.1 and add changelog for hotfix release [CL-194] | Files: 5 files changed, 47 insertions(+), 2 deletions(-)",
+      "created_at": "2026-03-15T16:50:01.479722Z",
+      "kind": "result",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAq2mkq8AByERpY6YvPt7bgEa+yc23ZmYaBAzfWsi+jPnj3L2/mFGuMiK4PsB+lQRivTaWD0I59Yj0Ye4xTrXfAw=="
     }
   ]
 }
