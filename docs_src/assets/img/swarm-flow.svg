@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 540" width="780" height="540">
+  <defs>
+    <style>
+      .heading { font-family: Helvetica, Arial, sans-serif; }
+      .subheading { font-family: 'Times New Roman', Times, serif; font-style: italic; }
+      .body { font-family: Helvetica, Arial, sans-serif; }
+      .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
+    </style>
+  </defs>
+  <!-- no background rect — page bg shows through -->
+  <text x="390.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Swarm orchestration</text>
+  <text x="390.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">multi-agent phased builds from a design document</text>
+  <rect x="25" y="120" width="90" height="100" rx="18" fill="#FFB6C6" opacity="0.3"/>
+  <rect x="29" y="124" width="82" height="92" rx="16" fill="#FFFFFF" opacity="0.9"/>
+  <text x="70" y="156" class="mono" font-size="11" fill="#F95838" text-anchor="middle" font-weight="bold">DESIGN.md</text>
+  <rect x="42" y="178" width="58.12163129064863" height="3" rx="1.5" fill="rgba(0,0,0,0.06)" opacity="0.6"/>
+  <rect x="42" y="190" width="58.715144449829424" height="3" rx="1.5" fill="rgba(0,0,0,0.06)" opacity="0.6"/>
+  <rect x="42" y="202" width="57.31083360121448" height="3" rx="1.5" fill="rgba(0,0,0,0.06)" opacity="0.6"/>
+  <rect x="42" y="214" width="37.08876692076709" height="3" rx="1.5" fill="rgba(0,0,0,0.06)" opacity="0.6"/>
+  <path d="M 120.0 170.0 Q 145.0 162.5 170.0 170.0" fill="none" stroke="#F95838" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="170.0,170.0 160.0,170.6 162.0,164.0" fill="#F95838"/>
+  <rect x="180" y="125" width="150" height="90" rx="30" fill="#007C35" opacity="0.12"/>
+  <rect x="184" y="129" width="142" height="82" rx="28" fill="#FFFFFF" opacity="0.85"/>
+  <text x="255.0" y="155" class="subheading" font-size="18" fill="#007C35" text-anchor="middle">Swarm planner</text>
+  <rect x="195" y="160" width="120" height="24" rx="12" fill="#007C35" opacity="0.18"/>
+  <text x="255.0" y="177.0" class="body" font-size="12" fill="#007C35" text-anchor="middle" font-weight="bold">budget-window</text>
+  <line x1="330.0" y1="155.0" x2="370.0" y2="105.0" stroke="#007C35" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="370.0,105.0 366.8,114.5 361.5,110.2" fill="#007C35"/>
+  <rect x="380" y="80" width="220" height="100" rx="18" fill="#00A6DB" opacity="0.1"/>
+  <rect x="383" y="83" width="214" height="94" rx="16" fill="#FFFFFF" opacity="0.85"/>
+  <text x="490.0" y="102" class="subheading" font-size="13" fill="#00A6DB" text-anchor="middle">Phase 1: core types</text>
+  <circle cx="453.3333333333333" cy="130" r="14" fill="#00A6DB" opacity="0.15"/>
+  <circle cx="453.3333333333333" cy="130" r="9" fill="#00A6DB" opacity="0.3"/>
+  <text x="453.3333333333333" y="156" class="body" font-size="10" fill="#666666" text-anchor="middle">a1</text>
+  <circle cx="526.6666666666666" cy="130" r="14" fill="#00A6DB" opacity="0.15"/>
+  <circle cx="526.6666666666666" cy="130" r="9" fill="#00A6DB" opacity="0.3"/>
+  <text x="526.6666666666666" y="156" class="body" font-size="10" fill="#666666" text-anchor="middle">a2</text>
+  <rect x="420" y="174" width="140" height="5" rx="2.5" fill="#007C35"/>
+  <line x1="490.0" y1="180.0" x2="490.0" y2="204.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="490.0,204.0 486.6,194.6 493.4,194.6" fill="#666666"/>
+  <text x="506.0" y="196" class="body" font-size="10" fill="#007C35" text-anchor="start">gate</text>
+  <rect x="380" y="210" width="220" height="100" rx="18" fill="#F95838" opacity="0.1"/>
+  <rect x="383" y="213" width="214" height="94" rx="16" fill="#FFFFFF" opacity="0.85"/>
+  <text x="490.0" y="232" class="subheading" font-size="13" fill="#F95838" text-anchor="middle">Phase 2: API layer</text>
+  <circle cx="435.0" cy="260" r="14" fill="#F95838" opacity="0.15"/>
+  <circle cx="435.0" cy="260" r="9" fill="#F95838" opacity="0.3"/>
+  <text x="435.0" y="286" class="body" font-size="10" fill="#666666" text-anchor="middle">a3</text>
+  <circle cx="490.0" cy="260" r="14" fill="#F95838" opacity="0.15"/>
+  <circle cx="490.0" cy="260" r="9" fill="#F95838" opacity="0.3"/>
+  <text x="490.0" y="286" class="body" font-size="10" fill="#666666" text-anchor="middle">a4</text>
+  <circle cx="545.0" cy="260" r="14" fill="#F95838" opacity="0.15"/>
+  <circle cx="545.0" cy="260" r="9" fill="#F95838" opacity="0.3"/>
+  <text x="545.0" y="286" class="body" font-size="10" fill="#666666" text-anchor="middle">a5</text>
+  <rect x="420" y="304" width="140" height="5" rx="2.5" fill="#007C35"/>
+  <line x1="490.0" y1="310.0" x2="490.0" y2="334.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="490.0,334.0 486.6,324.6 493.4,324.6" fill="#666666"/>
+  <text x="506.0" y="326" class="body" font-size="10" fill="#007C35" text-anchor="start">gate</text>
+  <rect x="380" y="340" width="220" height="100" rx="18" fill="#FFCE02" opacity="0.1"/>
+  <rect x="383" y="343" width="214" height="94" rx="16" fill="#FFFFFF" opacity="0.85"/>
+  <text x="490.0" y="362" class="subheading" font-size="13" fill="#FFCE02" text-anchor="middle">Phase 3: integration</text>
+  <circle cx="490.0" cy="390" r="14" fill="#FFCE02" opacity="0.15"/>
+  <circle cx="490.0" cy="390" r="9" fill="#FFCE02" opacity="0.3"/>
+  <text x="490.0" y="416" class="body" font-size="10" fill="#666666" text-anchor="middle">a6</text>
+  <rect x="420" y="434" width="140" height="5" rx="2.5" fill="#FFCE02"/>
+  <line x1="490.0" y1="439.0" x2="490.0" y2="430.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="490.0,430.0 493.4,439.4 486.6,439.4" fill="#666666"/>
+  <ellipse cx="680" cy="260" rx="60" ry="50" fill="#007C35" opacity="0.1"/>
+  <ellipse cx="680" cy="260" rx="50" ry="40" fill="#FFFFFF" opacity="0.85"/>
+  <text x="680" y="250" class="heading" font-size="15" fill="#007C35" text-anchor="middle" font-weight="bold">Complete</text>
+  <text x="680" y="268" class="body" font-size="11" fill="#666666" text-anchor="middle">all gates</text>
+  <text x="680" y="282" class="body" font-size="11" fill="#666666" text-anchor="middle">passed</text>
+  <path d="M 600.0 390.0 Q 593.0 321.2 625.0 260.0" fill="none" stroke="#007C35" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="625.0,260.0 623.7,269.9 617.6,266.7" fill="#007C35"/>
+  <rect x="60" y="470" width="660" height="45" rx="14" fill="rgba(0,0,0,0.06)" opacity="0.12"/>
+  <rect x="63" y="473" width="654" height="39" rx="12" fill="#FFFFFF" opacity="0.85"/>
+  <text x="390.0" y="460" class="subheading" font-size="14" fill="#666666" text-anchor="middle">Budget-aware scheduling</text>
+  <rect x="68" y="476" width="200" height="33" rx="10" fill="#00A6DB" opacity="0.2"/>
+  <text x="168" y="497" class="body" font-size="11" fill="#00A6DB" text-anchor="middle">phase 1: 42 min</text>
+  <rect x="276" y="476" width="240" height="33" rx="10" fill="#F95838" opacity="0.2"/>
+  <text x="396" y="497" class="body" font-size="11" fill="#F95838" text-anchor="middle">phase 2: 68 min</text>
+  <rect x="524" y="476" width="140" height="33" rx="10" fill="#FFCE02" opacity="0.2"/>
+  <text x="594" y="497" class="body" font-size="11" fill="#FFCE02" text-anchor="middle">phase 3: ...</text>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="675.5" cy="113.9" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="661.5" cy="138.1" r="8" fill="#00A6DB" opacity="0.5"/>
+    <circle cx="666.7" cy="97.7" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="694.1" cy="88.5" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="665.3" cy="121.0" r="8" fill="#FFCE02" opacity="0.5"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="24.4" cy="404.6" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="33.6" cy="452.6" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="18.6" cy="458.8" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="40.4" cy="429.5" r="8" fill="#FFB6C6" opacity="0.5"/>
+  </g>
+</svg>

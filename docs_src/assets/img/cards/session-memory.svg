@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 100" width="150" height="100">
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="45" cy="50" rx="38" ry="30" fill="#FFB6C6"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="85" cy="50" rx="38" ry="30" fill="#00A6DB"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="115" cy="32" r="12" fill="#007C35"/>
+  </g>
+</svg>

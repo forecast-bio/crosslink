@@ -1,10 +1,16 @@
 ---
-title: "Kickoff Report Schema"
+title: "Kickoff report schema"
 ---
 
 ## Overview
 
+Kickoff reports are generated automatically when an agent finishes its task. You typically consume them via `crosslink kickoff report` rather than reading the JSON directly. This reference documents the schema for tooling integration and custom dashboards.
+
 When a kickoff agent completes its work, it writes a `.kickoff-report.json` file to the worktree root. This file captures criteria verdicts, phase timing, metrics, and traceability data.
+
+&nbsp;
+
+---
 
 ## Schema (v1)
 
@@ -39,9 +45,13 @@ When a kickoff agent completes its work, it writes a `.kickoff-report.json` file
 }
 ```
 
-## Field Reference
+&nbsp;
 
-### Required Fields
+---
+
+## Field reference
+
+### Required fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -49,7 +59,7 @@ When a kickoff agent completes its work, it writes a `.kickoff-report.json` file
 | `criteria` | array | Per-criterion verdicts (see below) |
 | `summary` | object | Verdict count totals |
 
-### Optional Fields (Phase 4)
+### Optional fields (Phase 4)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -64,7 +74,11 @@ When a kickoff agent completes its work, it writes a `.kickoff-report.json` file
 | `commits` | array of strings | Commit SHAs produced |
 | `files_changed` | array of strings | Files modified during implementation |
 
-### Criterion Verdict
+&nbsp;
+
+---
+
+### Criterion verdict
 
 | Field | Type | Values |
 |-------|------|--------|
@@ -72,7 +86,11 @@ When a kickoff agent completes its work, it writes a `.kickoff-report.json` file
 | `verdict` | string | `pass`, `fail`, `partial`, `not_applicable`, `needs_clarification` |
 | `evidence` | string | Justification for the verdict |
 
-### Phase Timing
+&nbsp;
+
+---
+
+### Phase timing
 
 Each phase object has a required `duration_s` (seconds) and optional metric fields relevant to that phase:
 
@@ -85,11 +103,19 @@ Each phase object has a required `duration_s` (seconds) and optional metric fiel
 | `validation` | `criteria_checked` |
 | `review` | `issues_found`, `issues_fixed` |
 
-## Backward Compatibility
+&nbsp;
+
+---
+
+## Backward compatibility
 
 Reports from Phase 3 (containing only `validated_at`, `criteria`, and `summary`) are fully supported. All Phase 4 fields default to `null` when absent.
 
-## Viewing Reports
+&nbsp;
+
+---
+
+## Viewing reports
 
 ```bash
 crosslink kickoff report <agent-id>           # table view

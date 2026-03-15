@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 100" width="150" height="100">
+  <g style="mix-blend-mode: multiply">
+    <rect x="8" y="40" width="55" height="35" rx="17" fill="#FFCE02" transform="rotate(-10 35.5 57.5)"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <rect x="52" y="28" width="55" height="35" rx="17" fill="#007C35"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <rect x="95" y="38" width="45" height="30" rx="15" fill="#F95838" transform="rotate(8 117.5 53.0)"/>
+  </g>
+</svg>

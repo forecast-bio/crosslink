@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 100" width="150" height="100">
+  <!-- Launch trail — elongated pill sweeping up-right -->
+  <g style="mix-blend-mode: multiply">
+    <rect x="15" y="35" width="70" height="28" rx="14" fill="#F95838" transform="rotate(-20 50 49)"/>
+  </g>
+  <!-- Origin point — small green dot (the kickoff trigger) -->
+  <g style="mix-blend-mode: multiply">
+    <circle cx="30" cy="65" r="14" fill="#007C35"/>
+  </g>
+  <!-- Agent — large blue circle arriving at destination -->
+  <g style="mix-blend-mode: multiply">
+    <circle cx="100" cy="35" r="28" fill="#00A6DB"/>
+  </g>
+  <!-- Sparkle — small yellow dot suggesting autonomy -->
+  <g style="mix-blend-mode: multiply">
+    <circle cx="125" cy="70" r="12" fill="#FFCE02"/>
+  </g>
+</svg>

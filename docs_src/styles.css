@@ -1,5 +1,122 @@
 /* css styles */
 
+/* Center content within wide column divs — only text-align, NOT
+   margin:auto which collapses grid items to content width. */
+.center {
+  text-align: center;
+}
+
+/* ── column-screen / TOC interaction fix ─────────────────────────
+   .column-screen extends into the margin and physically overlaps
+   the TOC. Translucent bg + backdrop blur softly occludes the TOC
+   beneath the diagram while keeping the page feeling open. */
+.column-screen {
+  position: relative;
+  /* background: rgba(249, 244, 245, 0.2); */
+  background: rgba(255, 255, 255, 0.5);
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
+  padding: 2rem 0 1rem 0;
+  margin: 1.5rem 0;
+}
+
+/* On pages with wide content, lower the margin TOC z-index so it
+   doesn't stack above the wide column overlay. */
+@media (min-width: 992px) {
+  .page-columns:has(.column-screen) #quarto-margin-sidebar {
+    z-index: 0;
+  }
+}
+
+/* When a section contains .column-screen, Quarto applies page-full
+   grid layout to the entire section. Pin normal content (paragraphs,
+   code blocks, lists) back to the body column so they don't shift. */
+section.page-full > p,
+section.page-full > .code-copy-outer-scaffold,
+section.page-full > div.sourceCode,
+section.page-full > ul,
+section.page-full > ol,
+section.page-full > blockquote {
+  grid-column: body-content-start / body-content-end;
+}
+
+/* Full-width banner — breaks out of Quarto's content container */
+.full-width-banner {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  overflow: hidden;
+}
+
+.full-width-banner img.hero-banner {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Feature card icons (home page — centered above text) */
+.card-icon {
+  display: block;
+  margin: 0 auto 0.5rem auto;
+  height: 76px;
+  width: auto;
+}
+
+/* Guide tl;dr card — large icon left, text right, subtle orange bg */
+.guide-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  background: rgba(249, 88, 56, 0.06);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+.guide-card .card-icon {
+  display: block;
+  flex-shrink: 0;
+  width: 150px;
+  min-width: 150px;
+  height: auto;
+  margin: 0;
+}
+
+.guide-card h2 {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+@media (max-width: 600px) {
+  .guide-card {
+    flex-direction: column;
+    align-items: center;
+  }
+  .guide-card .card-icon {
+    flex-basis: 40%;
+    width: 40%;
+  }
+}
+
+/* Center standalone diagram figures that don't use column-screen */
+.quarto-figure {
+  text-align: center;
+}
+.quarto-figure img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Let column-screen images respect their width attribute.
+   Quarto adds width="Xpx" from {width="..."} — don't override it.
+   max-width keeps them responsive if the viewport is narrower. */
+.column-screen img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Hero section */
 .hero-section {
   text-align: center;
@@ -102,4 +219,98 @@ h1 {
 
 #refs {
     font-size: small;
+}
+
+/* Sidebar — active page and hover use brand red */
+.sidebar-item-container .sidebar-link.active,
+.sidebar-item-container .sidebar-link:hover {
+  color: #F95838 !important;
+}
+.sidebar-item-container .sidebar-link.active {
+  border-left-color: #F95838 !important;
+}
+
+/* Navbar — hover uses brand red */
+.navbar .nav-link:hover,
+.navbar .dropdown-item:hover {
+  color: #F95838 !important;
+}
+
+/* Breadcrumb — hide current page text but keep the chevron separator */
+.breadcrumb-item:last-child a,
+.breadcrumb-item:last-child:not(:has(a)) {
+  display: none;
+}
+.breadcrumb-item a {
+  color: #6c757d !important;
+}
+.breadcrumb-item a:hover {
+  color: #F95838 !important;
+}
+
+/* Forecast-style footer — sits inside content area, left-aligned */
+footer.forecast-footer {
+  margin-top: 4rem;
+  padding: 0 0 3rem 3px;
+  text-align: left;
+}
+
+footer.forecast-footer .forecast-rule {
+  width: 220px;
+  height: 2px;
+  background-color: #ebe3e3;
+  border: none;
+  margin: 0 0 3rem 0;
+}
+
+/* Wordmark + confetti on the same line, aligned to logo baseline */
+footer.forecast-footer .forecast-wordmark-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin-bottom: 0.5rem;
+}
+
+footer.forecast-footer .forecast-wordmark-link {
+  flex-shrink: 0;
+  text-decoration: none;
+  line-height: 0; /* prevent extra space below img */
+}
+
+footer.forecast-footer .forecast-wordmark {
+  width: 100px;
+  height: auto;
+  display: block;
+  overflow: visible; /* prevent SVG clipping */
+}
+
+/* Confetti field sits right of the logo, cone expands upward */
+footer.forecast-footer .forecast-confetti {
+  position: relative;
+  width: 200px;
+  height: 55px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+footer.forecast-footer .forecast-dot {
+  position: absolute;
+  border-radius: 50%;
+  mix-blend-mode: multiply;
+}
+
+footer.forecast-footer .forecast-copyright {
+  font-family: Helvetica, 'Helvetica Neue', sans-serif;
+  font-size: 1rem;
+  color: #ebe3e3;
+  margin: 2.5rem 0 0 0;
+}
+
+footer.forecast-footer .forecast-copyright a {
+  color: #ebe3e3;
+  text-decoration: none;
+}
+
+footer.forecast-footer .forecast-copyright a:hover {
+  text-decoration: underline;
 }

@@ -1,10 +1,12 @@
 ---
-title: "Hook Configuration"
+title: "Hook configuration"
 ---
+
+Hooks run automatically during agent sessions and rarely need manual configuration. This reference documents the full configuration surface for fine-tuning enforcement behavior.
 
 Hook behavior is controlled by `.crosslink/hook-config.json`. This file is created by `crosslink init` and can be edited to customize enforcement.
 
-## Configuration File
+## Configuration file
 
 ```json
 {
@@ -15,26 +17,28 @@ Hook behavior is controlled by `.crosslink/hook-config.json`. This file is creat
   "kickoff_verification": "local",
   "signing_enforcement": "audit",
   "auto_steal_stale_locks": false,
-  "reminder_drift_threshold": 5,
+  "reminder_drift_threshold": 3,
   "blocked_git_commands": [
-    "git push", "git commit", "git merge", "git rebase",
-    "git cherry-pick", "git tag", "git stash", "git checkout -b",
-    "git switch -c", "git branch -d", "git branch -D",
-    "git reset", "git revert", "git am", "git format-patch"
+    "git push", "git merge", "git rebase", "git cherry-pick",
+    "git reset", "git checkout .", "git restore .", "git clean",
+    "git stash", "git tag", "git am", "git apply",
+    "git branch -d", "git branch -D", "git branch -m"
   ],
   "gated_git_commands": ["git commit"],
   "allowed_bash_prefixes": [
     "crosslink ",
     "git status", "git diff", "git log", "git branch", "git show",
-    "cargo test", "cargo build", "cargo check", "cargo clippy",
-    "cargo fmt", "cargo run",
+    "cargo test", "cargo build", "cargo check", "cargo clippy", "cargo fmt",
     "npm test", "npm run", "npx ",
     "tsc", "node ", "python ",
-    "cp ", "mkdir ", "gh ", "cd ",
     "ls", "dir", "pwd", "echo"
   ]
 }
 ```
+
+&nbsp;
+
+---
 
 ## Fields
 
@@ -74,7 +78,7 @@ When `true`, agents automatically steal locks from agents with stale heartbeats.
 
 ### `reminder_drift_threshold`
 
-Number of drift events before hooks escalate reminder frequency. Default: `5`.
+Number of drift events before hooks escalate reminder frequency. Default: `3`.
 
 ### `gated_git_commands`
 
@@ -92,7 +96,11 @@ Bash commands that bypass the issue-required check. These are typically read-onl
 
 The hook splits chained commands (using `&&`, `;`, `|`) and checks that **every** component matches an allowed prefix. A command like `crosslink list && rm -rf /` would be blocked because `rm -rf /` doesn't match any allowed prefix.
 
-## How the Hook Processes Commands
+&nbsp;
+
+---
+
+## How the hook processes commands
 
 1. **Git mutation check** — If command matches any `blocked_git_commands` prefix, block it (all modes)
 2. **Allowed prefix check** — If command matches `allowed_bash_prefixes`, allow it (all modes)
@@ -101,7 +109,11 @@ The hook splits chained commands (using `&&`, `;`, `|`) and checks that **every*
    - Normal: warn if no active issue
    - Relaxed: allow
 
-## Customizing for Your Stack
+&nbsp;
+
+---
+
+## Customizing for your stack
 
 Add your project's build and test commands to `allowed_bash_prefixes`:
 
@@ -118,7 +130,11 @@ Add your project's build and test commands to `allowed_bash_prefixes`:
 }
 ```
 
-## Resetting to Defaults
+&nbsp;
+
+---
+
+## Resetting to defaults
 
 ```bash
 crosslink init --force

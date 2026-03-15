@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 100" width="150" height="100">
+  <!-- Speed streak -->
+  <g style="mix-blend-mode: multiply">
+    <rect x="10" y="32" width="60" height="26" rx="13" fill="#FFCE02" transform="rotate(-8 40 45)"/>
+  </g>
+  <!-- Play triangle — go! -->
+  <g style="mix-blend-mode: multiply">
+    <polygon points="55,20 55,75 110,48" fill="#007C35"/>
+  </g>
+  <!-- Accent dot -->
+  <g style="mix-blend-mode: multiply">
+    <circle cx="120" cy="35" r="18" fill="#00A6DB"/>
+  </g>
+  <!-- Small spark -->
+  <g style="mix-blend-mode: multiply">
+    <circle cx="130" cy="70" r="10" fill="#F95838"/>
+  </g>
+</svg>

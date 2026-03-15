@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 480" width="680" height="480">
+  <defs>
+    <style>
+      .heading { font-family: Helvetica, Arial, sans-serif; }
+      .subheading { font-family: 'Times New Roman', Times, serif; font-style: italic; }
+      .body { font-family: Helvetica, Arial, sans-serif; }
+      .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
+    </style>
+  </defs>
+  <!-- no background rect — page bg shows through -->
+  <text x="340.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Knowledge management</text>
+  <text x="340.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">shared research pages synced via git</text>
+  <text x="115" y="95" class="heading" font-size="16" fill="#000000" text-anchor="middle">Writers</text>
+  <ellipse cx="115" cy="140" rx="65" ry="30" fill="#00A6DB" opacity="0.15"/>
+  <ellipse cx="115" cy="140" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
+  <text x="115" y="138" class="body" font-size="13" fill="#00A6DB" text-anchor="middle" font-weight="bold">Agent A</text>
+  <text x="115" y="158" class="body" font-size="10" fill="#666666" text-anchor="middle">researches API patterns</text>
+  <ellipse cx="115" cy="210" rx="65" ry="30" fill="#007C35" opacity="0.15"/>
+  <ellipse cx="115" cy="210" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
+  <text x="115" y="208" class="body" font-size="13" fill="#007C35" text-anchor="middle" font-weight="bold">Agent B</text>
+  <text x="115" y="228" class="body" font-size="10" fill="#666666" text-anchor="middle">documents architecture</text>
+  <ellipse cx="115" cy="280" rx="65" ry="30" fill="#FFB6C6" opacity="0.15"/>
+  <ellipse cx="115" cy="280" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
+  <text x="115" y="278" class="body" font-size="13" fill="#FFB6C6" text-anchor="middle" font-weight="bold">Human</text>
+  <text x="115" y="298" class="body" font-size="10" fill="#666666" text-anchor="middle">imports design docs</text>
+  <line x1="180.0" y1="140.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="240.0,210.0 231.3,205.1 236.5,200.6" fill="#666666"/>
+  <line x1="180.0" y1="210.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="240.0,210.0 230.6,213.4 230.6,206.6" fill="#666666"/>
+  <line x1="180.0" y1="280.0" x2="240.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="240.0,210.0 236.5,219.4 231.3,214.9" fill="#666666"/>
+  <rect x="250" y="130" width="200" height="175" rx="30" fill="#FFCE02" opacity="0.12"/>
+  <rect x="254" y="134" width="192" height="167" rx="28" fill="#FFFFFF" opacity="0.85"/>
+  <text x="350.0" y="160" class="subheading" font-size="18" fill="#000000" text-anchor="middle">crosslink/knowledge</text>
+  <rect x="265" y="178" width="170" height="22" rx="11" fill="#00A6DB" opacity="0.12"/>
+  <text x="350.0" y="193" class="mono" font-size="11" fill="#00A6DB" text-anchor="middle">api-patterns</text>
+  <rect x="265" y="206" width="170" height="22" rx="11" fill="#007C35" opacity="0.12"/>
+  <text x="350.0" y="221" class="mono" font-size="11" fill="#007C35" text-anchor="middle">auth-design</text>
+  <rect x="265" y="234" width="170" height="22" rx="11" fill="#F95838" opacity="0.12"/>
+  <text x="350.0" y="249" class="mono" font-size="11" fill="#F95838" text-anchor="middle">error-handling</text>
+  <rect x="265" y="262" width="170" height="22" rx="11" fill="#FFCE02" opacity="0.12"/>
+  <text x="350.0" y="277" class="mono" font-size="11" fill="#FFCE02" text-anchor="middle">deploy-runbook</text>
+  <line x1="455.0" y1="210.0" x2="505.0" y2="140.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="505.0,140.0 502.3,149.6 496.7,145.7" fill="#666666"/>
+  <line x1="455.0" y1="210.0" x2="505.0" y2="210.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="505.0,210.0 495.6,213.4 495.6,206.6" fill="#666666"/>
+  <line x1="455.0" y1="210.0" x2="505.0" y2="280.0" stroke="#666666" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="505.0,280.0 496.7,274.3 502.3,270.4" fill="#666666"/>
+  <text x="575" y="95" class="heading" font-size="16" fill="#000000" text-anchor="middle">Readers</text>
+  <ellipse cx="575" cy="140" rx="65" ry="30" fill="#00A6DB" opacity="0.15"/>
+  <ellipse cx="575" cy="140" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
+  <text x="575" y="138" class="body" font-size="13" fill="#00A6DB" text-anchor="middle" font-weight="bold">Any agent</text>
+  <text x="575" y="158" class="body" font-size="10" fill="#666666" text-anchor="middle">knowledge search</text>
+  <ellipse cx="575" cy="210" rx="65" ry="30" fill="#007C35" opacity="0.15"/>
+  <ellipse cx="575" cy="210" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
+  <text x="575" y="208" class="body" font-size="13" fill="#007C35" text-anchor="middle" font-weight="bold">Kickoff</text>
+  <text x="575" y="228" class="body" font-size="10" fill="#666666" text-anchor="middle">auto-injected context</text>
+  <ellipse cx="575" cy="280" rx="65" ry="30" fill="#F95838" opacity="0.15"/>
+  <ellipse cx="575" cy="280" rx="55" ry="22" fill="#FFFFFF" opacity="0.85"/>
+  <text x="575" y="278" class="body" font-size="13" fill="#F95838" text-anchor="middle" font-weight="bold">Swarm</text>
+  <text x="575" y="298" class="body" font-size="10" fill="#666666" text-anchor="middle">shared across phases</text>
+  <text x="340.0" y="335" class="body" font-size="12" fill="#666666" text-anchor="middle">synced via git push/pull</text>
+  <rect x="50" y="365" width="580" height="85" rx="20" fill="rgba(0,0,0,0.06)"/>
+  <text x="130" y="395" class="heading" font-size="14" fill="#00A6DB" text-anchor="middle">Full-text search</text>
+  <text x="130" y="416" class="mono" font-size="10" fill="#666666" text-anchor="middle">knowledge search &lt;query&gt;</text>
+  <text x="130" y="434" class="body" font-size="10" fill="#666666" text-anchor="middle"></text>
+  <text x="340" y="395" class="heading" font-size="14" fill="#007C35" text-anchor="middle">Bulk import</text>
+  <text x="340" y="416" class="mono" font-size="10" fill="#666666" text-anchor="middle">knowledge import &lt;dir&gt;</text>
+  <text x="340" y="434" class="body" font-size="10" fill="#666666" text-anchor="middle"></text>
+  <text x="540" y="395" class="heading" font-size="14" fill="#F95838" text-anchor="middle">Tagged &amp; filtered</text>
+  <text x="540" y="416" class="mono" font-size="10" fill="#666666" text-anchor="middle">--tag, --since, --contributor</text>
+  <text x="540" y="434" class="body" font-size="10" fill="#666666" text-anchor="middle"></text>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="37.3" cy="85.5" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="36.6" cy="124.8" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="11.4" cy="139.0" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="31.1" cy="86.5" r="8" fill="#FFCE02" opacity="0.5"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="654.0" cy="96.9" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="668.9" cy="105.4" r="8" fill="#007C35" opacity="0.5"/>
+    <circle cx="668.4" cy="138.3" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="633.6" cy="84.5" r="8" fill="#00A6DB" opacity="0.5"/>
+  </g>
+</svg>

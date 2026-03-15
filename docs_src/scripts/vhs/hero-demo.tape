@@ -1,4 +1,4 @@
-# Homepage hero GIF — 30-second crosslink workflow overview
+# Homepage hero GIF — agent-first crosslink workflow overview
 # Output: docs_src/assets/img/hero-demo.gif
 
 Output ../assets/img/hero-demo.gif
@@ -15,27 +15,40 @@ Set TypingSpeed 40ms
 Set WindowBar Colorful
 Set WindowBarSize 40
 
-# Initialize
-Type "crosslink init"
+# You give a high-level instruction...
+Type "# You say: 'Fix the auth token refresh bug'"
 Enter
 Sleep 2s
 
-# Start session
+# The agent starts a session and picks up context
+Type "# Agent picks up where the last one left off"
+Enter
 Type "crosslink session start"
 Enter
 Sleep 2s
 
-# Create an issue and start working
+# Agent rapidly creates and tracks the work
 Type `crosslink quick "Fix auth token refresh" -p high -l bug`
 Enter
-Sleep 2s
+Sleep 1s
 
-# Record a breadcrumb
 Type `crosslink session action "Found root cause in refresh_token()"`
 Enter
-Sleep 1.5s
+Sleep 0.8s
 
-# End with handoff notes
-Type `crosslink session end --notes "Fixed token refresh. Dark mode is next."`
+Type `crosslink session action "Patched 401 retry logic"`
+Enter
+Sleep 0.8s
+
+Type `crosslink issue comment 1 "Token refresh now retries with backoff on 401"`
+Enter
+Sleep 1s
+
+# Agent closes and hands off
+Type "crosslink close 1"
+Enter
+Sleep 1s
+
+Type `crosslink session end --notes "Fixed token refresh (#1). Dark mode is next."`
 Enter
 Sleep 3s

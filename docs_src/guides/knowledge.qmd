@@ -1,163 +1,185 @@
 ---
-title: "Knowledge Management"
+title: "Knowledge management"
 ---
 
-Crosslink's knowledge system provides shared documentation that syncs across agents via a dedicated `crosslink/knowledge` git branch. Agents can save research findings, architectural decisions, and reference material that persists across sessions and is available to all agents.
+::: {.guide-card}
+![](../assets/img/cards/knowledge.svg){.card-icon}
 
-## Overview
+## tl;dr
 
-Knowledge pages are markdown documents with YAML frontmatter. They live on the `crosslink/knowledge` branch (separate from your code) and are synced automatically when agents start sessions.
+Crosslink's knowledge system is shared memory for your agents. When one agent researches an API, evaluates a library, or documents an architectural decision, that knowledge is automatically available to every other agent working on the project. Knowledge pages live on a dedicated `crosslink/knowledge` git branch (separate from your code) and sync automatically when agents start sessions.
+:::
 
-```bash
-crosslink knowledge add api-auth-patterns \
-  --title "API Authentication Patterns" \
-  --tag architecture --tag security \
-  --source "https://example.com/auth-guide" \
-  --content "Summary of auth patterns evaluated..."
-```
+&nbsp;
 
-## Creating Pages
+::: {.column-screen .center}
+![](../assets/img/knowledge-flow.svg){width="850px"}
+:::
 
-### Basic Page
+&nbsp;
 
-```bash
-crosslink knowledge add my-topic \
-  --title "My Research Topic" \
-  --content "Findings from investigating..."
-```
+## How agents use knowledge
 
-The first argument is the **slug** -- a URL-safe identifier used to reference the page.
+::: {.columns}
+::: {.column width="35%"}
+**You say:**
 
-### With Tags and Sources
+> "Research the best approach for rate limiting"
+
+The agent investigates, then saves its findings as a knowledge page — tagged, sourced, and searchable.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
 crosslink knowledge add rate-limiting \
   --title "Rate Limiting Strategy" \
-  --tag architecture \
-  --tag performance \
+  --tag architecture --tag performance \
   --source "https://example.com/rate-limits" \
-  --content "After evaluating token bucket vs sliding window..."
+  --content "After evaluating token bucket vs \
+  sliding window..."
 ```
+:::
+:::
 
-Tags and sources are repeatable -- add as many as needed.
+Later, when another agent starts a session on a related issue, the `session-start` hook and knowledge MCP server automatically surface relevant pages. Research done once benefits every agent.
 
-### From a Design Document
+### Creating pages
+
+::: {.columns}
+::: {.column width="35%"}
+**You say:**
+
+> "Save that auth research to knowledge"
+
+Agents create pages with descriptive slugs, tags for discoverability, and source links for provenance.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
-crosslink knowledge add auth-design --from-doc DESIGN-AUTH.md
+# Basic page
+crosslink knowledge add api-auth \
+  --title "API Authentication Patterns" \
+  --content "Findings from investigating..."
+
+# With tags and sources
+crosslink knowledge add api-auth \
+  --tag security --tag architecture \
+  --source "https://docs.example.com/auth"
+
+# Import from a design document
+crosslink knowledge add auth-design \
+  --from-doc .design/auth-system.md
 ```
+:::
+:::
 
-Imports a design document directly as a knowledge page.
+### Browsing and searching
 
-## Browsing Pages
+::: {.columns}
+::: {.column width="35%"}
+**You ask:**
 
-### List All Pages
+> "What do we know about caching?"
+
+The agent searches across all knowledge pages with full-text search, filtering by tags, contributors, or date range.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
-crosslink knowledge list
-crosslink knowledge list --json
-```
-
-### Filter by Tag, Contributor, or Date
-
-```bash
+crosslink knowledge search "caching" --context 3
+crosslink knowledge search "oauth" --tag security
 crosslink knowledge list --tag architecture
-crosslink knowledge list --contributor agent-1
-crosslink knowledge list --since 2026-03-01
+crosslink knowledge show api-auth
 ```
+:::
+:::
 
-### View a Page
+You can also browse knowledge visually through the [TUI](tui.qmd) (Knowledge tab) or [Web Dashboard](web-dashboard.qmd).
+
+### Editing pages
+
+Your agents have a detailed surface to update knowledge as the project evolves.
+
+#### Append and replace
 
 ```bash
-crosslink knowledge show api-auth-patterns
-```
-
-## Searching
-
-### Full-Text Search
-
-```bash
-crosslink knowledge search "token bucket"
-crosslink knowledge search "authentication" --context 3
-```
-
-The `--context` flag controls how many lines around each match are shown (default: 1).
-
-### Filter Search Results
-
-```bash
-crosslink knowledge search "caching" --tag performance
-crosslink knowledge search "oauth" --source "example.com"
-crosslink knowledge search "migration" --since 2026-03-01
-crosslink knowledge search "retry logic" --contributor agent-2
-```
-
-## Editing Pages
-
-### Append Content
-
-```bash
+# Append a new finding
 crosslink knowledge edit rate-limiting \
   --append "Update: switched to sliding window after load testing"
-```
 
-### Replace Content
-
-```bash
+# Replace all content
 crosslink knowledge edit rate-limiting \
-  --content "Completely revised strategy based on new requirements..."
-```
+  --content "Completely revised strategy..."
 
-### Add Tags or Sources
-
-```bash
+# Add more tags or sources
 crosslink knowledge edit rate-limiting \
-  --tag "load-testing" \
-  --source "https://example.com/new-reference"
+  --tag load-testing --source "https://example.com/new-ref"
 ```
 
-## Removing Pages
+#### Section-based editing (v0.5.0)
+
+For surgical updates to specific parts of a page:
 
 ```bash
-crosslink knowledge remove rate-limiting
+# Replace an entire section by heading
+crosslink knowledge edit api-auth \
+  --replace-section "Token Refresh" \
+  --content "New approach: use rotating refresh tokens..."
+
+# Append to a specific section
+crosslink knowledge edit api-auth \
+  --append-to-section "Open Questions" \
+  --content "- How do we handle token revocation at scale?"
 ```
 
-## Syncing
+This is especially useful when agents update knowledge incrementally — adding findings to the right section without disturbing the rest of the page.
 
-Knowledge pages sync automatically during `crosslink session start` and `crosslink sync`. To force a manual sync:
+### Syncing and conflict resolution
 
-```bash
-crosslink knowledge sync
-```
+Knowledge syncs automatically during `crosslink session start` and `crosslink sync`. When two agents edit the same page concurrently, crosslink uses an **accept-both** merge strategy: both versions are preserved with clear markers, so no work is lost.
 
-### Conflict Resolution
+&nbsp;
 
-When two agents edit the same page concurrently, crosslink uses an **accept-both** merge strategy: both versions of the content are preserved with clear markers, so no work is lost.
+---
 
-## Bulk Import
+## Bulk import
 
-Import existing markdown files as knowledge pages:
+Import existing documentation into the knowledge base:
 
 ```bash
 crosslink knowledge import ./docs/research/
 crosslink knowledge import ./docs/ --tag imported --overwrite
-crosslink knowledge import ./notes/ --dry_run  # preview without writing
+crosslink knowledge import ./notes/ --dry-run  # preview without writing
 ```
 
-## Auto-Injection
+&nbsp;
 
-Relevant knowledge pages are automatically injected into agent context at session start. The `session-start.py` hook and the knowledge MCP server work together to surface pages that match the agent's current work.
+---
 
-This means research done by one agent is automatically available to other agents working on related issues.
+## Tips
 
-## Workflow Tips
-
-- **Save research as you go.** When you read API docs, evaluate libraries, or investigate a bug, save findings to a knowledge page so other agents (and future sessions) benefit.
+- **Save research as you go.** When an agent reads API docs, evaluates libraries, or investigates a bug, it should save findings to knowledge so other agents benefit.
 - **Use descriptive slugs.** `api-auth-patterns` is better than `research-1`.
 - **Tag consistently.** Use tags like `architecture`, `security`, `performance`, `debugging`, `api`, `dependency` to make pages discoverable.
 - **Include sources.** Link to the original documentation, blog post, or discussion that informed the page.
 
-## Command Reference
+<!-- &nbsp;
+
+---
+
+## Quick reference
 
 | Command | Description |
 |---------|-------------|
@@ -165,7 +187,9 @@ This means research done by one agent is automatically available to other agents
 | `knowledge show <slug>` | Display a page |
 | `knowledge list` | List all pages |
 | `knowledge edit <slug>` | Update a page |
+| `knowledge edit <slug> --replace-section <heading>` | Replace a section |
+| `knowledge edit <slug> --append-to-section <heading>` | Append to a section |
 | `knowledge remove <slug>` | Remove a page |
 | `knowledge sync` | Manually sync from remote |
 | `knowledge search <query>` | Full-text search |
-| `knowledge import <directory>` | Bulk import markdown files |
+| `knowledge import <directory>` | Bulk import markdown files | -->

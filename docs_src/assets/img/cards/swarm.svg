@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 100" width="150" height="100">
+  <g style="mix-blend-mode: multiply">
+    <circle cx="50" cy="38" r="22" fill="#00A6DB"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="90" cy="38" r="22" fill="#F95838"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="70" cy="65" r="22" fill="#007C35"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="110" cy="65" r="16" fill="#FFCE02"/>
+  </g>
+</svg>

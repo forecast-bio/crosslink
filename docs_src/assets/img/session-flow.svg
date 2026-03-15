@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 620" width="520" height="620">
+  <defs>
+    <style>
+      .heading { font-family: Helvetica, Arial, sans-serif; }
+      .subheading { font-family: 'Times New Roman', Times, serif; font-style: italic; }
+      .body { font-family: Helvetica, Arial, sans-serif; }
+      .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
+    </style>
+  </defs>
+  <!-- no background rect — page bg shows through -->
+  <text x="260.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Session lifecycle</text>
+  <text x="260.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">persistent memory across conversations</text>
+  <line x1="260.0" y1="80" x2="260.0" y2="510" stroke="rgba(0,0,0,0.06)" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="260.0" cy="110" r="16" fill="#007C35" opacity="0.2"/>
+  <circle cx="260.0" cy="110" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="110" r="6" fill="#007C35"/>
+  <text x="290.0" y="106" class="mono" font-size="14" fill="#007C35" text-anchor="start" font-weight="bold">session start</text>
+  <text x="290.0" y="126" class="body" font-size="11" fill="#666666" text-anchor="start">Reads handoff notes from previous session</text>
+  <circle cx="260.0" cy="210" r="16" fill="#00A6DB" opacity="0.2"/>
+  <circle cx="260.0" cy="210" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="210" r="6" fill="#00A6DB"/>
+  <text x="290.0" y="206" class="mono" font-size="14" fill="#00A6DB" text-anchor="start" font-weight="bold">session work &lt;id&gt;</text>
+  <text x="290.0" y="226" class="body" font-size="11" fill="#666666" text-anchor="start">Marks focus issue, starts timer</text>
+  <circle cx="260.0" cy="310" r="16" fill="#FFCE02" opacity="0.2"/>
+  <circle cx="260.0" cy="310" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="310" r="6" fill="#FFCE02"/>
+  <text x="290.0" y="306" class="mono" font-size="14" fill="#FFCE02" text-anchor="start" font-weight="bold">session action</text>
+  <text x="290.0" y="326" class="body" font-size="11" fill="#666666" text-anchor="start">Records breadcrumbs that survive compression</text>
+  <circle cx="260.0" cy="410" r="16" fill="#F95838" opacity="0.2"/>
+  <circle cx="260.0" cy="410" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="410" r="6" fill="#F95838"/>
+  <text x="290.0" y="406" class="mono" font-size="14" fill="#F95838" text-anchor="start" font-weight="bold">/commit</text>
+  <text x="290.0" y="426" class="body" font-size="11" fill="#666666" text-anchor="start">Commits changes, records result on issue</text>
+  <circle cx="260.0" cy="510" r="16" fill="#007C35" opacity="0.2"/>
+  <circle cx="260.0" cy="510" r="10" fill="#FFFFFF"/>
+  <circle cx="260.0" cy="510" r="6" fill="#007C35"/>
+  <text x="290.0" y="506" class="mono" font-size="14" fill="#007C35" text-anchor="start" font-weight="bold">session end</text>
+  <text x="290.0" y="526" class="body" font-size="11" fill="#666666" text-anchor="start">Writes handoff notes for next session</text>
+  <path d="M 240.0 526 C 160 526 160 94 240.0 94" fill="none" stroke="#007C35" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <polygon points="240.0,94 230.0,89 230.0,99" fill="#007C35" opacity="0.7"/>
+  <text x="148" y="300" class="subheading" font-size="12" fill="#007C35" text-anchor="end">next conversation</text>
+  <text x="148" y="317" class="subheading" font-size="12" fill="#007C35" text-anchor="end">picks up here</text>
+  <rect x="80" y="550" width="360" height="50" rx="18" fill="rgba(0,0,0,0.06)"/>
+  <text x="260.0" y="580" class="body" font-size="13" fill="#1a1a1a" text-anchor="middle">Every breadcrumb and handoff note persists across restarts</text>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="445.2" cy="147.2" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="445.2" cy="182.6" r="8" fill="#007C35" opacity="0.5"/>
+    <circle cx="418.5" cy="141.4" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="479.3" cy="91.3" r="8" fill="#00A6DB" opacity="0.5"/>
+    <circle cx="414.2" cy="144.6" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="459.5" cy="127.5" r="8" fill="#FFCE02" opacity="0.5"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="465.4" cy="481.6" r="8" fill="#007C35" opacity="0.5"/>
+    <circle cx="462.3" cy="503.2" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="406.0" cy="439.0" r="8" fill="#007C35" opacity="0.5"/>
+    <circle cx="460.0" cy="497.8" r="8" fill="#00A6DB" opacity="0.5"/>
+    <circle cx="444.1" cy="504.2" r="8" fill="#FFB6C6" opacity="0.5"/>
+  </g>
+</svg>

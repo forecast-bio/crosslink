@@ -1,10 +1,12 @@
 ---
-title: "Rules Customization"
+title: "Rules customization"
 ---
+
+Rules are injected into agent sessions automatically and shape how agents write code, handle errors, and follow project conventions. Most teams only need to edit `project.md` — the rest works out of the box.
 
 Crosslink uses markdown files in `.crosslink/rules/` to define behavioral rules that are injected into AI sessions. You can customize these files to match your project's conventions.
 
-## Rule Files
+## Rule files
 
 | File | Purpose | Injected By |
 |------|---------|-------------|
@@ -16,13 +18,21 @@ Crosslink uses markdown files in `.crosslink/rules/` to define behavioral rules 
 | `web.md` | RFIP (prompt injection defense) | `pre-web-check.py` |
 | `rust.md`, `python.md`, etc. | Language-specific best practices | `prompt-guard.py` (auto-detected) |
 
-## How Rules Are Loaded
+&nbsp;
+
+---
+
+## How rules are loaded
 
 1. **`prompt-guard.py`** detects project languages by scanning for source files
 2. It loads `global.md`, `project.md`, and any relevant language rule files
 3. On the first prompt, full rules are injected; on subsequent prompts, a condensed version is used
 4. **`work-check.py`** loads the tracking mode file matching `hook-config.json`'s `tracking_mode`
 5. **`pre-web-check.py`** loads `web.md` before any web fetch
+
+&nbsp;
+
+---
 
 ## Customizing `global.md`
 
@@ -33,6 +43,10 @@ This file contains the core behavioral rules. Key sections:
 - **Style** — Consistent formatting, meaningful names, appropriate comments
 
 Edit to match your team's standards.
+
+&nbsp;
+
+---
 
 ## Customizing `project.md`
 
@@ -64,7 +78,11 @@ Example:
 - Error handling: anyhow for applications, thiserror for libraries
 ```
 
-## Language Rules
+&nbsp;
+
+---
+
+## Language rules
 
 Language-specific rule files are auto-detected based on source files in the project. Each file contains best practices for that language.
 
@@ -92,7 +110,11 @@ Available language rules:
 
 You can edit these files to add project-specific language conventions, or remove files for languages not used in your project to reduce noise.
 
-## Tracking Mode Rules
+&nbsp;
+
+---
+
+## Tracking mode rules
 
 Each tracking mode has its own markdown file that defines the enforcement wording. You can customize the tone and instructions per mode:
 
@@ -100,7 +122,11 @@ Each tracking mode has its own markdown file that defines the enforcement wordin
 - `tracking-normal.md` — Gentle reminders
 - `tracking-relaxed.md` — Minimal, informational
 
-## Resetting Rules
+&nbsp;
+
+---
+
+## Resetting rules
 
 To reset all rules to defaults:
 

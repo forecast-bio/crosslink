@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 520" width="680" height="520">
+  <defs>
+    <style>
+      .heading { font-family: Helvetica, Arial, sans-serif; }
+      .subheading { font-family: 'Times New Roman', Times, serif; font-style: italic; }
+      .body { font-family: Helvetica, Arial, sans-serif; }
+      .mono { font-family: 'IBM Plex Mono', 'SF Mono', monospace; }
+    </style>
+  </defs>
+  <!-- no background rect — page bg shows through -->
+  <text x="340.0" y="36" class="heading" font-size="22" fill="#000000" text-anchor="middle">Multi-agent coordination</text>
+  <text x="340.0" y="56" class="subheading" font-size="14" fill="#666666" text-anchor="middle">distributed locking via crosslink/hub</text>
+  <ellipse cx="130" cy="130" rx="75" ry="45" fill="#00A6DB" opacity="0.12"/>
+  <ellipse cx="130" cy="130" rx="65" ry="37" fill="#FFFFFF" opacity="0.85"/>
+  <text x="130" y="122" class="mono" font-size="12" fill="#00A6DB" text-anchor="middle" font-weight="bold">agent-frontend</text>
+  <text x="130" y="142" class="body" font-size="11" fill="#666666" text-anchor="middle">working #12</text>
+  <ellipse cx="340" cy="130" rx="75" ry="45" fill="#007C35" opacity="0.12"/>
+  <ellipse cx="340" cy="130" rx="65" ry="37" fill="#FFFFFF" opacity="0.85"/>
+  <text x="340" y="122" class="mono" font-size="12" fill="#007C35" text-anchor="middle" font-weight="bold">agent-backend</text>
+  <text x="340" y="142" class="body" font-size="11" fill="#666666" text-anchor="middle">working #15</text>
+  <ellipse cx="550" cy="130" rx="75" ry="45" fill="#F95838" opacity="0.12"/>
+  <ellipse cx="550" cy="130" rx="65" ry="37" fill="#FFFFFF" opacity="0.85"/>
+  <text x="550" y="122" class="mono" font-size="12" fill="#F95838" text-anchor="middle" font-weight="bold">agent-infra</text>
+  <text x="550" y="142" class="body" font-size="11" fill="#666666" text-anchor="middle">working #18</text>
+  <rect x="80" y="230" width="520" height="120" rx="30" fill="#FFCE02" opacity="0.12"/>
+  <rect x="84" y="234" width="512" height="112" rx="28" fill="#FFFFFF" opacity="0.85"/>
+  <text x="340" y="260" class="subheading" font-size="18" fill="#000000" text-anchor="middle">crosslink/hub branch</text>
+  <rect x="100" y="270" width="140" height="28" rx="14" fill="#00A6DB" opacity="0.18"/>
+  <text x="170.0" y="289.0" class="mono" font-size="12" fill="#00A6DB" text-anchor="middle" font-weight="bold">#12 → frontend</text>
+  <rect x="255" y="270" width="140" height="28" rx="14" fill="#007C35" opacity="0.18"/>
+  <text x="325.0" y="289.0" class="mono" font-size="12" fill="#007C35" text-anchor="middle" font-weight="bold">#15 → backend</text>
+  <rect x="410" y="270" width="140" height="28" rx="14" fill="#F95838" opacity="0.18"/>
+  <text x="480.0" y="289.0" class="mono" font-size="12" fill="#F95838" text-anchor="middle" font-weight="bold">#18 → infra</text>
+  <line x1="130.0" y1="175.0" x2="150.0" y2="225.0" stroke="#00A6DB" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="150.0,225.0 143.3,217.6 149.7,215.0" fill="#00A6DB"/>
+  <line x1="340.0" y1="175.0" x2="340.0" y2="225.0" stroke="#007C35" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="340.0,225.0 336.6,215.6 343.4,215.6" fill="#007C35"/>
+  <line x1="550.0" y1="175.0" x2="530.0" y2="225.0" stroke="#F95838" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="530.0,225.0 530.3,215.0 536.7,217.6" fill="#F95838"/>
+  <text x="340.0" y="325" class="body" font-size="12" fill="#666666" text-anchor="middle">sync via git push/pull to coordination branch</text>
+  <rect x="380" y="360" width="220" height="28" rx="14" fill="#007C35" opacity="0.12"/>
+  <circle cx="394" cy="374" r="4" fill="#007C35"/>
+  <text x="490" y="378" class="body" font-size="11" fill="#007C35" text-anchor="middle">daemon: auto-sync + heartbeat</text>
+  <rect x="40" y="400" width="600" height="95" rx="20" fill="rgba(0,0,0,0.06)"/>
+  <text x="340.0" y="428" class="heading" font-size="15" fill="#000000" text-anchor="middle">Agents self-coordinate — no manual lock management</text>
+  <circle cx="80" cy="455" r="4" fill="#007C35"/>
+  <text x="92" y="459" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">lock before work</text>
+  <circle cx="225" cy="455" r="4" fill="#00A6DB"/>
+  <text x="237" y="459" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">heartbeat monitoring</text>
+  <circle cx="370" cy="455" r="4" fill="#FFCE02"/>
+  <text x="382" y="459" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">stale lock recovery</text>
+  <circle cx="515" cy="455" r="4" fill="#F95838"/>
+  <text x="527" y="459" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">conflict-free merges</text>
+  <circle cx="80" cy="477" r="4" fill="#007C35"/>
+  <text x="92" y="481" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">machine identity</text>
+  <circle cx="225" cy="477" r="4" fill="#00A6DB"/>
+  <text x="237" y="481" class="body" font-size="11" fill="#1a1a1a" text-anchor="start">automatic retry</text>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="43.9" cy="142.8" r="8" fill="#FFB6C6" opacity="0.5"/>
+    <circle cx="16.0" cy="96.0" r="8" fill="#00A6DB" opacity="0.5"/>
+    <circle cx="59.8" cy="103.1" r="8" fill="#007C35" opacity="0.5"/>
+    <circle cx="39.7" cy="88.6" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="26.4" cy="101.4" r="8" fill="#F95838" opacity="0.5"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="658.7" cy="151.8" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="648.5" cy="96.1" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="666.0" cy="89.1" r="8" fill="#FFCE02" opacity="0.5"/>
+    <circle cx="639.4" cy="138.7" r="8" fill="#F95838" opacity="0.5"/>
+    <circle cx="640.7" cy="87.9" r="8" fill="#FFCE02" opacity="0.5"/>
+  </g>
+</svg>

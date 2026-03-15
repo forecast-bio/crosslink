@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" width="1500" height="500">
+  <rect width="1500" height="500" fill="#F9F4F5"/>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="820" cy="260" rx="260" ry="200" fill="#FFB6C6"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <rect x="1050" y="50" width="320" height="160" rx="70" fill="#FFCE02" transform="rotate(8 1210.0 130.0)"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="200" cy="310" rx="200" ry="160" fill="#00A6DB"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="1380" cy="220" rx="150" ry="130" fill="#FFB6C6"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="60" cy="140" rx="120" ry="100" fill="#FFCE02"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="260" cy="190" r="90" fill="#007C35"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="320" cy="125" r="18" fill="#F95838"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="530" cy="280" rx="100" ry="75" fill="#FFB6C6"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <rect x="700" y="150" width="200" height="220" rx="60" fill="#007C35"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="870" cy="200" r="70" fill="#FFCE02"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="780" cy="170" r="22" fill="#F95838"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <ellipse cx="1150" cy="300" rx="110" ry="80" fill="#FFCE02"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="1350" cy="180" r="75" fill="#FFB6C6"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="1380" cy="230" r="30" fill="#00A6DB"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="1310" cy="150" r="20" fill="#F95838"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="450" cy="130" r="35" fill="#00A6DB"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="1020" cy="250" r="45" fill="#F95838"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="100" cy="370" r="30" fill="#007C35"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <circle cx="1430" cy="380" r="25" fill="#007C35"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <rect x="580" y="100" width="80" height="50" rx="25" fill="#F95838"/>
+  </g>
+  <g style="mix-blend-mode: multiply">
+    <rect x="1250" y="350" width="100" height="60" rx="30" fill="#00A6DB"/>
+  </g>
+</svg>

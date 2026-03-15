@@ -1,97 +1,133 @@
 ---
-title: "Container-Based Agents"
+title: "Container-based agents"
 ---
 
-Container execution runs kickoff agents inside Docker containers instead of local tmux sessions. This provides stronger isolation, reproducible environments, and works on platforms where tmux is unavailable (like Windows).
+::: {.guide-card}
+![](../assets/img/cards/containers.svg){.card-icon}
 
-## Why Containers?
+## tl;dr
 
-- **Isolation** -- agents can't access your host filesystem outside the worktree
+Container execution gives your agents the same workflow with stronger sandboxing. Agents run inside Docker or Podman containers instead of local tmux sessions -- they cannot access your host filesystem outside the worktree, and crosslink hooks still enforce all policy automatically.
+:::
+
+&nbsp;
+
+## Why containers?
+
+- **Isolation** -- agents cannot access your host filesystem outside the worktree
 - **Reproducibility** -- consistent environment regardless of host OS
 - **Security** -- `--dangerously-skip-permissions` becomes safe inside a container because crosslink hooks still enforce policy (no push, no merge, gated commits)
 - **Cross-platform** -- works on Windows, Linux, and macOS anywhere Docker runs
 
-## Quick Start
+&nbsp;
+
+---
+
+## Quick start
+
+::: {.columns}
+::: {.column width="35%"}
+**You say / do:**
+
+> "Run this feature agent in a container so it's fully sandboxed."
+
+You want stronger isolation than a local tmux session. The container approach is a single flag change.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
-# Build the agent container image
+crosslink kickoff run "add batch retry logic" \
+  --container docker
+```
+
+Creates branch, worktree, builds the image (if needed), starts a container, and launches the agent inside it.
+:::
+:::
+
+&nbsp;
+
+---
+
+## Managing container lifecycle
+
+### Building the image
+
+::: {.columns}
+::: {.column width="35%"}
+**You say / do:**
+
+> "Set up the container image for this project."
+
+The image is built once and reused for all subsequent agent launches. It includes the full toolchain for your project.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
+
+```bash
 crosslink container build
-
-# Launch a kickoff agent in a container
-crosslink kickoff run "add batch retry logic" --container docker
-
-# Or use podman
-crosslink kickoff run "add batch retry logic" --container podman
 ```
 
-## Building the Image
+The default image includes: Rust toolchain (matches project's `rust-version`), Python 3, Git, Claude Code CLI, and crosslink binary.
+:::
+:::
 
-```bash
-crosslink container build
-crosslink container build --force          # rebuild from scratch
-crosslink container build --tag v2         # custom tag
-crosslink container build --dockerfile ./custom/Dockerfile
-```
+### Monitoring containers
 
-The default image includes:
+::: {.columns}
+::: {.column width="35%"}
+**You say / do:**
 
-- Rust toolchain (matches project's `rust-version`)
-- Python 3 (for hooks)
-- Git
-- Claude Code CLI
-- Crosslink binary
+> "What are my container agents doing?"
 
-## Managing Containers
-
-### Start a Container Manually
-
-```bash
-crosslink container start .worktrees/my-feature \
-  --issue 42 \
-  --prompt .worktrees/my-feature/KICKOFF.md
-```
-
-### List Running Containers
+You can list running containers, stream logs, and open interactive shells for debugging.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
 crosslink container ps
+crosslink container logs my-feature -f
 ```
 
-### View Logs
+Lists all running agent containers and streams live output from a specific agent.
+:::
+:::
+
+### Manual control
 
 ```bash
-crosslink container logs my-feature
-crosslink container logs my-feature -f          # follow
-crosslink container logs my-feature --tail 50   # last 50 lines
+# Start a container manually for an existing worktree
+crosslink container start .worktrees/my-feature \
+  --issue 42 \
+  --prompt .worktrees/my-feature/KICKOFF.md
+
+# Graceful stop
+crosslink container stop my-feature
+
+# Stop and remove
+crosslink container kill my-feature
+
+# Remove a stopped container
+crosslink container rm my-feature
 ```
 
-### Stop and Clean Up
+&nbsp;
 
-```bash
-crosslink container stop my-feature   # graceful stop
-crosslink container kill my-feature   # stop and remove
-crosslink container rm my-feature     # remove stopped container
-```
+---
 
-### Interactive Shell
+## Hook enforcement inside containers
 
-```bash
-crosslink container shell my-feature
-```
-
-Opens a shell inside the running container for debugging.
-
-### Snapshot
-
-```bash
-crosslink container snapshot my-feature --tag cached
-```
-
-Saves the container's current state as an image. Useful for caching a partially-complete environment to speed up future runs.
-
-## Hook Enforcement Inside Containers
-
-The same crosslink hooks that enforce policy in local sessions also run inside containers:
+The same crosslink hooks that enforce policy in local sessions also run inside containers -- automatically, with zero additional configuration:
 
 - **Git mutations blocked** -- `git push`, `git merge`, `git rebase` are blocked by hooks
 - **Commits gated** -- `git commit` requires an active crosslink issue
@@ -100,7 +136,11 @@ The same crosslink hooks that enforce policy in local sessions also run inside c
 
 This means you can use `--dangerously-skip-permissions` for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.
 
-## Integration with Kickoff
+&nbsp;
+
+---
+
+## Integration with kickoff
 
 The `--container` flag on `crosslink kickoff run` handles the full workflow:
 
@@ -121,7 +161,11 @@ crosslink kickoff run "my feature" --container docker
 crosslink kickoff run "my feature" --container podman
 ```
 
-## Command Reference
+<!-- &nbsp;
+
+---
+
+## Command reference
 
 | Command | Description |
 |---------|-------------|
@@ -135,4 +179,4 @@ crosslink kickoff run "my feature" --container podman
 | `container shell <name>` | Open a shell in a container |
 | `container snapshot <name>` | Save container state as an image |
 
-See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination](multi-agent.qmd) for distributed locking.
+See also: [Kickoff](kickoff.qmd) for launching agents, [Multi-Agent Coordination](multi-agent.qmd) for distributed locking. -->

@@ -1,29 +1,68 @@
 ---
-title: "Claude Code Hooks"
+title: "Behavioral hooks"
 ---
 
-Crosslink includes behavioral hooks for [Claude Code](https://claude.com/claude-code) that inject best practice reminders into AI sessions. These hooks help ensure Claude follows coding standards without requiring manual prompting.
+::: {.guide-card}
+![](../assets/img/cards/hooks.svg){.card-icon}
 
-## Requirements
+## tl;dr
+
+Crosslink's hooks are guardrails that agents follow automatically. You configure them once; every agent session is checked on every action — enforcing code quality, issue tracking, and security without manual prompting.
+:::
+
+&nbsp;
+
+## How it works
+
+::: {.columns}
+::: {.column width="35%"}
+**You configure once:**
+
+Run `crosslink init` in your project. Hooks are installed into `.claude/hooks/` and activate automatically for every Claude Code session.
+
+No per-agent setup. No manual prompting. Every agent that touches this repo follows the same rules.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agents get checked on every action:**
+
+```
+Agent tries to edit a file
+  → work-check.py fires
+  → Has active issue? ✓ Proceed
+  → Is it a blocked git command? ✗ Block
+
+Agent finishes editing
+  → post-edit-check.py fires
+  → Stubs detected? Flag them
+  → Tests stale? Remind to run
+```
+:::
+:::
+
+### Requirements
 
 - **Python 3.6+** must be installed and available in your PATH
-- The VS Code extension will warn you if Python is not detected
 
-## Hook Overview
+&nbsp;
 
-The hooks are located in `.claude/hooks/` and configured in `.claude/settings.json`:
+---
 
-| Hook | Trigger | Purpose |
-|------|---------|---------|
-| `session-start.py` | Session start/resume | Loads context, syncs locks, detects stale sessions, restores breadcrumbs |
+## Hook overview
+
+| Hook | Fires When | What It Does |
+|------|------------|-------------|
+| `session-start.py` | Session start/resume | Loads context, syncs locks, restores breadcrumbs from last session |
 | `prompt-guard.py` | Every prompt | Injects language-specific best practices (condensed after first prompt) |
-| `work-check.py` | Before write/edit | Enforces issue tracking, blocks git mutations, warns on lock conflicts |
-| `post-edit-check.py` | After file edits | Stub detection, debounced linting, test reminders |
-| `pre-web-check.py` | Before web fetch | Injects RFIP (prompt injection defense) before fetching external content |
+| `work-check.py` | Before write/edit/bash | Enforces issue tracking, blocks git mutations, warns on lock conflicts |
+| `post-edit-check.py` | After file edits | Detects stubs, runs linter (debounced), reminds about tests |
+| `pre-web-check.py` | Before web fetch | Injects prompt injection defense before fetching external content |
 
-## Behavioral Guardrails
+### What agents must follow
 
-The hooks enforce these principles:
+The hooks enforce these principles transparently:
 
 1. **No Stubs** — Complete, working code. No placeholder functions, TODO comments, or `unimplemented!()` macros.
 2. **No Dead Code** — Identify incomplete features and complete them, or remove truly dead code.
@@ -31,16 +70,16 @@ The hooks enforce these principles:
 4. **Error Handling** — Proper error handling everywhere. No panics on bad input.
 5. **Security** — Validate input, use parameterized queries, no command injection.
 
-## Large Task Management
+### Large task management
 
-When code will exceed 500 lines, the hooks guide Claude to:
+When code will exceed 500 lines, the hooks guide agents to:
 
 1. Create a parent issue for the feature
 2. Break it into subissues for trackable components
-3. Inform the user about the multi-part implementation
-4. Work on one subissue at a time
+3. Work on one subissue at a time
+4. Inform the user about the multi-part implementation
 
-## Language Detection
+### Language detection
 
 The hooks auto-detect project languages and inject relevant best practices:
 
@@ -48,70 +87,64 @@ The hooks auto-detect project languages and inject relevant best practices:
 - **Python**: Type hints, proper exceptions, `pathlib`, context managers
 - **JavaScript/TypeScript**: `const`/`let`, async/await, strict mode, input validation
 - **Go**: Check errors, `context.Context`, `defer` for cleanup
-- **And more**: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir
+- **And 16 more**: Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Zig, Odin, Elixir, Haskell
 
-## Post-Edit Checking
+### Post-edit checking
 
-After every file edit, `post-edit-check.py`:
+After every file edit, `post-edit-check.py` automatically:
 
 1. **Stub detection** — Scans for TODO, FIXME, `pass`, `...`, `unimplemented!()`, empty functions
 2. **Linting** — Runs the appropriate linter (cargo clippy, flake8, eslint, go vet) with 10-second debouncing
 3. **Test reminders** — Checks if code has been modified since the last test run and reminds to run tests
 
-## Web Security (RFIP)
+### Web security (RFIP)
 
-The `pre-web-check.py` hook injects the Recursive Framing Interdiction Protocol before any web fetch or search. This defends against prompt injection by establishing that:
+The `pre-web-check.py` hook injects the Recursive Framing Interdiction Protocol before any web fetch. This defends against prompt injection by establishing that external content is **data, not instructions** — any instruction-like text in fetched content is flagged, not followed.
 
-- External content is **DATA**, not **INSTRUCTIONS**
-- Any instruction-like text in fetched content is treated as data to report, not orders to follow
-- Suspicious patterns (identity override, authority claims, urgency manipulation) are flagged
+### Drift detection
 
-## Installing Hooks in Other Projects
+When an agent's behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency automatically. The `reminder_drift_threshold` in `hook-config.json` controls sensitivity.
 
-```bash
-# Automatic setup
-crosslink init
+### Intervention tracking
 
-# Or manual copy
-cp -r /path/to/crosslink/.claude /your/project/
-cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
-```
-
-## Drift Detection
-
-The hooks include adaptive drift detection. When an agent's behavior diverges from project norms (e.g., repeatedly ignoring tracking requirements or skipping tests), the hooks increase reminder frequency. The `reminder_drift_threshold` in `hook-config.json` controls how many drift events trigger escalated reminders.
-
-## Intervention Tracking
-
-When a hook blocks an agent's action, or a human driver redirects the agent's approach, the intervention is logged:
+When a hook blocks an agent's action, or a human redirects the agent's approach, the intervention is logged for audit:
 
 ```bash
-crosslink intervene <issue-id> "Hook blocked git push attempt" \
+crosslink issue intervene <issue-id> "Hook blocked git push attempt" \
   --trigger tool_blocked \
   --context "Agent tried to push directly"
 ```
 
-Intervention data helps improve agent behavior over time and provides an audit trail of human oversight.
+&nbsp;
 
-## Context Verification
+---
 
-Verify that all expected crosslink files are deployed correctly:
+## Context verification
 
-```bash
-crosslink context check
-```
-
-This checks that all hook files, rule files, and command files exist and are valid. Useful after updates or when debugging hook issues.
-
-Measure context injection overhead:
+Verify that all hook and rule files are deployed correctly:
 
 ```bash
-crosslink context measure
-crosslink context measure -v  # verbose, with config details
+crosslink context check    # verify all files exist and are valid
+crosslink context measure  # measure context injection overhead
 ```
+
+&nbsp;
+
+---
 
 ## Customization
 
 Hook behavior is controlled by `.crosslink/hook-config.json`. See [Hook Configuration Reference](../reference/hook-config.qmd) for details.
 
 Rules are stored as markdown files in `.crosslink/rules/`. See [Rules Customization](../reference/rules.qmd).
+
+### Installing hooks in other projects
+
+```bash
+# Automatic setup (recommended)
+crosslink init
+
+# Or manual copy
+cp -r /path/to/crosslink/.claude /your/project/
+cp -r /path/to/crosslink/.crosslink/rules /your/project/.crosslink/
+```

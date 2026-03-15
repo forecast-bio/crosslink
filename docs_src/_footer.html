@@ -1,0 +1,143 @@
+<footer class="forecast-footer" id="forecast-footer">
+  <hr class="forecast-rule" />
+  <div class="forecast-wordmark-row">
+    <a href="https://forecast.bio" class="forecast-wordmark-link">
+      <img alt="Forecast" class="forecast-wordmark" id="forecastWordmark" />
+    </a>
+    <div class="forecast-confetti" id="forecastConfetti"></div>
+  </div>
+  <p class="forecast-copyright">&copy; 2026 Forecast Bio, Inc. &middot; Built with <a href="https://quarto.org">Quarto</a></p>
+</footer>
+
+<script>
+(function() {
+  // Move footer below Quarto's page navigation links
+  var footer = document.getElementById('forecast-footer');
+  var pageNav = document.querySelector('nav.page-navigation');
+  if (footer && pageNav && pageNav.parentNode) {
+    // Insert footer after the page navigation element
+    pageNav.parentNode.insertBefore(footer, pageNav.nextSibling);
+  } else {
+    // Fallback: append to content area
+    var contentArea = document.querySelector('#quarto-content main.content');
+    if (!contentArea) {
+      contentArea = document.querySelector('#quarto-content > .page-columns');
+    }
+    if (footer && contentArea) {
+      contentArea.appendChild(footer);
+    }
+  }
+
+  // Resolve wordmark path
+  var img = document.getElementById('forecastWordmark');
+  if (img) {
+    var candidates = [
+      'assets/img/forecast-wordmark.svg',
+      '../assets/img/forecast-wordmark.svg',
+      '../../assets/img/forecast-wordmark.svg',
+    ];
+    var tryIndex = 0;
+    function tryNext() {
+      if (tryIndex < candidates.length) {
+        img.src = candidates[tryIndex++];
+      }
+    }
+    img.onerror = tryNext;
+    tryNext();
+  }
+
+  // Confetti dots — cone shape emanating up-right from logo baseline.
+  // Color distribution matches forecast.bio home page:
+  //   grey(57%) > blue(16%) > yellow(14%) > pink(7%) > red(7%)
+  var COLOR_TABLE = [
+    { color: '#ede2e4', weight: 10 }, // warm grey
+    { color: '#FFB6C6', weight: 5 },  // pink
+    { color: '#F95838', weight: 5 },  // red
+    { color: '#00A6DB', weight: 8 },  // blue
+    { color: '#FFCE02', weight: 7 },  // yellow
+  ];
+  var TOTAL_WEIGHT = 0;
+  for (var ci = 0; ci < COLOR_TABLE.length; ci++) TOTAL_WEIGHT += COLOR_TABLE[ci].weight;
+
+  function pickColor() {
+    var r = Math.random() * TOTAL_WEIGHT;
+    for (var ci = 0; ci < COLOR_TABLE.length; ci++) {
+      r -= COLOR_TABLE[ci].weight;
+      if (r <= 0) return COLOR_TABLE[ci].color;
+    }
+    return COLOR_TABLE[0].color;
+  }
+
+  var DOT_COUNT = 14;
+  var DOT_SIZE = 11;
+
+  var holder = document.getElementById('forecastConfetti');
+  if (!holder) return;
+
+  // Cone geometry: origin at (0, ORIGIN_Y), expanding up-right
+  var FIELD_W = 180;
+  var ORIGIN_Y = 45;       // logo baseline within the confetti container
+  var SLOPE = -0.28;       // mean trend: rises 28px per 100px rightward
+  var CONE_HALF_ANGLE = 0.22; // cone half-width as fraction of x distance
+  var NOISE = 10;          // extra random noise on top of cone positioning
+
+  function sampleDot() {
+    for (var attempts = 0; attempts < 50; attempts++) {
+      var x = Math.random() * FIELD_W;
+      var meanY = ORIGIN_Y + SLOPE * x;
+      var spread = Math.max(5, x * CONE_HALF_ANGLE);
+      var y = meanY + (Math.random() - 0.5) * 2 * spread;
+      // Extra noise to fuzz the cone edges
+      x += (Math.random() - 0.5) * NOISE;
+      y += (Math.random() - 0.5) * NOISE;
+      if (x >= 0) return { x: Math.floor(x), y: Math.floor(y) };
+    }
+    return { x: 0, y: ORIGIN_Y };
+  }
+
+  var dots = [];
+  for (var i = 0; i < DOT_COUNT; i++) {
+    var dot = document.createElement('div');
+    dot.className = 'forecast-dot';
+    dot.style.width = DOT_SIZE + 'px';
+    dot.style.height = DOT_SIZE + 'px';
+    dot.style.backgroundColor = pickColor();
+
+    var pos = sampleDot();
+    dot.style.left = pos.x + 'px';
+    dot.style.top = pos.y + 'px';
+    dot.style.opacity = '0';
+    holder.appendChild(dot);
+    dots.push(dot);
+  }
+
+  // Sort left-to-right for sequential reveal (emanating from logo)
+  dots.sort(function(a, b) {
+    return parseFloat(a.style.left) - parseFloat(b.style.left);
+  });
+
+  var revealed = false;
+  function revealDots() {
+    if (revealed) return;
+    revealed = true;
+    dots.forEach(function(dot, i) {
+      setTimeout(function() {
+        dot.style.transition = 'opacity 0.4s ease-in';
+        dot.style.opacity = '1';
+      }, i * 50);
+    });
+  }
+
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function(entries) {
+      if (entries[0].isIntersecting) {
+        revealDots();
+        observer.disconnect();
+      }
+    }, { threshold: 0.1 });
+    observer.observe(holder);
+  } else {
+    revealDots();
+  }
+})();
+</script>

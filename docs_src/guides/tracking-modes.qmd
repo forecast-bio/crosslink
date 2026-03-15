@@ -1,18 +1,54 @@
 ---
-title: "Tracking Modes"
+title: "Tracking modes"
 ---
 
-Crosslink enforces issue tracking at three levels. The tracking mode controls how aggressively the `work-check.py` hook requires an active issue before allowing code changes.
+::: {.guide-card}
+![](../assets/img/cards/local-first.svg){.card-icon}
 
-## Mode Comparison
+## tl;dr
 
-| Mode | Hook Behavior | Prompt Language | Best For |
-|------|---------------|-----------------|----------|
-| **strict** | Blocks Write/Edit/Bash without an active issue | ALL CAPS MANDATORY, "ABSOLUTE RULE" | Teams that want every change tracked |
-| **normal** | Reminds but allows proceeding without an issue | Soft "should" language, gentle nudges | Balanced tracking without blocking quick fixes |
-| **relaxed** | No enforcement — only git mutation blocks | Minimal — just mentions crosslink is available | Users who want tracking opt-in only |
+Crosslink enforces issue tracking at three levels. You set the mode once; agents are automatically held to it on every action.
+:::
 
-## Setting the Mode
+&nbsp;
+
+## How it works
+
+::: {.columns}
+::: {.column width="35%"}
+**You configure:**
+
+Set `tracking_mode` in `.crosslink/hook-config.json` to control how strictly agents must track their work.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agents experience:**
+
+- **strict** — blocked from editing without an active issue
+- **normal** — reminded but allowed to proceed
+- **relaxed** — no enforcement, only git mutation blocks
+:::
+:::
+
+&nbsp;
+
+---
+
+## Mode comparison
+
+| Mode | Hook Behavior | Best For |
+|------|---------------|----------|
+| **strict** | Blocks Write/Edit/Bash without an active issue | Teams that want every change tracked |
+| **normal** | Reminds but allows proceeding without an issue | Balanced tracking without blocking quick fixes |
+| **relaxed** | No enforcement — only git mutation blocks | Users who want tracking opt-in only |
+
+&nbsp;
+
+---
+
+## Setting the mode
 
 Edit `.crosslink/hook-config.json`:
 
@@ -24,55 +60,50 @@ Edit `.crosslink/hook-config.json`:
 
 Changes take effect on the next prompt.
 
-## What's Always Enforced
+### What's always enforced
 
 Regardless of tracking mode, these are **always blocked**:
 
-- **Git mutations**: `git push`, `git commit`, `git merge`, `git rebase`, `git checkout -b`, etc.
-- These are human-only operations. The AI should never push code or create commits without explicit user instruction through normal git workflows.
+- **Git mutations**: `git push`, `git merge`, `git rebase`, `git reset`, `git stash`, `git tag`, etc.
+- These are human-only operations. Agents should never push code without explicit instruction.
+
+**Gated** (require an active crosslink issue):
+
+- `git commit` — allowed only when the agent has an active work item via `crosslink session work <id>` or the `/commit` skill.
 
 Read-only git commands (`git status`, `git diff`, `git log`, `git show`, `git branch`) are always allowed.
 
-## Strict Mode
+### Strict mode
 
 **File:** `.crosslink/rules/tracking-strict.md`
 
-In strict mode, the hook:
+The hook checks if the agent has an active work item (`crosslink session work <id>`). If not, all Write, Edit, and Bash operations are **blocked**. The agent must create an issue first:
 
-1. Checks if there's an active session with a work item set (`crosslink session work <id>`)
-2. If no active work item, **blocks** the Write/Edit/Bash tool with an error message
-3. Requires the AI to create an issue and set it as active before making changes
-4. In multi-agent mode, also warns about lock conflicts
+```bash
+crosslink quick "describe the work" -p medium -l feature
+```
 
 This is the recommended mode for teams and production codebases.
 
-## Normal Mode
+### Normal mode
 
 **File:** `.crosslink/rules/tracking-normal.md`
 
-In normal mode, the hook:
+Same check, but the hook **reminds** the agent instead of blocking. Operations proceed with a gentle nudge to create an issue. Good for solo developers who want tracking most of the time.
 
-1. Checks for an active work item
-2. If none, **reminds** the AI to create one but allows the operation to proceed
-3. Uses gentle "should" language rather than mandatory directives
-
-Good for solo developers who want tracking most of the time but don't want to be blocked on quick fixes.
-
-## Relaxed Mode
+### Relaxed mode
 
 **File:** `.crosslink/rules/tracking-relaxed.md`
 
-In relaxed mode, the hook:
+No issue-tracking enforcement. Only git mutations are blocked (same as all modes). Best for projects where crosslink is used occasionally.
 
-1. Only blocks git mutations (same as all modes)
-2. Does not check for active work items
-3. Mentions crosslink is available but doesn't enforce usage
+&nbsp;
 
-Best for projects where crosslink is used occasionally, or when onboarding new users who aren't ready for strict tracking.
+---
 
-## Customizing Mode Rules
+## Customizing mode rules
 
-Each mode loads its instructions from `.crosslink/rules/tracking-{mode}.md`. You can edit these files to customize the wording, add project-specific rules, or adjust the enforcement level within a mode.
+Each mode loads its instructions from `.crosslink/rules/tracking-{mode}.md`. Edit these files to customize wording or add project-specific rules.
 
 To reset to defaults:
 

@@ -2,6 +2,18 @@
 title: "Installation"
 ---
 
+&nbsp;
+
+::: {.guide-card}
+![](../assets/img/cards/installation.svg){.card-icon}
+
+## tl;dr
+
+Install crosslink via `cargo install crosslink`, then run `crosslink init` in your project directory to get started.
+:::
+
+&nbsp;
+
 ## From crates.io
 
 ```bash
@@ -10,7 +22,11 @@ cargo install crosslink
 
 The `crosslink` binary will be available in your PATH after install.
 
-## Build from Source
+&nbsp;
+
+---
+
+## Build from source
 
 ```bash
 git clone https://github.com/forecast-bio/crosslink.git
@@ -25,7 +41,11 @@ cargo build --release
 # Binary at target/release/crosslink
 ```
 
-## VS Code Extension
+&nbsp;
+
+---
+
+## VS Code extension
 
 Search **"Crosslink Issue Tracker"** in VS Code Extensions, or visit the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=forecast-bio.crosslink-issue-tracker).
 
@@ -36,13 +56,21 @@ The extension bundles the CLI binary and provides:
 - Auto-starts daemon when a `.crosslink` project is detected
 - Cross-platform: Windows, Linux, macOS
 
+&nbsp;
+
+---
+
 ## Requirements
 
 - **Rust 1.87+** (for `cargo install`) — [install rustup](https://rustup.rs/)
 - **Python 3.6+** — required for Claude Code hooks
 - **Git** — required for multi-agent coordination features
 
-## Initialize a Project
+&nbsp;
+
+---
+
+## Initialize a project
 
 After installing, run in any project directory:
 
@@ -50,4 +78,6 @@ After installing, run in any project directory:
 crosslink init
 ```
 
-This sets up the `.crosslink/` directory, Claude Code hooks, and default rules. See [Quick Start](quickstart.qmd) for next steps.
+The interactive TUI walkthrough guides you through initial configuration — choosing tracking mode, setting up hooks, and configuring agent identity. Sensible defaults are pre-selected so you can accept them all to get started fast.
+
+This sets up the `.crosslink/` directory, Claude Code hooks, and default rules. See [Your First Agent Session](quickstart.qmd) for next steps.

@@ -1,76 +1,172 @@
 ---
-title: "Session Workflow"
+title: "Session workflow"
 ---
 
-Sessions are crosslink's core mechanism for preserving context across AI conversations. They track what you're working on, record breadcrumbs, and pass handoff notes to the next session.
+::: {.guide-card}
+![](../assets/img/cards/session-memory.svg){.card-icon}
 
-## The Session Lifecycle
+## tl;dr
 
-```
+Sessions are crosslink's memory system. Your agents use them automatically to preserve context across conversations — tracking what's being worked on, recording breadcrumbs, and passing handoff notes to the next session.
+:::
+
+&nbsp;
+
+## The session lifecycle
+
+Every agent conversation follows this cycle. The hooks handle most of it automatically — you just provide direction.
+
+::: {.column-screen .center}
+![](../assets/img/session-flow.svg){width="750px"}
+:::
+
+
+<!-- ```
 session start → session work <id> → session action "..." → session end --notes "..."
      ↑                                                              ↓
      └──────────────── next session reads handoff notes ────────────┘
-```
+``` -->
 
-### Starting a Session
+
+### Starting a session
+
+::: {.columns}
+::: {.column width="35%"}
+**You start a new conversation:**
+
+The agent's `session-start` hook fires automatically, showing handoff notes from the previous session, cleaning up stale sessions, and displaying open issues.
+
+Your agent picks up exactly where the last one left off.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
+# Hook fires automatically on session start
 crosslink session start
+# Output:
+# Previous handoff: "Fixed auth bug #3.
+#   Dark mode (#2) is next priority."
+# Open issues: #2 (high), #5 (medium)
 ```
+:::
+:::
 
-On startup, crosslink:
+### Setting focus
 
-1. Shows handoff notes from the previous session
-2. Checks for stale sessions (idle >4 hours) and auto-ends them
-3. Displays open and ready issues
+::: {.columns}
+::: {.column width="35%"}
+**You say:**
 
-### Setting Your Focus
+> "Work on the dark mode feature"
+
+The agent finds the matching issue and claims it as its active focus. The work-check hook uses this to track which issue is active — all subsequent code changes are attributed to this issue.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
-crosslink session work 3
+crosslink session work 2
+# Output: Now working on: #2 Add dark mode toggle
 ```
 
-Marks issue #3 as your current focus. This is shown in session status and used by hooks to track which issue is active.
-
-### Recording Breadcrumbs
+Or if no issue exists yet:
 
 ```bash
-crosslink session action "Found root cause in refresh_token()"
+crosslink quick "Add dark mode toggle" -p high -l feature
+# Creates issue AND sets it as focus in one step
 ```
+:::
+:::
 
-Breadcrumbs survive context compression. When the AI's context window fills up and resets, the session-start hook restores the last recorded action so the AI knows where it left off.
+### Recording breadcrumbs
 
-### Ending a Session
+::: {.columns}
+::: {.column width="35%"}
+**While working**, the agent periodically records what it's doing. These breadcrumbs survive context compression — when the AI's context window fills up and resets, the session hook restores the last breadcrumb so the agent knows where it left off.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
-crosslink session end --notes "Fixed auth bug #3. Token refresh now handles 401 responses. Dark mode (#2) is next priority."
+crosslink session action "Found theme toggle in settings.tsx, \
+  implementing CSS variable approach"
 ```
 
-Handoff notes are the most important part of the workflow. Write them as if briefing a colleague who's taking over your work.
+```bash
+crosslink session action "Dark mode CSS done, writing tests"
+```
+:::
+:::
 
-### Checking Status
+### Ending a session
+
+::: {.columns}
+::: {.column width="35%"}
+**You say:**
+
+> "That's good for now, let's wrap up"
+
+The agent writes handoff notes summarizing what was done, what's in progress, and what's next — as if briefing a colleague taking over.
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
+
+```bash
+crosslink session end --notes "Implemented dark mode \
+  toggle in settings.tsx. CSS variables working, tests \
+  passing. Still need: system preference detection and \
+  persistence to localStorage. Issue #5 is next."
+```
+:::
+:::
+
+### Checking status
+
+::: {.columns}
+::: {.column width="35%"}
+**You ask:**
+
+> "What are you working on?"
+:::
+::: {.column width="5%"}
+→
+:::
+::: {.column width="60%"}
+**Agent executes:**
 
 ```bash
 crosslink session status
+# Session #12 (started 2026-03-11 14:30)
+# Working on: #2 Add dark mode toggle
+# Duration: 23 minutes
 ```
+:::
+:::
 
-Shows: session number, duration, current focus issue, last recorded action.
+ 
 
-### Retrieving Previous Handoff
+---
 
-```bash
-crosslink session last-handoff
-```
+## Extra features
 
-Read the handoff notes from the most recent ended session.
+### Stale session detection
 
-## Stale Session Detection
+Sessions idle for more than 4 hours are automatically ended on the next `session start`. This prevents "ghost sessions" from accumulating when an agent session is abandoned without a clean end. The auto-end message notes that handoff notes may be incomplete.
 
-Sessions idle for more than 4 hours are automatically ended on the next `session start`. The auto-end message notes that handoff notes may be incomplete.
-
-This prevents "ghost sessions" that accumulate when an AI session is abandoned without a clean end.
-
-## Context Compression Recovery
+### Context compression recovery
 
 When Claude Code's context window fills up, it compresses earlier messages. The `session-start.py` hook fires on resume and:
 
@@ -79,11 +175,15 @@ When Claude Code's context window fills up, it compresses earlier messages. The 
 3. Injects the last recorded `session action` as a breadcrumb
 4. Displays current session state
 
-**Best practice:** Run `crosslink session action "..."` before doing anything that might trigger context compression (large file reads, many tool calls).
+This happens transparently — the agent recovers and continues working without losing track of what it was doing.
 
-## Workflow Tips
+ 
 
-- **One session per conversation.** Don't manually start multiple sessions in one chat.
+---
+
+## Tips
+
+- **Agents handle sessions automatically.** The hooks manage start, focus, breadcrumbs, and end — you just provide high-level direction.
 - **Write handoff notes for your future self.** Be specific about what's done, what's in progress, and what's next.
-- **Use `session action` liberally.** It's your insurance against context loss.
-- **Use `crosslink quick`** to create + label + start working in one step.
+- **Breadcrumbs are insurance.** `session action` is your safeguard against context loss — agents record them frequently during complex work.
+- **`crosslink quick` is the fast path.** Creates an issue, labels it, and sets focus in one command.
