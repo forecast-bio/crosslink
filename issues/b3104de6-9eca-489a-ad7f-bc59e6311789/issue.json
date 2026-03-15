@@ -1,0 +1,11 @@
+{
+  "uuid": "b3104de6-9eca-489a-ad7f-bc59e6311789",
+  "display_id": 200,
+  "title": "Add context to lock display in agent status and issue list",
+  "description": "When agent status shows 'Locks: #2, #3' there is no explanation of what a lock is, why the agent holds it, or what the user should do about it. For a new user this looks like a stalemate. Should add brief inline context like 'Locks prevent other agents from editing these issues concurrently' or link to docs. Also consider whether locks should be shown at all in single-agent mode. Ref: bsky thread lowd.cc/3mh4vf3fias2x",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "maxine--basel",
+  "created_at": "2026-03-15T22:43:17.448823Z",
+  "updated_at": "2026-03-15T22:43:17.448823Z"
+}
