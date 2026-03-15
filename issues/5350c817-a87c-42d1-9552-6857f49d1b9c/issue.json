@@ -1,0 +1,11 @@
+{
+  "uuid": "5350c817-a87c-42d1-9552-6857f49d1b9c",
+  "display_id": 198,
+  "title": "Add first-use guidance: explain what crosslink does after init",
+  "description": "New users who run crosslink init and then start using commands have no mental model of what crosslink is doing for them. Daniel Lowd said 'I have no idea if anything is happening' and 'I don't think it's doing anything at all' despite session tracking working correctly. Need a brief orientation after init and/or session start that explains: what crosslink tracks, what value it provides, and what the minimal workflow looks like. Ref: bsky thread lowd.cc/3mh4vf3fias2x",
+  "status": "open",
+  "priority": "high",
+  "created_by": "maxine--basel",
+  "created_at": "2026-03-15T22:43:14.463208Z",
+  "updated_at": "2026-03-15T22:43:14.463208Z"
+}
