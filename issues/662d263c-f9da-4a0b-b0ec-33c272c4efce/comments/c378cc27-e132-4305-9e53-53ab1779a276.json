@@ -1,0 +1,8 @@
+{
+  "uuid": "c378cc27-e132-4305-9e53-53ab1779a276",
+  "issue_uuid": "662d263c-f9da-4a0b-b0ec-33c272c4efce",
+  "author": "maxine--refactor-command--reinit",
+  "content": "Added 30 integration tests covering canonical paths, alias hints, top-level shortcuts, and --dry-run normalization. All pass.",
+  "created_at": "2026-03-10T19:56:26.007369Z",
+  "kind": "note"
+}

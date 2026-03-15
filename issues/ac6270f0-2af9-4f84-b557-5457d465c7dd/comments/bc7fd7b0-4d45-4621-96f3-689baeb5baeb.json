@@ -1,0 +1,8 @@
+{
+  "uuid": "bc7fd7b0-4d45-4621-96f3-689baeb5baeb",
+  "issue_uuid": "ac6270f0-2af9-4f84-b557-5457d465c7dd",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "[result] Phase 1 complete. New: mod.rs (12 tests), issues_tab.rs (list+detail, 16 tests), tabs.rs (4 tests), commands/tui.rs. Modified: Cargo.toml, commands/mod.rs, main.rs. All tests pass, clippy clean. Graceful terminal cleanup via panic hook.",
+  "created_at": "2026-03-02T17:42:33.314478Z",
+  "kind": "note"
+}

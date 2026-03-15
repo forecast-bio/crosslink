@@ -1,0 +1,8 @@
+{
+  "uuid": "920618d5-5226-4615-8a24-36f121c5e06b",
+  "issue_uuid": "781606a3-280a-4849-8c59-a8f289805ae0",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "Fixed ADR findings:\n\nCRITICAL: C1 (RAII terminal guard), C2 (UTF-8 safe truncation)\nHIGH: H2 (lazy DB open), H3 (event_scroll usize), H4 (panic hook restore)\nMEDIUM: M3 (clipboard flash feedback), M4 (detail Esc to prev view), M5 (tab click char width), M6 (flash only on click/scroll), M7 (tree depth limit)\nLOW: L4 (unused field), L7 (future timestamp), L8 (y:Copy hints)\n\nDeferred: H1 (async I/O), M1 (scroll clamping), M2 (q from detail), L1-L3/L5-L6 (minor consistency)\n\n123 tests pass, clippy clean, Cargo.lock regenerated.",
+  "created_at": "2026-03-02T20:49:46.121331Z",
+  "kind": "result"
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "c81c1adc-02c2-4aa4-99dd-fb10b99a8e8e",
+  "issue_uuid": "94bda4b1-1175-436b-9b0c-899fa3567ca6",
+  "author": "maxine-at-forecast--noether",
+  "content": "Completed: commit 41d8b57 — restrictive Unix permissions on SSH keys",
+  "created_at": "2026-03-02T08:58:25.444136Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALk3xqsL+kY+Tdk9q1sWrq0sRHVt/qu+CA6w7ffMfVSMWYPY/bErfSSFFOrPO251t4I2JcCJw6xr/hi0b2xv6Bg=="
+}

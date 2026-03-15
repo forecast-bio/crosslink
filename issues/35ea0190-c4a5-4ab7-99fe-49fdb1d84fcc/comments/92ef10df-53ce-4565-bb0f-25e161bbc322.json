@@ -1,0 +1,8 @@
+{
+  "uuid": "92ef10df-53ce-4565-bb0f-25e161bbc322",
+  "issue_uuid": "35ea0190-c4a5-4ab7-99fe-49fdb1d84fcc",
+  "author": "maxine-at-forecast--noether--config-tracker-remote",
+  "content": "Observation: Edits were applied to the main repo (/Users/max/git-forecast/crosslink/crosslink/src/) rather than the worktree. The Read/Edit tools resolved to the main repo path. Need to copy changes to the worktree files.",
+  "created_at": "2026-03-04T21:52:37.189525Z",
+  "kind": "observation"
+}

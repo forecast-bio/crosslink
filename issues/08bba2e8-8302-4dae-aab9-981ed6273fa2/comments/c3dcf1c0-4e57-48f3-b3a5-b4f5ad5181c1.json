@@ -1,0 +1,10 @@
+{
+  "uuid": "c3dcf1c0-4e57-48f3-b3a5-b4f5ad5181c1",
+  "issue_uuid": "08bba2e8-8302-4dae-aab9-981ed6273fa2",
+  "author": "m1",
+  "content": "Created GH issue #78: https://github.com/forecast-bio/crosslink/issues/78 — covers README rewrite, ELI5 polish, and full Quarto docs site in Forecast house style with GitHub Pages deployment",
+  "created_at": "2026-02-28T00:21:49.308791Z",
+  "kind": "result",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABApvKHKuXYzGfoFi/6BeVLETtBLDvdQf/BvB7lWaQMiu7YJkLYFtpur6EkrDXwVzHXorirKgbZSARCb4KcmxArCg=="
+}

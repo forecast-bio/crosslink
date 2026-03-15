@@ -1,0 +1,8 @@
+{
+  "uuid": "59de5317-4346-43d7-8bbc-f3b35b7ce8b1",
+  "issue_uuid": "3df560a2-df46-40ac-bd0d-aafe2d725a3e",
+  "author": "maxine--tui-startup-sync",
+  "content": "Decision: Made 'r' a global keybinding that triggers full sync (fetch + hydrate) rather than keeping per-tab local refresh. ':r' command palette remains as local-only disk refresh. Added force_refresh() to Tab trait so sync completion can reload data for eagerly-loaded tabs (IssuesTab, KnowledgeTab). Tabs with on_enter refresh (AgentsTab, ConfigTab, MilestonesTab) use default force_refresh (on_leave + on_enter).",
+  "created_at": "2026-03-10T23:43:08.631620Z",
+  "kind": "decision"
+}

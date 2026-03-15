@@ -1,0 +1,10 @@
+{
+  "uuid": "72047a39-4df7-4f25-a038-7b600f64676f",
+  "issue_uuid": "18fb7c59-2d4f-4d4a-833a-6df03ad8d3d5",
+  "author": "m1",
+  "content": "Plan: Create two GH issues — (1) track driver signing key in interventions and trust approvals, (2) consolidated crosslink config command",
+  "created_at": "2026-02-28T20:42:35.982229Z",
+  "kind": "plan",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6R1iBET3xcu1lX3bqhs9aOx+KCOG+QjTTwHhVxCgJQHpsHRbmW+BF4XgwKCMfmK19kdxBxCdDa2VkrxMGh3tCg=="
+}

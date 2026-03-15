@@ -1,0 +1,10 @@
+{
+  "uuid": "c022524b-a279-4976-a373-d4443e76c9e0",
+  "issue_uuid": "65587504-47e2-45d2-9884-b58c4caa41cf",
+  "author": "m1",
+  "content": "Agent launched in tmux session feat-add-knowledge-manager. Worktree: .worktrees/add-knowledge-manager, branch: feature/add-knowledge-manager. Implements KnowledgeManager struct modeled after SyncManager with orphan branch pattern, manual YAML frontmatter parser, and full test suite.",
+  "created_at": "2026-02-28T05:47:27.727816Z",
+  "kind": "result",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAWsTXp6fUtX1c2P7x0WZHeAhqj5qbtSWBPTFBWallNYAaot+vvC7QyfGUAKVXbB8JXZc5UnFMye+JsH8S1IsPDw=="
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "cac0b9d9-02c9-468d-ab7a-ba0b3d73fe0a",
+  "issue_uuid": "ecaea02f-0a45-464a-a50e-cf6e93f3bebb",
+  "author": "maxine--basel",
+  "content": "Fixed: (1) Changed banner ref in index.qmd from ../images/banner.svg to assets/img/banner.svg. (2) Added explicit resources list to _quarto.yml for banner.svg and forecast-wordmark.svg. (3) Updated generated docs/index.html and copied banner.svg to docs/assets/img/.",
+  "created_at": "2026-03-15T15:51:37.456889Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAj4WqH5BQkv4C2D3GCzhD02wtSSkqGYTz4tYbgRvbhcCnAHm0Fp9ahaar+EsEqht27LZWPm6PURYwcs6VBPmNCw=="
+}

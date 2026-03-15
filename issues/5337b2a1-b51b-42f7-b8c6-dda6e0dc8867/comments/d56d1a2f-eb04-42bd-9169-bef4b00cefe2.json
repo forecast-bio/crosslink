@@ -1,0 +1,10 @@
+{
+  "uuid": "d56d1a2f-eb04-42bd-9169-bef4b00cefe2",
+  "issue_uuid": "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867",
+  "author": "maxine--basel",
+  "content": "Creating a justfile at repo root with: (1) render-docs — copies SVG assets, runs quarto render, verifies output; (2) other common recipes for build, test, lint. The render-docs recipe will be usable in CI (docs.yml) to replace the bare quarto render call, ensuring assets are always copied correctly.",
+  "created_at": "2026-03-15T15:54:45.029082Z",
+  "kind": "plan",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqRktEHYpDRrRfuTii8ozVhPDLjer5Fer+XkA6G3PuVaw9Rl+WOpPBRP7GML79UczTlckKx5BqmZukp7cOuq9Bw=="
+}

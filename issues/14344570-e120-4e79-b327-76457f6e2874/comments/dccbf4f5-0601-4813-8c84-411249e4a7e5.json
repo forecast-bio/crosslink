@@ -1,0 +1,8 @@
+{
+  "uuid": "dccbf4f5-0601-4813-8c84-411249e4a7e5",
+  "issue_uuid": "14344570-e120-4e79-b327-76457f6e2874",
+  "author": "maxine-at-forecast--noether--fix-signing",
+  "content": "Plan: Fix the three related bugs in agent signing initialization:\n\n1. **Key never published when hub doesn't exist**: In agent init, publish_agent_key() silently returns Ok(()) when hub cache isn't initialized. After sync creates the hub, nobody re-publishes. Fix: Add ensure_agent_key_published() to SyncManager, call it from sync_cmd after init_cache.\n\n2. **Bootstrap ordering**: In bootstrap(), configure_signing() (step 8) enables commit.gpgsign=true BEFORE publish_agent_key() (step 9). Step 9 then tries to commit with signing on, which can fail. Fix: Swap order — publish key first, then configure signing.\n\n3. **commit_trust_change uses signed commits during bootstrap**: The key-publishing commit should not require signing since signing isn't fully set up yet. Fix: Use -c commit.gpgsign=false for key-publishing commits via a new commit_trust_change_unsigned() path.\n\nAdditionally: Improve error messages when publish_agent_key() skips due to missing hub cache.",
+  "created_at": "2026-03-04T23:23:08.112040Z",
+  "kind": "plan"
+}

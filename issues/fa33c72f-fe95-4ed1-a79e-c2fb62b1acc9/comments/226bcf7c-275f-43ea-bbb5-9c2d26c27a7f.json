@@ -1,0 +1,8 @@
+{
+  "uuid": "226bcf7c-275f-43ea-bbb5-9c2d26c27a7f",
+  "issue_uuid": "fa33c72f-fe95-4ed1-a79e-c2fb62b1acc9",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Observation: crosslink session work state keeps resetting between tool calls — the session focus does not persist across hook checks. Working around by re-calling session work before each gated operation.",
+  "created_at": "2026-03-02T09:21:39.611159Z",
+  "kind": "observation"
+}

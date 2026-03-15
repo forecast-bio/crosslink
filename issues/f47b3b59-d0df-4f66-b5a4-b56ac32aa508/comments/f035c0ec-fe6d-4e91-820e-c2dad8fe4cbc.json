@@ -1,0 +1,10 @@
+{
+  "uuid": "f035c0ec-fe6d-4e91-820e-c2dad8fe4cbc",
+  "issue_uuid": "f47b3b59-d0df-4f66-b5a4-b56ac32aa508",
+  "author": "maxine-at-forecast--noether",
+  "content": "Created PR #151 for docs review. Branch feature/docs-review-updates has 2 commits: styling updates + comprehensive review fixes. Key findings: 30+ CLI commands were undocumented, archive syntax was stale, template list was wrong, Helvetica typo, missing Rust version req. All fixed.",
+  "created_at": "2026-03-02T08:04:56.892071Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQIckwqyeB9dOucxrdLYJOFG/QnEmWiZ60g/GCjVVoCeGYSXxi+IwUTR7riSnMLS/pLBnjLqFVA4QOuEs8WVKAA=="
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "082e8b07-2259-4d16-9972-e42eb7566e89",
+  "issue_uuid": "686ba9eb-de6d-4cf8-a43f-82fbc9a9d536",
+  "author": "maxine--basel--gh-287-and-gh-291",
+  "content": "Plan: Two-part implementation for gh#287 (CI fixes) and gh#291 (repo cleanup). gh#287: Fix CI concurrency groups to deduplicate push+PR runs, add concurrency to publish.yml. gh#291: Commit .crosslink/rules/, move design docs to knowledge, move ARCHITECTURE/ELI5 to docs/, move test scripts to scripts/, update LICENSE year, audit gitignore.",
+  "created_at": "2026-03-11T03:00:51.673478Z",
+  "kind": "plan",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUCLiEZbCEpiRDCdha/nveF6Hv/0VIJC0CF71W9OQ/pwP45klvrfGt5vvUgn6VQhh5dTG6s7pgyvh8kcp1PCmDg=="
+}

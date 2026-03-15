@@ -1,0 +1,8 @@
+{
+  "uuid": "cdc3e9f9-4ce6-491a-a251-b6dcbe871888",
+  "issue_uuid": "cf8d2c80-6984-4695-bf70-235f73936531",
+  "author": "anon-295fd0bb",
+  "content": "Plan: Add crosslink prune command. 1) Add Prune subcommand to CLI in main.rs. 2) Create commands/prune.rs with hub and knowledge branch pruning. 3) Use git orphan branch rewrite (checkout --orphan, commit current tree, force-update branch). 4) Stale data cleanup for heartbeats/locks/events. 5) Flags: --dry-run, --keep-commits N, --hub-only, --knowledge-only, --force.",
+  "created_at": "2026-03-11T14:05:19.629164966Z",
+  "kind": "plan"
+}

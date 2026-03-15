@@ -1,0 +1,8 @@
+{
+  "uuid": "aa13ceee-4b99-48ef-99a1-4c8019066f4a",
+  "issue_uuid": "8d4a4f62-323f-44c9-a1ba-6e0e3f66edaf",
+  "author": "maxine-at-forecast--noether--design-skill",
+  "content": "Plan: (1) Create design.md skill file in resources/claude/commands/ following patterns from kickoff.md/workflow.md/maintain.md. (2) Add include_str! constant and fs::write call in init.rs. (3) Run cargo test, clippy, fmt to verify.",
+  "created_at": "2026-03-04T19:40:24.329412Z",
+  "kind": "plan"
+}

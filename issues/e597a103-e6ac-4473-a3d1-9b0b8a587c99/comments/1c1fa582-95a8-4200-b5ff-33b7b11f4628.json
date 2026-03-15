@@ -1,0 +1,8 @@
+{
+  "uuid": "1c1fa582-95a8-4200-b5ff-33b7b11f4628",
+  "issue_uuid": "e597a103-e6ac-4473-a3d1-9b0b8a587c99",
+  "author": "maxine-at-forecast--noether--improve-gitignore",
+  "content": "Completed: Added write_root_gitignore() to init.rs with section-marker-based idempotent gitignore management. Covers .crosslink/ machine-local state and .claude/ auto-generated dirs. Updated .crosslink/.gitignore to include integrations/. 8 new tests. All tests pass, clippy clean. Committed as b3d736e.",
+  "created_at": "2026-03-02T02:51:14.118030Z",
+  "kind": "handoff"
+}

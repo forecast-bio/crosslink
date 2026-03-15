@@ -1,0 +1,8 @@
+{
+  "uuid": "5f6996cc-d629-4669-8770-8e7c67bca4eb",
+  "issue_uuid": "964693d1-765b-4a66-9906-87731d50f3e2",
+  "author": "maxine--knowledge-edit",
+  "content": "Plan: Add --replace-section and --append-to-section flags to knowledge edit command. Section parser splits body by markdown headings (^#{1,6} ), tracks heading levels. replace_section_content replaces everything between heading and next same-or-higher-level heading. append_to_section_content appends before next heading. Clap argument group enforces mutual exclusivity with --append. Both require --content.",
+  "created_at": "2026-03-10T23:50:43.572372Z",
+  "kind": "plan"
+}

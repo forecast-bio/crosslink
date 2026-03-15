@@ -1,0 +1,10 @@
+{
+  "uuid": "5bfc6175-2bf9-4b9b-8344-b5da29f12a8b",
+  "issue_uuid": "65587504-47e2-45d2-9884-b58c4caa41cf",
+  "author": "m1",
+  "content": "Plan: Launch autonomous agent to implement KnowledgeManager (GH #62). Core struct modeled after SyncManager with orphan branch + worktree pattern. Need to add serde_yaml dep for frontmatter parsing. Reference SyncManager in sync.rs for worktree detection and fetch/push patterns.",
+  "created_at": "2026-02-28T05:45:09.804292Z",
+  "kind": "plan",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtiBEn08tcjRrXtAh+642U4iIOk0mtx4gsT+riD9GVYldHwyNfSkhpjZX/N1924mHXAR83XuKsAHCaqe8GsQ7DQ=="
+}

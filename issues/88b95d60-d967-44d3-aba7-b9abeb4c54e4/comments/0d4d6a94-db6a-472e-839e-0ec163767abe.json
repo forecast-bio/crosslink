@@ -1,0 +1,8 @@
+{
+  "uuid": "0d4d6a94-db6a-472e-839e-0ec163767abe",
+  "issue_uuid": "88b95d60-d967-44d3-aba7-b9abeb4c54e4",
+  "author": "m1--track-driver-signing-key",
+  "content": "Committed: feat: track driver signing key in interventions and trust approvals [CL-40] | Files: 10 files changed, 143 insertions(+), 19 deletions(-)",
+  "created_at": "2026-03-01T16:18:09.718855331Z",
+  "kind": "result"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "47f0e8d7-05c0-40ab-bf3b-f7e76b3778aa",
+  "issue_uuid": "fa33c72f-fe95-4ed1-a79e-c2fb62b1acc9",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Decision: ci.yml triggers on push/PR to develop (not main). PRs to main are exclusively handled by publish.yml which calls ci.yml via workflow_call. This eliminates the duplicate CI run where both ci.yml and publish.yml would trigger on the same PR to main.",
+  "created_at": "2026-03-02T09:20:57.866335Z",
+  "kind": "decision"
+}

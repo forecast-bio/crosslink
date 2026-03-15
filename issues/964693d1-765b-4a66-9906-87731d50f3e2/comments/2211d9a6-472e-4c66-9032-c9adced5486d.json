@@ -1,0 +1,8 @@
+{
+  "uuid": "2211d9a6-472e-4c66-9032-c9adced5486d",
+  "issue_uuid": "964693d1-765b-4a66-9906-87731d50f3e2",
+  "author": "maxine--plan-050",
+  "content": "Covers REQ-1, AC-1 through AC-3. Needs: section parser (~80 lines), two new clap flags (~30 lines), edit logic (~100 lines), tests (~150 lines). No existing section parsing in knowledge.rs — must be built from scratch. Key risk: mutual exclusivity with existing --append flag requires clap argument group.",
+  "created_at": "2026-03-10T22:41:02.806482Z",
+  "kind": "plan"
+}

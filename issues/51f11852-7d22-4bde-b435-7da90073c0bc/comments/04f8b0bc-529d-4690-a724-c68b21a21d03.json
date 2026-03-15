@@ -1,0 +1,8 @@
+{
+  "uuid": "04f8b0bc-529d-4690-a724-c68b21a21d03",
+  "issue_uuid": "51f11852-7d22-4bde-b435-7da90073c0bc",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "Fixing all clippy warnings: PlaceholderTab dead code, checkpoint/compaction field_reassign_with_default, hydration cloned_ref_to_slice_refs, init const_is_empty (22x), knowledge items_after_test_module + useless_vec, cli_integration useless_vec",
+  "created_at": "2026-03-02T21:44:59.245907Z",
+  "kind": "plan"
+}

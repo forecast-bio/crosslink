@@ -1,0 +1,8 @@
+{
+  "uuid": "d8ed4555-395d-425e-874c-59a2e21cceb1",
+  "issue_uuid": "ff779ebb-39c0-4a48-9db2-736b73ba4a1e",
+  "author": "maxine-at-forecast--noether--restrict-proptests",
+  "content": "Result: Added if condition to proptest job in ci.yml. Extended 1000-case proptests now gate only on release/** pushes and PRs to main. Smoke 10-case proptests in the test job remain unchanged on all branches. YAML validated, only proptest job affected.",
+  "created_at": "2026-03-04T20:05:50.358590Z",
+  "kind": "result"
+}

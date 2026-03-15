@@ -1,0 +1,10 @@
+{
+  "uuid": "652b700f-e6ce-4ca4-8c07-e953caa43089",
+  "issue_uuid": "2939b51d-09c6-44b6-af90-332463d4f7ad",
+  "author": "m1",
+  "content": "Agent launched in tmux session feat-add-house-style-syncing. Worktree: .worktrees/add-house-style-syncing, branch: feature/add-house-style-syncing. Implements crosslink style set/sync/diff/show/unset commands with selective component adoption and custom marker preservation.",
+  "created_at": "2026-02-28T05:22:11.860736Z",
+  "kind": "result",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAnSNBSbGQkVbk0KHJsIGHTMm7wa//JtaCBrmwEJN52uAIdyf/nYg5A761kD7k37eHCxiKT8p+j0mbXd7q4XBCCw=="
+}

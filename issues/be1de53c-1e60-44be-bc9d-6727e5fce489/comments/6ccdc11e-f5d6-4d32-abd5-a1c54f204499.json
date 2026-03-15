@@ -1,0 +1,8 @@
+{
+  "uuid": "6ccdc11e-f5d6-4d32-abd5-a1c54f204499",
+  "issue_uuid": "be1de53c-1e60-44be-bc9d-6727e5fce489",
+  "author": "maxine-at-forecast--noether--rules-local",
+  "content": "Plan: 6 areas to modify:\n1. init.rs GITIGNORE_MANAGED_SECTION — add .crosslink/rules.local/ to gitignore\n2. init.rs .crosslink/.gitignore — add rules.local/ entry\n3. init.rs init logic — create rules.local/ directory during init\n4. prompt-guard.py load_all_rules() — merge rules.local/ over rules/ (same-name override, additive for new files)\n5. prompt-guard.py load_tracking_rules() — check rules.local/ first\n6. pre-web-check.py load_web_rules() — check rules.local/ first\n7. context.rs — show rules.local/ files in context measure\n8. workflow.rs — skip drift detection for rules.local/ (they're intentional overrides)\n\nKey design decision: rules.local/ files override same-named rules/ files entirely (no merging within a file). New files in rules.local/ are additive.",
+  "created_at": "2026-03-04T21:26:44.814001Z",
+  "kind": "plan"
+}

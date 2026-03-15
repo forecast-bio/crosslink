@@ -1,0 +1,10 @@
+{
+  "uuid": "2784d8b6-5538-4128-853d-a7c7526d9e5c",
+  "issue_uuid": "ad090f26-407a-4be8-8b77-7fdedbd4696a",
+  "author": "m1",
+  "content": "Plan: Kickoff autonomous agent to fix GH #60 — crosslink quick needs to also claim a lock on the newly created issue, matching the behavior of create --work + session work.",
+  "created_at": "2026-02-28T05:34:43.811912Z",
+  "kind": "plan",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAg6YIQSRXVOuBJlQ8QUrbXjk/OQGuQka6RBzZ4c4V4ed+6k+tvIO0uBBOICZCdoz/12Oiucrhke1gXmF/mmKAAg=="
+}

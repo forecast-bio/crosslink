@@ -1,0 +1,8 @@
+{
+  "uuid": "172317cc-0ec3-4dce-97c8-bd5bf8d1bf70",
+  "issue_uuid": "7d8298ae-b910-43bb-b781-8bc2c9a5de79",
+  "author": "noether--add-container-agent",
+  "content": "Bug found: Claude CLI install script uses bash syntax but Dockerfile RUN uses /bin/sh (dash on Ubuntu 24.04). Fix: pipe to bash instead of sh.",
+  "created_at": "2026-03-02T07:49:44.862235645Z",
+  "kind": "observation"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "de337fd4-2855-4a4b-82af-030d75418a4f",
+  "issue_uuid": "6681e498-5def-4ee4-93de-7e748c294d2e",
+  "author": "maxine-at-forecast--noether--fuzz-ci",
+  "content": "Decision: Added --locked to cargo build in ci.yml, ci-feature.yml, release-builds.yml, and cargo publish --dry-run in publish.yml. This ensures Cargo.lock is respected and CI fails if dependencies drift. Not adding --locked to cargo test since the build step already validates the lock file.",
+  "created_at": "2026-03-03T00:26:41.893676Z",
+  "kind": "decision"
+}

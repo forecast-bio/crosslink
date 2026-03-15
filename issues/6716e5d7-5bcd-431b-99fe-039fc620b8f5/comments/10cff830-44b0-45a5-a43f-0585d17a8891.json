@@ -1,0 +1,10 @@
+{
+  "uuid": "10cff830-44b0-45a5-a43f-0585d17a8891",
+  "issue_uuid": "6716e5d7-5bcd-431b-99fe-039fc620b8f5",
+  "author": "maxine-at-forecast--noether",
+  "content": "The kickoff integration agent deleted ~200 lines of tests when integrating the preflight changes. Need to restore all tests and update the two preflight-specific ones (test_preflight_check_passes_when_commands_available and test_preflight_check_missing_command_includes_hint) for the new function signature: preflight_check(&ContainerMode, &VerifyLevel) -> Result<PreflightResult> instead of preflight_check(&ContainerMode, bool) -> Result<()>",
+  "created_at": "2026-03-07T04:58:19.130107Z",
+  "kind": "plan",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAAMmk2cYOxMNpsStejqrfUE1oNnw9pvb1Omt2iPNiH8Q36vPsp/3OsJOSSEccP35oh9diZMUeQNB9iDV6RPrbBQ=="
+}

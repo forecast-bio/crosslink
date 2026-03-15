@@ -1,0 +1,10 @@
+{
+  "uuid": "10902228-f6cf-4dd9-86a2-393f2ff46903",
+  "issue_uuid": "2939b51d-09c6-44b6-af90-332463d4f7ad",
+  "author": "m1",
+  "content": "Kickoff for GH #57. Launching autonomous agent in worktree to implement house style syncing — crosslink style sync/diff commands, house-style config, and selective adoption of rules/hooks/commands from a remote source.",
+  "created_at": "2026-02-28T05:18:38.922401Z",
+  "kind": "plan",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYe9/zF1f+bdTx8rfWV7GdU2I2lcBG9Ee9F/VvjkbSdhjmf+UpdWJIVha7VQnrANCjr06e1S9qaNSrf+uB5Q0AA=="
+}

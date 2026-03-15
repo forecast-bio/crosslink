@@ -1,0 +1,8 @@
+{
+  "uuid": "70e37852-379c-4ef6-91ee-839410e8d5ff",
+  "issue_uuid": "3a545457-cdb4-4ac8-8021-0f25e2cbef83",
+  "author": "anon-ab6221f8",
+  "content": "Plan: 1) Extract shared discover_agents() from list(). 2) Add Cleanup variant to KickoffCommands in main.rs. 3) Implement cleanup() fn in kickoff.rs that reuses discovery, classifies agents, and removes done/stale ones. 4) Wire up dispatch.",
+  "created_at": "2026-03-11T13:23:37.946006105Z",
+  "kind": "plan"
+}

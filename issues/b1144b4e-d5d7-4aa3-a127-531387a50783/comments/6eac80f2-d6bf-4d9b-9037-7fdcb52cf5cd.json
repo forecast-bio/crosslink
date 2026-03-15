@@ -1,0 +1,8 @@
+{
+  "uuid": "6eac80f2-d6bf-4d9b-9037-7fdcb52cf5cd",
+  "issue_uuid": "b1144b4e-d5d7-4aa3-a127-531387a50783",
+  "author": "maxine-at-forecast--noether--untrack-init-files",
+  "content": "Decision: Added .crosslink/rules/ and .mcp.json to .gitignore (they were missing). Updated comments to reflect rules are auto-generated from resource templates, not project policy. Only staged the git rm --cached deletions and .gitignore update — left hook-config.json reformatting out of scope.",
+  "created_at": "2026-03-02T03:18:44.852950Z",
+  "kind": "decision"
+}

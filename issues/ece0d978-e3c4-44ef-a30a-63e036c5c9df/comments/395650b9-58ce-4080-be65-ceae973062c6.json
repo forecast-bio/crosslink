@@ -1,0 +1,8 @@
+{
+  "uuid": "395650b9-58ce-4080-be65-ceae973062c6",
+  "issue_uuid": "ece0d978-e3c4-44ef-a30a-63e036c5c9df",
+  "author": "anon-295fd0bb",
+  "content": "Implementing the smoke test harness from DESIGN-SMOKE-TEST-HARNESS.md (GH#350). Splitting into 11 parallel agents: 1) Harness foundation, 2) Issue CRUD+boundaries, 3) Issue org, 4) Comments+sessions+timer, 5) Data management, 6) Infrastructure commands, 7) Tooling commands, 8) Server API+WebSocket, 9) Coordination, 10) Adversarial, 11) TUI+proptest.",
+  "created_at": "2026-03-13T12:23:22.385899256Z",
+  "kind": "plan"
+}

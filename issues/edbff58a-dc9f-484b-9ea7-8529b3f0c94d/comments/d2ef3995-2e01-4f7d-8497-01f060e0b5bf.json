@@ -1,0 +1,10 @@
+{
+  "uuid": "d2ef3995-2e01-4f7d-8497-01f060e0b5bf",
+  "issue_uuid": "edbff58a-dc9f-484b-9ea7-8529b3f0c94d",
+  "author": "maxine-at-forecast--noether--clock-skew",
+  "content": "PreToolUse hook blocked Write because session had no active issue despite earlier 'session work 114' call. Re-ran 'session work 114' to re-activate.",
+  "created_at": "2026-03-02T23:53:26.236937Z",
+  "kind": "intervention",
+  "trigger_type": "tool_blocked",
+  "intervention_context": "Attempting to create clock_skew.rs"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "0da01adb-7a8c-487a-a405-45893b5fc55d",
+  "issue_uuid": "ece0d978-e3c4-44ef-a30a-63e036c5c9df",
+  "author": "anon-295fd0bb",
+  "content": "Revised plan: Given 186 existing CLI tests, reduce from 11 agents to 8. Drop agents 2-4 (CLI Issue CRUD, Issue Org, Comments+Sessions) — already well covered. Keep: 1) Harness foundation + init edge cases, 2) CLI data management (import/export roundtrip, knowledge edge cases), 3) CLI infrastructure (config, sync, integrity, compact, prune), 4) CLI tooling (cpitd, workflow, context, style, design_doc, mc), 5) Server API + WebSocket, 6) Coordination (events, compaction, locks, push retry), 7) Adversarial (boundary, corruption, injection, concurrency), 8) TUI + proptest extensions.",
+  "created_at": "2026-03-13T12:24:28.999320828Z",
+  "kind": "decision"
+}

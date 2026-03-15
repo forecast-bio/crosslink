@@ -1,0 +1,10 @@
+{
+  "uuid": "e5c1dae0-fc63-474c-8ad1-b97594770816",
+  "issue_uuid": "439681f8-d041-49fa-8a76-06bd15bd3f05",
+  "author": "m1",
+  "content": "Plan: Create a GH issue proposing that crosslink sessions be scoped to individual agents rather than shared globally. Currently sessions are stored in the local SQLite db without agent affinity, which causes conflicts when multiple agents share a worktree or when sessions are synced at the hub level.",
+  "created_at": "2026-02-28T05:28:06.863993Z",
+  "kind": "plan",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAyKmDapfBDMly3ShDmiVkYXjd1qVeh4s26BLavL3DaUE2EO0RfjvxUjG1Ikzyna6E+1lGDDxS1K4/RwbcAkafDQ=="
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "c0af2185-140c-41a4-b1ba-4e9e6b59e84e",
+  "issue_uuid": "76e11ad3-e953-4a5c-bb9c-67aa4c135ef1",
+  "author": "maxine--basel",
+  "content": "Three issues: (1) Comment out 5 placeholder GIF references that don't have generated files yet, (2) Investigate TOC collapse with full-width images, (3) Fix swarm SVG arrow/text alignment — multiple issues with opacity-based shapes instead of multiply blend, and arrow positioning",
+  "created_at": "2026-03-13T02:30:31.031221Z",
+  "kind": "plan",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzBrkptkKUSOKoI7fD/7/rV1F2+z6lTpPrj5VISDfDj04msiEjVwUdzBuHv+UpfN5VmNojl2mA+QZ8O8Yjo/hAQ=="
+}

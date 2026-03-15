@@ -1,0 +1,11 @@
+{
+  "uuid": "5c1ca5a4-b411-4ea7-9466-66db0503e484",
+  "issue_uuid": "35ea0190-c4a5-4ab7-99fe-49fdb1d84fcc",
+  "author": "maxine-at-forecast--noether--config-tracker-remote",
+  "content": "Work-check hook blocking file comparison commands outside worktree",
+  "created_at": "2026-03-04T21:52:58.879534Z",
+  "kind": "intervention",
+  "trigger_type": "tool_blocked",
+  "intervention_context": "Trying to compare main repo files with worktree files",
+  "driver_key_fingerprint": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE"
+}

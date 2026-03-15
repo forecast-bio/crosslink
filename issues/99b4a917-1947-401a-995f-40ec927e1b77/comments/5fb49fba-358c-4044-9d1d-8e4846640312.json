@@ -1,0 +1,10 @@
+{
+  "uuid": "5fb49fba-358c-4044-9d1d-8e4846640312",
+  "issue_uuid": "99b4a917-1947-401a-995f-40ec927e1b77",
+  "author": "maxine-at-forecast--noether",
+  "content": "Key observation: The two issues are deeply linked. #106 (key isolation) is about preventing agents from impersonating each other at the crypto layer. #107 (trust nomenclature) is about whether the system's naming overpromises on what guarantees are actually provided. Container isolation (PR #150, already in progress) is the natural answer to #106, and it clarifies #107 — when agents are isolated, allowed_signers becomes clearly a 'phonebook' for verifying others' signatures, not an access control list.",
+  "created_at": "2026-03-02T09:12:13.139173Z",
+  "kind": "observation",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPSFmOmIVJKfeAPv0280FFjTHvREMb1uI4xP14NH2Byd3IcwwBwL32BYXM0om64RJXUJZMbhH4oO4WnNc7v7yDA=="
+}

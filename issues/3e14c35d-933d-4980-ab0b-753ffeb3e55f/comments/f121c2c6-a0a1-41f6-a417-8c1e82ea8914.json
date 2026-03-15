@@ -1,0 +1,8 @@
+{
+  "uuid": "f121c2c6-a0a1-41f6-a417-8c1e82ea8914",
+  "issue_uuid": "3e14c35d-933d-4980-ab0b-753ffeb3e55f",
+  "author": "driver--comprehensive-readme-and-quarto-docs-src-documentation",
+  "content": "Decision: Created 4 new guide pages (swarm.qmd, knowledge.qmd, tui.qmd, container-agents.qmd) as standalone guides rather than expanding existing pages -- each feature is distinct enough to warrant its own page. Updated _quarto.yml, index.qmd, commands.qmd, multi-agent.qmd, hooks.qmd, hook-config.qmd, quickstart.qmd, and README.md with cross-references and expanded content.",
+  "created_at": "2026-03-09T01:06:01.928022Z",
+  "kind": "decision"
+}

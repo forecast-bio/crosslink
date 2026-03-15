@@ -1,0 +1,10 @@
+{
+  "uuid": "c395ddfb-46c8-41d4-bcd7-566c0f8872c8",
+  "issue_uuid": "f3de9fde-21a7-4cc3-8778-552bf7aa4239",
+  "author": "maxine-at-forecast--noether",
+  "content": "Release PR #146 created. Branch release/v0.1.3b1 pushed. Awaiting merge, then tag v0.1.3-beta.1 and cargo publish.",
+  "created_at": "2026-03-02T04:57:41.182396Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjI4RzN7UkyAnFFKvbrlIErpfAbssictnKIWntXva4ZCzK7g24pqLMVOpNfjbqybPFpEmi9a+b8EGYYWCKgieCQ=="
+}

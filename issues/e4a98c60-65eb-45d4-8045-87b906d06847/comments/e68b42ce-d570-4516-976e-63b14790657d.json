@@ -1,0 +1,8 @@
+{
+  "uuid": "e68b42ce-d570-4516-976e-63b14790657d",
+  "issue_uuid": "e4a98c60-65eb-45d4-8045-87b906d06847",
+  "author": "maxine--plan-050",
+  "content": "Covers REQ-7, AC-13. Two parts: (1) GitHub ruleset allowing direct push to release/* while requiring CI-passing PR to main (~GitHub UI), (2) docs/RELEASING.md documenting the release flow (~60 lines). docs/ directory must be created (only docs_src/ exists). Low risk.",
+  "created_at": "2026-03-10T22:41:29.219156Z",
+  "kind": "plan"
+}

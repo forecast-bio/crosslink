@@ -1,0 +1,10 @@
+{
+  "uuid": "27509d14-ea1a-4091-87fd-09207bc59a03",
+  "issue_uuid": "88b95d60-d967-44d3-aba7-b9abeb4c54e4",
+  "author": "maxine-at-forecast--noether",
+  "content": "Completed: PR #109 merged — driver signing key tracked in interventions and trust approvals",
+  "created_at": "2026-03-02T08:58:12.244839Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA/yRGWVzb98irlekT1JtQDMZq9WTatgqK4GfCUNO06gvru4P8p8HPVESl9weBiM/iHw5i01O5RKM1Y4/sSqMkBg=="
+}

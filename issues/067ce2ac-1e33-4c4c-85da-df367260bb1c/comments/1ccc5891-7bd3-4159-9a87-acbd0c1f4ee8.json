@@ -1,0 +1,8 @@
+{
+  "uuid": "1ccc5891-7bd3-4159-9a87-acbd0c1f4ee8",
+  "issue_uuid": "067ce2ac-1e33-4c4c-85da-df367260bb1c",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Switched main worktree to develop branch (tracking origin/develop). Added git flow knowledge page (git-flow-branch-strategy) from GH #129.",
+  "created_at": "2026-03-02T21:51:59.812130Z",
+  "kind": "handoff"
+}

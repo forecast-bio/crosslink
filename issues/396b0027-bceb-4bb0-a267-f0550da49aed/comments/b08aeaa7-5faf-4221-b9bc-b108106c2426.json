@@ -1,0 +1,8 @@
+{
+  "uuid": "b08aeaa7-5faf-4221-b9bc-b108106c2426",
+  "issue_uuid": "396b0027-bceb-4bb0-a267-f0550da49aed",
+  "author": "maxine-at-forecast--noether--fix-signing",
+  "content": "Completed: Fixed agent signing chicken-and-egg during init. Three fixes: (1) Added SyncManager::ensure_agent_key_published() called from sync_cmd to auto-publish keys deferred from agent init. (2) Swapped bootstrap ordering so publish_agent_key runs before configure_signing. (3) Key-publishing commits use unsigned path to avoid requiring signing before it's configured. All 149 tests pass, clippy/fmt clean. Branch: feature/fix-agent-signing-init, ready for push+PR.",
+  "created_at": "2026-03-04T23:37:20.716841Z",
+  "kind": "handoff"
+}

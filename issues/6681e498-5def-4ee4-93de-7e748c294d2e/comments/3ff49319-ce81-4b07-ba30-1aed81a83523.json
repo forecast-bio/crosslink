@@ -1,0 +1,8 @@
+{
+  "uuid": "3ff49319-ce81-4b07-ba30-1aed81a83523",
+  "issue_uuid": "6681e498-5def-4ee4-93de-7e748c294d2e",
+  "author": "maxine-at-forecast--noether--fuzz-ci",
+  "content": "Result: All T1-T5 items implemented. T4: Added permissions: contents: read to ci.yml, ci-feature.yml, publish.yml, release-builds.yml (docs.yml already had it). T5: Added --locked to cargo build in ci.yml, ci-feature.yml, release-builds.yml, and cargo publish --dry-run in publish.yml. T2: Removed continue-on-error: true from all fuzz steps — crashes now fail CI. T3: Increased fuzz duration from 30s to 60s in regular CI, created fuzz-nightly.yml with 300s/target on daily cron schedule. T1: Added 6 new fuzz targets (fuzz_comments, fuzz_labels, fuzz_update_operations, fuzz_milestones, fuzz_subissues, fuzz_relations) — total now 12 targets. Also fixed 3 compilation errors in existing targets (fuzz_cli_output add_comment arity, fuzz_state_machine start_session/get_current_session API changes). All 889 unit tests pass, clippy clean, fmt clean, all 12 fuzz targets build and run without crashes.",
+  "created_at": "2026-03-03T00:39:00.789407Z",
+  "kind": "result"
+}

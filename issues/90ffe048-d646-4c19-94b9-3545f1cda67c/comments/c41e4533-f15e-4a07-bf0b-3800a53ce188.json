@@ -1,0 +1,8 @@
+{
+  "uuid": "c41e4533-f15e-4a07-bf0b-3800a53ce188",
+  "issue_uuid": "90ffe048-d646-4c19-94b9-3545f1cda67c",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Added hotfix/* ruleset: CI required (Lint + Tests x2), no force push, no deletion. Matches release/* rules.",
+  "created_at": "2026-03-02T10:51:01.840278Z",
+  "kind": "handoff"
+}

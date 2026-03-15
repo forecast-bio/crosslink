@@ -1,0 +1,10 @@
+{
+  "uuid": "f15e0c5e-42e6-4bf7-b21e-8d5afdefbdfc",
+  "issue_uuid": "7896c05a-756b-439b-989b-d403ec5dc7da",
+  "author": "m1",
+  "content": "Found the failure: Deploy Documentation workflow (run 22528527456) fails at the Render step. YAML parse error in docs_src/_brand.yml line 27 — bad indentation on the monospace family value. The comma-separated font list needs quoting.",
+  "created_at": "2026-02-28T20:53:59.379779Z",
+  "kind": "observation",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAFdBHbEGeaw+XcmtykjH786gJoEXI2i8mI9eQ4UqJV4+yUc+uojdC8qdE8yzm2ad0ua1CA0BEXyUxyBxqqqv1Cg=="
+}

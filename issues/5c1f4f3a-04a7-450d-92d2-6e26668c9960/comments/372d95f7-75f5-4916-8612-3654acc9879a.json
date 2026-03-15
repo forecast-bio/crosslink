@@ -1,0 +1,8 @@
+{
+  "uuid": "372d95f7-75f5-4916-8612-3654acc9879a",
+  "issue_uuid": "5c1f4f3a-04a7-450d-92d2-6e26668c9960",
+  "author": "maxine-at-forecast--noether--tmux-perms",
+  "content": "Decision: Chose merge-based approach for settings.json (like existing write_mcp_json_merged) over simple overwrite. This preserves user-added allowedTools entries on re-init while still updating crosslink-managed hooks. Added Bash(tmux *) and Bash(git worktree *) as the two permission patterns — broad enough to cover all subcommands without needing individual entries.",
+  "created_at": "2026-03-02T03:32:43.345788Z",
+  "kind": "decision"
+}

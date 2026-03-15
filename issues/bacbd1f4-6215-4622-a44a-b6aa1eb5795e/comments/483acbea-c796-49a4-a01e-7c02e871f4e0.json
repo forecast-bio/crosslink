@@ -1,0 +1,10 @@
+{
+  "uuid": "483acbea-c796-49a4-a01e-7c02e871f4e0",
+  "issue_uuid": "bacbd1f4-6215-4622-a44a-b6aa1eb5795e",
+  "author": "maxine--basel",
+  "content": "Updated README: added Design Document Workflow section, expanded kickoff with verification levels and management commands, added section-based editing to knowledge, reorganized docs links into Getting Started / Guides / Reference groups. Updated ELI5: added multi-agent and design-to-build sections, expanded why-should-I-care list.",
+  "created_at": "2026-03-15T09:02:02.011122Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwEprhBpyTXENWmRGYnMbwPjVOOlXRMRshneFJ7Cfcgx7qcI4bz1Crca+6LzdvFokw2Ay45vM5q/omnABIgA6Dw=="
+}

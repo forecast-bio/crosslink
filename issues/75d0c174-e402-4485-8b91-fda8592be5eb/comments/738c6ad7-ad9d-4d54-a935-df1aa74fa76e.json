@@ -1,0 +1,10 @@
+{
+  "uuid": "738c6ad7-ad9d-4d54-a935-df1aa74fa76e",
+  "issue_uuid": "75d0c174-e402-4485-8b91-fda8592be5eb",
+  "author": "maxine-at-forecast--noether",
+  "content": "Creating a GitHub issue to track automation of 13 smoke/manual tests identified in audit of PRs #175-#225. Tests will be tiered to match CI pipeline: fast unit/integration tests for feature branches, heavier git-fixture tests for develop/release gates.",
+  "created_at": "2026-03-05T20:01:53.325392Z",
+  "kind": "plan",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOu9pHtUbfEE+GuJqDVwEQkNoN/Z9wOLkWxjmW1Wizz7V6bJhkOhUFuN7hVpUIX55BFi1GYng8eWNDrH6jujRBg=="
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "68f50880-4ada-42b7-9b8b-c6c7772a1140",
+  "issue_uuid": "3a545457-cdb4-4ac8-8021-0f25e2cbef83",
+  "author": "anon-ab6221f8",
+  "content": "Starting implementation of crosslink kickoff cleanup command (GH #298). Need to explore existing kickoff code, discovery logic, and plan the approach.",
+  "created_at": "2026-03-11T13:21:13.778865445Z",
+  "kind": "plan"
+}

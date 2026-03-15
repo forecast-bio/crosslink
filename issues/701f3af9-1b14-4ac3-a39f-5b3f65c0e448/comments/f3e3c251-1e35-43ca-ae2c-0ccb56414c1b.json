@@ -1,0 +1,8 @@
+{
+  "uuid": "f3e3c251-1e35-43ca-ae2c-0ccb56414c1b",
+  "issue_uuid": "701f3af9-1b14-4ac3-a39f-5b3f65c0e448",
+  "author": "noether--add-container-agent",
+  "content": "Delivered: crosslink container subcommand (build/start/ps/logs/stop/rm/kill/shell/snapshot), embedded Dockerfile + entrypoint, CLI wiring, design doc v3. PR #150 opened. All 146 tests pass, clippy and fmt clean.",
+  "created_at": "2026-03-02T07:44:54.028211932Z",
+  "kind": "result"
+}

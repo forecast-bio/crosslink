@@ -1,0 +1,10 @@
+{
+  "uuid": "ce892a84-4037-4d81-816d-aa8d772d7645",
+  "issue_uuid": "63397b14-89a7-460f-a14c-f6ed9bfc15ed",
+  "author": "m1--track-driver-signing-key",
+  "content": "Manual test: verifying driver fingerprint appears in intervention output",
+  "created_at": "2026-03-01T16:35:34.083767029Z",
+  "kind": "intervention",
+  "trigger_type": "manual_action",
+  "intervention_context": "Testing GH #88 feature"
+}

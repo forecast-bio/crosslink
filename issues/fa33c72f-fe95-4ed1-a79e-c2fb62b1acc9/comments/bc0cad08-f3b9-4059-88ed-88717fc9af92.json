@@ -1,0 +1,8 @@
+{
+  "uuid": "bc0cad08-f3b9-4059-88ed-88717fc9af92",
+  "issue_uuid": "fa33c72f-fe95-4ed1-a79e-c2fb62b1acc9",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Result: Restructured CI/CD into 4 workflow files for git flow (GH #129):\n\n1. ci.yml — Full validation suite (lint, security, test 2 OS, proptest, fuzz)\n   Triggers: push develop, PR develop, workflow_call\n   Removed: build-release job, main branch triggers\n   Added: concurrency groups\n\n2. ci-feature.yml (NEW) — Fast feature branch CI\n   Triggers: push feature/**\n   Jobs: build + unit tests + integration tests (ubuntu only, <2 min target)\n\n3. publish.yml — Release pipeline\n   Triggers: tag v*, PR main\n   Jobs: ci (via workflow_call) + dry-run (on PR) or publish (on tag)\n   Removed: paths filter (unnecessary in git flow)\n   Added: explanatory comments\n\n4. release-builds.yml (NEW) — Binary artifacts\n   Triggers: tag v*, PR main\n   Jobs: build release binaries (linux, macos, windows)\n\n5. docs.yml — Unchanged\n\nKey improvements:\n- Eliminated duplicate CI on tag pushes (was: ci.yml + publish.yml->ci.yml = 2x)\n- Feature branches get fast feedback (~80% less work than full suite)\n- PRs to develop skip expensive 3-platform release builds (~30% savings)\n- Concurrency groups cancel stale runs on rapid pushes\n- Clear workflow boundaries: each file has a single responsibility",
+  "created_at": "2026-03-02T09:32:32.391240Z",
+  "kind": "result"
+}

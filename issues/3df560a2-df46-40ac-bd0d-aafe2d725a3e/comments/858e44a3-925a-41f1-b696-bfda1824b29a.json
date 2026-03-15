@@ -1,0 +1,8 @@
+{
+  "uuid": "858e44a3-925a-41f1-b696-bfda1824b29a",
+  "issue_uuid": "3df560a2-df46-40ac-bd0d-aafe2d725a3e",
+  "author": "maxine--plan-050",
+  "content": "Covers REQ-3, AC-7 through AC-9. Three parts: (1) startup sync before App::new() (~30 lines), (2) periodic 30s background sync using mpsc channel pattern from agents_tab.rs (~80 lines), (3) global 'r' keybinding for manual sync+refresh (~20 lines). No tab currently uses bare 'r'. SyncManager can run on background thread safely since hub cache worktree is separate from working tree.",
+  "created_at": "2026-03-10T22:41:20.340168Z",
+  "kind": "plan"
+}

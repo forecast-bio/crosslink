@@ -1,0 +1,10 @@
+{
+  "uuid": "0998c919-814d-4b9e-b302-8347be5071f1",
+  "issue_uuid": "99b4a917-1947-401a-995f-40ec927e1b77",
+  "author": "maxine-at-forecast--noether",
+  "content": "Researching GH #106 (agent key isolation) and #107 (allowed_signers trust model). Will review current implementation, think through design tradeoffs, and write a knowledge page with findings.",
+  "created_at": "2026-03-02T09:09:50.206528Z",
+  "kind": "plan",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAk706xkLtehU/pJ/DKqn+iOnML55lHKEfP/OVk7P7ZqYd1bMaOW7hV/UeyIwZuG40RBRO4l8nPsZSinyBYNgkBQ=="
+}

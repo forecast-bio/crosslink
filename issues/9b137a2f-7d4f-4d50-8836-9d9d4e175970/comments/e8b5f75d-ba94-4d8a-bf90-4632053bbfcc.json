@@ -1,0 +1,10 @@
+{
+  "uuid": "e8b5f75d-ba94-4d8a-bf90-4632053bbfcc",
+  "issue_uuid": "9b137a2f-7d4f-4d50-8836-9d9d4e175970",
+  "author": "m1",
+  "content": "Two changes: 1) Add !**/__pycache__/** negation to Cargo.toml include, 2) Create .github/workflows/publish.yml triggered on v* tags that runs CI then cargo publish",
+  "created_at": "2026-03-02T01:42:08.299417Z",
+  "kind": "plan",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABARh684Ie1344xSpPiO566WXJtQstHTOlrSz7dkXPT4uGGtR0grLQcn9Av6856rTWVj6XOW/q4AxQBaTke1zKkCA=="
+}

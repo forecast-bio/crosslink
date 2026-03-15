@@ -1,0 +1,10 @@
+{
+  "uuid": "1fbc1b72-b91c-4913-9679-96aa2e067b35",
+  "issue_uuid": "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867",
+  "author": "maxine--basel",
+  "content": "Created justfile with recipes: render-docs (asset copy + quarto + verify), build, build-release, lint/fmt/clippy, test/test-unit/test-integration/test-proptest, audit, ci. Updated docs.yml workflow to use 'just render-docs' with extractions/setup-just@v2. Also added justfile to docs workflow path triggers.",
+  "created_at": "2026-03-15T15:55:38.232744Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUthl12AzsrfEQc0Yr06FaIt72rWE2/O3TRh+SQEhJIicTn0wjpSotc2HUShVeRCm8Z7hyYP7V+PjxjPzY2XhCw=="
+}

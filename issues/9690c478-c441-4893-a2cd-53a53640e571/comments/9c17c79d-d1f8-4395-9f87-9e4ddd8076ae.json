@@ -1,0 +1,8 @@
+{
+  "uuid": "9c17c79d-d1f8-4395-9f87-9e4ddd8076ae",
+  "issue_uuid": "9690c478-c441-4893-a2cd-53a53640e571",
+  "author": "m1--full-system-adversarial-review",
+  "content": "Decision: After triaging all ~60 findings, identified 2 issues that require code fixes (security/correctness bugs):\n\n1. CRITICAL — Knowledge page slug path traversal (knowledge.rs:289,301,312): Slug passed directly to file path without validation. Allows reading/writing/deleting files outside the knowledge cache via '../' sequences.\n\n2. HIGH — Byte-based string truncate panic (commands/knowledge.rs:347): Uses byte slicing (&s[..n]) which panics on multi-byte Unicode. Safe version already exists in utils.rs.\n\nAll other findings are either: (a) not real vulnerabilities for a local CLI tool (export path, symlinks — user already has filesystem access), (b) architectural recommendations (key revocation, audit logging), (c) hardening suggestions (file permissions, deserialization limits, CHECK constraints), or (d) incorrect analysis (principal verification is actually handled correctly by ssh-keygen -Y verify). These will be documented as recommendations only.",
+  "created_at": "2026-03-01T01:14:19.676771Z",
+  "kind": "decision"
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "b30fa120-f5d1-44b6-8d23-705e01fd717f",
+  "issue_uuid": "68e47248-bfb7-4d2f-8c76-d9af050649b1",
+  "author": "maxine--basel--gh-issues-299-and-301",
+  "content": "Committed: fix: ssh-keygen verify checks both stdout+stderr and allow unsigned hub writes (#299, #301) | Files: 9 files changed, 125 insertions(+), 56 deletions(-)",
+  "created_at": "2026-03-11T00:42:15.044839Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPZqD2y6mS1za59/r6N2ptLo37bQOVpNyZdfTUH4rp2n8hL4FkOFPJiUPT+pXE58mtljgy19WSfWaCHpOzKSHDg=="
+}

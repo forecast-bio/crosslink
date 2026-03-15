@@ -1,0 +1,10 @@
+{
+  "uuid": "12597dd1-c121-494f-84ab-d18c86eca704",
+  "issue_uuid": "68e47248-bfb7-4d2f-8c76-d9af050649b1",
+  "author": "maxine--basel--gh-issues-299-and-301",
+  "content": "Result: Implemented both fixes. #301: 3 verification sites now check both stdout+stderr for ssh-keygen 'Good' message (signing.rs verify_content, sync.rs commit signature audit x2). #299: SharedWriter::new() creates anonymous identity when no agent.json, auto-inits hub cache if branch exists, unsigned commits via -c commit.gpgsign=false. All 186 tests pass, clippy clean, fmt clean.",
+  "created_at": "2026-03-11T00:38:14.215645Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAaYrS8vUjIsDl5ppWDuZCmDtV+woRLXM4eo4TOikMvRhhbVnNbiANrsBzhn6tSdUDUAl3wVzxa62MLm6aj+hiDA=="
+}

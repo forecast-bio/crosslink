@@ -1,0 +1,10 @@
+{
+  "uuid": "7e55ed80-a85f-42c6-bff3-d7dc8c111e5d",
+  "issue_uuid": "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867",
+  "author": "maxine--basel",
+  "content": "Changing render flow: quarto renders to a temp dir, then we diff against docs/ to catch collisions with manually-maintained .md files (api.md, ARCHITECTURE.md, ELI5.md), warn on collisions, and copy with --force flag to override. This protects the GH-browsable docs that coexist in docs/.",
+  "created_at": "2026-03-15T16:03:08.306862Z",
+  "kind": "decision",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAYM+TYIuvMCBQV8th04elSLZtdft8R3jeNQMiB0zF51NOUZ7a0w7v/y50Xm2rjGOpzNLyQaMlGl/dCjsOFJ7PBw=="
+}

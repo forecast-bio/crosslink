@@ -1,0 +1,8 @@
+{
+  "uuid": "f9ee240e-645c-48bf-a972-7488f948b807",
+  "issue_uuid": "7c4315e4-e6fa-470e-9b22-e570bc1874d7",
+  "author": "m1--f3",
+  "content": "Decision: Will manually resolve by reading both sides and editing files to incorporate all changes. The conflicts are mechanical — house-style branch added Style command keeping old Review name, main renamed Review→Workflow and added TUI init flags. Both changes are additive and compatible.",
+  "created_at": "2026-02-28T20:57:21.683399Z",
+  "kind": "decision"
+}

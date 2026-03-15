@@ -1,0 +1,10 @@
+{
+  "uuid": "b6bd97d4-a969-4146-b70c-18b9b4639a2c",
+  "issue_uuid": "f1ea5c01-598c-4a3c-abee-7abcca34f8f4",
+  "author": "maxine-at-forecast--noether",
+  "content": "Completed: PR #108 merged — agent init signing key override fixed",
+  "created_at": "2026-03-02T08:58:21.156508Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAAwH8ONdIfXoy/o3e9dnZKTrms/cBWqD9ji58n0Gi9L9RIbtX7m0Ea/8h1gBtevhv5nDcOfqR+1A94cq53S8rDA=="
+}

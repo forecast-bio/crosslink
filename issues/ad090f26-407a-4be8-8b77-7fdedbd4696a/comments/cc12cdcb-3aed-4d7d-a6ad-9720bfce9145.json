@@ -1,0 +1,10 @@
+{
+  "uuid": "cc12cdcb-3aed-4d7d-a6ad-9720bfce9145",
+  "issue_uuid": "ad090f26-407a-4be8-8b77-7fdedbd4696a",
+  "author": "m1",
+  "content": "Agent launched in tmux session feat-fix-quick-command-lock-claiming. Worktree: .worktrees/fix-quick-command-lock-claiming, branch: feature/fix-quick-command-lock-claiming. Fix: add auto-claim lock logic to create.rs run() and run_subissue() matching session.rs pattern.",
+  "created_at": "2026-02-28T05:37:35.792510Z",
+  "kind": "result",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAiInEEmodP1+nNjvNR82wXy3ySB66PHQiI6kwxTcQSKwG3/IbhXv0cl7mV8stbfgixAnvBt1pSDe+NL8kMusjBQ=="
+}

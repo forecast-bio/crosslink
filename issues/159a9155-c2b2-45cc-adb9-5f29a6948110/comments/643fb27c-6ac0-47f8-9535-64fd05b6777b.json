@@ -1,0 +1,8 @@
+{
+  "uuid": "643fb27c-6ac0-47f8-9535-64fd05b6777b",
+  "issue_uuid": "159a9155-c2b2-45cc-adb9-5f29a6948110",
+  "author": "maxine-at-forecast--noether--init-blocked-lint",
+  "content": "Plan: Two changes needed in the resource templates (not init.rs itself, since templates are embedded via include_str!):\n\n1. **global.md** — Add a 'Blocked Actions' section documenting commands blocked by work-check.py (git push/merge/rebase/reset/etc.), gated commands (git commit requires active issue), and directing agents to ask the user for manual steps instead of attempting blocked commands. This goes into the rules that get injected into every agent's context.\n\n2. **kickoff.md** — Add lint/format check instructions to the agent prompt template. In step 8 (test suite), also include running the project's linter and formatter (cargo clippy/fmt, eslint, ruff, etc.) before committing. This ensures subagents always lint before marking work complete.\n\nKey files to modify:\n- crosslink/resources/crosslink/rules/global.md (blocked actions documentation)\n- crosslink/resources/claude/commands/kickoff.md (lint instructions in agent prompt)",
+  "created_at": "2026-03-02T02:30:45.382675Z",
+  "kind": "plan"
+}

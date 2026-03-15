@@ -1,0 +1,8 @@
+{
+  "uuid": "01de3529-3d04-4f51-a43a-70d0b87fc5ca",
+  "issue_uuid": "964693d1-765b-4a66-9906-87731d50f3e2",
+  "author": "maxine--knowledge-edit",
+  "content": "Result: Implemented --replace-section and --append-to-section flags for knowledge edit. Added parse_heading(), find_section_range(), replace_section_content(), append_to_section_content() in knowledge.rs. Updated KnowledgeCommands::Edit in main.rs with clap argument group. 13 new unit tests covering: heading parsing, section range finding, replace/append operations, missing heading errors, subsection handling, query with/without hash prefix. All 1359 tests pass, clippy clean, fmt clean. Commit 688626c.",
+  "created_at": "2026-03-10T23:50:58.694370Z",
+  "kind": "result"
+}

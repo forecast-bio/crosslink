@@ -1,0 +1,8 @@
+{
+  "uuid": "ce108b2c-5760-4065-a6e9-5baa6121ec08",
+  "issue_uuid": "6681e498-5def-4ee4-93de-7e748c294d2e",
+  "author": "maxine-at-forecast--noether--fuzz-ci",
+  "content": "Decision: T2+T3 combined — removed continue-on-error from all fuzz steps so crashes fail CI. Increased regular CI fuzz from 30s to 60s per target, and now running all 6 existing targets (was only 3). Created fuzz-nightly.yml with schedule cron (3 AM UTC daily) running all targets including new ones for 300s each via matrix strategy. Nightly uses fail-fast: false so one crashing target doesn't prevent others from running.",
+  "created_at": "2026-03-03T00:27:43.244533Z",
+  "kind": "decision"
+}

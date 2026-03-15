@@ -1,0 +1,8 @@
+{
+  "uuid": "57549c0f-0daf-4c34-8077-e9e6d0e4f6f7",
+  "issue_uuid": "ac6270f0-2af9-4f84-b557-5457d465c7dd",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "[decision] Used ratatui 0.30 + crossterm 0.29 (latest stable). Tab trait is db-agnostic — IssuesTab stores a snapshot and refreshes on 'r'. Detail view loads on-demand via Enter. handle_key trait doesn't take a db ref to keep the trait generic; db-dependent ops use separate methods.",
+  "created_at": "2026-03-02T17:42:31.305372Z",
+  "kind": "note"
+}

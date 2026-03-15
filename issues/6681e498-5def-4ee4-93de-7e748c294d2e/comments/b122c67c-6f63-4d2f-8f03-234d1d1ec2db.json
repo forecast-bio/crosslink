@@ -1,0 +1,8 @@
+{
+  "uuid": "b122c67c-6f63-4d2f-8f03-234d1d1ec2db",
+  "issue_uuid": "6681e498-5def-4ee4-93de-7e748c294d2e",
+  "author": "maxine-at-forecast--noether--fuzz-ci",
+  "content": "Plan: Implementing T1-T5 from ADR adversarial review. Order: T4 (permissions) → T5 (Cargo.lock --locked) → T2 (remove continue-on-error) → T3 (increase fuzz durations + nightly job) → T1 (new fuzz targets for comments, labels, updates, milestones, subissues, relations). docs.yml already has permissions block. Will add permissions: contents: read to ci.yml, ci-feature.yml. publish.yml needs contents: read for dry-run and publish jobs. release-builds.yml needs contents: read.",
+  "created_at": "2026-03-03T00:25:18.483961Z",
+  "kind": "plan"
+}

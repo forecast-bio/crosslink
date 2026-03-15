@@ -1,0 +1,8 @@
+{
+  "uuid": "91e044f7-af26-46b2-9b2a-2b938c5b99d8",
+  "issue_uuid": "966aebb5-8601-454f-b145-83f5316c4127",
+  "author": "maxine--refactor-command--reinit",
+  "content": "All 186 integration tests pass. Updated ~100 call sites to use canonical issue <verb> paths. Also fixed bare timer -> timer show.",
+  "created_at": "2026-03-10T19:56:27.854009Z",
+  "kind": "note"
+}

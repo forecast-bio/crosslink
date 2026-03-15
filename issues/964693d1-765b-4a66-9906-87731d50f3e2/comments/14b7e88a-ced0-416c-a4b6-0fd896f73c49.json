@@ -1,0 +1,8 @@
+{
+  "uuid": "14b7e88a-ced0-416c-a4b6-0fd896f73c49",
+  "issue_uuid": "964693d1-765b-4a66-9906-87731d50f3e2",
+  "author": "maxine--knowledge-edit",
+  "content": "Decision: Used simple line-by-line section parser rather than an external markdown crate. Heading matching supports both '## Architecture' and 'Architecture' query forms. Subsections are included in the parent section range (replaced/appended along with it). Added #[allow(clippy::too_many_arguments)] on edit() rather than introducing a params struct — keeps the change minimal.",
+  "created_at": "2026-03-10T23:50:51.054362Z",
+  "kind": "decision"
+}

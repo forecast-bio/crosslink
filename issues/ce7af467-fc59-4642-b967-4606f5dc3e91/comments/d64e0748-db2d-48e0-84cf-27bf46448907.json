@@ -1,0 +1,8 @@
+{
+  "uuid": "d64e0748-db2d-48e0-84cf-27bf46448907",
+  "issue_uuid": "ce7af467-fc59-4642-b967-4606f5dc3e91",
+  "author": "maxine--plan-050",
+  "content": "Plan: Read-only gap analysis of v0.5.0 design spec against codebase. Exploring knowledge.rs edit command, kickoff.rs subcommands/prompt builder, TUI mod.rs/issues_tab/knowledge_tab, repo root structure, and main.rs CLI structure. Will produce .kickoff-plan.json with gaps, assumptions, subtasks, and conflicts.",
+  "created_at": "2026-03-10T22:31:31.421010Z",
+  "kind": "plan"
+}

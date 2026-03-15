@@ -1,0 +1,8 @@
+{
+  "uuid": "6d7396ff-2c8a-4d2c-b1b7-d231b1e8767c",
+  "issue_uuid": "1936be1e-fc2f-4896-a06b-62c1956fb572",
+  "author": "maxine-at-forecast--noether--ratatui-tui",
+  "content": "Result: Switched to Viewport::Inline(14), clears viewport area after walkthrough. Reordered run() so TUI happens before any fs::create_dir_all/fs::write — Esc exits cleanly. 146 tests pass, clippy/fmt clean.",
+  "created_at": "2026-03-02T09:44:09.512029Z",
+  "kind": "result"
+}

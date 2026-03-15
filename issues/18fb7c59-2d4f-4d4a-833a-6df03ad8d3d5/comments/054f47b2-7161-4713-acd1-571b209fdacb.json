@@ -1,0 +1,10 @@
+{
+  "uuid": "054f47b2-7161-4713-acd1-571b209fdacb",
+  "issue_uuid": "18fb7c59-2d4f-4d4a-833a-6df03ad8d3d5",
+  "author": "m1",
+  "content": "Created two GH issues: #88 (driver key tracking in interventions/trust approvals) and #89 (consolidated crosslink config command)",
+  "created_at": "2026-02-28T20:43:32.110409Z",
+  "kind": "result",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdXocol1a1lN2fK5oF7kdKqWPx1q4xJuUR0qIaWEThcIks3B392OotAYYp8c2bzJrfrqgnNSnBtXYTqntR09sDQ=="
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "b4cf5913-53e3-4d9a-a282-97458f800346",
+  "issue_uuid": "35ea0190-c4a5-4ab7-99fe-49fdb1d84fcc",
+  "author": "maxine-at-forecast--noether--config-tracker-remote",
+  "content": "Plan: Add a tracker_remote config key to hook-config.json (defaults to 'origin'). Add a remote: String field to SyncManager and KnowledgeManager, read from config in their ::new() constructors. Replace all ~35 hardcoded 'origin' literals with &self.remote in sync.rs, knowledge.rs, shared_writer.rs. For command files (trust.rs, migrate.rs, agent.rs), add a helper to read the tracker remote from config. The style.rs 'origin' references are for the separate style cache repo and should NOT be changed. Add 'tracker_remote' to the config registry in config.rs so users can set it via crosslink config set tracker_remote <name>.",
+  "created_at": "2026-03-04T20:34:22.710409Z",
+  "kind": "plan"
+}

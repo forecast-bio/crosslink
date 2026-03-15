@@ -1,0 +1,10 @@
+{
+  "uuid": "5b62838a-48dd-4755-aebf-0445a8b151c3",
+  "issue_uuid": "c85b4143-be7c-45ad-a7e1-f6faf1c1dc75",
+  "author": "maxine--basel",
+  "content": "Committed c2fe144: removed release/** from push triggers, updated proptest/fuzz conditions to use github.head_ref for PR-based release branch detection. 2 files changed, 6 insertions, 5 deletions.",
+  "created_at": "2026-03-13T02:01:09.463769Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAyW8uyFTdrmE0MOxUHP0hJNnX19siCkQsMDwPc/lBfcXRAp/kR0K3ZFNeQ5PDojFQUCJ1CUnEnq076cX/VjoAAQ=="
+}

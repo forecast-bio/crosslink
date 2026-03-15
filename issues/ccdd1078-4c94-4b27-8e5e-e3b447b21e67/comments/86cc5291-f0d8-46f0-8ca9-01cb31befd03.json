@@ -1,0 +1,8 @@
+{
+  "uuid": "86cc5291-f0d8-46f0-8ca9-01cb31befd03",
+  "issue_uuid": "ccdd1078-4c94-4b27-8e5e-e3b447b21e67",
+  "author": "anon-ab6221f8",
+  "content": "Delivered: kickoff cleanup command with --dry-run, --force, --keep N, --json flags. Refactored list() to share discovery via discover_agents(). All 737 tests pass. Tested against 31 real worktrees: correctly identifies 22 done, 9 stale, 0 active.",
+  "created_at": "2026-03-11T13:34:21.981205470Z",
+  "kind": "result"
+}

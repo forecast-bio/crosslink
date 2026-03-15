@@ -1,0 +1,8 @@
+{
+  "uuid": "eb9c8c12-df6b-42f5-861f-67e2373c4287",
+  "issue_uuid": "3df560a2-df46-40ac-bd0d-aafe2d725a3e",
+  "author": "maxine--tui-startup-sync",
+  "content": "Decision: Background thread only does SyncManager::fetch() (network I/O). Hydration (hydrate_to_sqlite) runs on main thread to avoid SQLite threading issues. SyncResult struct carries cache_path and optional error across mpsc channel. PERIODIC_SYNC_INTERVAL = 30s defined as module-level constant for easy tuning.",
+  "created_at": "2026-03-10T23:43:16.270241Z",
+  "kind": "decision"
+}

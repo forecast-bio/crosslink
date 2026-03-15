@@ -1,0 +1,8 @@
+{
+  "uuid": "1ae75a7b-d452-4229-8513-44b9107ba27b",
+  "issue_uuid": "cb2fed8c-6114-444e-adf1-e78555172e67",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "Completed Phase 1 TUI dashboard (crosslink tui command). Commit 5f93d66 on feature/crosslink-tui-dashboard. Delivered: Tab trait with 5 tabs (Issues active, 4 placeholder), IssuesTab with list view (sort/filter/search) and detail view (comments, deps, labels), help overlay, panic-safe terminal cleanup. 1285 tests pass, clippy clean, fmt clean. Ready for push and PR. Remaining unstaged files are worktree setup, not feature changes.",
+  "created_at": "2026-03-02T09:34:22.465726Z",
+  "kind": "handoff"
+}

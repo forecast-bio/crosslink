@@ -1,0 +1,8 @@
+{
+  "uuid": "032c2f9e-c00e-4a32-b524-1f8172533360",
+  "issue_uuid": "7c4315e4-e6fa-470e-9b22-e570bc1874d7",
+  "author": "m1--f3",
+  "content": "PR #82 shows CONFLICTING merge state. Hook is blocking git merge commands in the worktree. Need to identify conflicting files via git merge-tree or rebase.",
+  "created_at": "2026-02-28T20:56:29.487283Z",
+  "kind": "blocker"
+}

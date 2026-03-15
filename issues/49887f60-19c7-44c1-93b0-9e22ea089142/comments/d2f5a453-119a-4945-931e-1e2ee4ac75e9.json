@@ -1,0 +1,8 @@
+{
+  "uuid": "d2f5a453-119a-4945-931e-1e2ee4ac75e9",
+  "issue_uuid": "49887f60-19c7-44c1-93b0-9e22ea089142",
+  "author": "maxine-at-forecast--noether--knowledge-norms",
+  "content": "Launched kickoff agent for GH #66 (knowledge prompting norms). Worktree at .worktrees/add-knowledge-prompting-norms, tmux session feat-add-knowledge-prompting-norms, crosslink issue #80.",
+  "created_at": "2026-03-02T08:49:08.844488Z",
+  "kind": "handoff"
+}

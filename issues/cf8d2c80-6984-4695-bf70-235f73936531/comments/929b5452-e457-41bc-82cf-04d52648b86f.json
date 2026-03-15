@@ -1,0 +1,8 @@
+{
+  "uuid": "929b5452-e457-41bc-82cf-04d52648b86f",
+  "issue_uuid": "cf8d2c80-6984-4695-bf70-235f73936531",
+  "author": "anon-295fd0bb",
+  "content": "Decision: Implement as commands/prune.rs with a standalone git_in_dir() helper. Will use SyncManager::init_cache() and KnowledgeManager::init_cache() to ensure caches exist, then operate directly on the worktrees via git commands. Squash approach: git checkout --orphan, add all, commit, then update-ref the branch. Need to add remote() getter to KnowledgeManager.",
+  "created_at": "2026-03-11T14:09:04.727604750Z",
+  "kind": "decision"
+}

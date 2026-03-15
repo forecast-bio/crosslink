@@ -1,0 +1,10 @@
+{
+  "uuid": "11fbdd3f-573c-4449-a4b7-19c44d5a6aa0",
+  "issue_uuid": "686ba9eb-de6d-4cf8-a43f-82fbc9a9d536",
+  "author": "maxine--basel--gh-287-and-gh-291",
+  "content": "Committed: feat: fix CI concurrency groups and repo cleanup (gh#287, gh#291) [CL-175] (8e054a3) | Files: 48 files changed, 1706 insertions(+), 4173 deletions(-)",
+  "created_at": "2026-03-11T03:26:48.400829Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJ8w5n6lkUyAr8yv4fJrOWTbv5gbdtWr/6fRNgVAdZTe6vnEUlSh0vSVYUZ2KalCVTrN0m60zAgOVf00ahWjZBg=="
+}

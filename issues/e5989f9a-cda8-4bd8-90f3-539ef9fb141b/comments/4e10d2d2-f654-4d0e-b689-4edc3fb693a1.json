@@ -1,0 +1,8 @@
+{
+  "uuid": "4e10d2d2-f654-4d0e-b689-4edc3fb693a1",
+  "issue_uuid": "e5989f9a-cda8-4bd8-90f3-539ef9fb141b",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "[observation] Adversarial review of TUI (all 5 phases):\n\nCRITICAL (2): C1 — Terminal not restored on error paths (RAII guard needed). C2 — truncate_str panics on multi-byte UTF-8 (byte indexing).\n\nHIGH (4): H1 — Blocking sync.fetch() freezes TUI. H2 — IssuesTab opens DB on every keystroke. H3 — event_scroll u16 truncation >65K. H4 — Panic hook never restored.\n\nMEDIUM (7): M1 — Unbounded scroll past content. M2 — q quits from detail with no confirm. M3 — Clipboard y gives no feedback. M4 — Detail Esc always returns to List not Tree. M5 — Mouse tab click uses byte len. M6 — Flash cleared on any mouse event. M7 — build_tree_recursive no depth limit.\n\nLOW (8): Inconsistent on_enter refresh, r:Refresh hint without global binding, unused content_area, help no scroll, tag filter by index, negative time display, missing y:Copy hints.\n\nPriority fixes: C1, C2, M3.",
+  "created_at": "2026-03-02T17:43:09.676790Z",
+  "kind": "note"
+}

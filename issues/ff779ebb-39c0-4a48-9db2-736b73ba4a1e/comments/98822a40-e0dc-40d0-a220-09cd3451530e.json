@@ -1,0 +1,8 @@
+{
+  "uuid": "98822a40-e0dc-40d0-a220-09cd3451530e",
+  "issue_uuid": "ff779ebb-39c0-4a48-9db2-736b73ba4a1e",
+  "author": "maxine-at-forecast--noether--restrict-proptests",
+  "content": "Decision: Added 'if' condition to proptest job at line 135. Runs only on release/** pushes or PRs targeting main. This gates expensive 1000-case proptests to release gates while the test job's 10-case smoke run continues on all branches.",
+  "created_at": "2026-03-04T20:05:11.950812Z",
+  "kind": "decision"
+}

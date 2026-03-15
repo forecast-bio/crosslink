@@ -1,0 +1,8 @@
+{
+  "uuid": "7402e880-d68d-472c-a26e-e256fc196f35",
+  "issue_uuid": "159a9155-c2b2-45cc-adb9-5f29a6948110",
+  "author": "maxine-at-forecast--noether--init-blocked-lint",
+  "content": "Result: Implemented both changes:\n\n1. global.md - Added 'Blocked Actions' subsection under Priority 1: Security documenting permanently blocked git commands (push/merge/rebase/reset/etc.), gated commands (commit requires active issue), and always-allowed read-only commands.\n\n2. kickoff.md - Three additions:\n   a. Blocked actions context block in the agent prompt (alongside worktree awareness)\n   b. Step 8b: lint/format check instructions with per-language examples (cargo clippy/fmt, eslint, ruff, go vet/gofmt)\n   c. Self-review checklist: added lint/formatter pass item\n\nAll 146 tests pass, clippy clean, fmt clean.",
+  "created_at": "2026-03-02T02:39:00.717401Z",
+  "kind": "result"
+}

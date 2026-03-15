@@ -1,0 +1,8 @@
+{
+  "uuid": "ccbc8ac1-447d-47fa-a323-8039cca47105",
+  "issue_uuid": "ea8b2b52-86c6-47df-a85d-628869b5706c",
+  "author": "maxine--plan-050",
+  "content": "Covers REQ-2, AC-4 through AC-6. Needs: KickoffCommands::List variant in main.rs (~30 lines), unified discovery from 3 sources (~250 lines), tests (~100 lines). Highest risk subtask — Docker label 'crosslink-agent=true' must be verified in existing container launch code. The existing status() fallback overlaps but is not sufficient.",
+  "created_at": "2026-03-10T22:41:11.363371Z",
+  "kind": "plan"
+}

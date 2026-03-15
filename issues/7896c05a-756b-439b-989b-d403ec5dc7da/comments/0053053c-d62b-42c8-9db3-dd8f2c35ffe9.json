@@ -1,0 +1,10 @@
+{
+  "uuid": "0053053c-d62b-42c8-9db3-dd8f2c35ffe9",
+  "issue_uuid": "7896c05a-756b-439b-989b-d403ec5dc7da",
+  "author": "m1",
+  "content": "Created GH issue #91: https://github.com/forecast-bio/crosslink/issues/91 — YAML parse error in _brand.yml line 27, monospace font family value needs proper quoting",
+  "created_at": "2026-02-28T20:54:30.747624Z",
+  "kind": "result",
+  "signed_by": "SHA256:XiViiZnT3F7VGw0HIStbHBxjTSKDLEnFZRAkKjBKRlc",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgZ3TqCWtjI0LMWl6FoUDqwzTxBw6AtE9Fn4x8b9CqOGkAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAi8M+sTcR5dqLWr5LPgbbMOXC4WDSfyNoWxAamyMT2d1RrhX9u6Lvwn02401J71rR1fQER5qWVLKoQWuvITDtDA=="
+}

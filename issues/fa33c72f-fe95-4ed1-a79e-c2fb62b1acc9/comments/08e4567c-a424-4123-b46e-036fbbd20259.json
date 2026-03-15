@@ -1,0 +1,8 @@
+{
+  "uuid": "08e4567c-a424-4123-b46e-036fbbd20259",
+  "issue_uuid": "fa33c72f-fe95-4ed1-a79e-c2fb62b1acc9",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Decision: Removed build-release job from ci.yml and created separate release-builds.yml. Rationale: release binaries (3 platforms including Windows) are expensive and only needed for actual releases — no reason to build them on every PR to develop. This saves ~15 min of CI per develop PR.",
+  "created_at": "2026-03-02T09:20:50.004367Z",
+  "kind": "decision"
+}

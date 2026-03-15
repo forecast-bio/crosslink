@@ -1,0 +1,8 @@
+{
+  "uuid": "a65cd737-df7c-4789-b3bd-0b41889dcb63",
+  "issue_uuid": "5e502b0a-f804-406a-94d7-1a9fbf7a3efc",
+  "author": "m1--f2",
+  "content": "Plan: (1) Add resolve_main_repo_root() to sync.rs and update SyncManager::new() to detect worktree context and use main repo's hub cache. (2) Add tests for worktree detection. (3) Fix kickoff.md allowed-tools: add Write, Read, Bash(echo *), remove Bash(claude *). (4) Fix featree.md allowed-tools: add Bash(echo *), Bash(crosslink *). Replace step 4 with crosslink init flow.",
+  "created_at": "2026-02-27T04:41:57.353354Z",
+  "kind": "note"
+}

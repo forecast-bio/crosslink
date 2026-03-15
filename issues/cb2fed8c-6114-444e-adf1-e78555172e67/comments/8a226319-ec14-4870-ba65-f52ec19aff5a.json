@@ -1,0 +1,8 @@
+{
+  "uuid": "8a226319-ec14-4870-ba65-f52ec19aff5a",
+  "issue_uuid": "cb2fed8c-6114-444e-adf1-e78555172e67",
+  "author": "maxine-at-forecast--noether--tui-dashboard",
+  "content": "Plan: Implementing Phase 1 TUI dashboard with ratatui 0.30 + crossterm 0.29. Architecture: (1) Add deps to Cargo.toml (2) Create tui/ module with Tab trait, App struct, main event loop (3) Implement IssuesTab with list view (sort/filter) and detail view (4) Add placeholder tabs for future phases (5) Add help overlay on ? key (6) Wire up crosslink tui CLI subcommand in main.rs (7) Add tests with TestBackend (8) Graceful cleanup via panic hook. Data access: reuse db.list_issues(), db.get_issue(), db.get_comments(), db.get_labels(), db.get_blockers(), db.get_blocking(). Key files: Cargo.toml, src/main.rs, src/commands/mod.rs, new src/commands/tui.rs, new src/tui/{mod.rs, issues_tab.rs, tabs.rs}",
+  "created_at": "2026-03-02T09:11:23.208173Z",
+  "kind": "plan"
+}

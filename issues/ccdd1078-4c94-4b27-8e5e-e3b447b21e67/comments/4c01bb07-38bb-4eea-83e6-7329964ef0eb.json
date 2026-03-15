@@ -1,0 +1,8 @@
+{
+  "uuid": "4c01bb07-38bb-4eea-83e6-7329964ef0eb",
+  "issue_uuid": "ccdd1078-4c94-4b27-8e5e-e3b447b21e67",
+  "author": "anon-ab6221f8",
+  "content": "Decided to extract discover_agents() from list() as shared function rather than duplicating discovery logic. cleanup() classifies agents as Done/Stale/Active, respects --force for stale, --keep for retention, and --json for machine output.",
+  "created_at": "2026-03-11T13:34:13.215450963Z",
+  "kind": "decision"
+}

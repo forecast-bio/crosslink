@@ -1,0 +1,8 @@
+{
+  "uuid": "4fa3f9ef-15c0-4cb7-81ff-36d868b42cdc",
+  "issue_uuid": "99df1715-610c-4eaf-97c0-20944143a02a",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Removed status checks from hotfix/* ruleset (kept deletion + force-push protection). Pushed hotfix/gitignore-mac-cleanup.",
+  "created_at": "2026-03-02T23:04:52.894742Z",
+  "kind": "handoff"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "365b91ed-059a-4489-8f35-90448e01ca40",
+  "issue_uuid": "8d03f1f4-80ad-4561-89ed-29c9f461f929",
+  "author": "maxine-at-forecast--noether--accept-both-conflict",
+  "content": "Completed: accept-both conflict resolution for knowledge branch. Added has_conflict_markers(), resolve_accept_both(), SyncOutcome struct, handle_rebase_conflict() method. Modified sync() and push() to detect rebase conflicts and fall back to accept-both. Updated all command-layer callers. 8 new unit tests. All 926 tests pass, clippy clean, fmt clean. Committed as cf0f2bd.",
+  "created_at": "2026-03-02T08:56:44.382305Z",
+  "kind": "handoff"
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "12c0c952-4119-4d6c-a06f-192e65215d65",
+  "issue_uuid": "3f01ba89-f431-42ea-86aa-f920111aae6e",
+  "author": "maxine-at-forecast--noether",
+  "content": "Added kickoff.qmd guide to docs_src/guides/ and wired into _quarto.yml nav. PR #151 now has 3 commits: styling updates, CLI reference overhaul, and kickoff guide. Branch: feature/docs-review-updates.",
+  "created_at": "2026-03-02T08:12:15.080972Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAmg78R344foSfTXjLgf254mnt+lk9SG0notU5ZsJu28UXVf0V27tSkbyCSSRNamfxfmri1BqzSCHSfVPbeuv2Dg=="
+}

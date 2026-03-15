@@ -1,0 +1,10 @@
+{
+  "uuid": "4f6307c0-537e-4f5f-95b4-ec25f91682b7",
+  "issue_uuid": "5c1f4f3a-04a7-450d-92d2-6e26668c9960",
+  "author": "maxine-at-forecast--noether--tmux-perms",
+  "content": "Driver redirected to use worktree path instead of root repo path for file reads",
+  "created_at": "2026-03-02T03:31:07.431362Z",
+  "kind": "intervention",
+  "trigger_type": "redirect",
+  "intervention_context": "Was reading files from /Users/max/git-forecast/crosslink/crosslink/... instead of the worktree at /Users/max/git-forecast/crosslink/.worktrees/add-tmux-worktree-permissions-to-kickoff/crosslink/..."
+}

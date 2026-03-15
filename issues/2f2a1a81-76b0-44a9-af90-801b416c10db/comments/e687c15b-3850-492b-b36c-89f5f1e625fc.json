@@ -1,0 +1,8 @@
+{
+  "uuid": "e687c15b-3850-492b-b36c-89f5f1e625fc",
+  "issue_uuid": "2f2a1a81-76b0-44a9-af90-801b416c10db",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Set up git flow per GH #129. Created develop branch, set as default, configured 3 rulesets (main, develop, release/*). Removed approval requirement per user request. Deleted old redundant ruleset.",
+  "created_at": "2026-03-02T10:41:33.624090Z",
+  "kind": "handoff"
+}

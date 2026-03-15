@@ -1,0 +1,10 @@
+{
+  "uuid": "045c0e51-aede-4285-af03-10d773412734",
+  "issue_uuid": "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867",
+  "author": "maxine--basel",
+  "content": "Committed: fix(docs): add justfile with render-docs pipeline and fix missing SVG assets [CL-192] [CL-193] | Files: 70 files changed, 30617 insertions(+), 2 deletions(-)",
+  "created_at": "2026-03-15T16:31:30.759514Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8XkEK7O/sqP6R9AHJC6Y+OrPByVtZ2wXId/HHW2f7mc65DmkPtpX+9hmrIn1XyZMcYQIb7GjlBlGDcut+IutAg=="
+}

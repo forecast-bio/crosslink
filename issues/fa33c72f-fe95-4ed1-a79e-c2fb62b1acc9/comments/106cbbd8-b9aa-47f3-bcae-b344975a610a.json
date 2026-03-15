@@ -1,0 +1,8 @@
+{
+  "uuid": "106cbbd8-b9aa-47f3-bcae-b344975a610a",
+  "issue_uuid": "fa33c72f-fe95-4ed1-a79e-c2fb62b1acc9",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Decision: Added concurrency groups to ci.yml, ci-feature.yml, and release-builds.yml to cancel stale runs. Using PR number for PR events and ref for push events to avoid cross-cancellation between PR validation and post-merge runs.",
+  "created_at": "2026-03-02T09:21:10.183906Z",
+  "kind": "decision"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "5594a529-512d-4f44-8d7f-cf077f1d6487",
+  "issue_uuid": "fa33c72f-fe95-4ed1-a79e-c2fb62b1acc9",
+  "author": "maxine-at-forecast--noether--ci-cd-restructure",
+  "content": "Completed: Restructured CI/CD into 4 workflows for git flow. ci.yml retargeted to develop (removed main triggers, removed build-release). New ci-feature.yml for fast feature/* CI. publish.yml simplified (removed paths filter). New release-builds.yml for cross-platform binary artifacts. Trigger matrix verified — no duplicates. Ready for PR to main. Branch: feature/restructure-ci-cd-workflows, commit a8c4a97.",
+  "created_at": "2026-03-02T09:34:25.342708Z",
+  "kind": "handoff"
+}

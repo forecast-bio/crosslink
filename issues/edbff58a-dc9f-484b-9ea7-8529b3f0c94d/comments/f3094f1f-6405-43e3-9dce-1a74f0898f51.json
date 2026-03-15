@@ -1,0 +1,8 @@
+{
+  "uuid": "f3094f1f-6405-43e3-9dce-1a74f0898f51",
+  "issue_uuid": "edbff58a-dc9f-484b-9ea7-8529b3f0c94d",
+  "author": "maxine-at-forecast--noether--clock-skew",
+  "content": "Decision: Implementing as a direct integration into the existing compaction pipeline rather than a standalone module, since compaction.rs already exists and is fully functional. The SkewViolation struct will be separate from the existing SkewWarning struct - SkewWarning uses Utc::now() as reference, SkewViolation uses git commit timestamps. Both serve complementary roles.",
+  "created_at": "2026-03-02T23:52:01.797626Z",
+  "kind": "decision"
+}

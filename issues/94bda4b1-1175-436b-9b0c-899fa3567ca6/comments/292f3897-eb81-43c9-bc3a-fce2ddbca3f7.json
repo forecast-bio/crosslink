@@ -1,0 +1,8 @@
+{
+  "uuid": "292f3897-eb81-43c9-bc3a-fce2ddbca3f7",
+  "issue_uuid": "94bda4b1-1175-436b-9b0c-899fa3567ca6",
+  "author": "m1--full-system-adversarial-review",
+  "content": "Plan: Add explicit chmod 700 on keys_dir and chmod 600 on private key after ssh-keygen runs, using cfg(unix) guard. Also create a GitHub issue for the broader key isolation design goal.",
+  "created_at": "2026-03-01T02:15:46.475291Z",
+  "kind": "plan"
+}

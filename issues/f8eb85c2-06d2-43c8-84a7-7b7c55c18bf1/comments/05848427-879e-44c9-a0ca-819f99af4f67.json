@@ -1,0 +1,8 @@
+{
+  "uuid": "05848427-879e-44c9-a0ca-819f99af4f67",
+  "issue_uuid": "f8eb85c2-06d2-43c8-84a7-7b7c55c18bf1",
+  "author": "m1--f5",
+  "content": "Implementing KnowledgeManager struct modeled after SyncManager in sync.rs. Key components: 1) KnowledgeManager struct with crosslink_dir, cache_dir, repo_root fields 2) init_cache() for orphan branch + worktree creation 3) sync()/push()/commit() for git operations 4) Frontmatter parsing (hand-rolled, no serde_yaml) 5) Page CRUD (list_pages, read_page, write_page) 6) Integration: add pub mod knowledge to lib.rs, add .knowledge-cache to .gitignore in init.rs",
+  "created_at": "2026-02-28T06:12:30.784482Z",
+  "kind": "note"
+}

@@ -1,0 +1,8 @@
+{
+  "uuid": "fb26eb98-d70e-451f-9a4a-9f07ae1c137b",
+  "issue_uuid": "2445a0e5-ac0d-4112-82c0-fe45ae4e12fa",
+  "author": "maxine-at-forecast--noether--fix-tui-agents-tab",
+  "content": "Plan: Two root causes identified. (1) read_heartbeats() only reads V1 heartbeats/ dir, but V2 layout stores heartbeats in agents/{id}/heartbeat.json — so V2 agents don't appear in the list. (2) on_enter() is empty, so data is never refreshed when switching to the Agents tab. Fix: add read_heartbeats_v2() and read_heartbeats_auto() to SyncManager, use it in agents_tab refresh(), and implement on_enter() to call refresh().",
+  "created_at": "2026-03-04T20:31:01.768477Z",
+  "kind": "plan"
+}

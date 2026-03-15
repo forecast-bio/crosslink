@@ -1,0 +1,10 @@
+{
+  "uuid": "c2223324-f6d5-4054-811d-e5499a80e735",
+  "issue_uuid": "75d0c174-e402-4485-8b91-fda8592be5eb",
+  "author": "maxine-at-forecast--noether",
+  "content": "Created GitHub issue forecast-bio/crosslink#242 with full tiered breakdown of 13 smoke tests to automate. Tier 1 (unit) and Tier 2 (integration) run on all branches; Tier 3 (hub sync fixtures) gates develop/release only.",
+  "created_at": "2026-03-05T21:00:28.552547Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+in7Ow9/y9KNhmaGRBRzqEh4ms+ipUJf1yl27Fm7MELxH7nofTT6Ho5CCqO33Tpiah777JIb8rSfW5A//2PZCA=="
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "89c9c8fe-89a9-4646-b71d-ce60e330d8c3",
+  "issue_uuid": "68e47248-bfb7-4d2f-8c76-d9af050649b1",
+  "author": "maxine--basel--gh-issues-299-and-301",
+  "content": "Plan:\n\n**Issue #301 (ssh-keygen stdout fix):**\n- signing.rs:699-704 — check both stdout AND stderr for 'Good' from ssh-keygen -Y verify\n- Simple 3-line fix\n\n**Issue #299 (unsigned hub writes):**\n- Core gate: shared_writer.rs:126-150 — SharedWriter::new() returns None when no agent.json\n- Need to allow SharedWriter to work without agent identity for unsigned hub writes\n- Key files: shared_writer.rs, sync.rs, identity.rs, commands that use get_writer()\n- Strategy: Make SharedWriter work with Optional agent identity. When no agent, commits to hub are unsigned. When agent exists, commits are signed.\n- sync.rs init_cache() needs to work without agent identity\n- Commit signing config should be conditional on agent identity",
+  "created_at": "2026-03-11T00:00:04.212233Z",
+  "kind": "plan",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABANwsKm/0PN+VZDefvT2Pc/Iq9sioMsHQkV81wxyHctiNS7bYnIRs6kk5STQOo8WUEaTs1pEvBOSP7Wtr8ajCMCA=="
+}

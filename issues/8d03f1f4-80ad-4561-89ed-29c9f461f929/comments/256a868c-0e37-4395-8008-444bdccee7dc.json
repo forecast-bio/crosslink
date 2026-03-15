@@ -1,0 +1,10 @@
+{
+  "uuid": "256a868c-0e37-4395-8008-444bdccee7dc",
+  "issue_uuid": "8d03f1f4-80ad-4561-89ed-29c9f461f929",
+  "author": "maxine-at-forecast--noether--accept-both-conflict",
+  "content": "Working issue was switched to #77 by another agent/session. Had to re-set to #76.",
+  "created_at": "2026-03-02T08:40:57.117198Z",
+  "kind": "intervention",
+  "trigger_type": "tool_blocked",
+  "intervention_context": "Attempting to edit knowledge.rs but work-check hook blocked because working issue was wrong"
+}

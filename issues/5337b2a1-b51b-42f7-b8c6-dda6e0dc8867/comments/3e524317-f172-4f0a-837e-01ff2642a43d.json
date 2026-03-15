@@ -1,0 +1,10 @@
+{
+  "uuid": "3e524317-f172-4f0a-837e-01ff2642a43d",
+  "issue_uuid": "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867",
+  "author": "maxine--basel",
+  "content": "Render flow now: (1) generate SVGs into docs_src/, (2) quarto renders to .docs_build/ temp dir via QUARTO_PROJECT_OUTPUT_DIR override, (3) collision check scans temp output against docs/ for files with no docs_src/ source (protects api.md, ARCHITECTURE.md, ELI5.md), (4) rsync with --filter='protect *.md' copies to docs/ preserving manual files, (5) --force flag overrides collisions, (6) verify step gates output. Added .docs_build/ to .gitignore and scripts/** to docs.yml triggers.",
+  "created_at": "2026-03-15T16:04:32.214473Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABcx6YcMIM1CylXklzIyiwiJgLZlyHpy54aCVgd9z3I749RbNITGX6SWrPfxOC+WIvol5IZK5UZUNsUg5OtplBQ=="
+}

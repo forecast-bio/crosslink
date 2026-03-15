@@ -1,0 +1,10 @@
+{
+  "uuid": "4268a7d8-c049-4573-af18-29dbfc5d67fa",
+  "issue_uuid": "e4e1deac-2215-43ba-9cc4-4f8434fb94e6",
+  "author": "maxine-at-forecast--noether",
+  "content": "Hotfix PR #148 created. Fixes publish.yml reusable workflow failure and adds dry-run on release PRs.",
+  "created_at": "2026-03-02T05:54:54.408788Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAHN3nT67HJUFrSACs08gwZ6hwMw8wqlCnfK5llBaq2Y6lAhOFT51fuUJqvbJrAjhzn7bPGucQOcieeaZ+2je7Cw=="
+}

@@ -1,0 +1,10 @@
+{
+  "uuid": "8b1ed839-5731-4c23-9182-0881b664defd",
+  "issue_uuid": "eda75c32-1f6f-4679-8e12-5fe721328b53",
+  "author": "maxine--basel",
+  "content": "Committed: fix(docs): second-pass accuracy fixes across qmd files | Files: 6 files changed, 16 insertions(+), 7 deletions(-)",
+  "created_at": "2026-03-12T07:10:32.777795Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABADHbnJIVg8mNTY1d8FmsMKIqHd+hyQRifeHJsJOAa/5uNqyFCvT0ydmcj7H0eSeY5G71En2BpM20nsBO3KKUsAw=="
+}

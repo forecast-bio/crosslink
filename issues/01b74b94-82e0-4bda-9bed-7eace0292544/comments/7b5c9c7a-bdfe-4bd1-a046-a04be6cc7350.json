@@ -1,0 +1,10 @@
+{
+  "uuid": "7b5c9c7a-bdfe-4bd1-a046-a04be6cc7350",
+  "issue_uuid": "01b74b94-82e0-4bda-9bed-7eace0292544",
+  "author": "maxine-at-forecast--noether",
+  "content": "Tag re-created at 5dca78d (includes hotfix). Publish workflow running. GH issue #149 created for v0.2.0 CI/CD restructure.",
+  "created_at": "2026-03-02T06:14:59.935103Z",
+  "kind": "result",
+  "signed_by": "SHA256:k0PWejDto36xlyTpXwVGHDbRl7ZIvkCkaAU0ioOEhRU",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgubz4yfS1wSDvxmlSGQNKwSPYUq0ktzwpVKHmFR9N0y4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2qQVeLEg2QmNMXpuRYiqeN8mBpLZKG6u/5Vq40E+/oBPIUwt5VFFMCNOdwZfW/Gy3uFKqfrPYpFHQi0sBEUOCQ=="
+}

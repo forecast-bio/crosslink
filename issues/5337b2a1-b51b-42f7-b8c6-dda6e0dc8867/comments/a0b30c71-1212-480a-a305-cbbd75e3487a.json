@@ -1,0 +1,10 @@
+{
+  "uuid": "a0b30c71-1212-480a-a305-cbbd75e3487a",
+  "issue_uuid": "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867",
+  "author": "maxine--basel",
+  "content": "Added all 8 Python SVG render scripts to the render-docs pipeline: generate-banner, generate-card-icons, and 6 diagram generators. They run before quarto render so source SVGs are always fresh. Verify step now also checks all diagram SVGs exist.",
+  "created_at": "2026-03-15T16:00:10.127093Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA608RQdY8VKP9NkiM5Lzy/9GG5cAJRsHuveouzDp5q2kXqSdbaKB87oF47LY/qTaJKLwRxdiybmHQUYPvkpPcBA=="
+}

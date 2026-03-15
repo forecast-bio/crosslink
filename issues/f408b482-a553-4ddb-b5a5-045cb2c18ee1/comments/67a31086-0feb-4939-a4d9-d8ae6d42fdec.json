@@ -1,0 +1,10 @@
+{
+  "uuid": "67a31086-0feb-4939-a4d9-d8ae6d42fdec",
+  "issue_uuid": "f408b482-a553-4ddb-b5a5-045cb2c18ee1",
+  "author": "maxine--basel",
+  "content": "Published GitHub release v0.5.0 — web dashboard, CLI enhancements, docs overhaul, 14 adversarial fixes. https://github.com/forecast-bio/crosslink/releases/tag/v0.5.0",
+  "created_at": "2026-03-15T09:55:50.222926Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqBewOmD1RMIENlJSAiayvvjzkAYjPysHBAsMfmdtm4pzhjLT65vgNiqWmT012E/U86AxQpMzczFULxgiGXklAQ=="
+}
