@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-03-15
+
+### Added
+
+#### Swarm Review System
+- `swarm review` command for parallel adversarial codebase exploration ([GH-342])
+- `swarm fix` command for parallel issue-to-agent fix execution ([GH-345])
+- `swarm merge` subcommand for combining parallel agent worktree changes ([GH-346])
+- End-to-end `swarm review --fix` pipeline orchestrator ([GH-348])
+- Finding consolidation and deduplication for swarm reviews ([GH-343])
+- Seam detection and codebase auto-partitioning module ([GH-341])
+- Trust model configuration for swarm review triage ([GH-347])
+- Automatic GitHub issue creation from swarm review findings ([GH-344])
+
+#### Testing
+- Adversarial smoke test harness with 134 tests ([GH-354])
+- Test coverage boosted to 92.73% ([GH-355])
+
+#### Language Support
+- First-class Elixir support in kickoff conventions, context detection, hooks, and command docs ([GH-352])
+
+#### CLI Enhancements
+- `--skip-permissions` flag for `kickoff run` ([GH-357])
+- Git commit hash included in version string ([GH-339])
+
+#### Build Tooling
+- `justfile` with `render-docs` pipeline: SVG generation, quarto render via staging dir, collision detection for manually-maintained docs, asset lint for broken images/styles/scripts/links ([CL-192], [CL-193])
+
+### Fixed
+- Missing banner and wordmark SVGs in docs site deployment — banner ref escaped the `docs/` boundary, wordmark not copied by Quarto ([CL-192])
+- Swarm launch failure — write `.kickoff-status` sentinel on launch and treat missing status as failed ([GH-359])
+- V2 comment hydration bug found during smoke testing ([GH-354])
+- Swarm gate worktree bug ([GH-355])
+- Update resource templates and hooks to use canonical `crosslink issue` syntax ([GH-338])
+- 9 Windows compatibility issues across codebase ([GH-337])
+- Windows clipboard support via `clip.exe` ([GH-325])
+
+### Changed
+- Remove all `#[allow(dead_code)]` annotations and wire in unused code
+- Update CLAUDE.md to document canonical CLI syntax, `--quiet`, and `--json` flags ([GH-338])
+- Docs CI workflow now uses `just render-docs` with asset verification gate
+
 ## [0.5.0] - 2026-03-11
 
 ### Added
