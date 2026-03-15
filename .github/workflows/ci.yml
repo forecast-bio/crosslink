@@ -1,12 +1,12 @@
 name: CI
 
-# Triggers: develop and hotfix/* push validation + PRs to main/develop.
+# Triggers: develop push validation + PRs to main/develop.
 # Feature branches use ci-feature.yml (fast path) instead.
-# Release branches are validated via PR trigger (not push) to avoid
+# Release and hotfix branches are validated via PR trigger (not push) to avoid
 # concurrency conflicts where push and PR runs cancel each other.
 on:
   push:
-    branches: [develop, 'hotfix/**']
+    branches: [develop]
   pull_request:
     branches: [develop, main]
 
