@@ -1,0 +1,11 @@
+{
+  "uuid": "3aa1f579-70ce-43ca-a30c-78f55d0e08f6",
+  "display_id": 197,
+  "title": "Hide SSH key fingerprint from agent status output",
+  "description": "The agent status command prints the full SSH key fingerprint (SHA256:...) which looks like a secret to users. Daniel Lowd's first reaction was to redact it when sharing a screenshot. The fingerprint is a throwaway identity signing key, not a secret — but printing it causes unnecessary alarm. Should either remove it from default output or hide behind --verbose flag. Ref: bsky thread lowd.cc/3mh4vf3fias2x",
+  "status": "open",
+  "priority": "high",
+  "created_by": "maxine--basel",
+  "created_at": "2026-03-15T22:43:11.563928Z",
+  "updated_at": "2026-03-15T22:43:11.563928Z"
+}
