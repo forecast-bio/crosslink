@@ -1,0 +1,14 @@
+{
+  "uuid": "1554d9e1-f684-42a7-a6ad-6b0e628c2007",
+  "display_id": 195,
+  "title": "Add install setup step for shell alias (xl) configuration",
+  "status": "closed",
+  "priority": "low",
+  "created_by": "maxine--basel",
+  "created_at": "2026-03-15T17:09:59.604690Z",
+  "updated_at": "2026-03-17T18:34:37.543451Z",
+  "closed_at": "2026-03-17T18:34:37.543451Z",
+  "labels": [
+    "enhancement"
+  ]
+}
