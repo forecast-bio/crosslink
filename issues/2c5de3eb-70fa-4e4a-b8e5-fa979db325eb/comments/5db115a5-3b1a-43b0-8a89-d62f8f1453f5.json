@@ -1,0 +1,8 @@
+{
+  "uuid": "5db115a5-3b1a-43b0-8a89-d62f8f1453f5",
+  "issue_uuid": "2c5de3eb-70fa-4e4a-b8e5-fa979db325eb",
+  "author": "anon-672704fb",
+  "content": "Gap analysis complete. Found 3 blocking gaps (config registry mismatch, missing Integer config type, no sha2 dep), 8 advisory gaps, 5 conflicts, 17 estimated subtasks. Written to .kickoff-plan.json.",
+  "created_at": "2026-03-17T23:15:06.678500Z",
+  "kind": "result"
+}
