@@ -1,0 +1,10 @@
+{
+  "uuid": "391a981f-c75a-4845-a594-7cc2c1616e9d",
+  "issue_uuid": "07b6ea76-3521-4a6c-9af9-518d0b06dddf",
+  "author": "maxine--basel",
+  "content": "User answered all 5 design questions. Key decisions: (1) External reads use hub branch JSON directly, no SQLite sync needed. (2) --source may collide, need to check and possibly use --repo or --remote. (3) Named aliases need deeper design. (4) All three display boundary approaches (prefix, banner, JSON field). (5) MCP in scope, REST API out of scope.",
+  "created_at": "2026-03-17T20:27:17.296599Z",
+  "kind": "decision",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA7opCuZGpPUm97/620nldFmhYV2l1fVovZxpArjWxMC+vQwyjX8kykm7QnW5lC/JnfAZDcKvIEYVOdmZBLHRABg=="
+}
