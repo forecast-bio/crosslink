@@ -1,17 +1,10 @@
-// Status, logs, stop, and report commands for kickoff agents.
-
+// E-ana tablet — kickoff monitor: status, logs, stop, list commands
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-use super::helpers::{
-    command_available, format_duration, is_timed_out, read_timeout_metadata, tmux_session_exists,
-    tmux_session_name, truncate_str,
-};
-use super::prompt::format_phase_line;
-use super::types::{
-    validate_kickoff_report, KickoffReport, PhaseTiming, ReportFormat,
-};
+use super::helpers::*;
+use super::types::*;
 
 /// `crosslink kickoff status <agent>`
 pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
@@ -118,6 +111,217 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
                 break;
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Discover all kickoff agents by scanning worktrees, tmux sessions, and Docker containers.
+///
+/// Shared discovery logic used by both `list` and `cleanup`.
+pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let worktrees_dir = root.join(".worktrees");
+
+    let mut agents: Vec<AgentInfo> = Vec::new();
+
+    // --- Source 1: Worktree scan ---
+    if worktrees_dir.is_dir() {
+        for entry in std::fs::read_dir(&worktrees_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+            let wt_path = entry.path();
+
+            // Read .kickoff-status sentinel
+            let status_file = wt_path.join(".kickoff-status");
+            let agent_status = if status_file.exists() {
+                let raw = std::fs::read_to_string(&status_file)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                normalize_status(&raw)
+            } else {
+                "running".to_string()
+            };
+
+            // Try to read issue from .kickoff-criteria.json or agent config
+            let issue = read_agent_issue(&wt_path, crosslink_dir);
+
+            // Derive agent ID from agent config if available
+            let agent_id = read_agent_id(&wt_path, crosslink_dir)
+                .unwrap_or_else(|| format!("driver--{}", dir_name));
+
+            // Check tmux session
+            let session_name = tmux_session_name(&dir_name);
+            let tmux_active = tmux_session_exists(&session_name);
+
+            // Reconcile status: check timeout, then tmux liveness
+            let final_status = if agent_status == "running" && is_timed_out(&wt_path) {
+                "timed-out".to_string()
+            } else if agent_status == "running" && !tmux_active {
+                // Check if there's a docker container instead (handled below as overlay)
+                "stopped".to_string()
+            } else {
+                agent_status
+            };
+
+            agents.push(AgentInfo {
+                id: agent_id,
+                issue,
+                status: final_status,
+                session: if tmux_active {
+                    Some(session_name)
+                } else {
+                    None
+                },
+                worktree: wt_path.to_string_lossy().to_string(),
+                docker: None,
+            });
+        }
+    }
+
+    // --- Source 2: Docker containers ---
+    if command_available("docker") {
+        if let Ok(output) = Command::new("docker")
+            .args([
+                "ps",
+                "-a",
+                "--filter",
+                "label=crosslink-agent=true",
+                "--format",
+                "{{.Names}}\t{{.Status}}\t{{.Label \"crosslink-task\"}}",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split('\t').collect();
+                    if parts.len() >= 2 {
+                        let container_name = parts[0];
+                        let container_status_raw = parts[1];
+                        let task_label = parts.get(2).unwrap_or(&"");
+
+                        // Try to match to an existing worktree agent
+                        let matched = agents.iter_mut().find(|a| {
+                            // Match by task label containing the worktree dir name
+                            if !task_label.is_empty() {
+                                a.worktree.contains(task_label)
+                            } else {
+                                // Match by container name containing the agent slug
+                                let slug = a.id.rsplit("--").next().unwrap_or(&a.id);
+                                container_name.contains(slug)
+                            }
+                        });
+
+                        if let Some(agent) = matched {
+                            agent.docker = Some(container_name.to_string());
+                            // If container is running, override status
+                            if container_status_raw.starts_with("Up") && agent.status == "stopped" {
+                                agent.status = "running".to_string();
+                            }
+                        } else {
+                            // Docker-only agent (no worktree found)
+                            let docker_status = if container_status_raw.starts_with("Up") {
+                                "running"
+                            } else if container_status_raw.contains("Exited (0)") {
+                                "done"
+                            } else {
+                                "failed"
+                            };
+                            agents.push(AgentInfo {
+                                id: container_name.to_string(),
+                                issue: if task_label.is_empty() {
+                                    None
+                                } else {
+                                    Some(task_label.to_string())
+                                },
+                                status: docker_status.to_string(),
+                                session: None,
+                                worktree: String::new(),
+                                docker: Some(container_name.to_string()),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(agents)
+}
+
+/// `crosslink kickoff list`
+///
+/// Enumerate all kickoff agents by scanning worktrees, tmux sessions, and Docker containers.
+pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) -> Result<()> {
+    let agents = discover_agents(crosslink_dir)?;
+
+    // --- Filter by status ---
+    let filtered: Vec<&AgentInfo> = if status_filter == "all" {
+        agents.iter().collect()
+    } else {
+        agents
+            .iter()
+            .filter(|a| a.status == status_filter)
+            .collect()
+    };
+
+    // --- Output ---
+    if quiet {
+        for agent in &filtered {
+            println!("{}", agent.id);
+        }
+        return Ok(());
+    }
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&filtered)?);
+        return Ok(());
+    }
+
+    if filtered.is_empty() {
+        println!("No kickoff agents found.");
+        return Ok(());
+    }
+
+    // Table output
+    println!(
+        "{:<36} {:<8} {:<10} {:<24} WORKTREE",
+        "ID", "ISSUE", "STATUS", "SESSION"
+    );
+    for agent in &filtered {
+        let issue_display = agent.issue.as_deref().unwrap_or("-");
+        let session_display = agent.session.as_deref().unwrap_or("-");
+        let worktree_display = if agent.worktree.is_empty() {
+            "-"
+        } else {
+            // Show just the leaf directory name for brevity
+            std::path::Path::new(&agent.worktree)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&agent.worktree)
+        };
+        // Append docker indicator if present
+        let status_display = if agent.docker.is_some() {
+            format!("{} \u{1f433}", agent.status)
+        } else {
+            agent.status.clone()
+        };
+        println!(
+            "{:<36} {:<8} {:<10} {:<24} {}",
+            truncate_str(&agent.id, 35),
+            truncate_str(issue_display, 7),
+            status_display,
+            truncate_str(session_display, 23),
+            worktree_display
+        );
     }
 
     Ok(())
@@ -275,6 +479,48 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
         session_name,
         container_name
     );
+}
+
+/// Format a phase timing line with optional metrics.
+pub(super) fn format_phase_line(name: &str, timing: &PhaseTiming) -> String {
+    let dur = format_duration(timing.duration_s);
+    let mut detail = String::new();
+    if let Some(n) = timing.files_read {
+        detail.push_str(&format!("{} files read", n));
+    }
+    if let Some(n) = timing.files_modified {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} files", n));
+        if let (Some(a), Some(r)) = (timing.lines_added, timing.lines_removed) {
+            detail.push_str(&format!(", +{}/-{} lines", a, r));
+        }
+    }
+    if let Some(run) = timing.tests_run {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        let passed = timing.tests_passed.unwrap_or(0);
+        detail.push_str(&format!("{}/{} passed", passed, run));
+    }
+    if let Some(n) = timing.criteria_checked {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} criteria", n));
+    }
+    if let (Some(found), Some(fixed)) = (timing.issues_found, timing.issues_fixed) {
+        if !detail.is_empty() {
+            detail.push_str(", ");
+        }
+        detail.push_str(&format!("{} found/{} fixed", found, fixed));
+    }
+    if detail.is_empty() {
+        format!("  {:<16}{}\n", name, dur)
+    } else {
+        format!("  {:<16}{}  ({})\n", name, dur, detail)
+    }
 }
 
 /// Format a kickoff report as a human-readable table.

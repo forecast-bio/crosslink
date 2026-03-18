@@ -1,49 +1,9 @@
-// Helper utility functions used across kickoff submodules (and by swarm).
-
-use anyhow::{bail, Context, Result};
+// E-ana tablet — kickoff helpers: pure utility functions
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
 
-use super::types::{
-    KickoffMetadata, LinuxDistro, Platform, PreflightResult, WatchdogConfig,
-};
-
-/// Parse a human-readable duration string (e.g. "1h", "30m", "90s") into Duration.
-pub fn parse_duration(s: &str) -> Result<Duration> {
-    let s = s.trim();
-    if s.is_empty() {
-        bail!("Empty duration string");
-    }
-
-    let (num_str, unit) = if let Some(n) = s.strip_suffix('h') {
-        (n, 'h')
-    } else if let Some(n) = s.strip_suffix('m') {
-        (n, 'm')
-    } else if let Some(n) = s.strip_suffix('s') {
-        (n, 's')
-    } else {
-        // Bare number defaults to seconds
-        (s, 's')
-    };
-
-    let value: u64 = num_str
-        .parse()
-        .with_context(|| format!("Invalid duration number: '{}'", num_str))?;
-
-    let secs = match unit {
-        'h' => value * 3600,
-        'm' => value * 60,
-        's' => value,
-        _ => unreachable!(),
-    };
-
-    if secs == 0 {
-        bail!("Duration must be greater than zero");
-    }
-
-    Ok(Duration::from_secs(secs))
-}
+use super::types::*;
 
 /// Slugify a feature description into a branch-safe name.
 pub(crate) fn slugify(description: &str) -> String {
@@ -81,27 +41,247 @@ pub(crate) fn slugify(description: &str) -> String {
     }
 }
 
-/// Format seconds as a human-readable duration string.
-pub(crate) fn format_duration(secs: u64) -> String {
-    if secs >= 3600 {
-        let h = secs / 3600;
-        let m = (secs % 3600) / 60;
-        if m > 0 {
-            format!("{}h {}m", h, m)
-        } else {
-            format!("{}h", h)
+/// Parse an optional `AC-N:` prefix from a criterion string.
+///
+/// Returns `(id, remaining_text)`. If no prefix found, id is empty.
+pub(super) fn parse_criterion_id(text: &str) -> (String, String) {
+    let trimmed = text.trim();
+    let upper = trimmed.to_uppercase();
+    if let Some(rest) = upper.strip_prefix("AC-") {
+        if let Some(colon_pos) = rest.find(':') {
+            let digits = &rest[..colon_pos];
+            if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+                let id = format!("AC-{}", digits);
+                let remaining = trimmed[3 + colon_pos + 1..].trim().to_string();
+                return (id, remaining);
+            }
         }
-    } else if secs >= 60 {
-        let m = secs / 60;
-        let s = secs % 60;
-        if s > 0 {
-            format!("{}m {}s", m, s)
-        } else {
-            format!("{}m", m)
-        }
-    } else {
-        format!("{}s", secs)
     }
+    (String::new(), trimmed.to_string())
+}
+
+/// Extract acceptance criteria from a parsed design doc into a structured format.
+///
+/// Criteria with `AC-N:` prefixes keep their explicit IDs; others get
+/// sequential IDs assigned, skipping any numbers already claimed by explicit IDs.
+pub(crate) fn extract_criteria(
+    doc: &super::super::design_doc::DesignDoc,
+    source_filename: &str,
+) -> CriteriaFile {
+    let explicit_ids: HashSet<String> = doc
+        .acceptance_criteria
+        .iter()
+        .filter_map(|raw| {
+            let (id, _) = parse_criterion_id(raw);
+            if id.is_empty() {
+                None
+            } else {
+                Some(id)
+            }
+        })
+        .collect();
+
+    let mut auto_counter = 0u32;
+    let mut criteria = Vec::new();
+
+    for raw in &doc.acceptance_criteria {
+        let (parsed_id, text) = parse_criterion_id(raw);
+        let id = if !parsed_id.is_empty() {
+            parsed_id
+        } else {
+            loop {
+                auto_counter += 1;
+                let candidate = format!("AC-{}", auto_counter);
+                if !explicit_ids.contains(&candidate) {
+                    break candidate;
+                }
+            }
+        };
+        criteria.push(Criterion {
+            id,
+            text,
+            criterion_type: "functional".to_string(),
+        });
+    }
+
+    CriteriaFile {
+        source_doc: source_filename.to_string(),
+        extracted_at: chrono::Utc::now().to_rfc3339(),
+        criteria,
+    }
+}
+
+/// Detect project conventions from the repo root.
+pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
+    let mut conv = ProjectConventions {
+        test_command: None,
+        lint_commands: Vec::new(),
+        allowed_tools: Vec::new(),
+    };
+
+    // Rust
+    if repo_root.join("Cargo.toml").is_file() || repo_root.join("crosslink/Cargo.toml").is_file() {
+        conv.test_command = Some("cargo test".to_string());
+        conv.lint_commands
+            .push("cargo clippy -- -D warnings".to_string());
+        conv.lint_commands.push("cargo fmt --check".to_string());
+        conv.allowed_tools.push("Bash(cargo *)".to_string());
+    }
+
+    // Node/TypeScript
+    if repo_root.join("package.json").is_file() {
+        if conv.test_command.is_none() {
+            conv.test_command = Some("npm test".to_string());
+        }
+        conv.allowed_tools.push("Bash(npm *)".to_string());
+        conv.allowed_tools.push("Bash(npx *)".to_string());
+    }
+
+    // Python
+    if repo_root.join("pyproject.toml").is_file() || repo_root.join("requirements.txt").is_file() {
+        if conv.test_command.is_none() {
+            conv.test_command = Some("uv run pytest".to_string());
+        }
+        conv.lint_commands.push("ruff check .".to_string());
+        conv.allowed_tools.push("Bash(uv *)".to_string());
+        conv.allowed_tools.push("Bash(python3 *)".to_string());
+    }
+
+    // Go
+    if repo_root.join("go.mod").is_file() {
+        if conv.test_command.is_none() {
+            conv.test_command = Some("go test ./...".to_string());
+        }
+        conv.lint_commands.push("go vet ./...".to_string());
+        conv.allowed_tools.push("Bash(go *)".to_string());
+    }
+
+    // Just
+    if repo_root.join("justfile").is_file() || repo_root.join("Justfile").is_file() {
+        conv.allowed_tools.push("Bash(just *)".to_string());
+    }
+
+    // Make
+    if repo_root.join("Makefile").is_file() || repo_root.join("makefile").is_file() {
+        conv.allowed_tools.push("Bash(make *)".to_string());
+    }
+
+    // Elixir
+    if repo_root.join("mix.exs").is_file() {
+        if conv.test_command.is_none() {
+            conv.test_command = Some("mix test".to_string());
+        }
+        conv.lint_commands
+            .push("mix format --check-formatted".to_string());
+        conv.allowed_tools.push("Bash(mix compile *)".to_string());
+        conv.allowed_tools.push("Bash(mix test *)".to_string());
+        conv.allowed_tools.push("Bash(mix format *)".to_string());
+        conv.allowed_tools.push("Bash(mix deps.get *)".to_string());
+        conv.allowed_tools.push("Bash(mix deps.tree *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix deps.compile *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix ecto.migrate *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix gettext.extract *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix gettext.merge *)".to_string());
+        conv.allowed_tools.push("Bash(mix help *)".to_string());
+        conv.allowed_tools.push("Bash(mix hex.info *)".to_string());
+        conv.allowed_tools.push("Bash(mix xref *)".to_string());
+        conv.allowed_tools
+            .push("Bash(mix phx.routes *)".to_string());
+        conv.allowed_tools.push("Bash(mix dialyzer *)".to_string());
+
+        // Credo (check if it's a dep)
+        if let Ok(content) = std::fs::read_to_string(repo_root.join("mix.exs")) {
+            if content.contains(":credo") {
+                conv.lint_commands.push("mix credo --strict".to_string());
+                conv.allowed_tools.push("Bash(mix credo *)".to_string());
+            }
+            if content.contains(":sobelow") {
+                conv.lint_commands.push("mix sobelow --config".to_string());
+                conv.allowed_tools.push("Bash(mix sobelow *)".to_string());
+            }
+            // Tidewave MCP tools (if :tidewave is a dep and a local dev server is running)
+            // NOTE: subagent support for starting mix phx.server is TBD — for now
+            // these tools are available but require a running dev server
+            if content.contains(":tidewave") {
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_logs".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_source_location".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_docs".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__get_ecto_schemas".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__search_package_docs".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__list_project_files".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__read_project_file".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__grep_project_files".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__execute_sql_query".to_string());
+                conv.allowed_tools
+                    .push("mcp__tidewave__project_eval".to_string());
+            }
+        }
+    }
+
+    conv
+}
+
+/// Format the verification level as a display string.
+pub(crate) fn verify_level_name(level: &VerifyLevel) -> &'static str {
+    match level {
+        VerifyLevel::Local => "local",
+        VerifyLevel::Ci => "ci",
+        VerifyLevel::Thorough => "thorough",
+    }
+}
+
+/// Check a kickoff report for missing recommended fields.
+pub(crate) fn validate_kickoff_report(report: &KickoffReport) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if report.schema_version.is_none() {
+        warnings.push("Missing schema_version field".to_string());
+    }
+    if report.agent_id.is_none() {
+        warnings.push("Missing agent_id field".to_string());
+    }
+    if report.issue_id.is_none() {
+        warnings.push("Missing issue_id field".to_string());
+    }
+    if report.criteria.is_empty() {
+        warnings.push("No criteria results in report".to_string());
+    }
+    warnings
+}
+
+/// Compute which patterns need adding to a git exclude file.
+///
+/// Given the existing exclude file content, returns only the patterns
+/// from `KICKOFF_EXCLUDE_PATTERNS` that are not already present.
+pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &[
+    "KICKOFF.md",
+    ".kickoff-status",
+    ".kickoff-slug",
+    ".kickoff-metadata.json",
+    "PLAN_KICKOFF.md",
+    ".kickoff-plan.json",
+    ".kickoff-criteria.json",
+    ".kickoff-report.json",
+];
+
+pub(crate) fn missing_exclude_patterns(existing_content: &str) -> Vec<&'static str> {
+    KICKOFF_EXCLUDE_PATTERNS
+        .iter()
+        .filter(|pattern| !existing_content.lines().any(|l| l.trim() == **pattern))
+        .copied()
+        .collect()
 }
 
 /// Derive a tmux session name from the branch slug.
@@ -119,7 +299,7 @@ pub(crate) fn tmux_session_name(slug: &str) -> String {
 }
 
 /// Check if a tmux session with the given name already exists.
-pub(crate) fn tmux_session_exists(name: &str) -> bool {
+pub(super) fn tmux_session_exists(name: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", name])
         .output()
@@ -138,7 +318,7 @@ pub(crate) fn command_available(cmd: &str) -> bool {
 }
 
 /// Detect the current platform and Linux distribution (if applicable).
-pub(crate) fn detect_platform() -> Platform {
+pub(super) fn detect_platform() -> Platform {
     if cfg!(target_os = "macos") {
         Platform::MacOS
     } else if cfg!(target_os = "windows") {
@@ -149,7 +329,7 @@ pub(crate) fn detect_platform() -> Platform {
 }
 
 /// Detect the Linux distribution by reading /etc/os-release.
-fn detect_linux_distro() -> LinuxDistro {
+pub(super) fn detect_linux_distro() -> LinuxDistro {
     let content = match std::fs::read_to_string("/etc/os-release") {
         Ok(c) => c.to_lowercase(),
         Err(_) => return LinuxDistro::Other,
@@ -181,7 +361,7 @@ fn detect_linux_distro() -> LinuxDistro {
 }
 
 /// Build a platform-specific install hint for a given command.
-pub(crate) fn install_hint(cmd: &str, platform: &Platform) -> String {
+pub(super) fn install_hint(cmd: &str, platform: &Platform) -> String {
     match cmd {
         "timeout" | "gtimeout" => match platform {
             Platform::MacOS => "On macOS, install GNU coreutils:\n\
@@ -230,11 +410,9 @@ pub(crate) fn install_hint(cmd: &str, platform: &Platform) -> String {
                  \nAlternatively, use --container docker to avoid tmux."
                     .to_string()
             }
-            Platform::Linux(LinuxDistro::Alpine) => {
-                "`tmux` is not installed.\n\n  apk add tmux\n\
+            Platform::Linux(LinuxDistro::Alpine) => "`tmux` is not installed.\n\n  apk add tmux\n\
                  \nAlternatively, use --container docker to avoid tmux."
-                    .to_string()
-            }
+                .to_string(),
             Platform::Linux(LinuxDistro::Other) => "`tmux` is not installed.\n\
                  Install with your distribution's package manager (e.g. apt, dnf, pacman).\n\
                  \nAlternatively, use --container docker to avoid tmux."
@@ -371,213 +549,40 @@ pub(crate) fn install_hint(cmd: &str, platform: &Platform) -> String {
     }
 }
 
-/// Resolve the correct `timeout` command for the current platform.
-///
-/// On macOS, `timeout` is not available by default. The GNU coreutils
-/// package (via Homebrew) installs it as `gtimeout`.
-/// Returns the command name to use, or an error with install instructions.
-pub(crate) fn resolve_timeout_command(platform: &Platform) -> Result<&'static str> {
-    if command_available("timeout") {
-        return Ok("timeout");
-    }
-    if command_available("gtimeout") {
-        return Ok("gtimeout");
-    }
-    bail!(
-        "Neither `timeout` nor `gtimeout` found.\n{}",
-        install_hint("timeout", platform)
-    );
-}
-
-/// Read the `sandbox.command` setting from hook-config.json, if configured.
-pub(crate) fn read_sandbox_command(crosslink_dir: &Path) -> Option<String> {
-    let config_path = crosslink_dir.join("hook-config.json");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-    parsed
-        .get("sandbox")
-        .and_then(|s| s.get("command"))
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-}
-
-pub(crate) fn read_watchdog_config(crosslink_dir: &Path) -> WatchdogConfig {
-    let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return WatchdogConfig::default(),
-    };
-    let parsed: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return WatchdogConfig::default(),
-    };
-
-    let wd = match parsed.get("watchdog") {
-        Some(v) => v,
-        None => return WatchdogConfig::default(),
-    };
-
-    let mut cfg = WatchdogConfig::default();
-    if let Some(v) = wd.get("enabled").and_then(|v| v.as_bool()) {
-        cfg.enabled = v;
-    }
-    if let Some(v) = wd.get("staleness_secs").and_then(|v| v.as_u64()) {
-        cfg.staleness_secs = v;
-    }
-    if let Some(v) = wd.get("max_nudges").and_then(|v| v.as_u64()) {
-        cfg.max_nudges = v as u32;
-    }
-    if let Some(v) = wd.get("check_interval_secs").and_then(|v| v.as_u64()) {
-        cfg.check_interval_secs = v;
-    }
-    if let Some(v) = wd.get("grace_period_secs").and_then(|v| v.as_u64()) {
-        cfg.grace_period_secs = v;
-    }
-    cfg
-}
-
-/// Pre-flight check: verify all required external commands are present before
-/// creating worktrees, branches, or sessions. Emits clear errors with install
-/// instructions for any missing command.
-pub(crate) fn preflight_check(
-    container: &super::types::ContainerMode,
-    verify: &super::types::VerifyLevel,
-    crosslink_dir: &Path,
-) -> Result<PreflightResult> {
-    let platform = detect_platform();
-    let mut missing: Vec<String> = Vec::new();
-
-    // timeout (or gtimeout on macOS) — always required for agent timeout
-    let timeout_cmd = match resolve_timeout_command(&platform) {
-        Ok(cmd) => cmd,
-        Err(e) => {
-            missing.push(format!("{}", e));
-            "timeout" // placeholder, won't be used since we'll bail
+/// Format seconds as a human-readable duration string.
+pub(crate) fn format_duration(secs: u64) -> String {
+    if secs >= 3600 {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        if m > 0 {
+            format!("{}h {}m", h, m)
+        } else {
+            format!("{}h", h)
         }
-    };
-
-    // tmux — required for local (non-container) mode
-    // On Windows, tmux is not available at all — bail early with a clear message.
-    if *container == super::types::ContainerMode::None {
-        if cfg!(target_os = "windows") {
-            bail!(
-                "Local kickoff mode requires tmux, which is not available on Windows.\n\
-                 Use `--container docker` for agent kickoff on Windows."
-            );
+    } else if secs >= 60 {
+        let m = secs / 60;
+        let s = secs % 60;
+        if s > 0 {
+            format!("{}m {}s", m, s)
+        } else {
+            format!("{}m", m)
         }
-        if !command_available("tmux") {
-            missing.push(install_hint("tmux", &platform));
-        }
+    } else {
+        format!("{}s", secs)
     }
-
-    // claude CLI — required for local mode
-    if *container == super::types::ContainerMode::None && !command_available("claude") {
-        missing.push(install_hint("claude", &platform));
-    }
-
-    // gh — required for CI/thorough verification
-    if (*verify == super::types::VerifyLevel::Ci
-        || *verify == super::types::VerifyLevel::Thorough)
-        && !command_available("gh")
-    {
-        missing.push(install_hint("gh", &platform));
-    }
-
-    // docker/podman — required when using container mode
-    match container {
-        super::types::ContainerMode::Docker if !command_available("docker") => {
-            missing.push(install_hint("docker", &platform));
-        }
-        super::types::ContainerMode::Podman if !command_available("podman") => {
-            missing.push(install_hint("podman", &platform));
-        }
-        _ => {}
-    }
-
-    // sandbox command — validate the binary exists when configured
-    let sandbox_command = read_sandbox_command(crosslink_dir);
-    if let Some(ref cmd) = sandbox_command {
-        // Extract the binary name (first word before any flags/templates)
-        let binary = cmd.split_whitespace().next().unwrap_or(cmd);
-        if !command_available(binary) {
-            missing.push(format!(
-                "`{}` (configured in hook-config.json sandbox.command) not found on PATH",
-                binary
-            ));
-        }
-    }
-
-    if !missing.is_empty() {
-        let header = format!(
-            "Pre-flight check failed — {} missing command{}:\n",
-            missing.len(),
-            if missing.len() == 1 { "" } else { "s" }
-        );
-        let body = missing
-            .iter()
-            .enumerate()
-            .map(|(i, msg)| format!("{}. {}", i + 1, msg))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        bail!("{}{}", header, body);
-    }
-
-    Ok(PreflightResult {
-        timeout_cmd,
-        sandbox_command,
-    })
 }
 
-/// Get the git repository root.
-pub(crate) fn repo_root() -> Result<std::path::PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .context("Failed to run git rev-parse")?;
-    if !output.status.success() {
-        bail!("Not inside a git repository");
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(std::path::PathBuf::from(path))
-}
-
-/// Generate a small random numeric suffix (no external crate needed).
-pub(crate) fn rand_suffix() -> u32 {
-    use std::time::SystemTime;
-    let seed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    seed % 10000
-}
-
-/// Generate a 4-character hex suffix for worktree directory uniqueness.
-///
-/// Combines nanosecond timestamp with process ID to avoid collisions
-/// when two processes start in the same nanosecond window.
-pub(crate) fn rand_hex_suffix() -> String {
-    use std::time::SystemTime;
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let pid = std::process::id();
-    let mixed = nanos.wrapping_mul(31).wrapping_add(pid);
-    format!("{:04x}", mixed & 0xFFFF)
-}
-
-/// Format the verification level as a display string.
-pub(crate) fn verify_level_name(level: &super::types::VerifyLevel) -> &'static str {
-    match level {
-        super::types::VerifyLevel::Local => "local",
-        super::types::VerifyLevel::Ci => "ci",
-        super::types::VerifyLevel::Thorough => "thorough",
+/// Truncate a string to `max` characters (char-boundary safe).
+pub(super) fn truncate_str(s: &str, max: usize) -> String {
+    if s.chars().count() > max {
+        s.chars().take(max).collect()
+    } else {
+        s.to_string()
     }
 }
 
 /// Normalize raw status file content to a canonical status string.
-pub(crate) fn normalize_status(raw: &str) -> String {
+pub(super) fn normalize_status(raw: &str) -> String {
     let lower = raw.to_lowercase();
     if lower == "done" {
         "done".to_string()
@@ -590,37 +595,15 @@ pub(crate) fn normalize_status(raw: &str) -> String {
     }
 }
 
-/// Check if an agent has exceeded its timeout based on `.kickoff-metadata.json`.
-///
-/// Returns `true` if the metadata file exists, contains a valid start time and
-/// timeout, and the elapsed wall-clock time exceeds the configured timeout.
-pub(crate) fn is_timed_out(wt_path: &Path) -> bool {
-    let meta_path = wt_path.join(".kickoff-metadata.json");
-    let content = match std::fs::read_to_string(&meta_path) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let meta: KickoffMetadata = match serde_json::from_str(&content) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    let started = match chrono::DateTime::parse_from_rfc3339(&meta.started_at) {
-        Ok(dt) => dt.with_timezone(&chrono::Utc),
-        Err(_) => return false,
-    };
-    let elapsed = chrono::Utc::now().signed_duration_since(started);
-    elapsed.num_seconds() > meta.timeout_secs as i64
-}
-
 /// Read the timeout metadata for display purposes.
-pub(crate) fn read_timeout_metadata(wt_path: &Path) -> Option<KickoffMetadata> {
+pub(super) fn read_timeout_metadata(wt_path: &Path) -> Option<KickoffMetadata> {
     let meta_path = wt_path.join(".kickoff-metadata.json");
     let content = std::fs::read_to_string(&meta_path).ok()?;
     serde_json::from_str(&content).ok()
 }
 
 /// Read the agent ID from the worktree's .crosslink/agent.json.
-pub(crate) fn read_agent_id(wt_path: &Path, _crosslink_dir: &Path) -> Option<String> {
+pub(super) fn read_agent_id(wt_path: &Path, _crosslink_dir: &Path) -> Option<String> {
     let agent_json = wt_path.join(".crosslink").join("agent.json");
     if agent_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&agent_json) {
@@ -636,7 +619,7 @@ pub(crate) fn read_agent_id(wt_path: &Path, _crosslink_dir: &Path) -> Option<Str
 }
 
 /// Try to read the associated issue from kickoff metadata.
-pub(crate) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<String> {
+pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<String> {
     // Try .kickoff-criteria.json first (has issue ID from kickoff)
     let criteria_path = wt_path.join(".kickoff-criteria.json");
     if criteria_path.exists() {
@@ -663,11 +646,42 @@ pub(crate) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<
     None
 }
 
-/// Truncate a string to `max` characters (char-boundary safe).
-pub(crate) fn truncate_str(s: &str, max: usize) -> String {
-    if s.chars().count() > max {
-        s.chars().take(max).collect()
-    } else {
-        s.to_string()
+/// Generate a small random numeric suffix (no external crate needed).
+pub(super) fn rand_suffix() -> u32 {
+    use std::time::SystemTime;
+    let seed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    seed % 10000
+}
+
+/// Generate a 4-character hex suffix for worktree directory uniqueness.
+///
+/// Combines nanosecond timestamp with process ID to avoid collisions
+/// when two processes start in the same nanosecond window.
+pub(super) fn rand_hex_suffix() -> String {
+    use std::time::SystemTime;
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    let pid = std::process::id();
+    let mixed = nanos.wrapping_mul(31).wrapping_add(pid);
+    format!("{:04x}", mixed & 0xFFFF)
+}
+
+/// Classify an agent for cleanup purposes.
+pub(super) fn classify_agent(agent: &AgentInfo) -> CleanupClass {
+    match agent.status.as_str() {
+        "done" => CleanupClass::Done,
+        "running" => CleanupClass::Active,
+        // "stopped" means tmux/container gone but no DONE sentinel — potentially stale
+        "stopped" => CleanupClass::Stale,
+        // "failed" agents are safe to clean up (they have a terminal sentinel)
+        "failed" => CleanupClass::Done,
+        // "timed-out" agents exceeded their timeout budget — treat as stale
+        "timed-out" => CleanupClass::Stale,
+        _ => CleanupClass::Stale,
     }
 }

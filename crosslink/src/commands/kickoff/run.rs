@@ -1,137 +1,15 @@
-// Main `crosslink kickoff run` entry point and dispatch function.
-
+// E-ana tablet — kickoff run: main entry point for `crosslink kickoff run`
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
 use crate::db::Database;
 use crate::identity::AgentConfig;
 use crate::shared_writer::SharedWriter;
-use crate::KickoffCommands;
 
-use super::helpers::{
-    parse_duration, preflight_check, rand_hex_suffix, rand_suffix, repo_root, slugify,
-    tmux_session_name, tmux_session_exists,
-};
-use super::launch::{
-    create_worktree, exclude_kickoff_files, init_worktree_agent, launch_container, launch_local,
-};
-use super::prompt::{
-    build_allowed_tools, build_prompt, extract_criteria,
-};
-use super::types::{
-    parse_container_mode, parse_verify_level, ContainerMode, KickoffMetadata, KickoffOpts,
-    PlanOpts, ReportFormat, VerifyLevel, detect_conventions,
-};
-
-pub fn dispatch(
-    command: KickoffCommands,
-    crosslink_dir: &Path,
-    db: &Database,
-    writer: Option<&SharedWriter>,
-    quiet: bool,
-    json: bool,
-) -> Result<()> {
-    match command {
-        KickoffCommands::Run {
-            description,
-            issue,
-            container,
-            verify,
-            model,
-            image,
-            timeout,
-            dry_run,
-            branch,
-            doc,
-            skip_permissions,
-        } => {
-            let parsed_doc = if let Some(ref path) = doc {
-                let content = std::fs::read_to_string(path)
-                    .with_context(|| format!("Failed to read design doc: {}", path.display()))?;
-                let d = super::super::design_doc::parse_design_doc(&content);
-                for warning in super::super::design_doc::validate_design_doc(&d) {
-                    eprintln!("Warning: {}", warning);
-                }
-                Some(d)
-            } else {
-                None
-            };
-            let opts = KickoffOpts {
-                description: &description,
-                issue,
-                container: parse_container_mode(&container)?,
-                verify: parse_verify_level(&verify)?,
-                model: &model,
-                image: &image,
-                timeout: parse_duration(&timeout)?,
-                dry_run,
-                branch: branch.as_deref(),
-                quiet,
-                design_doc: parsed_doc.as_ref(),
-                doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
-                skip_permissions,
-            };
-            run(crosslink_dir, db, writer, &opts)
-        }
-        KickoffCommands::Status { agent } => super::monitor::status(crosslink_dir, &agent),
-        KickoffCommands::Logs { agent, lines } => super::monitor::logs(crosslink_dir, &agent, lines),
-        KickoffCommands::Stop { agent, force } => super::monitor::stop(crosslink_dir, &agent, force),
-        KickoffCommands::Plan {
-            doc,
-            issue,
-            model,
-            timeout,
-            dry_run,
-        } => {
-            let content = std::fs::read_to_string(&doc)
-                .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
-            let design_doc = super::super::design_doc::parse_design_doc(&content);
-            for warning in super::super::design_doc::validate_design_doc(&design_doc) {
-                eprintln!("Warning: {}", warning);
-            }
-            let plan_opts = PlanOpts {
-                doc: &design_doc,
-                model: &model,
-                timeout: parse_duration(&timeout)?,
-                dry_run,
-                issue,
-                quiet,
-            };
-            super::plan::plan(crosslink_dir, db, &plan_opts)
-        }
-        KickoffCommands::ShowPlan { agent } => super::plan::show_plan(crosslink_dir, &agent),
-        KickoffCommands::Report {
-            agent,
-            json: report_json,
-            markdown,
-            all,
-        } => {
-            let format = if report_json {
-                ReportFormat::Json
-            } else if markdown {
-                ReportFormat::Markdown
-            } else {
-                ReportFormat::Table
-            };
-            if all {
-                super::monitor::report_all(crosslink_dir, format)
-            } else {
-                let agent =
-                    agent.ok_or_else(|| anyhow::anyhow!("Agent ID required (or use --all)"))?;
-                super::monitor::report(crosslink_dir, &agent, format)
-            }
-        }
-        KickoffCommands::List { status } => {
-            super::cleanup::list(crosslink_dir, &status, json, quiet)
-        }
-        KickoffCommands::Cleanup {
-            dry_run,
-            force,
-            keep,
-            json: cleanup_json,
-        } => super::cleanup::cleanup(crosslink_dir, dry_run, force, keep, cleanup_json),
-    }
-}
+use super::helpers::*;
+use super::launch::*;
+use super::prompt::*;
+use super::types::*;
 
 /// Main entry point: `crosslink kickoff run`.
 pub fn run(

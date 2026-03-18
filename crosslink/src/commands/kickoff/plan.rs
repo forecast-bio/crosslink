@@ -1,18 +1,131 @@
-// Plan mode: gap analysis and show-plan commands.
-
+// E-ana tablet — kickoff plan: read-only gap analysis mode
 use anyhow::{bail, Context, Result};
 use std::path::Path;
+use std::process::Command;
 
 use crate::db::Database;
 use crate::identity::AgentConfig;
 
-use super::helpers::{
-    preflight_check, rand_hex_suffix, rand_suffix, repo_root, slugify, tmux_session_name,
-    tmux_session_exists,
-};
-use super::launch::{create_worktree, exclude_kickoff_files, init_worktree_agent, launch_plan_in_tmux};
-use super::prompt::{build_agent_command, build_allowed_tools_plan, build_plan_prompt};
-use super::types::{ContainerMode, PlanOpts, VerifyLevel};
+use super::helpers::*;
+use super::launch::*;
+use super::types::*;
+
+/// Build the allowed tools string for plan mode (read-only analysis).
+pub(crate) fn build_allowed_tools_plan() -> String {
+    let tools = vec![
+        "Read",
+        "Glob",
+        "Grep",
+        "WebSearch",
+        "WebFetch",
+        "Bash(git status *)",
+        "Bash(git log *)",
+        "Bash(git diff *)",
+        "Bash(git show *)",
+        "Bash(git branch *)",
+        "Bash(ls *)",
+        "Bash(cat *)",
+        "Bash(head *)",
+        "Bash(tail *)",
+        "Bash(wc *)",
+        "Bash(crosslink *)",
+    ];
+    tools.join(",")
+}
+
+/// Build the prompt for plan mode — read-only gap analysis.
+pub(crate) fn build_plan_prompt(
+    doc: &super::super::design_doc::DesignDoc,
+    issue_id: Option<i64>,
+) -> String {
+    let issue_line = match issue_id {
+        Some(id) => format!("- **Issue**: #{}\n", id),
+        None => String::new(),
+    };
+
+    let mut prompt = format!(
+        r#"# KICKOFF PLAN: Gap Analysis — {}
+
+## Context
+
+{}- **Mode**: Read-only analysis (no code changes)
+
+"#,
+        doc.title, issue_line,
+    );
+
+    prompt.push_str(&super::super::design_doc::build_design_doc_section(doc));
+
+    if let Some(escalation) = super::super::design_doc::build_open_questions_escalation(doc) {
+        prompt.push_str(&escalation);
+    }
+
+    prompt.push_str(
+        r#"
+## Analysis Instructions
+
+You are in **read-only analysis mode**. Do NOT write or edit any code files. Your task is to
+analyze the design document above against the existing codebase and produce a structured gap report.
+
+### Steps
+
+1. **Explore the codebase** — find files, patterns, and existing implementations relevant to
+   each requirement in the design document.
+2. **Assess each requirement** — for each one, determine:
+   - Is it feasible with the current codebase?
+   - What existing code supports or conflicts with it?
+   - What information is missing?
+3. **Address open questions** — attempt to answer each from codebase context (existing patterns,
+   conventions, prior art).
+4. **Identify conflicts** — flag any existing code that contradicts or complicates requirements.
+5. **Estimate subtasks** — break the implementation into estimated subtasks with scope and risk.
+6. **Write the gap report** — produce `.kickoff-plan.json` in the current directory.
+
+### Output Format
+
+Write a JSON file `.kickoff-plan.json` with exactly this structure:
+
+```json
+{
+  "gaps": [
+    {
+      "section": "Requirements|Acceptance Criteria|Architecture|...",
+      "item": "REQ-1 or null",
+      "severity": "blocking|advisory",
+      "detail": "description of the gap"
+    }
+  ],
+  "assumptions": [
+    {
+      "about": "what this assumption relates to",
+      "assumption": "what we're assuming"
+    }
+  ],
+  "estimated_subtasks": [
+    {
+      "title": "subtask title",
+      "scope": "~200 lines",
+      "risk": "low|medium|high"
+    }
+  ],
+  "conflicts": [
+    {
+      "file": "src/path/to/file.rs",
+      "detail": "description of the conflict"
+    }
+  ]
+}
+```
+
+### Final Steps
+
+1. Write `.kickoff-plan.json` (valid JSON only)
+2. Write the word `DONE` to `.kickoff-status`
+"#,
+    );
+
+    prompt
+}
 
 /// Main entry point: `crosslink kickoff plan`.
 pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> {
@@ -110,7 +223,40 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         false, // plan mode never skips permissions
     );
 
-    launch_plan_in_tmux(&worktree_dir, &session_name, &cmd, crosslink_dir)?;
+    let output = Command::new("tmux")
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session_name,
+            "-c",
+            &worktree_dir.to_string_lossy(),
+        ])
+        .output()
+        .context("Failed to create tmux session")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to create tmux session: {}", stderr.trim());
+    }
+
+    let output = Command::new("tmux")
+        .args(["send-keys", "-t", &session_name, &cmd, "Enter"])
+        .output()
+        .context("Failed to send command to tmux session")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to send keys to tmux: {}", stderr.trim());
+    }
+
+    // Spawn watchdog sidecar to nudge idle agents
+    let watchdog_cfg = read_watchdog_config(crosslink_dir);
+    if watchdog_cfg.enabled {
+        if let Err(e) = spawn_watchdog(&session_name, &worktree_dir, &watchdog_cfg) {
+            eprintln!("Warning: failed to spawn watchdog: {}", e);
+        }
+    }
 
     // 9. Report
     if !opts.quiet {
