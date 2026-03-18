@@ -1362,7 +1362,10 @@ while true; do
         NOW=$(date +%s)
         AGE=$((NOW - LAST))
         if [ "$AGE" -gt {staleness} ]; then
-            if [ "$NUDGES" -ge {max_nudges} ]; then exit 1; fi
+            if [ "$NUDGES" -ge {max_nudges} ]; then
+                echo "STALLED (inactive for ${{AGE}}s after ${{NUDGES}} nudges)" > "{worktree}/.kickoff-status"
+                exit 1
+            fi
             NUDGES=$((NUDGES + 1))
             tmux send-keys -t "{session}" "continue working, the task is not yet complete" Enter
         fi
@@ -1757,9 +1760,18 @@ fn launch_local(
     std::fs::write(worktree_dir.join(".kickoff-status"), "LAUNCHING\n")
         .context("Failed to write initial .kickoff-status")?;
 
+    // Wrap the command so .kickoff-status is written on exit regardless
+    // of how the agent session ends (normal completion, crash, timeout).
+    // This prevents #394 where agents finish work but can't write DONE
+    // because their session dropped and hooks block cleanup steps.
+    let wrapped_cmd = format!(
+        "{}; STATUS=$?; if [ $STATUS -eq 0 ]; then echo DONE > .kickoff-status; else echo \"FAILED (exit $STATUS)\" > .kickoff-status; fi",
+        cmd
+    );
+
     // Send the command to the tmux session
     let output = Command::new("tmux")
-        .args(["send-keys", "-t", session_name, &cmd, "Enter"])
+        .args(["send-keys", "-t", session_name, &wrapped_cmd, "Enter"])
         .output()
         .context("Failed to send command to tmux session")?;
 

@@ -992,6 +992,14 @@ impl Database {
         Ok(rows > 0)
     }
 
+    pub fn clear_session_issue(&self, session_id: i64) -> Result<bool> {
+        let rows = self.conn.execute(
+            "UPDATE sessions SET active_issue_id = NULL WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(rows > 0)
+    }
+
     pub fn set_session_action(&self, session_id: i64, action: &str) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET last_action = ?1 WHERE id = ?2",

@@ -441,8 +441,56 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     let ctx = create_swarm_slot(&sync, &doc.title)?;
 
     // Build phases from design doc structure
-    let phases = propose_phases(&doc);
+    let mut phases = propose_phases(&doc);
     let now = chrono::Utc::now().to_rfc3339();
+
+    // Greenfield detection: if no primary source files exist, prepend a scaffold phase
+    // so shared files (Cargo.toml, src/lib.rs, etc.) are created before parallel agents (#393)
+    let repo_root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+    let is_greenfield = !repo_root.join("Cargo.toml").exists()
+        && !repo_root.join("package.json").exists()
+        && !repo_root.join("go.mod").exists()
+        && !repo_root.join("pyproject.toml").exists()
+        && !repo_root.join("mix.exs").exists()
+        && !repo_root.join("src").is_dir();
+
+    if is_greenfield && phases.len() > 1 {
+        let scaffold_phase = PhaseDefinition {
+            name: "Phase 0: Scaffold".to_string(),
+            status: PhaseStatus::Pending,
+            agents: vec![AgentEntry {
+                slug: "project-scaffold".to_string(),
+                description: format!(
+                    "Create project skeleton for '{}': manifest files, directory structure, \
+                     shared types/traits, and CI configuration. Subsequent phases depend on this.",
+                    doc.title
+                ),
+                issue_id: None,
+                agent_id: None,
+                branch: Some("feature/project-scaffold".to_string()),
+                status: AgentStatus::Planned,
+                started_at: None,
+                completed_at: None,
+            }],
+            gate: None,
+            depends_on: vec![],
+            checkpoint: None,
+        };
+
+        // Make all existing phases depend on the scaffold
+        for phase in &mut phases {
+            if phase.depends_on.is_empty() {
+                phase.depends_on.push("Phase 0: Scaffold".to_string());
+            }
+        }
+
+        phases.insert(0, scaffold_phase);
+        println!(
+            "Note: Greenfield project detected — added Phase 0: Scaffold to create project skeleton first."
+        );
+    }
 
     let phase_names: Vec<String> = phases.iter().map(|p| p.name.clone()).collect();
 
@@ -1471,6 +1519,168 @@ pub fn launch_retry_failed(
     launch(crosslink_dir, db, writer, phase_slug, quiet)
 }
 
+// ---------------------------------------------------------------------------
+// swarm adopt
+// ---------------------------------------------------------------------------
+
+/// Associate an external agent/branch with a swarm phase slot.
+///
+/// When an agent is launched manually (outside `swarm launch`), this command
+/// lets you link it to a swarm slot so status/gate/merge see it correctly.
+pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<()> {
+    let (sync, plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
+
+    // Find the slot
+    let mut found = false;
+    for (_path, phase) in &mut phases {
+        for agent in &mut phase.agents {
+            if agent.slug == slot_slug {
+                agent.status = AgentStatus::Running;
+                agent.branch = Some(format!("feature/{}", agent_slug));
+                agent.started_at = Some(chrono::Utc::now().to_rfc3339());
+                found = true;
+                break;
+            }
+        }
+        if found {
+            break;
+        }
+    }
+
+    if !found {
+        bail!(
+            "Slot '{}' not found in any phase. Available slots: {}",
+            slot_slug,
+            phases
+                .iter()
+                .flat_map(|(_, p)| p.agents.iter().map(|a| a.slug.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    save_plan_and_phases(
+        &sync,
+        &plan,
+        &phases,
+        &format!(
+            "swarm: adopt agent '{}' into slot '{}'",
+            agent_slug, slot_slug
+        ),
+    )?;
+    println!(
+        "Adopted '{}' into swarm slot '{}' (branch: feature/{})",
+        agent_slug, slot_slug, agent_slug
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// swarm sync-status
+// ---------------------------------------------------------------------------
+
+/// Sync live agent statuses from worktree probes back into phase JSON files.
+///
+/// Bridges the gap between `swarm status` (reads live state) and
+/// `swarm merge`/`swarm gate` (reads phase JSON).
+pub fn sync_status(crosslink_dir: &Path) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+    sync.fetch()?;
+
+    let ctx = resolve_swarm(&sync)?;
+    let plan: SwarmPlan = read_hub_json(&sync, &ctx.plan_path()).context("No swarm plan found.")?;
+
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let mut updated_count = 0;
+    let mut paths_to_commit: Vec<String> = Vec::new();
+
+    for phase_name in &plan.phases {
+        let phase_path = ctx.phase_path(phase_name);
+        let mut phase: PhaseDefinition = match read_hub_json(&sync, &phase_path) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        if phase.status == PhaseStatus::Completed {
+            continue;
+        }
+
+        let mut phase_changed = false;
+
+        for agent in &mut phase.agents {
+            let live = probe_agent_status(root, &agent.slug);
+
+            let new_status =
+                if live == "DONE" || live == "completed" || live.starts_with("completed") {
+                    Some(AgentStatus::Completed)
+                } else if live == "FAILED" || live == "failed" || live.starts_with("failed") {
+                    Some(AgentStatus::Failed)
+                } else if live.starts_with("running") {
+                    Some(AgentStatus::Running)
+                } else {
+                    None
+                };
+
+            if let Some(status) = new_status {
+                if agent.status != status {
+                    let old = format!("{}", agent.status);
+                    agent.status = status.clone();
+                    if matches!(status, AgentStatus::Completed | AgentStatus::Failed)
+                        && agent.completed_at.is_none()
+                    {
+                        agent.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                    println!("  {} {} → {}", agent.slug, old, agent.status);
+                    phase_changed = true;
+                    updated_count += 1;
+                }
+            }
+        }
+
+        if phase_changed {
+            let all_done = phase.agents.iter().all(|a| {
+                matches!(
+                    a.status,
+                    AgentStatus::Completed | AgentStatus::Merged | AgentStatus::Failed
+                )
+            });
+            if all_done && phase.status == PhaseStatus::InProgress {
+                let any_failed = phase.agents.iter().any(|a| a.status == AgentStatus::Failed);
+                if any_failed {
+                    phase.status = PhaseStatus::Failed;
+                    println!("  Phase '{}' → failed", phase.name);
+                }
+            }
+
+            write_hub_json(&sync, &phase_path, &phase)?;
+            paths_to_commit.push(phase_path);
+        }
+    }
+
+    if paths_to_commit.is_empty() {
+        println!("All phase statuses are up to date.");
+    } else {
+        let refs: Vec<&str> = paths_to_commit.iter().map(|s| s.as_str()).collect();
+        commit_hub_files(
+            &sync,
+            &refs,
+            &format!(
+                "swarm: sync {} agent status(es) from live state",
+                updated_count
+            ),
+        )?;
+        println!("Synced {} agent status update(s).", updated_count);
+    }
+
+    Ok(())
+}
+
 /// Cross-reference phase agents with worktree state to get live status.
 fn resolve_agents(phase: &PhaseDefinition, repo_root: &Path) -> Vec<ResolvedAgent> {
     phase
@@ -1967,6 +2177,11 @@ pub fn launch(
 
 /// Run the project gate (test suite) for a phase and record the result.
 pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
+    // Auto-sync agent statuses before gating so phase JSON reflects live state
+    if let Err(e) = sync_status(crosslink_dir) {
+        eprintln!("Warning: could not sync agent statuses: {}", e);
+    }
+
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
         bail!("Hub cache not initialized. Run `crosslink sync` first.");
@@ -3598,41 +3813,55 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
 
         let slug = entry.file_name().to_string_lossy().to_string();
 
-        // Get changed files relative to develop
-        let diff_output = std::process::Command::new("git")
-            .current_dir(&wt_path)
-            .args(["diff", "--name-only", "develop...HEAD"])
-            .output();
+        // Get changed files relative to the base branch.
+        // Try multiple base refs since worktrees may have been created from
+        // develop, main, or their remote counterparts (#392).
+        let base_refs = ["develop", "main", "origin/develop", "origin/main"];
+        let mut changed_files = Vec::new();
+        for base in &base_refs {
+            let diff_output = std::process::Command::new("git")
+                .current_dir(&wt_path)
+                .args(["diff", "--name-only", &format!("{}...HEAD", base)])
+                .output();
 
-        let changed_files = match diff_output {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .map(|l| l.to_string())
-                    .collect::<Vec<_>>()
+            if let Ok(output) = diff_output {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    changed_files = stdout
+                        .lines()
+                        .filter(|l| !l.is_empty())
+                        .map(|l| l.to_string())
+                        .collect::<Vec<_>>();
+                    if !changed_files.is_empty() {
+                        break;
+                    }
+                }
             }
-            _ => continue, // Skip worktrees where git diff fails
-        };
+        }
 
         if changed_files.is_empty() {
             continue;
         }
 
-        // Count commits beyond develop
-        let log_output = std::process::Command::new("git")
-            .current_dir(&wt_path)
-            .args(["log", "--oneline", "develop..HEAD"])
-            .output();
+        // Count commits beyond base branch
+        let mut commit_count = 0;
+        for base in &base_refs {
+            let log_output = std::process::Command::new("git")
+                .current_dir(&wt_path)
+                .args(["log", "--oneline", &format!("{}..HEAD", base)])
+                .output();
 
-        let commit_count = match log_output {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout.lines().count()
+            if let Ok(output) = log_output {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let count = stdout.lines().count();
+                    if count > 0 {
+                        commit_count = count;
+                        break;
+                    }
+                }
             }
-            _ => 0,
-        };
+        }
 
         sources.push(MergeSource {
             agent_slug: slug,
