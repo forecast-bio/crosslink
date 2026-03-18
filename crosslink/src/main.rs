@@ -1133,6 +1133,9 @@ enum KnowledgeCommands {
         /// Add source URL (repeatable)
         #[arg(long)]
         source: Vec<String>,
+        /// Replace content from a document file
+        #[arg(long, value_name = "PATH")]
+        from_doc: Option<PathBuf>,
     },
     /// Remove a knowledge page
     Remove {
@@ -1367,6 +1370,8 @@ enum SwarmCommands {
     Status,
     /// Reconstruct state and show next steps for resuming
     Resume,
+    /// Sync agent statuses from live worktree state into phase JSON
+    SyncStatus,
     /// Archive the current swarm and clear the active slot
     Archive,
     /// Reset the active swarm (archives by default)
@@ -2375,6 +2380,7 @@ fn main() -> Result<()> {
                 SwarmCommands::Init { doc } => commands::swarm::init(&crosslink_dir, &doc),
                 SwarmCommands::Status => commands::swarm::status(&crosslink_dir, cli.json),
                 SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
+                SwarmCommands::SyncStatus => commands::swarm::sync_status(&crosslink_dir),
                 SwarmCommands::Archive => commands::swarm::archive(&crosslink_dir),
                 SwarmCommands::Reset { no_archive } => {
                     commands::swarm::reset(&crosslink_dir, no_archive)

@@ -48,16 +48,27 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             append_to_section,
             tag,
             source,
-        } => edit(
-            crosslink_dir,
-            &slug,
-            append.as_deref(),
-            content.as_deref(),
-            replace_section.as_deref(),
-            append_to_section.as_deref(),
-            &tag,
-            &source,
-        ),
+            from_doc,
+        } => {
+            // If --from-doc is provided, read the file and use as content replacement
+            let effective_content = if let Some(ref doc_path) = from_doc {
+                let doc_content = std::fs::read_to_string(doc_path)
+                    .with_context(|| format!("Failed to read: {}", doc_path.display()))?;
+                Some(doc_content)
+            } else {
+                content
+            };
+            edit(
+                crosslink_dir,
+                &slug,
+                append.as_deref(),
+                effective_content.as_deref(),
+                replace_section.as_deref(),
+                append_to_section.as_deref(),
+                &tag,
+                &source,
+            )
+        }
         KnowledgeCommands::Remove { slug } => remove(crosslink_dir, &slug),
         KnowledgeCommands::Import {
             directory,

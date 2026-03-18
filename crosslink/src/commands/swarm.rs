@@ -1471,6 +1471,112 @@ pub fn launch_retry_failed(
     launch(crosslink_dir, db, writer, phase_slug, quiet)
 }
 
+// ---------------------------------------------------------------------------
+// swarm sync-status
+// ---------------------------------------------------------------------------
+
+/// Sync live agent statuses from worktree probes back into phase JSON files.
+///
+/// Bridges the gap between `swarm status` (reads live state) and
+/// `swarm merge`/`swarm gate` (reads phase JSON).
+pub fn sync_status(crosslink_dir: &Path) -> Result<()> {
+    let sync = SyncManager::new(crosslink_dir)?;
+    if !sync.is_initialized() {
+        bail!("Hub cache not initialized. Run `crosslink sync` first.");
+    }
+    sync.fetch()?;
+
+    let ctx = resolve_swarm(&sync)?;
+    let plan: SwarmPlan = read_hub_json(&sync, &ctx.plan_path()).context("No swarm plan found.")?;
+
+    let root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    let mut updated_count = 0;
+    let mut paths_to_commit: Vec<String> = Vec::new();
+
+    for phase_name in &plan.phases {
+        let phase_path = ctx.phase_path(phase_name);
+        let mut phase: PhaseDefinition = match read_hub_json(&sync, &phase_path) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        if phase.status == PhaseStatus::Completed {
+            continue;
+        }
+
+        let mut phase_changed = false;
+
+        for agent in &mut phase.agents {
+            let live = probe_agent_status(root, &agent.slug);
+
+            let new_status =
+                if live == "DONE" || live == "completed" || live.starts_with("completed") {
+                    Some(AgentStatus::Completed)
+                } else if live == "FAILED" || live == "failed" || live.starts_with("failed") {
+                    Some(AgentStatus::Failed)
+                } else if live.starts_with("running") {
+                    Some(AgentStatus::Running)
+                } else {
+                    None
+                };
+
+            if let Some(status) = new_status {
+                if agent.status != status {
+                    let old = format!("{}", agent.status);
+                    agent.status = status.clone();
+                    if matches!(status, AgentStatus::Completed | AgentStatus::Failed)
+                        && agent.completed_at.is_none()
+                    {
+                        agent.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                    println!("  {} {} → {}", agent.slug, old, agent.status);
+                    phase_changed = true;
+                    updated_count += 1;
+                }
+            }
+        }
+
+        if phase_changed {
+            let all_done = phase.agents.iter().all(|a| {
+                matches!(
+                    a.status,
+                    AgentStatus::Completed | AgentStatus::Merged | AgentStatus::Failed
+                )
+            });
+            if all_done && phase.status == PhaseStatus::InProgress {
+                let any_failed = phase.agents.iter().any(|a| a.status == AgentStatus::Failed);
+                if any_failed {
+                    phase.status = PhaseStatus::Failed;
+                    println!("  Phase '{}' → failed", phase.name);
+                }
+            }
+
+            write_hub_json(&sync, &phase_path, &phase)?;
+            paths_to_commit.push(phase_path);
+        }
+    }
+
+    if paths_to_commit.is_empty() {
+        println!("All phase statuses are up to date.");
+    } else {
+        let refs: Vec<&str> = paths_to_commit.iter().map(|s| s.as_str()).collect();
+        commit_hub_files(
+            &sync,
+            &refs,
+            &format!(
+                "swarm: sync {} agent status(es) from live state",
+                updated_count
+            ),
+        )?;
+        println!("Synced {} agent status update(s).", updated_count);
+    }
+
+    Ok(())
+}
+
 /// Cross-reference phase agents with worktree state to get live status.
 fn resolve_agents(phase: &PhaseDefinition, repo_root: &Path) -> Vec<ResolvedAgent> {
     phase
@@ -1967,6 +2073,11 @@ pub fn launch(
 
 /// Run the project gate (test suite) for a phase and record the result.
 pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
+    // Auto-sync agent statuses before gating so phase JSON reflects live state
+    if let Err(e) = sync_status(crosslink_dir) {
+        eprintln!("Warning: could not sync agent statuses: {}", e);
+    }
+
     let sync = SyncManager::new(crosslink_dir)?;
     if !sync.is_initialized() {
         bail!("Hub cache not initialized. Run `crosslink sync` first.");
