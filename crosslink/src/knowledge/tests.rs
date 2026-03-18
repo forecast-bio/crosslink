@@ -1,5 +1,8 @@
 use super::core::{parse_inline_array, split_kv_or_bare, unquote, yaml_escape};
-use super::edit::{find_section_range, parse_heading};
+use super::edit::{
+    append_to_section_content, extract_body, find_section_range, parse_heading,
+    replace_section_content, truncate,
+};
 use super::search::group_matches;
 use super::*;
 use std::path::Path;

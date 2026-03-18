@@ -870,6 +870,7 @@ fn serde_json_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::knowledge::edit::{find_section_range, parse_heading};
     use crate::knowledge::{PageFrontmatter, Source, KNOWLEDGE_CACHE_DIR};
     use tempfile::tempdir;
 
