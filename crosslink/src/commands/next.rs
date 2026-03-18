@@ -1,6 +1,4 @@
 use anyhow::Result;
-use serde::Serialize;
-use serde_json;
 use std::path::Path;
 
 use crate::db::Database;
@@ -18,6 +16,7 @@ type ScoredIssue = (Issue, i32, Progress);
 fn load_locks_filter(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
     let agent = crate::identity::AgentConfig::load(crosslink_dir).ok()??;
     let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
+    // INTENTIONAL: init and fetch are best-effort — lock filtering works with stale data
     let _ = sync.init_cache();
     let _ = sync.fetch();
     let locks = sync.read_locks_auto().ok()?;
@@ -47,72 +46,14 @@ fn calculate_progress(db: &Database, issue: &Issue) -> Result<Progress> {
     Ok(Some((closed, total)))
 }
 
-fn to_suggested_issue(issue: &Issue, progress: &Progress) -> SuggestedIssue {
-    let description_preview = issue.description.as_ref().and_then(|d| {
-        if d.is_empty() {
-            None
-        } else {
-            let preview: String = d.chars().take(80).collect();
-            let suffix = if d.chars().count() > 80 { "..." } else { "" };
-            Some(format!("{}{}", preview, suffix))
-        }
-    });
-    SuggestedIssue {
-        id: issue.id,
-        display_id: format_issue_id(issue.id),
-        title: issue.title.clone(),
-        priority: issue.priority.clone(),
-        description_preview,
-        progress: progress.map(|(c, t)| ProgressInfo {
-            completed: c,
-            total: t,
-        }),
-    }
-}
-
-#[derive(Serialize)]
-struct NextSuggestion {
-    recommended: SuggestedIssue,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    also_ready: Vec<SuggestedIssue>,
-}
-
-#[derive(Serialize)]
-struct SuggestedIssue {
-    id: i64,
-    display_id: String,
-    title: String,
-    priority: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description_preview: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    progress: Option<ProgressInfo>,
-}
-
-#[derive(Serialize)]
-struct ProgressInfo {
-    completed: i32,
-    total: i32,
-}
-
-pub fn run(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Result<()> {
+pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     let ready = db.list_ready_issues()?;
 
     if ready.is_empty() {
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "recommended": null,
-                    "also_ready": []
-                }))?
-            );
-        } else {
-            println!("No issues ready to work on.");
-            println!(
-                "Use 'crosslink list' to see all issues or 'crosslink blocked' to see blocked issues."
-            );
-        }
+        println!("No issues ready to work on.");
+        println!(
+            "Use 'crosslink list' to see all issues or 'crosslink blocked' to see blocked issues."
+        );
         return Ok(());
     }
 
@@ -155,14 +96,6 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Result
         // All ready issues are subissues, show them instead
         let ready = db.list_ready_issues()?;
         if let Some(issue) = ready.first() {
-            if json {
-                let suggestion = NextSuggestion {
-                    recommended: to_suggested_issue(issue, &None),
-                    also_ready: vec![],
-                };
-                println!("{}", serde_json::to_string_pretty(&suggestion)?);
-                return Ok(());
-            }
             println!(
                 "Next: {} [{}] {}",
                 format_issue_id(issue.id),
@@ -172,32 +105,9 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Result
             if let Some(parent_id) = issue.parent_id {
                 println!("       (subissue of {})", format_issue_id(parent_id));
             }
-        } else if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "recommended": null,
-                    "also_ready": []
-                }))?
-            );
         } else {
             println!("No issues ready to work on.");
         }
-        return Ok(());
-    }
-
-    if json {
-        let (top, _, top_progress) = &scored[0];
-        let also: Vec<SuggestedIssue> = scored
-            .iter()
-            .skip(1)
-            .map(|(issue, _, progress)| to_suggested_issue(issue, progress))
-            .collect();
-        let suggestion = NextSuggestion {
-            recommended: to_suggested_issue(top, top_progress),
-            also_ready: also,
-        };
-        println!("{}", serde_json::to_string_pretty(&suggestion)?);
         return Ok(());
     }
 
@@ -288,7 +198,7 @@ mod tests {
     #[test]
     fn test_run_no_issues() {
         let (db, dir) = setup_test_db();
-        run(&db, dir.path(), false).unwrap();
+        run(&db, dir.path()).unwrap();
         let ready = db.list_ready_issues().unwrap();
         assert!(ready.is_empty());
     }
@@ -298,7 +208,7 @@ mod tests {
         let (db, dir) = setup_test_db();
         let id = db.create_issue("Issue 1", None, "high").unwrap();
 
-        run(&db, dir.path(), false).unwrap();
+        run(&db, dir.path()).unwrap();
         let ready = db.list_ready_issues().unwrap();
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].id, id);
@@ -313,7 +223,7 @@ mod tests {
             .unwrap();
         db.create_issue("Medium priority", None, "medium").unwrap();
 
-        run(&db, dir.path(), false).unwrap();
+        run(&db, dir.path()).unwrap();
         // Verify the critical issue has the highest weight via the scoring function
         let ready = db.list_ready_issues().unwrap();
         assert_eq!(ready.len(), 3);
@@ -362,7 +272,7 @@ mod tests {
         let blocked = db.create_issue("Blocked", None, "critical").unwrap();
         db.add_dependency(blocked, blocker).unwrap();
 
-        run(&db, dir.path(), false).unwrap();
+        run(&db, dir.path()).unwrap();
         let ready = db.list_ready_issues().unwrap();
         assert!(
             !ready.iter().any(|i| i.id == blocked),
@@ -380,7 +290,7 @@ mod tests {
         let id = db.create_issue("Done", None, "medium").unwrap();
         db.close_issue(id).unwrap();
 
-        run(&db, dir.path(), false).unwrap();
+        run(&db, dir.path()).unwrap();
         let ready = db.list_ready_issues().unwrap();
         assert!(
             ready.is_empty(),
@@ -401,7 +311,7 @@ mod tests {
             for i in 0..count {
                 db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
             }
-            let result = run(&db, dir.path(), false);
+            let result = run(&db, dir.path());
             prop_assert!(result.is_ok());
         }
     }

@@ -334,7 +334,7 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
         } else {
             let removed = remove_stale_hub_data(cache_dir)?;
             if !removed.is_empty() {
-                // Stage and commit the cleanup
+                // INTENTIONAL: staging is best-effort — we check for actual changes before committing
                 let _ = git_in_dir(cache_dir, &["add", "-A"]);
                 let has_changes = git_in_dir(cache_dir, &["diff", "--cached", "--quiet"]).is_err();
                 if has_changes {

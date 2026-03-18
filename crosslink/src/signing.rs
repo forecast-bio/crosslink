@@ -326,6 +326,7 @@ fn cleanup_leaked_signing_config(repo_dir: &Path) -> Result<()> {
     }
 
     // Unset the leaked agent signing config from shared config
+    // INTENTIONAL: git config --unset returns non-zero when the key doesn't exist, which is fine
     for key in &[
         "user.signingkey",
         "gpg.format",
@@ -713,6 +714,7 @@ pub fn verify_content(
 
     if let Some(ref mut stdin) = child.stdin {
         use std::io::Write;
+        // INTENTIONAL: write failure is handled by checking ssh-keygen's exit status below
         let _ = stdin.write_all(content);
     }
     // Drop stdin to close it so ssh-keygen can proceed
@@ -728,6 +730,7 @@ pub fn verify_content(
                 Some(_) => break,
                 None => {
                     if start.elapsed() > timeout {
+                        // INTENTIONAL: kill and cleanup are best-effort on timeout — we bail immediately after
                         let _ = child.kill();
                         let _ = std::fs::remove_dir_all(&tmp);
                         bail!("ssh-keygen verification timed out after 30 seconds");
@@ -739,6 +742,7 @@ pub fn verify_content(
     }
 
     let output = child.wait_with_output()?;
+    // INTENTIONAL: temp dir cleanup is best-effort — OS will reclaim it eventually
     let _ = std::fs::remove_dir_all(&tmp);
 
     if !output.status.success() {

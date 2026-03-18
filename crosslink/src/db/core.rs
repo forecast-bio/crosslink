@@ -77,21 +77,30 @@ impl Database {
     }
 
     /// Run a migration statement, logging unexpected errors.
-    /// Expected errors (duplicate column, table already exists) are silently ignored.
+    /// Expected errors (duplicate column, table already exists) are logged at debug level.
     fn migrate(&self, sql: &str) {
         if let Err(e) = self.conn.execute(sql, []) {
             let msg = e.to_string();
-            if !msg.contains("duplicate column") && !msg.contains("already exists") {
+            if msg.contains("duplicate column") || msg.contains("already exists") {
+                eprintln!(
+                    "debug: migration skipped (already applied): {}: {}",
+                    sql.trim(),
+                    msg
+                );
+            } else {
                 eprintln!("warning: migration error ({}): {}", sql.trim(), msg);
             }
         }
     }
 
     /// Run a batch migration statement, logging unexpected errors.
+    /// Expected errors (duplicate column, table already exists) are logged at debug level.
     fn migrate_batch(&self, sql: &str) {
         if let Err(e) = self.conn.execute_batch(sql) {
             let msg = e.to_string();
-            if !msg.contains("duplicate column") && !msg.contains("already exists") {
+            if msg.contains("duplicate column") || msg.contains("already exists") {
+                eprintln!("debug: migration batch skipped (already applied): {}", msg);
+            } else {
                 eprintln!("warning: migration batch error: {}", msg);
             }
         }
@@ -106,7 +115,12 @@ impl Database {
                 [],
                 |row| row.get(0),
             )
-            .unwrap_or(0);
+            .unwrap_or_else(|e| {
+                eprintln!(
+                    "warning: failed to read schema version (PRAGMA user_version): {e}, defaulting to 0"
+                );
+                0
+            });
 
         if version < SCHEMA_VERSION {
             self.conn.execute_batch(

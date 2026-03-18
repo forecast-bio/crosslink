@@ -317,7 +317,7 @@ fn commit_trust_change_impl(
         git(&["commit", "-m", message])?;
     }
 
-    // Best-effort push
+    // INTENTIONAL: push is best-effort — trust changes will be pushed on next sync
     let remote = crate::sync::read_tracker_remote(crosslink_dir);
     let _ = std::process::Command::new("git")
         .current_dir(cache_dir)

@@ -6,7 +6,6 @@ use std::cell::Cell;
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::hydration::hydrate_to_sqlite;
 use crate::issue_file::MilestoneEntry;
 
 use super::core::{SharedWriter, WriteSet};
@@ -51,7 +50,7 @@ impl SharedWriter {
             &format!("create milestone: {}", name),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(display_id.get())
     }
 
@@ -73,7 +72,7 @@ impl SharedWriter {
             &format!("close milestone #{}", milestone_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -101,7 +100,7 @@ impl SharedWriter {
             &format!("delete milestone #{}", milestone_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -139,7 +138,7 @@ impl SharedWriter {
             &format!("add {} issue(s) to milestone #{}", ids.len(), milestone_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -161,7 +160,7 @@ impl SharedWriter {
             &format!("remove issue #{} from milestone", issue_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 }

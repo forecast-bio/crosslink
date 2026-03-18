@@ -167,7 +167,7 @@ pub async fn global_search(
                 let snippet = m
                     .context_lines
                     .iter()
-                    .map(|(_, line)| line.as_str())
+                    .map(|(_, line): &(usize, String)| line.as_str())
                     .collect::<Vec<_>>()
                     .join(" ")
                     .chars()

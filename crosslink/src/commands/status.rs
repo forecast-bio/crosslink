@@ -60,6 +60,7 @@ fn close_inner(
     // without a work item, causing work-check hook to block all tool calls (#399)
     if let Ok(Some(session)) = db.get_current_session_for_agent(None) {
         if session.active_issue_id == Some(id) {
+            // INTENTIONAL: clearing stale session issue is best-effort — prevents work-check hook from blocking
             let _ = db.clear_session_issue(session.id);
         }
     }

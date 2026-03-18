@@ -62,6 +62,7 @@ impl SharedWriter {
             Some(lock) => {
                 // We lost -- clean up by emitting LockReleased
                 let release = crate::events::Event::LockReleased { issue_display_id };
+                // INTENTIONAL: cleanup release is best-effort — the lock is already held by the winner
                 let _ = self.emit_compact_push(
                     release,
                     &format!("release lock on #{} (contention cleanup)", issue_display_id),

@@ -60,11 +60,13 @@ pub fn run(
                 "medium",
             )?
         };
-        // Add the feature label
-        if let Some(w) = writer {
-            let _ = w.add_label(db, id, "feature");
+        let label_err = if let Some(w) = writer {
+            w.add_label(db, id, "feature").err()
         } else {
-            let _ = db.add_label(id, "feature");
+            db.add_label(id, "feature").err()
+        };
+        if let Some(e) = label_err {
+            eprintln!("Warning: could not label issue #{id} with 'feature': {e}");
         }
         if !opts.quiet {
             println!("Created issue #{}", id);

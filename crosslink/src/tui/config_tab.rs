@@ -130,6 +130,7 @@ impl ConfigTab {
 
         std::thread::spawn(move || {
             let result = load_config_sync_data(&crosslink_dir);
+            // INTENTIONAL: send failure means the receiver was dropped — TUI is shutting down
             let _ = tx.send(result);
         });
     }

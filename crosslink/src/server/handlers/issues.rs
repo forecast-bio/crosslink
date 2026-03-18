@@ -78,6 +78,7 @@ fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
 ///
 /// Failures are intentionally ignored — WebSocket broadcast is best-effort.
 fn broadcast_issue_updated(state: &AppState, issue_id: i64, field: &str) {
+    // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
     let _ = state.ws_tx.send(WsEvent::IssueUpdated(WsIssueUpdatedEvent {
         event_type: "issue_updated",
         issue_id,

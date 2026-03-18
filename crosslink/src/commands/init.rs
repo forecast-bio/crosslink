@@ -145,6 +145,7 @@ fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
 
     // Clean up any previous failed attempt
     if tmp_dir.exists() {
+        // INTENTIONAL: cleanup of previous failed attempt is best-effort — clone below will fail if stale dir remains
         let _ = fs::remove_dir_all(&tmp_dir);
     }
 
@@ -157,7 +158,7 @@ fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
 
     if !clone_output.status.success() {
         let stderr = String::from_utf8_lossy(&clone_output.stderr);
-        // Clean up on failure
+        // INTENTIONAL: temp dir cleanup on failure is best-effort — OS will reclaim it eventually
         let _ = fs::remove_dir_all(&tmp_dir);
         anyhow::bail!("git clone failed: {}", stderr.trim());
     }
@@ -183,7 +184,7 @@ fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
         run_install_command("python3", &["-m", "pip", "install", &tmp_dir_str])
     };
 
-    // Clean up cloned repo
+    // INTENTIONAL: temp dir cleanup is best-effort — OS will reclaim it eventually
     let _ = fs::remove_dir_all(&tmp_dir);
 
     result
@@ -320,60 +321,85 @@ const AUDIT_CMD_MD: &str = include_str!("../../resources/claude/commands/audit.m
 const MAINTAIN_CMD_MD: &str = include_str!("../../resources/claude/commands/maintain.md");
 const DESIGN_CMD_MD: &str = include_str!("../../resources/claude/commands/design.md");
 
+// Embed sanitization patterns
+const SANITIZE_PATTERNS: &str =
+    include_str!("../../resources/crosslink/rules/sanitize-patterns.txt");
+
 // Embed hook configuration
 pub(crate) const HOOK_CONFIG_JSON: &str =
     include_str!("../../resources/crosslink/hook-config.json");
 
-/// CLAUDE.md template deployed to project root on first init.
-/// Teaches Claude Code how to use crosslink commands.
-const CLAUDE_MD_TEMPLATE: &str = r#"# Crosslink Issue Tracker
+// Embed tracking mode rule files
+pub(crate) const RULE_TRACKING_STRICT: &str =
+    include_str!("../../resources/crosslink/rules/tracking-strict.md");
+pub(crate) const RULE_TRACKING_NORMAL: &str =
+    include_str!("../../resources/crosslink/rules/tracking-normal.md");
+pub(crate) const RULE_TRACKING_RELAXED: &str =
+    include_str!("../../resources/crosslink/rules/tracking-relaxed.md");
 
-Track tasks across AI sessions. Data in `.crosslink/issues.db`.
+// Embed rule files at compile time from resources/crosslink/rules/
+pub(crate) const RULE_GLOBAL: &str = include_str!("../../resources/crosslink/rules/global.md");
+pub(crate) const RULE_PROJECT: &str = include_str!("../../resources/crosslink/rules/project.md");
+pub(crate) const RULE_RUST: &str = include_str!("../../resources/crosslink/rules/rust.md");
+pub(crate) const RULE_PYTHON: &str = include_str!("../../resources/crosslink/rules/python.md");
+pub(crate) const RULE_JAVASCRIPT: &str =
+    include_str!("../../resources/crosslink/rules/javascript.md");
+pub(crate) const RULE_TYPESCRIPT: &str =
+    include_str!("../../resources/crosslink/rules/typescript.md");
+pub(crate) const RULE_TYPESCRIPT_REACT: &str =
+    include_str!("../../resources/crosslink/rules/typescript-react.md");
+pub(crate) const RULE_JAVASCRIPT_REACT: &str =
+    include_str!("../../resources/crosslink/rules/javascript-react.md");
+pub(crate) const RULE_GO: &str = include_str!("../../resources/crosslink/rules/go.md");
+pub(crate) const RULE_JAVA: &str = include_str!("../../resources/crosslink/rules/java.md");
+pub(crate) const RULE_C: &str = include_str!("../../resources/crosslink/rules/c.md");
+pub(crate) const RULE_CPP: &str = include_str!("../../resources/crosslink/rules/cpp.md");
+pub(crate) const RULE_CSHARP: &str = include_str!("../../resources/crosslink/rules/csharp.md");
+pub(crate) const RULE_RUBY: &str = include_str!("../../resources/crosslink/rules/ruby.md");
+pub(crate) const RULE_PHP: &str = include_str!("../../resources/crosslink/rules/php.md");
+pub(crate) const RULE_SWIFT: &str = include_str!("../../resources/crosslink/rules/swift.md");
+pub(crate) const RULE_KOTLIN: &str = include_str!("../../resources/crosslink/rules/kotlin.md");
+pub(crate) const RULE_SCALA: &str = include_str!("../../resources/crosslink/rules/scala.md");
+pub(crate) const RULE_ZIG: &str = include_str!("../../resources/crosslink/rules/zig.md");
+pub(crate) const RULE_ODIN: &str = include_str!("../../resources/crosslink/rules/odin.md");
+pub(crate) const RULE_ELIXIR: &str = include_str!("../../resources/crosslink/rules/elixir.md");
+pub(crate) const RULE_ELIXIR_PHOENIX: &str =
+    include_str!("../../resources/crosslink/rules/elixir-phoenix.md");
+pub(crate) const RULE_WEB: &str = include_str!("../../resources/crosslink/rules/web.md");
+pub(crate) const RULE_KNOWLEDGE: &str =
+    include_str!("../../resources/crosslink/rules/knowledge.md");
 
-## Issue Commands
-
-```bash
-# Create and manage issues (canonical: crosslink issue <verb>)
-crosslink issue create "title" [-p high] [-d "desc"]
-crosslink issue quick "title" -p <priority> -l <label>   # create + label + session work
-crosslink issue list [-s all|closed] [-l label] [-p priority]
-crosslink issue search "query"
-crosslink issue show <id>
-crosslink issue close <id>
-crosslink issue reopen <id>
-
-# Comments and documentation trail
-crosslink issue comment <id> "text" --kind <plan|decision|observation|blocker|resolution|result>
-
-# Labels and relations
-crosslink issue label <id> <label>
-crosslink issue block <id> <blocker-id>
-crosslink issue ready
-```
-
-Top-level shortcuts: `crosslink create`, `crosslink list`, `crosslink quick`, etc.
-
-## Session Commands
-
-```bash
-crosslink session start                    # begin session
-crosslink session end --notes "context"    # save handoff notes
-crosslink session status                   # show current session
-crosslink session work <id>                # set active work item
-```
-
-## Workflow
-
-1. `session start` -> see previous handoff
-2. `issue quick "what I'm doing" -p medium -l bug` -> create + track
-3. Work, add typed comments (`--kind plan`, `--kind decision`, etc.)
-4. `session end --notes "..."` -> save context
-"#;
-
-// Rule file constants and RULE_FILES array — auto-generated by build.rs
-// from resources/crosslink/rules/. To add a new rule, just drop a .md file
-// in that directory and rebuild.
-include!(concat!(env!("OUT_DIR"), "/rules_gen.rs"));
+/// All rule files to deploy
+pub(crate) const RULE_FILES: &[(&str, &str)] = &[
+    ("global.md", RULE_GLOBAL),
+    ("project.md", RULE_PROJECT),
+    ("rust.md", RULE_RUST),
+    ("python.md", RULE_PYTHON),
+    ("javascript.md", RULE_JAVASCRIPT),
+    ("typescript.md", RULE_TYPESCRIPT),
+    ("typescript-react.md", RULE_TYPESCRIPT_REACT),
+    ("javascript-react.md", RULE_JAVASCRIPT_REACT),
+    ("go.md", RULE_GO),
+    ("java.md", RULE_JAVA),
+    ("c.md", RULE_C),
+    ("cpp.md", RULE_CPP),
+    ("csharp.md", RULE_CSHARP),
+    ("ruby.md", RULE_RUBY),
+    ("php.md", RULE_PHP),
+    ("swift.md", RULE_SWIFT),
+    ("kotlin.md", RULE_KOTLIN),
+    ("scala.md", RULE_SCALA),
+    ("zig.md", RULE_ZIG),
+    ("odin.md", RULE_ODIN),
+    ("elixir.md", RULE_ELIXIR),
+    ("elixir-phoenix.md", RULE_ELIXIR_PHOENIX),
+    ("web.md", RULE_WEB),
+    ("knowledge.md", RULE_KNOWLEDGE),
+    ("sanitize-patterns.txt", SANITIZE_PATTERNS),
+    ("tracking-strict.md", RULE_TRACKING_STRICT),
+    ("tracking-normal.md", RULE_TRACKING_NORMAL),
+    ("tracking-relaxed.md", RULE_TRACKING_RELAXED),
+];
 
 /// The managed gitignore section content.
 ///
@@ -1375,14 +1401,6 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         }
     }
 
-    // Create CLAUDE.md in project root if it doesn't exist (#390)
-    // This teaches Claude Code how to use crosslink commands
-    let claude_md = path.join("CLAUDE.md");
-    if !claude_md.exists() {
-        fs::write(&claude_md, CLAUDE_MD_TEMPLATE).context("Failed to write CLAUDE.md")?;
-        println!("Created CLAUDE.md with crosslink usage instructions");
-    }
-
     // Create rules.local directory for machine-local rule overrides
     let rules_local_dir = crosslink_dir.join("rules.local");
     if !rules_local_dir.exists() {
@@ -1922,7 +1940,7 @@ mod tests {
         assert!(!REVIEW_CMD_MD.is_empty());
         assert!(!AUDIT_CMD_MD.is_empty());
         assert!(!DESIGN_CMD_MD.is_empty());
-        assert!(!RULE_SANITIZE_PATTERNS.is_empty());
+        assert!(!SANITIZE_PATTERNS.is_empty());
         assert!(!HOOK_CONFIG_JSON.is_empty());
         assert!(!RULE_TRACKING_STRICT.is_empty());
         assert!(!RULE_TRACKING_NORMAL.is_empty());

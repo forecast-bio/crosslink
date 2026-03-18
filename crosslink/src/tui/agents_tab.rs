@@ -138,6 +138,7 @@ impl AgentsTab {
 
         std::thread::spawn(move || {
             let result = load_agents_data(&crosslink_dir);
+            // INTENTIONAL: send failure means the receiver was dropped — TUI is shutting down
             let _ = tx.send(result);
         });
     }
@@ -860,7 +861,7 @@ fn load_agents_data(crosslink_dir: &Path) -> AgentsLoadResult {
         };
     }
 
-    // Fetch latest state (ignore fetch errors — may be offline)
+    // INTENTIONAL: fetch is best-effort — agent data is shown from cache if offline
     let _ = sync.fetch();
 
     // Read locks

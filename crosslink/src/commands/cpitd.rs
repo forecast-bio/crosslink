@@ -214,7 +214,7 @@ fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) -> Resu
     for ids in file_to_issues.values() {
         for i in 0..ids.len() {
             for j in (i + 1)..ids.len() {
-                // Ignore errors (e.g. relation already exists)
+                // INTENTIONAL: relation may already exist — duplicate insert is harmless
                 let _ = db.add_relation(ids[i], ids[j]);
             }
         }

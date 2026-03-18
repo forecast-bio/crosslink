@@ -1938,7 +1938,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Next => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            commands::next::run(&db, &crosslink_dir, json)
+            commands::next::run(&db, &crosslink_dir)
         }
 
         IssueCommands::Tree { status } => {

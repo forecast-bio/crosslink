@@ -151,6 +151,7 @@ impl SyncManager {
             } else {
                 "--local"
             };
+            // INTENTIONAL: git config writes are best-effort — commits will use global config as fallback
             let _ = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.email", "crosslink@localhost"])

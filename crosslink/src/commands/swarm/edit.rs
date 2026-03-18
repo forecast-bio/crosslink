@@ -69,7 +69,7 @@ pub fn merge_phases(crosslink_dir: &Path, phase_a: &str, phase_b: &str) -> Resul
     phases.remove(idx_b);
     plan.phases.retain(|p| p != phase_b);
 
-    // Delete the old phase file
+    // INTENTIONAL: old phase file deletion is best-effort — git commit below will track the removal
     let cache_file = sync.cache_path().join(&removed_path);
     let _ = std::fs::remove_file(&cache_file);
 
@@ -244,6 +244,7 @@ pub fn rename_phase(crosslink_dir: &Path, old_name: &str, new_name: &str) -> Res
     let new_path = ctx.phase_path(new_name);
     phases[idx].0 = new_path;
 
+    // INTENTIONAL: old phase file deletion is best-effort — git commit below will track the removal
     let old_cache_file = sync.cache_path().join(&old_path);
     let _ = std::fs::remove_file(&old_cache_file);
 

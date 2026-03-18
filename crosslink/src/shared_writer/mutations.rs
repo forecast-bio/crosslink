@@ -7,7 +7,6 @@ use std::cell::Cell;
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::hydration::hydrate_to_sqlite;
 use crate::issue_file::{CommentEntry, CommentFile, IssueFile};
 
 use super::core::{PushOutcome, SharedWriter, WriteSet};
@@ -78,11 +77,11 @@ impl SharedWriter {
 
         if outcome == PushOutcome::LocalOnly {
             self.rewrite_as_offline(uuid)?;
-            hydrate_to_sqlite(&self.cache_dir, db)?;
+            self.hydrate_with_retry(db)?;
             return db.get_issue_id_by_uuid(&uuid.to_string());
         }
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(display_id.get())
     }
 
@@ -152,11 +151,11 @@ impl SharedWriter {
 
         if outcome == PushOutcome::LocalOnly {
             self.rewrite_as_offline(uuid)?;
-            hydrate_to_sqlite(&self.cache_dir, db)?;
+            self.hydrate_with_retry(db)?;
             return db.get_issue_id_by_uuid(&uuid.to_string());
         }
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(display_id.get())
     }
 
@@ -202,7 +201,7 @@ impl SharedWriter {
             &format!("update issue #{}", display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -226,7 +225,7 @@ impl SharedWriter {
             &format!("close issue #{}", display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -249,7 +248,7 @@ impl SharedWriter {
             &format!("reopen issue #{}", display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -276,7 +275,7 @@ impl SharedWriter {
             &format!("delete issue #{}", display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -357,7 +356,7 @@ impl SharedWriter {
             &format!("comment on issue #{}", display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(comment_id.get())
     }
 
@@ -440,7 +439,7 @@ impl SharedWriter {
             &format!("intervention on issue #{}", display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(comment_id.get())
     }
 
@@ -466,7 +465,7 @@ impl SharedWriter {
             &format!("label issue #{} with {}", display_id, label),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -492,7 +491,7 @@ impl SharedWriter {
             &format!("unlabel {} from issue #{}", label, display_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -520,7 +519,7 @@ impl SharedWriter {
             &format!("block issue #{} on #{}", blocked_id, blocker_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -546,7 +545,7 @@ impl SharedWriter {
             &format!("unblock issue #{} from #{}", blocked_id, blocker_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -572,7 +571,7 @@ impl SharedWriter {
             &format!("relate issue #{} to #{}", issue_id, related_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 
@@ -598,7 +597,7 @@ impl SharedWriter {
             &format!("unrelate issue #{} from #{}", issue_id, related_id),
         )?;
 
-        hydrate_to_sqlite(&self.cache_dir, db)?;
+        self.hydrate_with_retry(db)?;
         Ok(())
     }
 

@@ -465,6 +465,7 @@ pub async fn notify_lock_changed(
         }
     };
 
+    // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
     let _ = state.ws_tx.send(crate::server::ws::WsEvent::LockChanged(
         crate::server::types::WsLockChangedEvent {
             event_type: "lock_changed",

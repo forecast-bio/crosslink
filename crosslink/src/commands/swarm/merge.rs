@@ -491,7 +491,7 @@ pub fn merge(
             eprintln!("  This agent's changes need manual resolution.");
             failed.push(slug.clone());
 
-            // Abort any partial apply
+            // INTENTIONAL: checkout to abort partial apply is best-effort — next agent's diff will be applied fresh
             let _ = std::process::Command::new("git")
                 .current_dir(repo_root)
                 .args(["checkout", "."])
@@ -499,7 +499,7 @@ pub fn merge(
             continue;
         }
 
-        // Stage and commit the applied changes
+        // INTENTIONAL: staging is best-effort — commit below will capture whatever was staged
         let _ = std::process::Command::new("git")
             .current_dir(repo_root)
             .args(["add", "-A"])

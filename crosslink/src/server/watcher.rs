@@ -72,8 +72,8 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
     let mut watcher: RecommendedWatcher = {
         let notify_tx = notify_tx.clone();
         notify::recommended_watcher(move |_res: notify::Result<notify::Event>| {
-            // Non-blocking send; if the channel is full we just drop the signal
-            // — the next poll will pick up the changes anyway.
+            // INTENTIONAL: non-blocking send; if the channel is full we drop the signal
+            // — the next poll will pick up the changes anyway
             let _ = notify_tx.blocking_send(());
         })?
     };
@@ -174,7 +174,7 @@ fn diff_and_broadcast(
             .unwrap_or(true);
 
         if is_new_or_updated {
-            // Always broadcast the heartbeat event.
+            // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
             let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
                 event_type: "heartbeat",
                 agent_id: agent_id.clone(),
@@ -190,6 +190,7 @@ fn diff_and_broadcast(
                 .unwrap_or(true);
 
             if status_changed {
+                // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
                 let _ = tx.send(WsEvent::AgentStatus(WsAgentStatusEvent {
                     event_type: "agent_status",
                     agent_id: agent_id.clone(),

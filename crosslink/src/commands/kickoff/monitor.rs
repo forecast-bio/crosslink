@@ -331,6 +331,7 @@ pub fn list(crosslink_dir: &Path, status_filter: &str, json: bool, quiet: bool) 
 pub fn logs(crosslink_dir: &Path, agent: &str, lines: usize) -> Result<()> {
     // Read the agent's event log from the hub branch
     if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+        // INTENTIONAL: init and fetch are best-effort — logs display works with stale data
         let _ = sync.init_cache();
         let _ = sync.fetch();
         let cache = sync.cache_path();

@@ -119,7 +119,7 @@ impl SyncManager {
             crate::issue_file::CURRENT_LAYOUT_VERSION,
         )?;
 
-        // Commit the migration
+        // INTENTIONAL: staging is best-effort — we check for actual changes before committing
         let _ = self.git_in_cache(&["add", "-A"]);
         let has_changes = self.git_in_cache(&["diff", "--cached", "--quiet"]).is_err();
         if has_changes {
@@ -151,7 +151,7 @@ impl SyncManager {
                 if stdout.trim().is_empty() {
                     return Ok(false);
                 }
-                // Dirty state found — stage and commit to recover
+                // INTENTIONAL: dirty state recovery is best-effort — if staging/commit fails, we still return Ok
                 let _ = self.git_in_cache(&["add", "-A"]);
                 let _ = self.git_in_cache(&[
                     "commit",
@@ -254,6 +254,7 @@ impl SyncManager {
                         if attempt < 2 {
                             // Bail if local has diverged too far — sign of a rebase loop
                             self.check_divergence()?;
+                            // INTENTIONAL: pull/rebase failure is non-fatal — retry loop will bail on persistent conflicts
                             let _ =
                                 self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
                             continue;

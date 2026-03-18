@@ -315,11 +315,13 @@ impl App {
             MouseEventKind::ScrollUp => {
                 // Forward scroll as Up key to active tab
                 let up = KeyEvent::new(KeyCode::Up, KeyModifiers::empty());
+                // INTENTIONAL: handle_key return value is unused — scroll is best-effort UI interaction
                 let _ = self.tabs[self.active_tab].handle_key(up);
             }
             MouseEventKind::ScrollDown => {
                 // Forward scroll as Down key to active tab
                 let down = KeyEvent::new(KeyCode::Down, KeyModifiers::empty());
+                // INTENTIONAL: handle_key return value is unused — scroll is best-effort UI interaction
                 let _ = self.tabs[self.active_tab].handle_key(down);
             }
             _ => {}
@@ -340,6 +342,7 @@ impl App {
         std::thread::spawn(move || {
             let result = match SyncManager::new(&crosslink_dir) {
                 Ok(sync_mgr) => {
+                    // INTENTIONAL: cache init is best-effort — fetch below will report the real error
                     let _ = sync_mgr.init_cache();
                     match sync_mgr.fetch() {
                         Ok(()) => SyncResult {
@@ -357,6 +360,7 @@ impl App {
                     error: Some(e.to_string()),
                 },
             };
+            // INTENTIONAL: send failure means the receiver was dropped — TUI is shutting down
             let _ = tx.send(result);
         });
     }
@@ -374,6 +378,7 @@ impl App {
             } else {
                 // Hydrate local DB from the fetched coordination branch data
                 if let Ok(db) = Database::open(&self.db_path) {
+                    // INTENTIONAL: hydration failure is non-fatal — TUI shows stale data until next sync
                     let _ = hydrate_to_sqlite(&result.cache_path, &db);
                 }
                 // Refresh the active tab to show updated data
@@ -644,6 +649,7 @@ impl TerminalGuard {
     fn new() -> Self {
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|panic_info| {
+            // INTENTIONAL: terminal cleanup in panic hook must not itself panic — best-effort restore
             let _ = io::stdout().execute(DisableMouseCapture);
             let _ = disable_raw_mode();
             let _ = io::stdout().execute(LeaveAlternateScreen);
@@ -658,6 +664,7 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        // INTENTIONAL: terminal cleanup in Drop must not panic — best-effort restore
         let _ = io::stdout().execute(DisableMouseCapture);
         let _ = disable_raw_mode();
         let _ = io::stdout().execute(LeaveAlternateScreen);
@@ -676,6 +683,7 @@ pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
     // Startup sync — pull latest from coordination branch before entering TUI
     eprint!("Syncing...");
     if let Ok(sync_mgr) = SyncManager::new(crosslink_dir) {
+        // INTENTIONAL: startup sync is best-effort — TUI works with stale local data if offline
         let _ = sync_mgr.init_cache();
         let _ = sync_mgr.fetch();
         let _ = hydrate_to_sqlite(sync_mgr.cache_path(), db);

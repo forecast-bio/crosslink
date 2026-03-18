@@ -58,6 +58,7 @@ impl SyncManager {
                 // Bail if local has diverged too far — sign of a rebase loop
                 self.check_divergence()?;
 
+                // INTENTIONAL: dirty state cleanup and pull are best-effort — heartbeat retry will try again next interval
                 let _ = self.clean_dirty_state();
                 let _ = self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
                 if let Err(retry_err) = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]) {
@@ -203,6 +204,7 @@ impl SyncManager {
                         if attempt < 2 {
                             // Bail if local has diverged too far — sign of a rebase loop
                             self.check_divergence()?;
+                            // INTENTIONAL: pull/rebase failure is non-fatal — retry loop will bail on persistent conflicts
                             let _ =
                                 self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
                             continue;

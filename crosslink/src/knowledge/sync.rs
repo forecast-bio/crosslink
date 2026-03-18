@@ -158,16 +158,18 @@ impl KnowledgeManager {
             }
             if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                 let remote_ref = format!("{}/{}", self.remote, KNOWLEDGE_BRANCH);
-                // Fetch latest
+                // INTENTIONAL: fetch is best-effort — rebase below will use whatever state is available
                 let _ = self.git_in_cache(&["fetch", &self.remote, KNOWLEDGE_BRANCH]);
                 // Try rebase
                 let rebase_result = self.git_in_cache(&["rebase", &remote_ref]);
                 if rebase_result.is_err() {
                     // Rebase failed — try accept-both fallback
                     let outcome = self.handle_rebase_conflict(&remote_ref)?;
+                    // INTENTIONAL: push after conflict resolution is best-effort — local state is consistent either way
                     let _ = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]);
                     return Ok(outcome);
                 }
+                // INTENTIONAL: push after rebase is best-effort — local state is consistent either way
                 let _ = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]);
                 return Ok(SyncOutcome::default());
             }
@@ -183,7 +185,7 @@ impl KnowledgeManager {
     /// 3. If merge conflicts, resolves each .md file using accept-both
     /// 4. Stages and commits the resolution
     pub(super) fn handle_rebase_conflict(&self, remote_ref: &str) -> Result<SyncOutcome> {
-        // Abort the failed rebase
+        // INTENTIONAL: rebase --abort is best-effort — may have already been aborted or not started
         let _ = self.git_in_cache(&["rebase", "--abort"]);
 
         // Attempt a merge instead

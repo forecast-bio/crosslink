@@ -104,13 +104,8 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
         }
     }
 
-    db.end_session(session.id, notes)?;
-    println!("Session #{} ended.", session.id);
-    if notes.is_some() {
-        println!("Handoff notes saved.");
-    }
-
     // Write handoff notes as typed comment on active issue for hub sync
+    // (must happen BEFORE end_session so the session is still open if this fails)
     if let (Some(notes_text), Some(issue_id)) = (notes, session.active_issue_id) {
         match crate::shared_writer::SharedWriter::new(crosslink_dir) {
             Ok(Some(w)) => {
@@ -119,14 +114,23 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                         "Warning: Handoff notes saved locally but could not be synced to hub: {}",
                         e
                     );
-                    let _ = db.add_comment(issue_id, notes_text, "handoff");
+                    if let Err(e) = db.add_comment(issue_id, notes_text, "handoff") {
+                        eprintln!("Warning: failed to save local handoff comment: {}", e);
+                    }
                 }
             }
             _ => {
-                // Single-agent mode or hub unavailable — add locally
-                let _ = db.add_comment(issue_id, notes_text, "handoff");
+                if let Err(e) = db.add_comment(issue_id, notes_text, "handoff") {
+                    eprintln!("Warning: failed to save local handoff comment: {}", e);
+                }
             }
         }
+    }
+
+    db.end_session(session.id, notes)?;
+    println!("Session #{} ended.", session.id);
+    if notes.is_some() {
+        println!("Handoff notes saved.");
     }
 
     Ok(())
@@ -206,6 +210,34 @@ pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Res
     Ok(())
 }
 
+/// Best-effort lock release: tries v2 first, then falls back to v1.
+fn release_lock_best_effort(crosslink_dir: &std::path::Path, issue_id: i64) {
+    if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
+        if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+            if sync.is_initialized() {
+                if sync.is_v2_layout() {
+                    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir)
+                    {
+                        if let Err(e) = writer.release_lock_v2(issue_id) {
+                            eprintln!(
+                                "Warning: Could not release lock on {}: {}",
+                                format_issue_id(issue_id),
+                                e
+                            );
+                        }
+                    }
+                } else if let Err(e) = sync.release_lock(&agent, issue_id, false) {
+                    eprintln!(
+                        "Warning: Could not release lock on {}: {}",
+                        format_issue_id(issue_id),
+                        e
+                    );
+                }
+            }
+        }
+    }
+}
+
 pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
     let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
@@ -222,6 +254,7 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
     crate::lock_check::enforce_lock(crosslink_dir, issue_id, db)?;
 
     // Atomically claim lock then set session — bail if another agent wins
+    let mut freshly_claimed = false;
     if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
         if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
             if sync.is_initialized() {
@@ -230,6 +263,7 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
                     {
                         match writer.claim_lock_v2(issue_id, None) {
                             Ok(crate::shared_writer::LockClaimResult::Claimed) => {
+                                freshly_claimed = true;
                                 println!("Claimed lock on issue {}", format_issue_id(issue_id));
                             }
                             Ok(crate::shared_writer::LockClaimResult::AlreadyHeld) => {}
@@ -256,6 +290,7 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
                 } else {
                     match sync.claim_lock(&agent, issue_id, None, false) {
                         Ok(true) => {
+                            freshly_claimed = true;
                             println!("Claimed lock on issue {}", format_issue_id(issue_id));
                         }
                         Ok(false) => {} // Already held by self
@@ -272,8 +307,14 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
         }
     }
 
-    // Only reached if lock claim succeeded (or lock system not configured)
-    db.set_session_issue(session.id, issue_id)?;
+    // Only reached if lock claim succeeded (or lock system not configured).
+    // If set_session_issue fails after we claimed a lock, release the lock to avoid orphaned locks.
+    if let Err(e) = db.set_session_issue(session.id, issue_id) {
+        if freshly_claimed {
+            release_lock_best_effort(crosslink_dir, issue_id);
+        }
+        return Err(e);
+    }
     println!(
         "Now working on: {} {}",
         format_issue_id(issue.id),
