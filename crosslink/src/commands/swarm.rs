@@ -441,8 +441,56 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     let ctx = create_swarm_slot(&sync, &doc.title)?;
 
     // Build phases from design doc structure
-    let phases = propose_phases(&doc);
+    let mut phases = propose_phases(&doc);
     let now = chrono::Utc::now().to_rfc3339();
+
+    // Greenfield detection: if no primary source files exist, prepend a scaffold phase
+    // so shared files (Cargo.toml, src/lib.rs, etc.) are created before parallel agents (#393)
+    let repo_root = crosslink_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+    let is_greenfield = !repo_root.join("Cargo.toml").exists()
+        && !repo_root.join("package.json").exists()
+        && !repo_root.join("go.mod").exists()
+        && !repo_root.join("pyproject.toml").exists()
+        && !repo_root.join("mix.exs").exists()
+        && !repo_root.join("src").is_dir();
+
+    if is_greenfield && phases.len() > 1 {
+        let scaffold_phase = PhaseDefinition {
+            name: "Phase 0: Scaffold".to_string(),
+            status: PhaseStatus::Pending,
+            agents: vec![AgentEntry {
+                slug: "project-scaffold".to_string(),
+                description: format!(
+                    "Create project skeleton for '{}': manifest files, directory structure, \
+                     shared types/traits, and CI configuration. Subsequent phases depend on this.",
+                    doc.title
+                ),
+                issue_id: None,
+                agent_id: None,
+                branch: Some("feature/project-scaffold".to_string()),
+                status: AgentStatus::Planned,
+                started_at: None,
+                completed_at: None,
+            }],
+            gate: None,
+            depends_on: vec![],
+            checkpoint: None,
+        };
+
+        // Make all existing phases depend on the scaffold
+        for phase in &mut phases {
+            if phase.depends_on.is_empty() {
+                phase.depends_on.push("Phase 0: Scaffold".to_string());
+            }
+        }
+
+        phases.insert(0, scaffold_phase);
+        println!(
+            "Note: Greenfield project detected — added Phase 0: Scaffold to create project skeleton first."
+        );
+    }
 
     let phase_names: Vec<String> = phases.iter().map(|p| p.name.clone()).collect();
 

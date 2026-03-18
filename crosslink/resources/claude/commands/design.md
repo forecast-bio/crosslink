@@ -95,21 +95,31 @@ data structures, and error handling approach.
 - Every requirement maps to at least one acceptance criterion
 - Genuine ambiguities become `<!-- OPEN -->` blocks, not guesses
 
-### Phase 3: Iterate (when `--continue` is used)
+### Phase 3: Resolve open questions (interactive)
 
-7. **Read the existing draft**: `Read .design/<slug>.md`
+After the initial draft, if there are `<!-- OPEN -->` blocks:
 
-8. **Detect resolved questions**: Scan for `<!-- OPEN: ... -->` blocks. If a block's marker has been removed or the section has been rewritten by the user, treat it as resolved.
+7. **Present each open question to the user directly** using conversational text output. For each `<!-- OPEN: question -->` block, ask the user to answer. Do NOT require the user to edit the file manually.
 
-9. **Re-explore if scope changed**: If the user's answers to open questions change the feature's scope, search the codebase again for newly relevant code.
+8. **Collect answers**: Wait for the user's response to each question. If the user says "skip" or "later", leave the `<!-- OPEN -->` block in place.
 
-10. **Update the document**:
+9. **Update the document** with the user's answers:
+    - Replace the `<!-- OPEN: question -->` block with the resolved content
+    - Adjust requirements and acceptance criteria based on the answers
+    - If answers change scope, re-explore the codebase for newly relevant code
+
+### Phase 4: Iterate (when `--continue` is used)
+
+10. **Read the existing draft**: `Read .design/<slug>.md`
+
+11. **Detect remaining open questions**: Scan for `<!-- OPEN: ... -->` blocks. If any remain, present them interactively (Phase 3 flow). If all resolved, proceed to strengthening.
+
+12. **Update the document**:
     - Strengthen sections based on resolved questions
     - Update requirements and acceptance criteria if scope changed
     - Add new `<!-- OPEN -->` blocks if new ambiguities surfaced
-    - Remove resolved `<!-- OPEN -->` markers
 
-11. **Write the updated document** back to `.design/<slug>.md`
+13. **Write the updated document** back to `.design/<slug>.md`
 
 ### Validation
 
