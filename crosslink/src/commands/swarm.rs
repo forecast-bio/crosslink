@@ -256,6 +256,109 @@ pub enum ConflictType {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-swarm context
+// ---------------------------------------------------------------------------
+
+/// Pointer to the active swarm, stored at `swarm/active.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ActiveSwarmRef {
+    pub uuid: String,
+    pub title: String,
+    pub created_at: String,
+}
+
+/// Resolved swarm context — holds the base path for the active swarm.
+///
+/// For legacy layouts (single `swarm/plan.json`), base is `"swarm"`.
+/// For multi-swarm layouts, base is `"swarm/{uuid}"`.
+#[allow(dead_code)]
+struct SwarmContext {
+    pub base: String,
+    pub is_legacy: bool,
+}
+
+#[allow(dead_code)]
+impl SwarmContext {
+    fn plan_path(&self) -> String {
+        format!("{}/plan.json", self.base)
+    }
+
+    fn phase_path(&self, phase_name: &str) -> String {
+        format!("{}/phases/{}.json", self.base, slugify_phase(phase_name))
+    }
+
+    fn checkpoints_dir(&self) -> String {
+        format!("{}/checkpoints", self.base)
+    }
+
+    fn checkpoint_path(&self, slug: &str) -> String {
+        format!("{}/checkpoints/{}.json", self.base, slug)
+    }
+
+    fn budget_path(&self) -> String {
+        format!("{}/budget.json", self.base)
+    }
+
+    fn history_path(&self) -> String {
+        format!("{}/history/cost-log.json", self.base)
+    }
+
+    fn merge_plan_path(&self) -> String {
+        format!("{}/merge-plan.json", self.base)
+    }
+}
+
+/// Resolve the active swarm context.
+///
+/// 1. `swarm/active.json` → multi-swarm, base = `swarm/{uuid}`
+/// 2. `swarm/plan.json` → legacy, base = `swarm`
+/// 3. Neither → error
+fn resolve_swarm(sync: &SyncManager) -> Result<SwarmContext> {
+    let active_path = sync.cache_path().join("swarm/active.json");
+    if active_path.exists() {
+        if let Ok(active) = read_hub_json::<ActiveSwarmRef>(sync, "swarm/active.json") {
+            return Ok(SwarmContext {
+                base: format!("swarm/{}", active.uuid),
+                is_legacy: false,
+            });
+        }
+    }
+
+    let plan_path = sync.cache_path().join("swarm/plan.json");
+    if plan_path.exists() {
+        return Ok(SwarmContext {
+            base: "swarm".to_string(),
+            is_legacy: true,
+        });
+    }
+
+    bail!("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")
+}
+
+/// Create a new swarm slot with a UUID, writing the active pointer.
+fn create_swarm_slot(sync: &SyncManager, title: &str) -> Result<SwarmContext> {
+    let uuid = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let active_ref = ActiveSwarmRef {
+        uuid: uuid.clone(),
+        title: title.to_string(),
+        created_at: now,
+    };
+
+    write_hub_json(sync, "swarm/active.json", &active_ref)?;
+
+    let base = format!("swarm/{}", uuid);
+    let phases_dir = sync.cache_path().join(format!("{}/phases", base));
+    std::fs::create_dir_all(&phases_dir)?;
+
+    Ok(SwarmContext {
+        base,
+        is_legacy: false,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Hub branch I/O helpers
 // ---------------------------------------------------------------------------
 
@@ -330,14 +433,18 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     sync.init_cache()?;
     sync.fetch()?;
 
-    // Check if a plan already exists
-    let plan_path = sync.cache_path().join("swarm/plan.json");
-    if plan_path.exists() {
+    // Check if an active swarm already exists (legacy or multi-swarm)
+    let has_active = sync.cache_path().join("swarm/active.json").exists()
+        || sync.cache_path().join("swarm/plan.json").exists();
+    if has_active {
         bail!(
             "A swarm plan already exists. Use `crosslink swarm status` to view it, \
-             or delete swarm/ from the hub branch to start over."
+             or `crosslink swarm reset` to archive and start over."
         );
     }
+
+    // Create a new UUID-based swarm slot
+    let ctx = create_swarm_slot(&sync, &doc.title)?;
 
     // Build phases from design doc structure
     let phases = propose_phases(&doc);
@@ -354,11 +461,12 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
     };
 
     // Write plan and phase files
-    write_hub_json(&sync, "swarm/plan.json", &plan)?;
-    let mut paths_to_commit: Vec<String> = vec!["swarm/plan.json".to_string()];
+    let plan_path = ctx.plan_path();
+    write_hub_json(&sync, &plan_path, &plan)?;
+    let mut paths_to_commit: Vec<String> = vec!["swarm/active.json".to_string(), plan_path];
 
     for phase in &phases {
-        let phase_path = format!("swarm/phases/{}.json", slugify_phase(&phase.name));
+        let phase_path = ctx.phase_path(&phase.name);
         write_hub_json(&sync, &phase_path, phase)?;
         paths_to_commit.push(phase_path);
     }
@@ -588,7 +696,8 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
         bail!("Hub cache not initialized. Run `crosslink sync` first.");
     }
 
-    let plan: SwarmPlan = read_hub_json(&sync, "swarm/plan.json")
+    let ctx = resolve_swarm(&sync)?;
+    let plan: SwarmPlan = read_hub_json(&sync, &ctx.plan_path())
         .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
 
     let root = crosslink_dir
@@ -816,12 +925,13 @@ fn load_plan_and_phases(crosslink_dir: &Path) -> Result<LoadedPlan> {
     }
     sync.fetch()?;
 
-    let plan: SwarmPlan = read_hub_json(&sync, "swarm/plan.json")
+    let ctx = resolve_swarm(&sync)?;
+    let plan: SwarmPlan = read_hub_json(&sync, &ctx.plan_path())
         .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
 
     let mut phases = Vec::new();
     for phase_name in &plan.phases {
-        let path = format!("swarm/phases/{}.json", slugify_phase(phase_name));
+        let path = ctx.phase_path(phase_name);
         let phase: PhaseDefinition = read_hub_json(&sync, &path)
             .with_context(|| format!("Failed to load phase: {}", phase_name))?;
         phases.push((path, phase));
@@ -837,8 +947,10 @@ fn save_plan_and_phases(
     phases: &[(String, PhaseDefinition)],
     message: &str,
 ) -> Result<()> {
-    write_hub_json(sync, "swarm/plan.json", plan)?;
-    let mut paths = vec!["swarm/plan.json".to_string()];
+    let ctx = resolve_swarm(sync)?;
+    let plan_path = ctx.plan_path();
+    write_hub_json(sync, &plan_path, plan)?;
+    let mut paths = vec![plan_path];
     for (path, phase) in phases {
         write_hub_json(sync, path, phase)?;
         paths.push(path.clone());
@@ -1668,11 +1780,12 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
 
 /// Load a phase definition by slug, returning the phase and its hub path.
 fn load_phase(sync: &SyncManager, phase_slug: &str) -> Result<(PhaseDefinition, String)> {
-    let plan: SwarmPlan = read_hub_json(sync, "swarm/plan.json")
+    let ctx = resolve_swarm(sync)?;
+    let plan: SwarmPlan = read_hub_json(sync, &ctx.plan_path())
         .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
 
-    // Try exact slug match first, then try matching against plan phase names
-    let phase_file = format!("swarm/phases/{}.json", phase_slug);
+    // Try exact slug match first
+    let phase_file = ctx.phase_path(phase_slug);
     if let Ok(phase) = read_hub_json::<PhaseDefinition>(sync, &phase_file) {
         return Ok((phase, phase_file));
     }
@@ -1681,7 +1794,7 @@ fn load_phase(sync: &SyncManager, phase_slug: &str) -> Result<(PhaseDefinition, 
     for name in &plan.phases {
         let slug = slugify_phase(name);
         if slug == phase_slug {
-            let path = format!("swarm/phases/{}.json", slug);
+            let path = ctx.phase_path(name);
             let phase: PhaseDefinition = read_hub_json(sync, &path)
                 .with_context(|| format!("Phase file missing for '{}'", name))?;
             return Ok((phase, path));
@@ -1701,9 +1814,9 @@ fn load_phase(sync: &SyncManager, phase_slug: &str) -> Result<(PhaseDefinition, 
 
 /// Check that all dependency phases are completed.
 fn check_dependencies(sync: &SyncManager, phase: &PhaseDefinition) -> Result<()> {
+    let ctx = resolve_swarm(sync)?;
     for dep_name in &phase.depends_on {
-        let dep_slug = slugify_phase(dep_name);
-        let dep_file = format!("swarm/phases/{}.json", dep_slug);
+        let dep_file = ctx.phase_path(dep_name);
         let dep: PhaseDefinition = read_hub_json(sync, &dep_file)
             .with_context(|| format!("Dependency phase '{}' not found", dep_name))?;
         if dep.status != PhaseStatus::Completed {
