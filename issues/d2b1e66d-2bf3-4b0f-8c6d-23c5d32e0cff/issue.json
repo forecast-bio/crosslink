@@ -2,11 +2,12 @@
   "uuid": "d2b1e66d-2bf3-4b0f-8c6d-23c5d32e0cff",
   "display_id": 211,
   "title": "File GH bug for crosslink init missing git init check",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "maxine--basel",
   "created_at": "2026-03-18T17:49:39.081291Z",
-  "updated_at": "2026-03-18T17:49:44.092989Z",
+  "updated_at": "2026-03-18T17:59:45.917898Z",
+  "closed_at": "2026-03-18T17:59:45.917898Z",
   "labels": [
     "bug"
   ]
