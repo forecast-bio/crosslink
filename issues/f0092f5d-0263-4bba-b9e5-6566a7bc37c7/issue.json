@@ -2,11 +2,12 @@
   "uuid": "f0092f5d-0263-4bba-b9e5-6566a7bc37c7",
   "display_id": 212,
   "title": "File GH enhancement for TUI issue detail local times",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "maxine--basel",
   "created_at": "2026-03-18T18:00:29.747741Z",
-  "updated_at": "2026-03-18T18:00:31.402487Z",
+  "updated_at": "2026-03-18T18:03:16.409935Z",
+  "closed_at": "2026-03-18T18:03:16.409935Z",
   "labels": [
     "enhancement"
   ]
