@@ -259,12 +259,25 @@ def reset_drift_counter(crosslink_dir):
 def is_agent_context(crosslink_dir):
     """Check if we're running inside an agent worktree.
 
-    Returns True if .crosslink/agent.json exists, indicating this is a
-    kickoff agent rather than an interactive human session.
+    Returns True if:
+    1. .crosslink/agent.json exists (crosslink kickoff agent), OR
+    2. CWD is inside a .claude/worktrees/ path (Claude Code sub-agent)
+
+    Both types of agent get relaxed tracking mode so they can operate
+    autonomously without active crosslink issues or gated git commits.
     """
     if not crosslink_dir:
         return False
-    return os.path.isfile(os.path.join(crosslink_dir, "agent.json"))
+    if os.path.isfile(os.path.join(crosslink_dir, "agent.json")):
+        return True
+    # Detect Claude Code sub-agent worktrees (Agent tool with isolation: "worktree")
+    try:
+        cwd = os.getcwd()
+        if "/.claude/worktrees/" in cwd:
+            return True
+    except OSError:
+        pass
+    return False
 
 
 def normalize_git_command(command):
