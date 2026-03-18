@@ -1602,6 +1602,16 @@ impl SharedWriter {
             // Write files to cache (skip for deletions — files already removed)
             if !write_set.use_git_rm {
                 for (rel_path, content) in &write_set.files {
+                    // Validate JSON content before writing to prevent corruption
+                    if rel_path.ends_with(".json") {
+                        if let Err(e) = serde_json::from_slice::<serde_json::Value>(content) {
+                            bail!(
+                                "Refusing to write invalid JSON to hub cache: {} ({})",
+                                rel_path,
+                                e
+                            );
+                        }
+                    }
                     let full = self.cache_dir.join(rel_path);
                     if let Some(parent) = full.parent() {
                         std::fs::create_dir_all(parent)?;
@@ -1669,12 +1679,24 @@ impl SharedWriter {
                             // Bail if local has diverged too far — sign of a rebase loop
                             self.check_divergence()?;
                             let _ = self.git_in_cache(&["reset", "--hard", "HEAD~1"]);
-                            self.git_in_cache(&[
+                            let rebase_result = self.git_in_cache(&[
                                 "pull",
                                 "--rebase",
                                 remote,
                                 crate::sync::HUB_BRANCH,
-                            ])?;
+                            ]);
+                            if let Err(re) = &rebase_result {
+                                let re_str = re.to_string();
+                                if re_str.contains("CONFLICT")
+                                    || re_str.contains("rebase")
+                                    || re_str.contains("could not apply")
+                                {
+                                    let _ = self.git_in_cache(&["rebase", "--abort"]);
+                                    let remote_ref =
+                                        format!("{}/{}", remote, crate::sync::HUB_BRANCH);
+                                    let _ = self.git_in_cache(&["reset", "--hard", &remote_ref]);
+                                }
+                            }
                             continue;
                         }
                         // All retries exhausted — keep as local-only

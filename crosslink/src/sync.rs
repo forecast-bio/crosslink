@@ -422,8 +422,18 @@ impl SyncManager {
     /// that left files staged but uncommitted), stage everything and commit it
     /// so that subsequent rebase/pull operations can proceed.
     ///
+    /// **Safety**: Before committing, validates that no tracked files contain
+    /// unresolved merge conflict markers (`<<<<<<<`). If conflicts are found,
+    /// attempts auto-resolution for known files (counters.json) or aborts
+    /// the dirty commit to prevent corruption from propagating.
+    ///
     /// Returns `true` if dirty state was found and cleaned.
     pub fn clean_dirty_state(&self) -> Result<bool> {
+        // First, check for and recover from stuck rebase state
+        if self.recover_stuck_rebase()? {
+            return Ok(true);
+        }
+
         let status = self.git_in_cache(&["status", "--porcelain"]);
         match status {
             Ok(output) => {
@@ -431,7 +441,25 @@ impl SyncManager {
                 if stdout.trim().is_empty() {
                     return Ok(false);
                 }
-                // Dirty state found — stage and commit to recover
+
+                // Before staging, check for conflict markers in tracked files
+                if self.scan_for_conflict_markers() {
+                    // Try to auto-resolve known files
+                    self.auto_resolve_conflicts()?;
+
+                    // Re-check — if conflicts remain, do NOT commit them
+                    if self.scan_for_conflict_markers() {
+                        eprintln!(
+                            "Warning: hub cache has unresolved merge conflicts. \
+                             Skipping auto-commit to prevent corruption. \
+                             Resolve manually in: {}",
+                            self.cache_dir.display()
+                        );
+                        return Ok(false);
+                    }
+                }
+
+                // Safe to stage and commit
                 let _ = self.git_in_cache(&["add", "-A"]);
                 let _ = self.git_in_cache(&[
                     "commit",
@@ -441,6 +469,159 @@ impl SyncManager {
                 Ok(true)
             }
             Err(_) => Ok(false), // Can't check status — don't block
+        }
+    }
+
+    /// Detect if the hub cache is in a stuck rebase state and recover.
+    ///
+    /// A stuck rebase (from a failed `pull --rebase` or `rebase`) leaves
+    /// rebase state directories, preventing all subsequent git operations.
+    /// Recovery: abort the rebase.
+    fn recover_stuck_rebase(&self) -> Result<bool> {
+        let git_dir = self.find_cache_git_dir();
+        let rebase_merge = git_dir.join("rebase-merge");
+        let rebase_apply = git_dir.join("rebase-apply");
+
+        if !rebase_merge.exists() && !rebase_apply.exists() {
+            return Ok(false);
+        }
+
+        eprintln!("Warning: hub cache has a stuck rebase. Aborting to recover...");
+        let _ = self.git_in_cache(&["rebase", "--abort"]);
+        Ok(true)
+    }
+
+    /// Find the git dir for the hub cache worktree.
+    fn find_cache_git_dir(&self) -> PathBuf {
+        let output = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["rev-parse", "--git-dir"])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if Path::new(&raw).is_absolute() {
+                    PathBuf::from(raw)
+                } else {
+                    self.cache_dir.join(raw)
+                }
+            }
+            _ => self.cache_dir.join(".git"),
+        }
+    }
+
+    /// Scan critical hub files for conflict marker strings.
+    fn scan_for_conflict_markers(&self) -> bool {
+        let critical_files = ["meta/counters.json", "locks.json"];
+        for file in &critical_files {
+            let path = self.cache_dir.join(file);
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if content.contains("<<<<<<<") || content.contains(">>>>>>>") {
+                    return true;
+                }
+            }
+        }
+        // Also scan issue files in the working directory
+        if let Ok(status_output) = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["diff", "--check", "HEAD"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&status_output.stdout);
+            if stdout.contains("conflict") || stdout.contains("marker") {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Attempt to auto-resolve conflict markers in known files.
+    fn auto_resolve_conflicts(&self) -> Result<()> {
+        let counters_path = self.cache_dir.join("meta/counters.json");
+        if let Ok(content) = std::fs::read_to_string(&counters_path) {
+            if content.contains("<<<<<<<") {
+                if let Some(resolved) = Self::resolve_counters_conflict(&content) {
+                    std::fs::write(&counters_path, resolved)?;
+                    eprintln!("Auto-resolved conflict markers in counters.json");
+                }
+            }
+        }
+
+        let locks_path = self.cache_dir.join("locks.json");
+        if let Ok(content) = std::fs::read_to_string(&locks_path) {
+            if content.contains("<<<<<<<") {
+                if let Some(resolved) = Self::strip_conflict_markers_keep_ours(&content) {
+                    std::fs::write(&locks_path, resolved)?;
+                    eprintln!("Auto-resolved conflict markers in locks.json");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Resolve counters.json conflicts by taking the max of each counter value.
+    fn resolve_counters_conflict(content: &str) -> Option<String> {
+        let mut max_display_id: i64 = 0;
+        let mut max_comment_id: i64 = 0;
+        let mut max_milestone_id: i64 = 0;
+
+        for line in content.lines() {
+            let trimmed = line.trim().trim_end_matches(',');
+            if let Some(val) = trimmed.strip_prefix("\"next_display_id\":") {
+                if let Ok(n) = val.trim().parse::<i64>() {
+                    max_display_id = max_display_id.max(n);
+                }
+            } else if let Some(val) = trimmed.strip_prefix("\"next_comment_id\":") {
+                if let Ok(n) = val.trim().parse::<i64>() {
+                    max_comment_id = max_comment_id.max(n);
+                }
+            } else if let Some(val) = trimmed.strip_prefix("\"next_milestone_id\":") {
+                if let Ok(n) = val.trim().parse::<i64>() {
+                    max_milestone_id = max_milestone_id.max(n);
+                }
+            }
+        }
+
+        if max_display_id == 0 && max_comment_id == 0 && max_milestone_id == 0 {
+            return None;
+        }
+
+        Some(format!(
+            "{{\n  \"next_display_id\": {},\n  \"next_comment_id\": {},\n  \"next_milestone_id\": {}\n}}\n",
+            max_display_id, max_comment_id, max_milestone_id
+        ))
+    }
+
+    /// Strip conflict markers from a file, keeping "ours" (HEAD) side.
+    fn strip_conflict_markers_keep_ours(content: &str) -> Option<String> {
+        let mut result = String::new();
+        let mut in_theirs = false;
+        let mut found_markers = false;
+
+        for line in content.lines() {
+            if line.starts_with("<<<<<<<") {
+                found_markers = true;
+                continue;
+            }
+            if line.starts_with("=======") {
+                in_theirs = true;
+                continue;
+            }
+            if line.starts_with(">>>>>>>") {
+                in_theirs = false;
+                continue;
+            }
+            if !in_theirs {
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+
+        if found_markers {
+            Some(result)
+        } else {
+            None
         }
     }
 
@@ -483,6 +664,21 @@ impl SyncManager {
                     if err_str.contains("unknown revision")
                         || err_str.contains("ambiguous argument")
                     {
+                        return Ok(());
+                    }
+                    // Rebase failed (conflict) — abort and reset to remote
+                    // to prevent stuck rebase state from blocking all operations
+                    if err_str.contains("CONFLICT")
+                        || err_str.contains("could not apply")
+                        || err_str.contains("rebase")
+                    {
+                        eprintln!(
+                            "Warning: hub cache rebase failed (conflict). \
+                             Aborting rebase and resetting to remote state. \
+                             Local unpushed commits may be lost."
+                        );
+                        let _ = self.git_in_cache(&["rebase", "--abort"]);
+                        let _ = self.git_in_cache(&["reset", "--hard", &remote_ref]);
                         return Ok(());
                     }
                     rebase_result?;
@@ -4149,5 +4345,88 @@ mod tests {
         // Second call with same content - nothing to commit, should still succeed
         // (exercises the "nothing to commit" early return at lines 791-793)
         manager.push_heartbeat(&agent, None).unwrap();
+    }
+
+    // ==================== Conflict Resolution Tests ====================
+
+    #[test]
+    fn test_resolve_counters_conflict_basic() {
+        let content = r#"{
+<<<<<<< HEAD
+  "next_display_id": 209,
+  "next_comment_id": 323,
+=======
+  "next_display_id": 202,
+  "next_comment_id": 313,
+>>>>>>> abc1234
+  "next_milestone_id": 1
+}"#;
+        let resolved = SyncManager::resolve_counters_conflict(content).unwrap();
+        assert!(resolved.contains("\"next_display_id\": 209"));
+        assert!(resolved.contains("\"next_comment_id\": 323"));
+        assert!(resolved.contains("\"next_milestone_id\": 1"));
+        assert!(!resolved.contains("<<<<<<<"));
+        // Should be valid JSON
+        serde_json::from_str::<serde_json::Value>(&resolved).unwrap();
+    }
+
+    #[test]
+    fn test_resolve_counters_conflict_triple_nested() {
+        let content = r#"{
+<<<<<<< HEAD
+  "next_display_id": 209,
+  "next_comment_id": 323,
+=======
+<<<<<<< HEAD
+  "next_display_id": 202,
+  "next_comment_id": 313,
+=======
+  "next_display_id": 189,
+  "next_comment_id": 293,
+>>>>>>> f7ece71
+>>>>>>> 52fe04c
+  "next_milestone_id": 1
+}"#;
+        let resolved = SyncManager::resolve_counters_conflict(content).unwrap();
+        assert!(resolved.contains("\"next_display_id\": 209"));
+        assert!(resolved.contains("\"next_comment_id\": 323"));
+        serde_json::from_str::<serde_json::Value>(&resolved).unwrap();
+    }
+
+    #[test]
+    fn test_resolve_counters_conflict_no_conflicts() {
+        let content = r#"{
+  "next_display_id": 100,
+  "next_comment_id": 200,
+  "next_milestone_id": 1
+}"#;
+        // No conflict markers — should return valid resolution with extracted values
+        let resolved = SyncManager::resolve_counters_conflict(content).unwrap();
+        assert!(resolved.contains("\"next_display_id\": 100"));
+    }
+
+    #[test]
+    fn test_strip_conflict_markers_keep_ours() {
+        let content = r#"before
+<<<<<<< HEAD
+our line 1
+our line 2
+=======
+their line 1
+>>>>>>> abc1234
+after"#;
+        let resolved = SyncManager::strip_conflict_markers_keep_ours(content).unwrap();
+        assert!(resolved.contains("before"));
+        assert!(resolved.contains("our line 1"));
+        assert!(resolved.contains("our line 2"));
+        assert!(!resolved.contains("their line 1"));
+        assert!(resolved.contains("after"));
+        assert!(!resolved.contains("<<<<<<<"));
+    }
+
+    #[test]
+    fn test_strip_conflict_markers_no_conflicts() {
+        let content = "just normal text\nno conflicts here\n";
+        assert!(SyncManager::strip_conflict_markers_keep_ours(content).is_none());
     }
 }
