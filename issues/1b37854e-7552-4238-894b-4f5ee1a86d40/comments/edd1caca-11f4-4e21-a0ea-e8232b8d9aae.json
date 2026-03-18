@@ -1,0 +1,8 @@
+{
+  "uuid": "edd1caca-11f4-4e21-a0ea-e8232b8d9aae",
+  "issue_uuid": "1b37854e-7552-4238-894b-4f5ee1a86d40",
+  "author": "agent-206-ext-query",
+  "content": "Plan: Implementing external repo query support via new src/external.rs module. Key changes: (1) Add --repo flag to KnowledgeCommands::{Search,Show,List} and IssueCommands::{Search,Show,List} in main.rs, (2) Create src/external.rs with RepoSource enum, ExternalCache, ExternalKnowledgeReader, ExternalIssueReader, probe_url, (3) Add dispatch logic in commands/knowledge.rs and main.rs dispatch_issue() to route to external readers when --repo is present, (4) Reject --repo on write commands with clear error, (5) Update MCP knowledge-server.py with source parameter, (6) Add repo-alias config support via existing config infrastructure.",
+  "created_at": "2026-03-18T00:10:14.819819Z",
+  "kind": "plan"
+}
