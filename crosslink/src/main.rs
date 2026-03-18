@@ -1837,12 +1837,12 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
 
         IssueCommands::Blocked => {
             let db = get_db()?;
-            commands::deps::list_blocked(&db)
+            commands::deps::list_blocked(&db, json)
         }
 
         IssueCommands::Ready => {
             let db = get_db()?;
-            commands::deps::list_ready(&db)
+            commands::deps::list_ready(&db, json)
         }
 
         IssueCommands::Relate { id, related } => {
@@ -1867,12 +1867,12 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
         IssueCommands::Next => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            commands::next::run(&db, &crosslink_dir)
+            commands::next::run(&db, &crosslink_dir, json)
         }
 
         IssueCommands::Tree { status } => {
             let db = get_db()?;
-            commands::tree::run(&db, Some(&status))
+            commands::tree::run(&db, Some(&status), json)
         }
 
         IssueCommands::Tested => {
@@ -2179,7 +2179,7 @@ fn main() -> Result<()> {
         Commands::Session { action } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
-            commands::session::run(action, &db, &crosslink_dir)
+            commands::session::run(action, &db, &crosslink_dir, cli.json)
         }
 
         Commands::Daemon { action } => match action {

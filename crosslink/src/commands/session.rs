@@ -6,11 +6,11 @@ use crate::db::Database;
 use crate::utils::format_issue_id;
 use crate::SessionCommands;
 
-pub fn run(command: SessionCommands, db: &Database, crosslink_dir: &Path) -> Result<()> {
+pub fn run(command: SessionCommands, db: &Database, crosslink_dir: &Path, json: bool) -> Result<()> {
     match command {
         SessionCommands::Start => start(db, crosslink_dir),
         SessionCommands::End { notes } => end(db, notes.as_deref(), crosslink_dir),
-        SessionCommands::Status => status(db, crosslink_dir),
+        SessionCommands::Status => status(db, crosslink_dir, json),
         SessionCommands::Work { id } => work(db, id, crosslink_dir),
         SessionCommands::LastHandoff => last_handoff(db, crosslink_dir),
         SessionCommands::Action { text } => action(db, &text, crosslink_dir),
@@ -127,18 +127,48 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
     Ok(())
 }
 
-pub fn status(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
+pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
     let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
         Some(s) => s,
         None => {
-            println!("No active session. Use 'crosslink session start' to begin.");
+            if json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "active": false
+                }))?);
+            } else {
+                println!("No active session. Use 'crosslink session start' to begin.");
+            }
             return Ok(());
         }
     };
 
     let duration = Utc::now() - session.started_at;
     let minutes = duration.num_minutes();
+
+    if json {
+        let active_issue = session.active_issue_id
+            .and_then(|id| db.get_issue(id).ok().flatten());
+        let mut obj = serde_json::json!({
+            "active": true,
+            "session_id": session.id,
+            "started_at": session.started_at,
+            "duration_minutes": minutes,
+            "agent_id": session.agent_id,
+        });
+        if let Some(issue) = active_issue {
+            obj["working_on"] = serde_json::json!({
+                "id": issue.id,
+                "display_id": format_issue_id(issue.id),
+                "title": issue.title,
+            });
+        }
+        if let Some(ref action) = session.last_action {
+            obj["last_action"] = serde_json::json!(action);
+        }
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+        return Ok(());
+    }
 
     println!(
         "Session #{} (started {})",
@@ -368,7 +398,7 @@ mod tests {
     fn test_status_no_session() {
         let (db, _dir) = setup_test_db();
 
-        let result = status(&db, _dir.path());
+        let result = status(&db, _dir.path(), false);
         assert!(result.is_ok());
     }
 
@@ -377,7 +407,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
 
         start(&db, _dir.path()).unwrap();
-        let result = status(&db, _dir.path());
+        let result = status(&db, _dir.path(), false);
         assert!(result.is_ok());
     }
 
@@ -389,7 +419,7 @@ mod tests {
         start(&db, dir.path()).unwrap();
         work(&db, issue_id, dir.path()).unwrap();
 
-        let result = status(&db, dir.path());
+        let result = status(&db, dir.path(), false);
         assert!(result.is_ok());
     }
 
@@ -506,7 +536,7 @@ mod tests {
         work(&db, issue_id, dir.path()).unwrap();
 
         // Check status
-        status(&db, dir.path()).unwrap();
+        status(&db, dir.path(), false).unwrap();
 
         // End with notes
         end(&db, Some("Made progress on feature"), dir.path()).unwrap();
