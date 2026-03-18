@@ -34,3 +34,5 @@ maxine--refactor-command--reinit@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI
 maxine--plan-050@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJkEAVCUa5gAuXm0vKu5TD+2fCNr9jPiQm90bsLE89T0 crosslink-agent:maxine--plan-050@basel.local
 # approved by maxine at 2026-03-11 01:22:39 UTC
 maxine--basel--gh-287-and-gh-291@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
+# approved by maxine at 2026-03-18 00:06:05 UTC
+agent-206-ext-query@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKZ4RZLSv+acffb9RJKkFTUkxefMlIR5fDhxn5Oli0cc crosslink-agent:agent-206-ext-query@futura.local
