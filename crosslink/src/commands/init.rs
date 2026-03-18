@@ -1868,7 +1868,7 @@ mod tests {
         assert!(!REVIEW_CMD_MD.is_empty());
         assert!(!AUDIT_CMD_MD.is_empty());
         assert!(!DESIGN_CMD_MD.is_empty());
-        assert!(!SANITIZE_PATTERNS.is_empty());
+        assert!(!RULE_SANITIZE_PATTERNS.is_empty());
         assert!(!HOOK_CONFIG_JSON.is_empty());
         assert!(!RULE_TRACKING_STRICT.is_empty());
         assert!(!RULE_TRACKING_NORMAL.is_empty());
