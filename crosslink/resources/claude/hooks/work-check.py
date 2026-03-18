@@ -199,7 +199,7 @@ def main():
             # No crosslink dir — allow through (no enforcement possible)
             sys.exit(0)
         status = run_crosslink(["session", "status"], crosslink_dir)
-        if status and "Working on: #" in status:
+        if status and ("Working on: #" in status or "Working on: L" in status):
             sys.exit(0)
         print(
             "Git commit requires an active crosslink issue.\n\n"
@@ -233,7 +233,7 @@ def main():
         sys.exit(0)
 
     # If already working on an issue, allow
-    if "Working on: #" in status:
+    if "Working on: #" in status or "Working on: L" in status:
         sys.exit(0)
 
     # No active work item — behavior depends on mode
