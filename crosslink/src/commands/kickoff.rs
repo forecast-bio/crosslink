@@ -3311,9 +3311,11 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
 
 /// Display a gap report from a previous plan analysis.
 pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
-    let root = crosslink_dir
+    let local_root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+    let root = crate::utils::resolve_main_repo_root(local_root)
+        .unwrap_or_else(|| local_root.to_path_buf());
 
     let slug = agent
         .strip_prefix("feature/")
