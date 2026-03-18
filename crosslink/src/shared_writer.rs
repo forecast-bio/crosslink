@@ -22,6 +22,69 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
+/// File-based lock for serializing hub cache writes.
+///
+/// Multiple agents launching simultaneously can race on git index.lock.
+/// This provides a higher-level lock that prevents concurrent write_commit_push
+/// operations from overlapping.
+struct HubWriteLock {
+    path: PathBuf,
+}
+
+impl Drop for HubWriteLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
+    let max_wait = std::time::Duration::from_secs(30);
+    let poll_interval = std::time::Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        // Try to create the lock file exclusively
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                let _ = writeln!(f, "{}", std::process::id());
+                return Ok(HubWriteLock {
+                    path: lock_path.to_path_buf(),
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Check if the lock is stale (holder process dead)
+                if let Ok(content) = std::fs::read_to_string(lock_path) {
+                    if let Ok(pid) = content.trim().parse::<u32>() {
+                        // Check if PID is alive (Unix-specific)
+                        let alive = std::process::Command::new("kill")
+                            .args(["-0", &pid.to_string()])
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false);
+                        if !alive {
+                            let _ = std::fs::remove_file(lock_path);
+                            continue;
+                        }
+                    }
+                }
+
+                if start.elapsed() > max_wait {
+                    // Force-break stale lock after timeout
+                    let _ = std::fs::remove_file(lock_path);
+                    continue;
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
 /// Stats from rewriting local issue references after promotion.
 #[derive(Debug, Default)]
 pub struct RewriteStats {
@@ -1595,6 +1658,11 @@ impl SharedWriter {
     where
         F: FnMut(&Self) -> Result<WriteSet>,
     {
+        // Serialize access to the hub cache to prevent index.lock races
+        // when multiple agents launch simultaneously (#400)
+        let lock_path = self.cache_dir.join(".hub-write-lock");
+        let _lock_guard = acquire_hub_lock(&lock_path)?;
+
         for attempt in 0..MAX_RETRIES {
             // (Re-)generate content — reads fresh counters/files after rebase
             let write_set = prepare(self)?;

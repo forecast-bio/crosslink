@@ -1472,6 +1472,62 @@ pub fn launch_retry_failed(
 }
 
 // ---------------------------------------------------------------------------
+// swarm adopt
+// ---------------------------------------------------------------------------
+
+/// Associate an external agent/branch with a swarm phase slot.
+///
+/// When an agent is launched manually (outside `swarm launch`), this command
+/// lets you link it to a swarm slot so status/gate/merge see it correctly.
+pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<()> {
+    let (sync, plan, mut phases) = load_plan_and_phases(crosslink_dir)?;
+
+    // Find the slot
+    let mut found = false;
+    for (_path, phase) in &mut phases {
+        for agent in &mut phase.agents {
+            if agent.slug == slot_slug {
+                agent.status = AgentStatus::Running;
+                agent.branch = Some(format!("feature/{}", agent_slug));
+                agent.started_at = Some(chrono::Utc::now().to_rfc3339());
+                found = true;
+                break;
+            }
+        }
+        if found {
+            break;
+        }
+    }
+
+    if !found {
+        bail!(
+            "Slot '{}' not found in any phase. Available slots: {}",
+            slot_slug,
+            phases
+                .iter()
+                .flat_map(|(_, p)| p.agents.iter().map(|a| a.slug.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    save_plan_and_phases(
+        &sync,
+        &plan,
+        &phases,
+        &format!(
+            "swarm: adopt agent '{}' into slot '{}'",
+            agent_slug, slot_slug
+        ),
+    )?;
+    println!(
+        "Adopted '{}' into swarm slot '{}' (branch: feature/{})",
+        agent_slug, slot_slug, agent_slug
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // swarm sync-status
 // ---------------------------------------------------------------------------
 
@@ -3709,41 +3765,55 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
 
         let slug = entry.file_name().to_string_lossy().to_string();
 
-        // Get changed files relative to develop
-        let diff_output = std::process::Command::new("git")
-            .current_dir(&wt_path)
-            .args(["diff", "--name-only", "develop...HEAD"])
-            .output();
+        // Get changed files relative to the base branch.
+        // Try multiple base refs since worktrees may have been created from
+        // develop, main, or their remote counterparts (#392).
+        let base_refs = ["develop", "main", "origin/develop", "origin/main"];
+        let mut changed_files = Vec::new();
+        for base in &base_refs {
+            let diff_output = std::process::Command::new("git")
+                .current_dir(&wt_path)
+                .args(["diff", "--name-only", &format!("{}...HEAD", base)])
+                .output();
 
-        let changed_files = match diff_output {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout
-                    .lines()
-                    .filter(|l| !l.is_empty())
-                    .map(|l| l.to_string())
-                    .collect::<Vec<_>>()
+            if let Ok(output) = diff_output {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    changed_files = stdout
+                        .lines()
+                        .filter(|l| !l.is_empty())
+                        .map(|l| l.to_string())
+                        .collect::<Vec<_>>();
+                    if !changed_files.is_empty() {
+                        break;
+                    }
+                }
             }
-            _ => continue, // Skip worktrees where git diff fails
-        };
+        }
 
         if changed_files.is_empty() {
             continue;
         }
 
-        // Count commits beyond develop
-        let log_output = std::process::Command::new("git")
-            .current_dir(&wt_path)
-            .args(["log", "--oneline", "develop..HEAD"])
-            .output();
+        // Count commits beyond base branch
+        let mut commit_count = 0;
+        for base in &base_refs {
+            let log_output = std::process::Command::new("git")
+                .current_dir(&wt_path)
+                .args(["log", "--oneline", &format!("{}..HEAD", base)])
+                .output();
 
-        let commit_count = match log_output {
-            Ok(output) if output.status.success() => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout.lines().count()
+            if let Ok(output) = log_output {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let count = stdout.lines().count();
+                    if count > 0 {
+                        commit_count = count;
+                        break;
+                    }
+                }
             }
-            _ => 0,
-        };
+        }
 
         sources.push(MergeSource {
             agent_slug: slug,

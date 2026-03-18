@@ -1372,6 +1372,14 @@ enum SwarmCommands {
     Resume,
     /// Sync agent statuses from live worktree state into phase JSON
     SyncStatus,
+    /// Associate an external agent/branch with a swarm slot
+    Adopt {
+        /// Agent slug or branch name of the external agent
+        agent: String,
+        /// Swarm slot slug to assign the agent to
+        #[arg(long, value_name = "SLUG")]
+        slot: String,
+    },
     /// Archive the current swarm and clear the active slot
     Archive,
     /// Reset the active swarm (archives by default)
@@ -2381,6 +2389,9 @@ fn main() -> Result<()> {
                 SwarmCommands::Status => commands::swarm::status(&crosslink_dir, cli.json),
                 SwarmCommands::Resume => commands::swarm::resume(&crosslink_dir),
                 SwarmCommands::SyncStatus => commands::swarm::sync_status(&crosslink_dir),
+                SwarmCommands::Adopt { agent, slot } => {
+                    commands::swarm::adopt(&crosslink_dir, &agent, &slot)
+                }
                 SwarmCommands::Archive => commands::swarm::archive(&crosslink_dir),
                 SwarmCommands::Reset { no_archive } => {
                     commands::swarm::reset(&crosslink_dir, no_archive)
