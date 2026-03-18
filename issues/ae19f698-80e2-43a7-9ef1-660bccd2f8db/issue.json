@@ -2,11 +2,12 @@
   "uuid": "ae19f698-80e2-43a7-9ef1-660bccd2f8db",
   "display_id": 207,
   "title": "File GH bug for kickoff show-plan worktree failure",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "maxine--basel",
   "created_at": "2026-03-18T00:11:19.964169Z",
-  "updated_at": "2026-03-18T00:11:21.832313Z",
+  "updated_at": "2026-03-18T00:13:09.072691Z",
+  "closed_at": "2026-03-18T00:13:09.072691Z",
   "labels": [
     "bug"
   ]
