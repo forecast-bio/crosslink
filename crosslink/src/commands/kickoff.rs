@@ -834,9 +834,10 @@ pub(crate) fn build_prompt(
 ## Environment
 
 You are running in a git worktree — an isolated working directory that shares git objects with
-the main repo. The `.crosslink/issues.db` is shared across all worktrees via the crosslink/hub
-branch. Other agents may be working concurrently in different worktrees. If you need to see the
-latest state from other agents, run `crosslink sync`.
+the main repo. Issue mutations (create, comment, close) are synced to the crosslink/hub branch
+via SharedWriter, making them visible to other agents and the driver. If sync fails, changes are
+saved locally and will be pushed on the next successful `crosslink sync`. Other agents may be
+working concurrently in different worktrees.
 
 ## Blocked Actions
 
@@ -1647,6 +1648,27 @@ fn init_worktree_agent(worktree_dir: &Path, crosslink_dir: &Path, slug: &str) ->
     if let Ok(o) = output {
         if !o.status.success() {
             eprintln!("Warning: crosslink sync in worktree returned non-zero");
+        }
+    }
+
+    // Verify SharedWriter is functional — this is the mechanism that syncs
+    // agent issue mutations back to the hub branch. If it fails here, agent
+    // writes will be local-only (the core bug described in #372).
+    let wt_crosslink = worktree_dir.join(".crosslink");
+    match crate::shared_writer::SharedWriter::new(&wt_crosslink) {
+        Ok(Some(_)) => {} // SharedWriter operational
+        Ok(None) => {
+            eprintln!(
+                "Warning: SharedWriter not available in worktree. \
+                 Agent issue mutations will be local-only until sync is configured."
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "Warning: SharedWriter failed to initialize in worktree: {}. \
+                 Agent issue mutations will be local-only.",
+                e
+            );
         }
     }
 
