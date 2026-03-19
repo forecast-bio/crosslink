@@ -170,7 +170,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     // 2. Create or find issue (optional for plan mode)
     let issue_id = if let Some(id) = opts.issue {
         if db.get_issue(id)?.is_none() {
-            bail!("Issue #{} not found", id);
+            bail!("Issue {} not found", crate::utils::format_issue_id(id));
         }
         Some(id)
     } else {
@@ -275,7 +275,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {
         if let Err(e) = spawn_watchdog(&session_name, &worktree_dir, &watchdog_cfg) {
-            eprintln!("Warning: failed to spawn watchdog: {}", e);
+            tracing::warn!("failed to spawn watchdog: {}", e);
         }
     }
 

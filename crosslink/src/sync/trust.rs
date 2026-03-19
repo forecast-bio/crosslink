@@ -223,8 +223,8 @@ impl SyncManager {
                         ) {
                             Ok(true) => verified += 1,
                             Ok(false) => {
-                                eprintln!(
-                                    "warning: signature verification failed for comment {} by '{}' (signer: {})",
+                                tracing::warn!(
+                                    "signature verification failed for comment {} by '{}' (signer: {})",
                                     comment.id, comment.author, fingerprint
                                 );
                                 failed += 1;
@@ -233,9 +233,11 @@ impl SyncManager {
                                 // Verification unavailable (no allowed_signers, no ssh-keygen)
                                 // Treat as unverifiable but not failed
                                 if allowed_signers_path.exists() {
-                                    eprintln!(
-                                        "warning: signature verification error for comment {} by '{}': {}",
-                                        comment.id, comment.author, e
+                                    tracing::warn!(
+                                        "signature verification error for comment {} by '{}': {}",
+                                        comment.id,
+                                        comment.author,
+                                        e
                                     );
                                     failed += 1;
                                 } else {

@@ -142,10 +142,10 @@ impl OrchestratorExecutor {
                 )
                 .context("Failed to create phase parent issue")?;
             if let Err(e) = db.add_label(phase_issue_id, "orchestrator") {
-                eprintln!("Warning: could not label phase issue #{phase_issue_id}: {e}");
+                tracing::warn!("could not label phase issue #{phase_issue_id}: {e}");
             }
             if let Err(e) = db.add_label(phase_issue_id, "phase") {
-                eprintln!("Warning: could not label phase issue #{phase_issue_id}: {e}");
+                tracing::warn!("could not label phase issue #{phase_issue_id}: {e}");
             }
             phase_issues.insert(phase.id.clone(), phase_issue_id);
         }
@@ -169,16 +169,18 @@ impl OrchestratorExecutor {
                     .context("Failed to create stage subissue")?;
 
                 if let Err(e) = db.add_label(issue_id, "orchestrator") {
-                    eprintln!("Warning: could not label stage issue #{issue_id}: {e}");
+                    tracing::warn!("could not label stage issue #{issue_id}: {e}");
                 }
                 if let Err(e) = db.add_label(issue_id, "stage") {
-                    eprintln!("Warning: could not label stage issue #{issue_id}: {e}");
+                    tracing::warn!("could not label stage issue #{issue_id}: {e}");
                 }
 
                 // Assign to phase milestone.
                 let milestone_id = phase_milestones[&phase.id];
                 if let Err(e) = db.add_issue_to_milestone(milestone_id, issue_id) {
-                    eprintln!("Warning: could not add stage issue #{issue_id} to milestone #{milestone_id}: {e}");
+                    tracing::warn!(
+                        "could not add stage issue #{issue_id} to milestone #{milestone_id}: {e}"
+                    );
                 }
 
                 stage_issue_map.insert(stage.id.clone(), issue_id);
@@ -193,7 +195,9 @@ impl OrchestratorExecutor {
                 for dep_id in &stage.depends_on {
                     if let Some(&blocker_id) = stage_issue_map.get(dep_id) {
                         if let Err(e) = db.add_dependency(blocked_id, blocker_id) {
-                            eprintln!("Warning: could not set dependency #{blocker_id} -> #{blocked_id}: {e}");
+                            tracing::warn!(
+                                "could not set dependency #{blocker_id} -> #{blocked_id}: {e}"
+                            );
                         }
                     }
                 }
@@ -386,7 +390,7 @@ impl OrchestratorExecutor {
         // Close the stage's crosslink issue.
         if let Some(issue_id) = self.snapshot.dag.get(stage_id).and_then(|n| n.issue_id) {
             if let Err(e) = db.close_issue(issue_id) {
-                eprintln!("Warning: could not close stage issue #{issue_id}: {e}");
+                tracing::warn!("could not close stage issue #{issue_id}: {e}");
             }
         }
 
@@ -397,12 +401,12 @@ impl OrchestratorExecutor {
         if phase_complete {
             if let Some(&milestone_id) = self.snapshot.phase_milestones.get(&phase_id) {
                 if let Err(e) = db.close_milestone(milestone_id) {
-                    eprintln!("Warning: could not close phase milestone #{milestone_id}: {e}");
+                    tracing::warn!("could not close phase milestone #{milestone_id}: {e}");
                 }
             }
             if let Some(&phase_issue_id) = self.snapshot.phase_issues.get(&phase_id) {
                 if let Err(e) = db.close_issue(phase_issue_id) {
-                    eprintln!("Warning: could not close phase issue #{phase_issue_id}: {e}");
+                    tracing::warn!("could not close phase issue #{phase_issue_id}: {e}");
                 }
             }
         }

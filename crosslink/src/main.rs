@@ -5,6 +5,7 @@ mod compaction;
 mod daemon;
 mod db;
 mod events;
+mod external;
 mod findings;
 mod hydration;
 mod identity;
@@ -44,6 +45,19 @@ struct Cli {
     /// Output as JSON (supported by list, show, search, session status)
     #[arg(long, global = true)]
     json: bool,
+
+    /// Log level for diagnostic output (error, warn, info, debug, trace)
+    #[arg(long, global = true, default_value = "warn", env = "CROSSLINK_LOG")]
+    log_level: String,
+
+    /// Log format (text, json)
+    #[arg(
+        long,
+        global = true,
+        default_value = "text",
+        env = "CROSSLINK_LOG_FORMAT"
+    )]
+    log_format: String,
 
     #[command(subcommand)]
     command: Commands,
@@ -502,12 +516,24 @@ enum IssueCommands {
         /// Filter by priority
         #[arg(short, long)]
         priority: Option<String>,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Search issues by text
     Search {
         /// Search query
         query: String,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Show issue details
@@ -515,6 +541,12 @@ enum IssueCommands {
         /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Update an issue
@@ -1104,11 +1136,20 @@ enum KnowledgeCommands {
         /// Import from a design document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Display a knowledge page
     Show {
         /// Page slug
         slug: String,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
     /// List all knowledge pages
     List {
@@ -1124,6 +1165,12 @@ enum KnowledgeCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
     /// Update an existing knowledge page
     Edit {
@@ -1150,14 +1197,24 @@ enum KnowledgeCommands {
         /// Replace content from a document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Remove a knowledge page
     Remove {
         /// Page slug
         slug: String,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Manually sync from remote
-    Sync,
+    Sync {
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
     /// Bulk import markdown files as knowledge pages
     Import {
         /// Directory containing .md files to import
@@ -1171,6 +1228,9 @@ enum KnowledgeCommands {
         /// Preview imports without writing
         #[arg(long = "dry-run")]
         dry_run: bool,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Search knowledge page content
     Search {
@@ -1191,6 +1251,12 @@ enum KnowledgeCommands {
         /// Filter results by contributor
         #[arg(long)]
         contributor: Option<String>,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 }
 
@@ -1620,6 +1686,22 @@ enum ContextCommands {
     Check,
 }
 
+fn init_tracing(log_level: &str, log_format: &str) {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    let filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("warn"));
+    if log_format == "json" {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().json().with_writer(std::io::stderr))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().with_target(false).with_writer(std::io::stderr))
+            .init();
+    }
+}
+
 fn find_crosslink_dir() -> Result<PathBuf> {
     let mut current = env::current_dir()?;
 
@@ -1659,7 +1741,7 @@ fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWr
     match shared_writer::SharedWriter::new(crosslink_dir) {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("Warning: SharedWriter unavailable: {}", e);
+            tracing::warn!("SharedWriter unavailable: {}", e);
             None
         }
     }
@@ -1694,7 +1776,7 @@ fn parse_issue_id(s: &str) -> Result<i64> {
 /// Emit a hint to stderr (suppressed in quiet mode).
 fn hint(quiet: bool, msg: &str) {
     if !quiet {
-        eprintln!("hint: {}", msg);
+        tracing::info!("hint: {}", msg);
     }
 }
 
@@ -1803,30 +1885,79 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             status,
             label,
             priority,
+            repo,
+            refresh,
         } => {
-            let db = get_db()?;
-            if json {
-                commands::list::run_json(&db, Some(&status), label.as_deref(), priority.as_deref())
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::list(
+                    &crosslink_dir,
+                    &repo_value,
+                    Some(&status),
+                    label.as_deref(),
+                    priority.as_deref(),
+                    refresh,
+                    json,
+                    quiet,
+                )
             } else {
-                commands::list::run(&db, Some(&status), label.as_deref(), priority.as_deref())
+                let db = get_db()?;
+                if json {
+                    commands::list::run_json(
+                        &db,
+                        Some(&status),
+                        label.as_deref(),
+                        priority.as_deref(),
+                    )
+                } else {
+                    commands::list::run(&db, Some(&status), label.as_deref(), priority.as_deref())
+                }
             }
         }
 
-        IssueCommands::Search { query } => {
-            let db = get_db()?;
-            if json {
-                commands::search::run_json(&db, &query)
+        IssueCommands::Search {
+            query,
+            repo,
+            refresh,
+        } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::search(
+                    &crosslink_dir,
+                    &repo_value,
+                    &query,
+                    refresh,
+                    json,
+                    quiet,
+                )
             } else {
-                commands::search::run(&db, &query)
+                let db = get_db()?;
+                if json {
+                    commands::search::run_json(&db, &query)
+                } else {
+                    commands::search::run(&db, &query)
+                }
             }
         }
 
-        IssueCommands::Show { id } => {
-            let db = get_db()?;
-            if json {
-                commands::show::run_json(&db, id)
+        IssueCommands::Show { id, repo, refresh } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::show(
+                    &crosslink_dir,
+                    &repo_value,
+                    id,
+                    refresh,
+                    json,
+                    quiet,
+                )
             } else {
-                commands::show::run(&db, id)
+                let db = get_db()?;
+                if json {
+                    commands::show::run_json(&db, id)
+                } else {
+                    commands::show::run(&db, id)
+                }
             }
         }
 
@@ -2003,6 +2134,12 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let log_format = match &cli.command {
+        Commands::Serve { .. } if cli.log_format == "text" => "json",
+        _ => cli.log_format.as_str(),
+    };
+    init_tracing(&cli.log_level, log_format);
+
     match cli.command {
         Commands::Init {
             force,
@@ -2109,12 +2246,22 @@ fn main() -> Result<()> {
                 status,
                 label,
                 priority,
+                repo: None,
+                refresh: false,
             },
             cli.quiet,
             cli.json,
         ),
 
-        Commands::Show { id } => dispatch_issue(IssueCommands::Show { id }, cli.quiet, cli.json),
+        Commands::Show { id } => dispatch_issue(
+            IssueCommands::Show {
+                id,
+                repo: None,
+                refresh: false,
+            },
+            cli.quiet,
+            cli.json,
+        ),
 
         Commands::Close { id, no_changelog } => dispatch_issue(
             IssueCommands::Close { id, no_changelog },
@@ -2168,6 +2315,8 @@ fn main() -> Result<()> {
                         status,
                         label,
                         priority,
+                        repo: None,
+                        refresh: false,
                     },
                     cli.quiet,
                     cli.json,
@@ -2182,6 +2331,8 @@ fn main() -> Result<()> {
                         status: "open".to_string(),
                         label: None,
                         priority: None,
+                        repo: None,
+                        refresh: false,
                     },
                     cli.quiet,
                     cli.json,

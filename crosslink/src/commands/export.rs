@@ -175,7 +175,7 @@ pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
     match output_path {
         Some(path) => {
             fs::write(path, json).context("Failed to write export file")?;
-            eprintln!("Exported {} issues to {}", issue_files.len(), path);
+            println!("Exported {} issues to {}", issue_files.len(), path);
         }
         None => {
             let mut stdout = io::stdout().lock();
@@ -224,7 +224,7 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
     match output_path {
         Some(path) => {
             fs::write(path, md).context("Failed to write export file")?;
-            eprintln!("Exported {} issues to {}", issues.len(), path);
+            println!("Exported {} issues to {}", issues.len(), path);
         }
         None => {
             let mut stdout = io::stdout().lock();

@@ -68,7 +68,7 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
                 "  Imported: {} -> {} {}",
                 issue
                     .display_id
-                    .map(|id| format!("#{}", id))
+                    .map(format_issue_id)
                     .unwrap_or_else(|| issue.uuid.to_string()),
                 format_issue_id(new_id),
                 issue.title

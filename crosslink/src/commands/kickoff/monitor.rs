@@ -439,7 +439,7 @@ pub fn stop(_crosslink_dir: &Path, agent: &str, force: bool) -> Result<()> {
                 println!("Killed tmux session: {}", session_name);
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Warning: failed to kill session: {}", stderr.trim());
+                tracing::warn!("failed to kill session: {}", stderr.trim());
             }
         } else {
             // Send Ctrl-C gracefully
@@ -807,7 +807,7 @@ pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result
             let r: KickoffReport =
                 serde_json::from_str(&content).context("Failed to parse .kickoff-report.json")?;
             for w in validate_kickoff_report(&r) {
-                eprintln!("Warning: {}", w);
+                tracing::warn!("{}", w);
             }
             print!("{}", format_report_table(&r));
         }

@@ -175,7 +175,7 @@ impl SharedWriter {
     /// Derive the `.crosslink/` directory from the cache path.
     pub(super) fn crosslink_dir(&self) -> &Path {
         self.cache_dir.parent().unwrap_or_else(|| {
-            eprintln!("Warning: cache_dir has no parent, falling back to cache_dir itself");
+            tracing::warn!("cache_dir has no parent, falling back to cache_dir itself");
             &self.cache_dir
         })
     }
@@ -600,7 +600,10 @@ impl SharedWriter {
                 }
             }
         }
-        bail!("Issue #{} not found in shared cache", display_id)
+        bail!(
+            "Issue {} not found in shared cache",
+            crate::utils::format_issue_id(display_id)
+        )
     }
 
     /// Load an issue by ID, supporting both positive (real) and negative (offline) IDs.
@@ -620,12 +623,21 @@ impl SharedWriter {
 
     /// Resolve an issue ID (positive or negative) to its UUID.
     ///
-    /// For positive IDs, scans issue files by display_id.
+    /// For positive IDs, scans issue files by display_id first, then falls
+    /// back to SQLite if the JSON cache doesn't have the issue (#427).
     /// For negative IDs, looks up the UUID from SQLite.
     pub(super) fn resolve_uuid(&self, id: i64, db: &Database) -> Result<Uuid> {
         if id >= 0 {
-            let issue = self.load_issue_by_display_id(id)?;
-            Ok(issue.uuid)
+            match self.load_issue_by_display_id(id) {
+                Ok(issue) => Ok(issue.uuid),
+                Err(_) => {
+                    // JSON cache miss — fall back to SQLite (#427)
+                    let uuid_str = db.get_issue_uuid_by_id(id)?;
+                    uuid_str.parse().with_context(|| {
+                        format!("Invalid UUID for issue #{} from SQLite fallback", id)
+                    })
+                }
+            }
         } else {
             let uuid_str = db.get_issue_uuid_by_id(id)?;
             uuid_str
@@ -671,6 +683,18 @@ impl SharedWriter {
                         std::fs::create_dir_all(parent)?;
                     }
                     std::fs::write(&full, content)?;
+
+                    // Clean up stale V1 flat file when writing V2 directory
+                    // format, preventing both from coexisting (#428).
+                    // V2 path: issues/{uuid}/issue.json → stale V1: issues/{uuid}.json
+                    if rel_path.ends_with("/issue.json") {
+                        if let Some(uuid_dir) = rel_path.strip_suffix("/issue.json") {
+                            let v1_path = self.cache_dir.join(format!("{}.json", uuid_dir));
+                            if v1_path.exists() {
+                                let _ = std::fs::remove_file(&v1_path);
+                            }
+                        }
+                    }
                 }
             }
             if let Some(ref c) = write_set.counters {
@@ -686,8 +710,13 @@ impl SharedWriter {
             // Stage
             for path in &paths {
                 if write_set.use_git_rm {
-                    // INTENTIONAL: git rm is best-effort — file may already be untracked
-                    let _ = self.git_in_cache(&["rm", "--cached", "--ignore-unmatch", path]);
+                    // Use `git rm` (not --cached) so files are removed from
+                    // both the index AND the working directory atomically.
+                    // This prevents split state where the file is gone from
+                    // disk but the commit fails (#427). --force handles
+                    // modified files; --ignore-unmatch handles retries where
+                    // the file is already gone.
+                    let _ = self.git_in_cache(&["rm", "--force", "--ignore-unmatch", path]);
                 } else {
                     self.git_in_cache(&["add", path])?;
                 }
@@ -705,6 +734,13 @@ impl SharedWriter {
                 let err_str = e.to_string();
                 if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
                     return Ok(PushOutcome::Pushed);
+                }
+                // Commit failed — if we were deleting files (git rm), restore
+                // them from HEAD to prevent split state (#427).
+                if write_set.use_git_rm {
+                    for path in &paths {
+                        let _ = self.git_in_cache(&["checkout", "HEAD", "--", path]);
+                    }
                 }
                 commit_result?;
             }

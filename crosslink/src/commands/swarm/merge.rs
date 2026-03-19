@@ -453,8 +453,8 @@ pub fn merge(
             .context("Failed to generate diff")?;
 
         if !diff_output.status.success() {
-            eprintln!(
-                "  Failed to generate diff for '{}': {}",
+            tracing::error!(
+                "Failed to generate diff for '{}': {}",
                 slug,
                 String::from_utf8_lossy(&diff_output.stderr)
             );
@@ -487,8 +487,11 @@ pub fn merge(
 
         if !apply_result.status.success() {
             let stderr = String::from_utf8_lossy(&apply_result.stderr);
-            eprintln!("  Failed to apply diff for '{}': {}", slug, stderr);
-            eprintln!("  This agent's changes need manual resolution.");
+            tracing::error!(
+                "Failed to apply diff for '{}': {} — manual resolution required.",
+                slug,
+                stderr
+            );
             failed.push(slug.clone());
 
             // INTENTIONAL: checkout to abort partial apply is best-effort — next agent's diff will be applied fresh
@@ -525,7 +528,7 @@ pub fn merge(
             if stderr.contains("nothing to commit") {
                 println!("  No new changes from '{}' (already applied).", slug);
             } else {
-                eprintln!("  Commit failed for '{}': {}", slug, stderr);
+                tracing::error!("Commit failed for '{}': {}", slug, stderr);
                 failed.push(slug.clone());
             }
         }

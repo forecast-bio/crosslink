@@ -99,7 +99,7 @@ fn close_inner(
         // Create CHANGELOG.md if it doesn't exist
         if !changelog_path.exists() {
             if let Err(e) = create_changelog(&changelog_path) {
-                eprintln!("Warning: Could not create CHANGELOG.md: {}", e);
+                tracing::warn!("Could not create CHANGELOG.md: {}", e);
             } else {
                 println!("Created CHANGELOG.md");
             }
@@ -110,7 +110,7 @@ fn close_inner(
             let entry = format!("- {} ({})\n", issue.title, format_issue_id(id));
 
             if let Err(e) = append_to_changelog(&changelog_path, &category, &entry) {
-                eprintln!("Warning: Could not update CHANGELOG.md: {}", e);
+                tracing::warn!("Could not update CHANGELOG.md: {}", e);
             } else if !quiet {
                 println!("Added to CHANGELOG.md under {}", category);
             }
@@ -216,11 +216,7 @@ pub fn close_all(
     for issue in &issues {
         match close(db, writer, issue.id, update_changelog, crosslink_dir) {
             Ok(()) => closed_count += 1,
-            Err(e) => eprintln!(
-                "Warning: Failed to close {}: {}",
-                format_issue_id(issue.id),
-                e
-            ),
+            Err(e) => tracing::warn!("Failed to close {}: {}", format_issue_id(issue.id), e),
         }
     }
 

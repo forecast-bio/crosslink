@@ -41,7 +41,7 @@ pub fn run(
     let issue_id = if let Some(id) = opts.issue {
         // Verify the issue exists
         if db.get_issue(id)?.is_none() {
-            bail!("Issue #{} not found", id);
+            bail!("Issue {} not found", crate::utils::format_issue_id(id));
         }
         id
     } else {
@@ -66,7 +66,7 @@ pub fn run(
             db.add_label(id, "feature").err()
         };
         if let Some(e) = label_err {
-            eprintln!("Warning: could not label issue #{id} with 'feature': {e}");
+            tracing::warn!("could not label issue #{id} with 'feature': {e}");
         }
         if !opts.quiet {
             println!("Created issue #{}", id);

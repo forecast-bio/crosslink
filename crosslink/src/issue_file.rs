@@ -174,24 +174,31 @@ pub fn write_issue_file(path: &std::path::Path, issue: &IssueFile) -> anyhow::Re
 /// Read all issue files from a directory.
 ///
 /// Handles both v1 layout (`issues/{uuid}.json`) and v2 layout
-/// (`issues/{uuid}/issue.json`).
+/// (`issues/{uuid}/issue.json`). When both exist for the same UUID,
+/// the V2 version takes precedence (#428).
 pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<IssueFile>> {
-    let mut issues = Vec::new();
+    use std::collections::HashMap;
+
     if !issues_dir.exists() {
-        return Ok(issues);
+        return Ok(Vec::new());
     }
+
+    // Two-pass collection: V1 first, then V2 overwrites any duplicates
+    let mut by_uuid: HashMap<uuid::Uuid, IssueFile> = HashMap::new();
+    let mut v1_paths: HashMap<uuid::Uuid, std::path::PathBuf> = HashMap::new();
+
     for entry in std::fs::read_dir(issues_dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
             // V1 layout: issues/{uuid}.json
             match read_issue_file(&path) {
-                Ok(issue) => issues.push(issue),
+                Ok(issue) => {
+                    v1_paths.insert(issue.uuid, path);
+                    by_uuid.entry(issue.uuid).or_insert(issue);
+                }
                 Err(e) => {
-                    eprintln!(
-                        "Warning: skipping malformed issue file {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("skipping malformed issue file {}: {e}", path.display());
                 }
             }
         } else if path.is_dir() {
@@ -199,10 +206,13 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
             let issue_path = path.join("issue.json");
             if issue_path.exists() {
                 match read_issue_file(&issue_path) {
-                    Ok(issue) => issues.push(issue),
+                    Ok(issue) => {
+                        // V2 always wins over V1 for the same UUID
+                        by_uuid.insert(issue.uuid, issue);
+                    }
                     Err(e) => {
-                        eprintln!(
-                            "Warning: skipping malformed issue file {}: {e}",
+                        tracing::warn!(
+                            "skipping malformed issue file {}: {e}",
                             issue_path.display()
                         );
                     }
@@ -210,7 +220,8 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
             }
         }
     }
-    Ok(issues)
+
+    Ok(by_uuid.into_values().collect())
 }
 
 /// Read counters from `meta/counters.json`, returning defaults if missing.
@@ -274,10 +285,7 @@ pub fn read_all_milestone_files(
             match read_milestone_file(&path) {
                 Ok(ms) => entries.push(ms),
                 Err(e) => {
-                    eprintln!(
-                        "Warning: skipping malformed milestone file {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("skipping malformed milestone file {}: {e}", path.display());
                 }
             }
         }
@@ -362,10 +370,7 @@ pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<
             match read_comment_file(&path) {
                 Ok(comment) => comments.push(comment),
                 Err(e) => {
-                    eprintln!(
-                        "Warning: skipping malformed comment file {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("skipping malformed comment file {}: {e}", path.display());
                 }
             }
         }
@@ -381,17 +386,42 @@ pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<
 
 /// Read the layout version from `meta/version.json`.
 ///
-/// Returns `1` if the file is absent, indicating a v1 (flat-file) layout.
+/// If the version file is missing, inspects the `issues/` directory for V2-style
+/// subdirectories (containing `issue.json`). If any exist, returns `2` to avoid
+/// silently reverting to V1 flat-file writes on a hub that lost its version marker
+/// during a rebase or merge conflict (#428).
 pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
     let path = meta_dir.join("version.json");
-    if !path.exists() {
-        return Ok(1);
+    if path.exists() {
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read layout version: {}", path.display()))?;
+        let version: LayoutVersion = serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse layout version: {}", path.display()))?;
+        return Ok(version.layout_version);
     }
-    let content = std::fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read layout version: {}", path.display()))?;
-    let version: LayoutVersion = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse layout version: {}", path.display()))?;
-    Ok(version.layout_version)
+
+    // Version file missing — detect layout from directory structure.
+    // If any issues/{uuid}/issue.json directories exist, this is a V2 hub
+    // that lost its version marker.
+    let issues_dir = meta_dir
+        .parent()
+        .map(|p| p.join("issues"))
+        .unwrap_or_default();
+    if issues_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&issues_dir) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() && entry.path().join("issue.json").exists() {
+                    tracing::warn!(
+                        "meta/version.json missing but V2-style issue directories found; \
+                         treating as V2 layout (#428)"
+                    );
+                    return Ok(CURRENT_LAYOUT_VERSION);
+                }
+            }
+        }
+    }
+
+    Ok(1)
 }
 
 /// Write the layout version to `meta/version.json`.

@@ -86,7 +86,7 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                                 }
                                 Ok(false) => {}
                                 Err(e) => {
-                                    eprintln!("Warning: Could not release lock: {}", e)
+                                    tracing::warn!("Could not release lock: {}", e)
                                 }
                             }
                         }
@@ -96,7 +96,7 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                                 println!("Released lock on issue {}", format_issue_id(issue_id))
                             }
                             Ok(false) => {}
-                            Err(e) => eprintln!("Warning: Could not release lock: {}", e),
+                            Err(e) => tracing::warn!("Could not release lock: {}", e),
                         }
                     }
                 }
@@ -110,18 +110,18 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
         match crate::shared_writer::SharedWriter::new(crosslink_dir) {
             Ok(Some(w)) => {
                 if let Err(e) = w.add_comment(db, issue_id, notes_text, "handoff") {
-                    eprintln!(
-                        "Warning: Handoff notes saved locally but could not be synced to hub: {}",
+                    tracing::warn!(
+                        "Handoff notes saved locally but could not be synced to hub: {}",
                         e
                     );
                     if let Err(e) = db.add_comment(issue_id, notes_text, "handoff") {
-                        eprintln!("Warning: failed to save local handoff comment: {}", e);
+                        tracing::warn!("failed to save local handoff comment: {}", e);
                     }
                 }
             }
             _ => {
                 if let Err(e) = db.add_comment(issue_id, notes_text, "handoff") {
-                    eprintln!("Warning: failed to save local handoff comment: {}", e);
+                    tracing::warn!("failed to save local handoff comment: {}", e);
                 }
             }
         }

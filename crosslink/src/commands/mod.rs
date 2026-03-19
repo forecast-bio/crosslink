@@ -12,6 +12,8 @@ pub mod deps;
 pub mod design_cmd;
 pub mod design_doc;
 pub mod export;
+pub mod external_issues;
+pub mod external_knowledge;
 pub mod import;
 pub mod init;
 pub mod integrity_cmd;

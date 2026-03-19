@@ -164,7 +164,12 @@ impl SyncManager {
         }
     }
 
-    /// Fetch the latest state from remote and reset the cache to match.
+    /// Fetch the latest state from remote and integrate changes.
+    ///
+    /// When local-only (unpushed) commits exist, rebases them on top of the
+    /// remote to preserve close events and other mutations that haven't been
+    /// pushed yet. Only resets to the remote when there are definitively no
+    /// unpushed commits.
     pub fn fetch(&self) -> Result<()> {
         // Try fetching from remote. If no remote is configured, this is a no-op.
         let fetch_result = self.git_in_cache(&["fetch", &self.remote, HUB_BRANCH]);
@@ -187,26 +192,26 @@ impl SyncManager {
         // If any exist, rebase instead of reset --hard to preserve them.
         let remote_ref = format!("{}/{}", self.remote, HUB_BRANCH);
         let log_result = self.git_in_cache(&["log", &format!("{}..HEAD", remote_ref), "--oneline"]);
-        if let Ok(output) = &log_result {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if !stdout.trim().is_empty() {
-                // Bail if local has diverged too far — sign of a rebase loop
-                self.check_divergence()?;
 
-                // Clean dirty state before rebase — prevents "cannot pull
-                // with rebase: You have unstaged changes" error loop
-                self.clean_dirty_state()?;
-                // Unpushed commits exist — rebase to preserve them
-                let rebase_result = self.git_in_cache(&["rebase", &remote_ref]);
-                if let Err(e) = &rebase_result {
-                    let err_str = e.to_string();
-                    if err_str.contains("unknown revision")
-                        || err_str.contains("ambiguous argument")
-                    {
-                        return Ok(());
-                    }
-                    rebase_result?;
+        match &log_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if !stdout.trim().is_empty() {
+                    // Unpushed commits exist — rebase to preserve them
+                    self.rebase_preserving_local(&remote_ref)?;
+                    return Ok(());
                 }
+                // Output is empty — no unpushed commits, safe to reset
+            }
+            Err(_) => {
+                // git log failed (e.g. remote ref not yet available). We
+                // cannot determine whether unpushed commits exist, so keep
+                // local state to avoid discarding close events or other
+                // local-only mutations. (#430)
+                tracing::warn!(
+                    "cannot determine unpushed commit count (git log failed); \
+                     keeping local state to avoid data loss"
+                );
                 return Ok(());
             }
         }
@@ -220,6 +225,40 @@ impl SyncManager {
                 return Ok(());
             }
             reset_result?;
+        }
+
+        Ok(())
+    }
+
+    /// Rebase local unpushed commits on top of the remote ref, preserving
+    /// local-only mutations (close events, comments, etc.).
+    ///
+    /// If rebase fails due to conflict, aborts the rebase and keeps local
+    /// state rather than losing data.
+    fn rebase_preserving_local(&self, remote_ref: &str) -> Result<()> {
+        // Bail if local has diverged too far — sign of a rebase loop
+        self.check_divergence()?;
+
+        // Clean dirty state before rebase — prevents "cannot pull
+        // with rebase: You have unstaged changes" error loop
+        self.clean_dirty_state()?;
+
+        let rebase_result = self.git_in_cache(&["rebase", remote_ref]);
+        if let Err(e) = &rebase_result {
+            let err_str = e.to_string();
+            if err_str.contains("unknown revision") || err_str.contains("ambiguous argument") {
+                return Ok(());
+            }
+            // Rebase failed (likely a conflict). Abort to restore pre-rebase
+            // state so local-only commits are preserved rather than lost.
+            // The user can resolve manually or the next push will retry. (#430)
+            let _ = self.git_in_cache(&["rebase", "--abort"]);
+            tracing::warn!(
+                "rebase onto {} failed ({}); aborted to preserve local commits",
+                remote_ref,
+                err_str.lines().next().unwrap_or("unknown error")
+            );
+            return Ok(());
         }
 
         Ok(())

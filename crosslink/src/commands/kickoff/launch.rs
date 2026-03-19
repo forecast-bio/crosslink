@@ -264,7 +264,12 @@ pub(super) fn preflight_check(
     })
 }
 
-/// Get the git repository root.
+/// Get the main git repository root, resolving through worktrees.
+///
+/// Uses `git rev-parse --show-toplevel` to find the current repo, then
+/// `resolve_main_repo_root()` to follow worktree links back to the main
+/// repository. This ensures worktrees are always created relative to the
+/// main repo, not inside internal directories like `.crosslink/` (#425).
 pub(super) fn repo_root() -> Result<std::path::PathBuf> {
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -273,11 +278,18 @@ pub(super) fn repo_root() -> Result<std::path::PathBuf> {
     if !output.status.success() {
         bail!("Not inside a git repository");
     }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(std::path::PathBuf::from(path))
+    let toplevel = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let toplevel_path = std::path::PathBuf::from(&toplevel);
+
+    // Resolve through worktrees to the main repo root (#425)
+    Ok(crate::utils::resolve_main_repo_root(&toplevel_path).unwrap_or(toplevel_path))
 }
 
 /// Create a feature branch and worktree for the agent.
+///
+/// The worktree is created at `<repo_root>/.worktrees/<slug>`. A safety
+/// guard prevents worktrees from landing inside internal directories
+/// like `.crosslink/` or `.git/` (#425).
 pub(super) fn create_worktree(
     repo_root: &Path,
     slug: &str,
@@ -285,6 +297,25 @@ pub(super) fn create_worktree(
 ) -> Result<(std::path::PathBuf, String)> {
     let branch_name = format!("feature/{}", slug);
     let worktree_dir = repo_root.join(".worktrees").join(slug);
+
+    // Safety guard: reject worktree paths that land inside internal directories (#425)
+    let canonical_root = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+    for forbidden in [".crosslink", ".git"] {
+        let forbidden_dir = canonical_root.join(forbidden);
+        if let Ok(canonical_wt) = worktree_dir.canonicalize() {
+            if canonical_wt.starts_with(&forbidden_dir) {
+                bail!(
+                    "Worktree path {} would land inside {}/. \
+                     This usually means repo_root resolved to an internal directory. \
+                     Please run this command from the main repository root.",
+                    worktree_dir.display(),
+                    forbidden
+                );
+            }
+        }
+    }
 
     if worktree_dir.exists() {
         bail!(
@@ -328,7 +359,7 @@ pub(super) fn init_worktree_agent(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Warning: crosslink init in worktree: {}", stderr.trim());
+        tracing::warn!("crosslink init in worktree: {}", stderr.trim());
     }
 
     // Derive agent ID from parent agent or hostname
@@ -350,7 +381,7 @@ pub(super) fn init_worktree_agent(
                 true, // no-key: inherit parent's key
                 false,
             ) {
-                eprintln!("Warning: could not initialize agent identity in worktree: {e} — agent will work without its own identity");
+                tracing::warn!("could not initialize agent identity in worktree: {e} — agent will work without its own identity");
             }
 
             // Copy parent's SSH key info into the new agent config and publish
@@ -365,7 +396,7 @@ pub(super) fn init_worktree_agent(
                         let agent_json = wt_crosslink.join("agent.json");
                         if let Ok(json) = serde_json::to_string_pretty(&child_config) {
                             if let Err(e) = std::fs::write(&agent_json, json) {
-                                eprintln!("Warning: could not write agent config to {}: {e} — agent will use inherited config", agent_json.display());
+                                tracing::warn!("could not write agent config to {}: {e} — agent will use inherited config", agent_json.display());
                             }
                         }
 
@@ -375,11 +406,10 @@ pub(super) fn init_worktree_agent(
                             &agent_id,
                             public_key,
                         ) {
-                            eprintln!(
-                                "Warning: Could not publish key for agent '{}': {}",
+                            tracing::warn!(
+                                "Could not publish key for agent '{}': {} — key will be auto-published on next `crosslink sync`.",
                                 agent_id, e
                             );
-                            eprintln!("Key will be auto-published on next `crosslink sync`.");
                         }
                     }
                 }
@@ -395,7 +425,7 @@ pub(super) fn init_worktree_agent(
 
     if let Ok(o) = output {
         if !o.status.success() {
-            eprintln!("Warning: crosslink sync in worktree returned non-zero");
+            tracing::warn!("crosslink sync in worktree returned non-zero");
         }
     }
 
@@ -504,7 +534,7 @@ pub(super) fn launch_local(
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {
         if let Err(e) = spawn_watchdog(session_name, worktree_dir, &watchdog_cfg) {
-            eprintln!("Warning: failed to spawn watchdog: {}", e);
+            tracing::warn!("failed to spawn watchdog: {}", e);
         }
     }
 

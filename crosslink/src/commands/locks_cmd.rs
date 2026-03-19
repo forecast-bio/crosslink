@@ -258,8 +258,8 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
         let is_stale = stale_locks.iter().any(|(id, _)| *id == issue_id);
 
         if !is_stale {
-            eprintln!(
-                "Warning: Lock on {} held by '{}' is NOT stale. Stealing anyway.",
+            tracing::warn!(
+                "Lock on {} held by '{}' is NOT stale. Stealing anyway.",
                 format_issue_id(issue_id),
                 existing.agent_id
             );
@@ -318,18 +318,18 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     match sync.ensure_agent_key_published(crosslink_dir) {
         Ok(true) => println!("Published agent key to hub (deferred from agent init)."),
         Ok(false) => {}
-        Err(e) => eprintln!("Warning: could not publish agent key: {}", e),
+        Err(e) => tracing::warn!("could not publish agent key: {}", e),
     }
 
     if let Err(e) = sync.configure_signing(crosslink_dir) {
-        eprintln!("Warning: could not configure commit signing: {e} — commits will be unsigned");
+        tracing::warn!("could not configure commit signing: {e} — commits will be unsigned");
     }
 
     // Upgrade v1 layouts to v2 if needed (migrates inline comments to standalone files)
     match sync.upgrade_to_v2() {
         Ok(0) => {} // already v2 or nothing to migrate
         Ok(n) => println!("Upgraded hub layout to v2 ({n} comment files migrated)."),
-        Err(e) => eprintln!("Warning: layout upgrade failed: {e}"),
+        Err(e) => tracing::warn!("layout upgrade failed: {e}"),
     }
 
     // Hydrate local SQLite from JSON issue files on the coordination branch

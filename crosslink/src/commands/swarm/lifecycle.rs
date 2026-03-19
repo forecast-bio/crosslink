@@ -97,8 +97,8 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
         .output()
     {
         if !o.status.success() {
-            eprintln!(
-                "Warning: git add failed during swarm archive: {}",
+            tracing::warn!(
+                "git add failed during swarm archive: {}",
                 String::from_utf8_lossy(&o.stderr).trim()
             );
         }
@@ -115,10 +115,7 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
         if !o.status.success() {
             let msg = String::from_utf8_lossy(&o.stderr);
             if !msg.contains("nothing to commit") {
-                eprintln!(
-                    "Warning: git commit failed during swarm archive: {}",
-                    msg.trim()
-                );
+                tracing::warn!("git commit failed during swarm archive: {}", msg.trim());
             }
         }
     }
@@ -129,8 +126,8 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
         .output()
     {
         if !o.status.success() {
-            eprintln!(
-                "Warning: could not push swarm archive to hub: {} — archive is saved locally",
+            tracing::warn!(
+                "could not push swarm archive to hub: {} — archive is saved locally",
                 String::from_utf8_lossy(&o.stderr).trim()
             );
         }
@@ -175,8 +172,8 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
         .output()
     {
         if !o.status.success() {
-            eprintln!(
-                "Warning: git add failed during swarm reset: {}",
+            tracing::warn!(
+                "git add failed during swarm reset: {}",
                 String::from_utf8_lossy(&o.stderr).trim()
             );
         }
@@ -189,10 +186,7 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
         if !o.status.success() {
             let msg = String::from_utf8_lossy(&o.stderr);
             if !msg.contains("nothing to commit") {
-                eprintln!(
-                    "Warning: git commit failed during swarm reset: {}",
-                    msg.trim()
-                );
+                tracing::warn!("git commit failed during swarm reset: {}", msg.trim());
             }
         }
     }
@@ -203,8 +197,8 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
         .output()
     {
         if !o.status.success() {
-            eprintln!(
-                "Warning: could not push swarm reset to hub: {} — reset is saved locally",
+            tracing::warn!(
+                "could not push swarm reset to hub: {} — reset is saved locally",
                 String::from_utf8_lossy(&o.stderr).trim()
             );
         }
@@ -772,7 +766,7 @@ pub fn launch(
                 phase.agents[*idx].agent_id = Some(slug);
             }
             Err(e) => {
-                eprintln!("Failed to launch {}: {}", slug, e);
+                tracing::error!("Failed to launch {}: {}", slug, e);
                 phase.agents[*idx].status = AgentStatus::Failed;
             }
         }
@@ -820,7 +814,7 @@ pub fn launch(
 pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     // Auto-sync agent statuses before gating so phase JSON reflects live state
     if let Err(e) = sync_status(crosslink_dir) {
-        eprintln!("Warning: could not sync agent statuses: {}", e);
+        tracing::warn!("could not sync agent statuses: {}", e);
     }
 
     let sync = SyncManager::new(crosslink_dir)?;

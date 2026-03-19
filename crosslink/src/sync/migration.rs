@@ -22,7 +22,7 @@ impl SyncManager {
             return Ok(false); // Nothing to migrate
         }
 
-        eprintln!("Migrating coordination branch: crosslink/locks -> crosslink/hub...");
+        tracing::info!("Migrating coordination branch: crosslink/locks -> crosslink/hub...");
 
         // 1. Remove old worktree if it exists
         if has_old_local_cache {
@@ -68,20 +68,14 @@ impl SyncManager {
             .unwrap_or(false);
         if !has_new_remote {
             if let Err(e) = self.git_in_repo(&["push", "-u", &self.remote, HUB_BRANCH]) {
-                eprintln!(
-                    "Warning: migration push failed, changes saved locally only: {}",
-                    e
-                );
+                tracing::warn!("migration push failed, changes saved locally only: {}", e);
             }
         }
 
         // 4. Delete old remote branch (best-effort)
         if has_old_remote {
             if let Err(e) = self.git_in_repo(&["push", &self.remote, "--delete", OLD_BRANCH]) {
-                eprintln!(
-                    "Warning: failed to delete old remote branch '{}': {}",
-                    OLD_BRANCH, e
-                );
+                tracing::warn!("failed to delete old remote branch '{}': {}", OLD_BRANCH, e);
             }
         }
 
@@ -91,11 +85,11 @@ impl SyncManager {
             .is_ok()
         {
             if let Err(e) = self.git_in_repo(&["branch", "-D", OLD_BRANCH]) {
-                eprintln!("Note: could not delete old branch '{OLD_BRANCH}': {e} — you can remove it manually with `git branch -D {OLD_BRANCH}`");
+                tracing::info!("could not delete old branch '{OLD_BRANCH}': {e} — you can remove it manually with `git branch -D {OLD_BRANCH}`");
             }
         }
 
-        eprintln!("Migration complete: coordination branch is now crosslink/hub");
+        tracing::info!("Migration complete: coordination branch is now crosslink/hub");
         Ok(true)
     }
 }

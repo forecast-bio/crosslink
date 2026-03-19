@@ -44,7 +44,9 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
             let cl_dir = target_path.join(".crosslink");
             if let Ok(s) = sync::SyncManager::new(&cl_dir) {
                 if let Err(e) = s.ensure_agent_dir(&identity) {
-                    eprintln!("Warning: could not create agent dir on hub: {e} — will be created on next sync");
+                    tracing::warn!(
+                        "could not create agent dir on hub: {e} — will be created on next sync"
+                    );
                 }
             }
             Ok(())
@@ -106,7 +108,9 @@ pub fn init(
                 // Configure signing on the hub cache worktree
                 if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
                     if let Err(e) = sync.configure_signing(crosslink_dir) {
-                        eprintln!("Warning: could not configure commit signing: {e} — commits will be unsigned");
+                        tracing::warn!(
+                            "could not configure commit signing: {e} — commits will be unsigned"
+                        );
                     }
                 }
             }
@@ -301,7 +305,7 @@ pub fn bootstrap(
 
     // Step 9: Configure signing (after key is published)
     if let Err(e) = sync.configure_signing(&crosslink_dir) {
-        eprintln!("Warning: could not configure commit signing: {e} — commits will be unsigned");
+        tracing::warn!("could not configure commit signing: {e} — commits will be unsigned");
     }
 
     // Step 10: Print summary

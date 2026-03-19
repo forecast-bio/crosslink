@@ -15,6 +15,22 @@ fn run_crosslink(dir: &std::path::Path, args: &[&str]) -> (bool, String, String)
     (output.status.success(), stdout, stderr)
 }
 
+/// Like run_crosslink but with --log-level info so tracing::info! messages appear on stderr.
+fn run_crosslink_info(dir: &std::path::Path, args: &[&str]) -> (bool, String, String) {
+    let mut full_args = vec!["--log-level", "info"];
+    full_args.extend_from_slice(args);
+    let output = Command::new(env!("CARGO_BIN_EXE_crosslink"))
+        .current_dir(dir)
+        .args(&full_args)
+        .output()
+        .expect("Failed to execute crosslink");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    (output.status.success(), stdout, stderr)
+}
+
 /// Initialize crosslink in a temp directory
 fn init_crosslink(dir: &std::path::Path) {
     let (success, _, stderr) = run_crosslink(dir, &["init"]);
@@ -1814,7 +1830,7 @@ fn test_export_markdown_format() {
     run_crosslink(dir.path(), &["issue", "comment", "1", "Test comment"]);
 
     let export_path = dir.path().join("export.md");
-    let (success, _, stderr) = run_crosslink(
+    let (success, stdout, _stderr) = run_crosslink(
         dir.path(),
         &[
             "export",
@@ -1827,9 +1843,9 @@ fn test_export_markdown_format() {
 
     assert!(success);
     assert!(
-        stderr.contains("Exported"),
-        "Expected 'Exported' in stderr, got: {}",
-        stderr
+        stdout.contains("Exported"),
+        "Expected 'Exported' in stdout, got: {}",
+        stdout
     );
 
     // Verify file exists and has the issue content
@@ -3452,7 +3468,7 @@ fn test_new_alias_emits_hint() {
     let dir = tempdir().unwrap();
     init_crosslink(dir.path());
 
-    let (success, stdout, stderr) = run_crosslink(dir.path(), &["new", "Aliased issue"]);
+    let (success, stdout, stderr) = run_crosslink_info(dir.path(), &["new", "Aliased issue"]);
 
     assert!(success, "new alias failed: {}", stderr);
     assert!(stdout.contains("Created issue #1"));
@@ -3469,7 +3485,7 @@ fn test_issues_alias_emits_hint() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Visible issue"]);
-    let (success, stdout, stderr) = run_crosslink(dir.path(), &["issues"]);
+    let (success, stdout, stderr) = run_crosslink_info(dir.path(), &["issues"]);
 
     assert!(success, "issues alias failed: {}", stderr);
     assert!(stdout.contains("Visible issue"));
@@ -3486,7 +3502,8 @@ fn test_issues_list_alias_emits_hint() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Listed issue"]);
-    let (success, stdout, stderr) = run_crosslink(dir.path(), &["issues", "list", "-s", "open"]);
+    let (success, stdout, stderr) =
+        run_crosslink_info(dir.path(), &["issues", "list", "-s", "open"]);
 
     assert!(success, "issues list alias failed: {}", stderr);
     assert!(stdout.contains("Listed issue"));
@@ -3504,7 +3521,7 @@ fn test_subissue_alias_emits_hint() {
 
     run_crosslink(dir.path(), &["issue", "create", "Parent"]);
     let (success, stdout, stderr) =
-        run_crosslink(dir.path(), &["subissue", "1", "Child via alias"]);
+        run_crosslink_info(dir.path(), &["subissue", "1", "Child via alias"]);
 
     assert!(success, "subissue alias failed: {}", stderr);
     assert!(stdout.contains("Created subissue #2"));
@@ -3521,7 +3538,7 @@ fn test_start_alias_emits_hint() {
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Timer target"]);
-    let (success, stdout, stderr) = run_crosslink(dir.path(), &["start", "1"]);
+    let (success, stdout, stderr) = run_crosslink_info(dir.path(), &["start", "1"]);
 
     assert!(success, "start alias failed: {}", stderr);
     assert!(stdout.contains("Started") || stdout.contains("timer") || stdout.contains("#1"));
@@ -3539,7 +3556,7 @@ fn test_stop_alias_emits_hint() {
 
     run_crosslink(dir.path(), &["issue", "create", "Timer target"]);
     run_crosslink(dir.path(), &["timer", "start", "1"]);
-    let (success, stdout, stderr) = run_crosslink(dir.path(), &["stop"]);
+    let (success, stdout, stderr) = run_crosslink_info(dir.path(), &["stop"]);
 
     assert!(success, "stop alias failed: {}", stderr);
     assert!(stdout.contains("Stopped") || stdout.contains("stopped") || stdout.contains("timer"));

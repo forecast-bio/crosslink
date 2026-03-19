@@ -55,8 +55,8 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
     // Warn once when falling back to "origin".
     static WARNED: AtomicBool = AtomicBool::new(false);
     if !WARNED.swap(true, Ordering::Relaxed) {
-        eprintln!(
-            "warning: no tracker_remote configured in {}, defaulting to \"origin\"",
+        tracing::warn!(
+            "no tracker_remote configured in {}, defaulting to \"origin\"",
             config_path.display()
         );
 
@@ -70,7 +70,7 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
             .unwrap_or(false);
 
         if !origin_exists {
-            eprintln!("warning: remote \"origin\" does not exist; sync operations will fail");
+            tracing::warn!("remote \"origin\" does not exist; sync operations will fail");
         }
     }
 
