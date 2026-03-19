@@ -209,6 +209,77 @@ Reads checkpoints, lock state, heartbeats, and budget to show: which phases are 
 
 ---
 
+## Managing multiple swarms
+
+You can run multiple independent swarms simultaneously, each with its own plan and lifecycle:
+
+```bash
+# Create a new swarm (assigns a UUID)
+crosslink swarm create
+
+# List all swarms with status
+crosslink swarm list
+
+# Switch active swarm context
+crosslink swarm switch <uuid>
+```
+
+Each swarm tracks its own phases, agents, and budget independently. Use `swarm list` to see which swarms are active, planned, or complete.
+
+&nbsp;
+
+---
+
+## Editing the plan
+
+After `swarm init`, you can restructure the plan before or between phases:
+
+```bash
+# Move an agent to a different phase
+crosslink swarm move <agent> --to-phase 2
+
+# Merge two phases into one
+crosslink swarm merge 2 3
+
+# Split a phase at a boundary
+crosslink swarm split 1 --after <agent>
+
+# Remove an agent from the plan
+crosslink swarm remove <agent>
+
+# Change agent execution order within a phase
+crosslink swarm reorder <agent> --position 1
+
+# Rename a phase
+crosslink swarm rename 1 --name "Database migrations"
+```
+
+Plan editing is useful when gap analysis reveals that the initial decomposition needs adjustment, or when a phase gate exposes dependencies that weren't visible at init time.
+
+&nbsp;
+
+---
+
+## Explicit layer/phase headers
+
+Design documents can specify phases explicitly using H2 headers with `Layer:` or `Phase:` prefixes:
+
+```markdown
+## Phase: Database Migrations
+- Add user table schema
+- Add session table schema
+
+## Phase: API Endpoints
+- Add registration endpoint
+- Add login endpoint
+```
+
+When these headers are present, `swarm init` uses them directly instead of auto-decomposing.
+
+&nbsp;
+
+---
+
 ## Harvesting cost data
 
 After agents finish, harvest cost data to improve future estimates:

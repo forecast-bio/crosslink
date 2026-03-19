@@ -10,8 +10,10 @@ Complete command reference for the crosslink CLI.
 
 | Flag | Description |
 |------|-------------|
-| `--json` | JSON output (supported by `list`, `show`, `search`, `session status`) |
+| `--json` | JSON output (supported by `list`, `show`, `search`, `session status`, `swarm status`, `issue tree`, `blocked`, `ready`, `next`) |
 | `--quiet` / `-q` | Minimal output (just IDs, counts), useful for scripting |
+| `--log-level <LEVEL>` | Set log verbosity: `error`, `warn` (default), `info`, `debug`, `trace` |
+| `--log-format <FORMAT>` | Log output format: `text` (default), `json` |
 
 &nbsp;
 
@@ -35,7 +37,9 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink list -l bug` | Filter by label |
 | `crosslink list -p high` | Filter by priority |
 | `crosslink issue search <query>` | Search issues by text |
+| `crosslink issue search <query> --from <repo>` | Search issues in an external repository |
 | `crosslink show <id>` | Show issue details |
+| `crosslink show <id> --from <repo>` | Show issue details from an external repository |
 | `crosslink show <id> --json` | Show issue details as JSON |
 | `crosslink issue update <id> --title "New"` | Update title |
 | `crosslink issue update <id> -d "desc"` | Update description |
@@ -224,6 +228,8 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink knowledge sync` | Manually sync from remote |
 | `crosslink knowledge search <query>` | Full-text search across pages |
 | `crosslink knowledge search <query> -C 3 --tag t --since DATE` | Search with filters |
+| `crosslink knowledge search <query> --from <repo>` | Search knowledge in an external repository |
+| `crosslink knowledge show <slug> --from <repo>` | Show a knowledge page from an external repository |
 | `crosslink knowledge import <directory>` | Bulk import markdown files |
 | `crosslink knowledge import <dir> --tag t --overwrite --dry-run` | Import with options |
 
@@ -269,6 +275,7 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink integrity hydration` | Verify SQLite matches JSON issue files |
 | `crosslink integrity locks` | Check for stale or orphaned locks |
 | `crosslink integrity schema` | Verify SQLite schema version |
+| `crosslink integrity layout` | Verify hub file paths and V1/V2 layout consistency |
 | `crosslink compact` | Run event compaction manually |
 | `crosslink compact --force` | Force compaction even if lease is held by another agent |
 
@@ -330,6 +337,15 @@ Top-level shortcuts exist for common commands: `create`, `quick`, `list`, `show`
 | `crosslink swarm harvest` | Update cost history from completed agents |
 | `crosslink swarm resume` | Reconstruct state after interruption |
 | `crosslink swarm config --budget-window <DUR> --model <MODEL>` | Configure budget parameters |
+| `crosslink swarm create` | Create a new independent swarm (UUID-based) |
+| `crosslink swarm list` | List all swarms with status |
+| `crosslink swarm switch <uuid>` | Switch active swarm context |
+| `crosslink swarm move <agent> --to-phase <phase>` | Move an agent to a different phase |
+| `crosslink swarm merge <phase1> <phase2>` | Merge two phases into one |
+| `crosslink swarm split <phase> --after <agent>` | Split a phase at a boundary |
+| `crosslink swarm remove <agent>` | Remove an agent from the plan |
+| `crosslink swarm reorder <agent> --position <index>` | Change agent execution order |
+| `crosslink swarm rename <phase> --name <new-name>` | Rename a phase |
 
 &nbsp;
 

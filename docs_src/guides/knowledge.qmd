@@ -154,6 +154,31 @@ Knowledge syncs automatically during `crosslink session start` and `crosslink sy
 
 ---
 
+## Cross-repository querying
+
+Search and view knowledge pages (and issues) from other crosslink-enabled repositories:
+
+```bash
+# Search knowledge in an external repo
+crosslink knowledge search "caching" --from github.com/org/other-repo
+
+# View a specific page from another repo
+crosslink knowledge show api-auth --from /path/to/local/repo
+
+# Search issues in an external repo
+crosslink issue search "auth" --from github.com/org/other-repo
+```
+
+External queries clone the target repo's coordination branches into a temporary cache. Results are clearly marked with the source repository. This is useful for:
+
+- Reusing research from a shared library project
+- Checking how another team solved a similar problem
+- Finding related issues across a multi-repo codebase
+
+&nbsp;
+
+---
+
 ## Bulk import
 
 Import existing documentation into the knowledge base:

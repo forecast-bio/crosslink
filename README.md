@@ -85,6 +85,8 @@ Launch multiple agents and let them coordinate automatically.
   - `swarm launch` / `swarm gate` / `swarm checkpoint` — Execute, gate, and record phase progress
   - `swarm resume` — Reconstruct state and continue after interruption
   - Budget-aware scheduling with cost estimation and configurable window duration
+  - Multi-swarm support — manage multiple independent swarms with `swarm create`, `swarm list`, `swarm switch`
+  - Plan editing — restructure plans post-init with `move`, `merge`, `split`, `remove`, `reorder`, `rename`
 - **Container execution** — Run agents in isolated Docker containers (`crosslink container`)
 
 ### Knowledge Management
@@ -93,6 +95,7 @@ Research done by one agent is available to all.
 
 - **`crosslink knowledge`** — CRUD for markdown knowledge pages with YAML frontmatter
 - **Full-text search** — `knowledge search` across all pages with tag and date filtering
+- **Cross-repo querying** — `--from` flag to search issues and knowledge in external repositories
 - **Section-based editing** — `--replace-section` and `--append-to-section` for surgical updates
 - **Bulk import** — `knowledge import` from existing markdown files or design documents
 - **Auto-injection** — Relevant knowledge pages injected into agent context via MCP server
@@ -134,7 +137,7 @@ Browser-based dashboard for visual project oversight — charts, drag-and-drop, 
 ### Maintenance
 
 - **`crosslink prune`** — Squash stale hub and knowledge branch history
-- **`crosslink integrity`** — Data integrity checks (counters, hydration, locks, schema)
+- **`crosslink integrity`** — Data integrity checks (counters, hydration, locks, schema, layout)
 - **`crosslink compact`** — Manual event compaction
 
 ### Other

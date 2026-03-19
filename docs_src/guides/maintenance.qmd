@@ -113,8 +113,29 @@ Use this checklist to keep your crosslink installation healthy:
 | After a swarm completes | Clean up finished agent worktrees and sessions | `crosslink kickoff cleanup` |
 | Weekly (active projects) | Prune hub and knowledge history | `crosslink prune --force` |
 | Before a release | Verify no stale locks or orphaned agents | `crosslink locks list` and `crosslink kickoff list` |
+| After upgrading crosslink | Check hub layout consistency | `crosslink integrity layout` |
 | After pruning | Re-sync to verify branch integrity | `crosslink sync` |
 | When disk space is low | Dry-run cleanup to see what can be reclaimed | `crosslink kickoff cleanup --dry-run` |
+
+## Data integrity checks
+
+Run integrity checks to detect and diagnose issues with your crosslink data:
+
+```bash
+# Run all integrity checks
+crosslink integrity
+
+# Individual checks
+crosslink integrity counters     # Counter consistency
+crosslink integrity hydration    # SQLite vs JSON issue files
+crosslink integrity locks        # Stale or orphaned locks
+crosslink integrity schema       # SQLite schema version
+crosslink integrity layout       # Hub file paths and V1/V2 layout consistency
+```
+
+The `layout` check (added in v0.5.2) validates that hub file paths are consistent and detects V1/V2 layout coexistence issues that can occur after upgrades.
+
+&nbsp;
 
 ### Verifying after maintenance
 
