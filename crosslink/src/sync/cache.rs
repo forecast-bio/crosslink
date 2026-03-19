@@ -361,13 +361,25 @@ impl SyncManager {
             }
         };
 
+        // Fix 0: Remove index.lock FIRST — our own recovery operations
+        // (rebase --abort, checkout) need the index, and a stale lock from
+        // a previous crash will block them. We hold the hub write lock so
+        // we know no legitimate git process is running.
+        let index_lock = git_dir.join("index.lock");
+        if index_lock.exists() {
+            tracing::warn!("removing index.lock from hub cache before recovery");
+            if let Err(e) = std::fs::remove_file(&index_lock) {
+                tracing::warn!("failed to remove index.lock: {}", e);
+            }
+        }
+
         // Fix 1: Mid-rebase state (#454) — abort and verify
         let rebase_merge = git_dir.join("rebase-merge");
         let rebase_apply = git_dir.join("rebase-apply");
         if rebase_merge.exists() || rebase_apply.exists() {
             tracing::warn!("hub cache is stuck in mid-rebase state, aborting to recover");
             let _ = self.git_in_cache(&["rebase", "--abort"]);
-            // Verify the fix worked — if rebase state persists, force-clean it
+            // Verify — if rebase state persists, force-clean it
             if rebase_merge.exists() {
                 tracing::warn!("rebase --abort didn't clear rebase-merge, removing manually");
                 let _ = std::fs::remove_dir_all(&rebase_merge);
@@ -376,31 +388,32 @@ impl SyncManager {
                 tracing::warn!("rebase --abort didn't clear rebase-apply, removing manually");
                 let _ = std::fs::remove_dir_all(&rebase_apply);
             }
-        }
-
-        // Fix 2: Detached HEAD (#455) — re-attach and verify
-        if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
-            tracing::warn!("hub cache HEAD is detached, re-attaching to {}", HUB_BRANCH);
-            let _ = self.git_in_cache(&["checkout", HUB_BRANCH]);
-            // Verify — if still detached, try creating the branch from HEAD
-            if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
-                tracing::warn!("checkout failed, creating branch from current HEAD");
-                let _ = self.git_in_cache(&["checkout", "-B", HUB_BRANCH]);
+            // Rebase abort may have left a new index.lock
+            if index_lock.exists() {
+                let _ = std::fs::remove_file(&index_lock);
             }
         }
 
-        // Fix 3: Stale index.lock (#456) — remove and verify
-        let index_lock = git_dir.join("index.lock");
-        if index_lock.exists() {
-            let is_stale = std::fs::metadata(&index_lock)
-                .and_then(|m| m.modified())
-                .map(|mtime| mtime.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(30))
-                .unwrap_or(false);
-            if is_stale {
-                tracing::warn!("removing stale index.lock from hub cache (older than 30s)");
-                if let Err(e) = std::fs::remove_file(&index_lock) {
-                    tracing::warn!("failed to remove stale index.lock: {}", e);
-                }
+        // Fix 2: Detached HEAD (#455) — re-attach with escalation
+        if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
+            tracing::warn!("hub cache HEAD is detached, re-attaching to {}", HUB_BRANCH);
+            // Try checkout first
+            if self.git_in_cache(&["checkout", HUB_BRANCH]).is_err() {
+                // Checkout failed — force-create the branch at current HEAD
+                // then checkout. This handles the case where the branch ref
+                // is missing or points to a different commit.
+                tracing::warn!("checkout failed, force-creating branch at current HEAD");
+                let _ = self.git_in_cache(&["branch", "-f", HUB_BRANCH, "HEAD"]);
+                let _ = self.git_in_cache(&["checkout", HUB_BRANCH]);
+            }
+            // If STILL detached, try writing the ref directly
+            if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
+                tracing::warn!("checkout still failed, writing HEAD ref directly");
+                let _ = self.git_in_cache(&[
+                    "symbolic-ref",
+                    "HEAD",
+                    &format!("refs/heads/{}", HUB_BRANCH),
+                ]);
             }
         }
 
