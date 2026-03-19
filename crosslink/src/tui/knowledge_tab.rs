@@ -104,7 +104,7 @@ impl KnowledgeTab {
             return;
         }
 
-        // Sync silently (ignore network errors)
+        // INTENTIONAL: sync is best-effort — TUI shows cached knowledge pages if offline
         let _ = km.sync();
 
         match km.list_pages() {

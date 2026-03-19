@@ -44,6 +44,8 @@ impl AppState {
     /// transactional, a panic leaves the DB in a consistent state — so we can
     /// safely recover by accepting the poisoned guard via `into_inner`.
     pub fn db(&self) -> MutexGuard<'_, Database> {
+        // INTENTIONAL: recover from mutex poisoning — SQLite is transactional so
+        // a panic leaves the DB consistent; permanently locking out all threads is worse
         self.db.lock().unwrap_or_else(|e| e.into_inner())
     }
 }

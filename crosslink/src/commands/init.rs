@@ -145,6 +145,7 @@ fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
 
     // Clean up any previous failed attempt
     if tmp_dir.exists() {
+        // INTENTIONAL: cleanup of previous failed attempt is best-effort — clone below will fail if stale dir remains
         let _ = fs::remove_dir_all(&tmp_dir);
     }
 
@@ -157,7 +158,7 @@ fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
 
     if !clone_output.status.success() {
         let stderr = String::from_utf8_lossy(&clone_output.stderr);
-        // Clean up on failure
+        // INTENTIONAL: temp dir cleanup on failure is best-effort — OS will reclaim it eventually
         let _ = fs::remove_dir_all(&tmp_dir);
         anyhow::bail!("git clone failed: {}", stderr.trim());
     }
@@ -183,7 +184,7 @@ fn install_cpitd_from_source(python_prefix: &str) -> Result<bool> {
         run_install_command("python3", &["-m", "pip", "install", &tmp_dir_str])
     };
 
-    // Clean up cloned repo
+    // INTENTIONAL: temp dir cleanup is best-effort — OS will reclaim it eventually
     let _ = fs::remove_dir_all(&tmp_dir);
 
     result

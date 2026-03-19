@@ -16,6 +16,7 @@ type ScoredIssue = (Issue, i32, Progress);
 fn load_locks_filter(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
     let agent = crate::identity::AgentConfig::load(crosslink_dir).ok()??;
     let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
+    // INTENTIONAL: init and fetch are best-effort — lock filtering works with stale data
     let _ = sync.init_cache();
     let _ = sync.fetch();
     let locks = sync.read_locks_auto().ok()?;

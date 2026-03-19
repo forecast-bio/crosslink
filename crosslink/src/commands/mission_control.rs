@@ -151,6 +151,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
 
     // Kill existing mission-control session to avoid duplicates
     if tmux_session_exists(MC_SESSION) {
+        // INTENTIONAL: kill-session failure is non-fatal — new-session below will fail if session still exists
         let _ = Command::new("tmux")
             .args(["kill-session", "-t", MC_SESSION])
             .output();
@@ -181,7 +182,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         );
     }
 
-    // Set pane title for first agent
+    // INTENTIONAL: pane title is cosmetic — failure doesn't affect functionality
     let _ = Command::new("tmux")
         .args([
             "select-pane",
@@ -217,7 +218,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
             continue;
         }
 
-        // Set pane title
+        // INTENTIONAL: pane title is cosmetic — failure doesn't affect functionality
         let _ = Command::new("tmux")
             .args([
                 "select-pane",
@@ -229,7 +230,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
             .output();
     }
 
-    // Apply layout
+    // INTENTIONAL: layout and pane border config are cosmetic — failure doesn't affect functionality
     let _ = Command::new("tmux")
         .args([
             "select-layout",
@@ -239,7 +240,6 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         ])
         .output();
 
-    // Enable pane border status to show agent names
     let _ = Command::new("tmux")
         .args(["set-option", "-t", MC_SESSION, "pane-border-status", "top"])
         .output();
@@ -259,6 +259,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
 
     // If we're not inside tmux already and have a terminal, attach automatically
     if std::env::var("TMUX").is_err() && std::io::stdout().is_terminal() {
+        // INTENTIONAL: attach failure is non-fatal — user can manually attach via printed command
         let _ = Command::new("tmux")
             .args(["attach", "-t", MC_SESSION])
             .status();

@@ -36,7 +36,7 @@ pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
         Err(_) => return Ok(LockStatus::NotConfigured),
     };
 
-    // Best-effort init and fetch — don't fail if offline
+    // INTENTIONAL: init and fetch are best-effort — don't fail if offline
     let _ = sync.init_cache();
     let _ = sync.fetch();
 
@@ -139,7 +139,9 @@ fn auto_steal_if_configured(
                 "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
                 stale_agent_id, stale_minutes, auto_steal_threshold
             );
-            let _ = writer.add_comment(db, issue_id, &comment, "system");
+            if let Err(e) = writer.add_comment(db, issue_id, &comment, "system") {
+                eprintln!("Warning: could not add audit comment for lock steal: {e}");
+            }
         } else {
             return Ok(false);
         }
@@ -153,7 +155,9 @@ fn auto_steal_if_configured(
             "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
             stale_agent_id, stale_minutes, auto_steal_threshold
         );
-        let _ = db.add_comment(issue_id, &comment, "system");
+        if let Err(e) = db.add_comment(issue_id, &comment, "system") {
+            eprintln!("Warning: could not add audit comment for lock steal: {e}");
+        }
     }
 
     Ok(true)

@@ -178,7 +178,7 @@ fn push_hub_cache(sm: &SyncManager) -> anyhow::Result<()> {
         }
 
         if (stderr.contains("rejected") || stderr.contains("non-fast-forward")) && attempt < 2 {
-            // Rebase and retry
+            // INTENTIONAL: rebase failure is non-fatal — the retry loop will bail on persistent conflicts
             let _ = Command::new("git")
                 .args(["pull", "--rebase", remote, "crosslink/hub"])
                 .current_dir(cache_path)

@@ -1,10 +1,24 @@
 // E-ana tablet — design document parser for kickoff prompts
 
+/// A group of requirements under a layer/phase header.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RequirementGroup {
+    /// The group name (e.g., "Foundation", "Backends + Integration").
+    pub(crate) name: String,
+    /// Execution hint parsed from parenthetical annotations: "parallel", "sequential", or empty.
+    pub(crate) execution_hint: String,
+    /// The requirements in this group.
+    pub(crate) items: Vec<String>,
+}
+
 /// A parsed design document providing structured requirements for kickoff agents.
 pub(crate) struct DesignDoc {
     pub(crate) title: String,
     pub(crate) summary: String,
     pub(crate) requirements: Vec<String>,
+    /// Structured requirement groups from `### Layer N:` or `### Phase N:` headers.
+    /// Empty when no layer headers are detected (flat requirements).
+    pub(crate) requirement_groups: Vec<RequirementGroup>,
     pub(crate) acceptance_criteria: Vec<String>,
     pub(crate) architecture: String,
     pub(crate) open_questions: Vec<String>,
@@ -33,6 +47,7 @@ pub(crate) fn parse_design_doc(content: &str) -> DesignDoc {
         title: String::new(),
         summary: String::new(),
         requirements: Vec::new(),
+        requirement_groups: Vec::new(),
         acceptance_criteria: Vec::new(),
         architecture: String::new(),
         open_questions: Vec::new(),
@@ -108,7 +123,11 @@ fn flush_block(doc: &mut DesignDoc, section: &Section, block: &str) {
     match section {
         Section::Title => {} // title already extracted from H1
         Section::Summary => doc.summary = block.trim().to_string(),
-        Section::Requirements => doc.requirements = parse_list_items(block),
+        Section::Requirements => {
+            let (flat, groups) = parse_requirements_block(block);
+            doc.requirements = flat;
+            doc.requirement_groups = groups;
+        }
         Section::AcceptanceCriteria => doc.acceptance_criteria = parse_list_items(block),
         Section::Architecture => doc.architecture = block.trim().to_string(),
         Section::OpenQuestions => doc.open_questions = parse_list_items(block),
@@ -121,6 +140,155 @@ fn flush_block(doc: &mut DesignDoc, section: &Section, block: &str) {
             }
         }
     }
+}
+
+/// Parse a requirements block, detecting `### Layer N:` / `### Phase N:` headers.
+///
+/// Returns (flat_requirements, groups). If no layer headers are found, groups is empty
+/// and flat_requirements contains all items. Sub-bullets (indented `- ` or `* `) are
+/// collapsed into their parent item rather than becoming separate entries.
+fn parse_requirements_block(block: &str) -> (Vec<String>, Vec<RequirementGroup>) {
+    let mut groups: Vec<RequirementGroup> = Vec::new();
+    let mut current_group: Option<RequirementGroup> = None;
+    let mut current_chunk = String::new();
+    let mut has_layer_headers = false;
+
+    for line in block.lines() {
+        // Detect H3 layer/phase headers: `### Layer 1: Foundation (sequential — ...)`
+        if let Some(rest) = line.strip_prefix("### ") {
+            let rest = rest.trim();
+            // Check if it matches Layer/Phase pattern
+            let is_layer = rest.starts_with("Layer ")
+                || rest.starts_with("Phase ")
+                || rest.starts_with("layer ")
+                || rest.starts_with("phase ");
+            if is_layer {
+                has_layer_headers = true;
+
+                // Flush previous group
+                if let Some(mut group) = current_group.take() {
+                    group.items = parse_list_items_collapsing_sub_bullets(&current_chunk);
+                    groups.push(group);
+                }
+                current_chunk.clear();
+
+                // Parse the header: strip "Layer N:" or "Phase N:" prefix, extract name and hint
+                let (name, hint) = parse_layer_header(rest);
+                current_group = Some(RequirementGroup {
+                    name,
+                    execution_hint: hint,
+                    items: Vec::new(),
+                });
+                continue;
+            }
+        }
+        current_chunk.push_str(line);
+        current_chunk.push('\n');
+    }
+
+    // Flush final group/chunk
+    if let Some(mut group) = current_group.take() {
+        group.items = parse_list_items_collapsing_sub_bullets(&current_chunk);
+        groups.push(group);
+    }
+
+    // Build flat requirements list (always populated for backward compat)
+    let flat = if has_layer_headers {
+        groups.iter().flat_map(|g| g.items.clone()).collect()
+    } else {
+        parse_list_items_collapsing_sub_bullets(block)
+    };
+
+    let groups = if has_layer_headers {
+        groups
+    } else {
+        Vec::new()
+    };
+    (flat, groups)
+}
+
+/// Parse a layer/phase header, returning (name, execution_hint).
+///
+/// Input examples:
+/// - `"Layer 1: Foundation (sequential — everything else depends on these)"`
+/// - `"Phase 2: Backends + Integration (parallel — each agent independent)"`
+/// - `"Layer 3: End-to-end delivery"`
+fn parse_layer_header(header: &str) -> (String, String) {
+    // Strip "Layer N:" or "Phase N:" prefix
+    let after_prefix = header
+        .find(':')
+        .map(|i| header[i + 1..].trim())
+        .unwrap_or(header);
+
+    // Extract parenthetical hint
+    let (name, hint) = if let Some(paren_start) = after_prefix.find('(') {
+        let name = after_prefix[..paren_start].trim().to_string();
+        let paren_content = after_prefix[paren_start + 1..].trim_end_matches(')').trim();
+        let hint = if paren_content.starts_with("parallel") {
+            "parallel".to_string()
+        } else if paren_content.starts_with("sequential") {
+            "sequential".to_string()
+        } else {
+            paren_content.to_string()
+        };
+        (name, hint)
+    } else {
+        (after_prefix.to_string(), String::new())
+    };
+
+    (name, hint)
+}
+
+/// Parse list items, collapsing sub-bullets into their parent item.
+///
+/// A sub-bullet is a line indented 2+ spaces that starts with `- ` or `* `.
+/// These are appended to the parent item's text rather than becoming separate entries.
+fn parse_list_items_collapsing_sub_bullets(block: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut current_item: Option<String> = None;
+
+    for line in block.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let indent = line.len() - line.trim_start().len();
+        let trimmed = line.trim();
+
+        if indent >= 2 {
+            // Indented line — check if it's a sub-bullet
+            if let Some(text) = strip_list_prefix(trimmed) {
+                // Sub-bullet: collapse into parent
+                if let Some(ref mut item) = current_item {
+                    item.push_str("; ");
+                    item.push_str(text);
+                } else {
+                    // No parent — treat as top-level
+                    current_item = Some(text.to_string());
+                }
+            } else if let Some(ref mut item) = current_item {
+                // Continuation line
+                item.push(' ');
+                item.push_str(trimmed);
+            }
+        } else if let Some(text) = strip_list_prefix(trimmed) {
+            // Top-level bullet — flush previous
+            if let Some(prev) = current_item.take() {
+                items.push(prev);
+            }
+            current_item = Some(text.to_string());
+        } else if let Some(ref mut item) = current_item {
+            // Continuation line
+            item.push(' ');
+            item.push_str(trimmed);
+        }
+    }
+
+    if let Some(item) = current_item {
+        items.push(item);
+    }
+
+    items
 }
 
 /// Parse list items from a block of text. Supports `- `, `* `, `- [ ] `, `- [x] ` prefixes.
@@ -455,6 +623,7 @@ Use a middleware pattern.
             title: "Test".to_string(),
             summary: "A summary".to_string(),
             requirements: vec!["REQ-1".to_string()],
+            requirement_groups: Vec::new(),
             acceptance_criteria: vec!["AC-1".to_string()],
             architecture: String::new(),
             open_questions: Vec::new(),
@@ -480,6 +649,7 @@ Use a middleware pattern.
             title: "Test".to_string(),
             summary: "Present".to_string(),
             requirements: Vec::new(),
+            requirement_groups: Vec::new(),
             acceptance_criteria: vec!["AC-1".to_string()],
             architecture: String::new(),
             open_questions: Vec::new(),
@@ -499,6 +669,7 @@ Use a middleware pattern.
             title: "Test".to_string(),
             summary: "A summary".to_string(),
             requirements: vec!["REQ-1: Do thing".to_string()],
+            requirement_groups: Vec::new(),
             acceptance_criteria: vec!["AC-1: Verify thing".to_string()],
             architecture: "Layered".to_string(),
             open_questions: Vec::new(),
@@ -534,6 +705,7 @@ Use a middleware pattern.
             title: String::new(),
             summary: String::new(),
             requirements: Vec::new(),
+            requirement_groups: Vec::new(),
             acceptance_criteria: Vec::new(),
             architecture: String::new(),
             open_questions: Vec::new(),
@@ -559,6 +731,7 @@ Use a middleware pattern.
             title: String::new(),
             summary: String::new(),
             requirements: Vec::new(),
+            requirement_groups: Vec::new(),
             acceptance_criteria: Vec::new(),
             architecture: String::new(),
             open_questions: vec![
@@ -704,5 +877,141 @@ Summary text.
         let doc = parse_design_doc(input);
         assert_eq!(doc.title, "Real Title");
         assert_eq!(doc.requirements, vec!["REQ-1: After the fence"]);
+    }
+
+    // ==================== Layer Header Parsing Tests ====================
+
+    #[test]
+    fn test_parse_layer_headers_creates_groups() {
+        let input = "\
+# Feature: Secrets
+
+## Requirements
+
+### Layer 1: Foundation (sequential — everything depends on these)
+- REQ-1: SecretBackend trait
+- REQ-2: Extension traits
+
+### Layer 2: Backends (parallel — each agent independent)
+- REQ-3: EnvBackend
+- REQ-4: FileBackend
+
+### Layer 3: Delivery (sequential — depends on Layer 2)
+- REQ-5: Container delivery
+- REQ-6: E2E test
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirement_groups.len(), 3);
+
+        assert_eq!(doc.requirement_groups[0].name, "Foundation");
+        assert_eq!(doc.requirement_groups[0].execution_hint, "sequential");
+        assert_eq!(doc.requirement_groups[0].items.len(), 2);
+
+        assert_eq!(doc.requirement_groups[1].name, "Backends");
+        assert_eq!(doc.requirement_groups[1].execution_hint, "parallel");
+        assert_eq!(doc.requirement_groups[1].items.len(), 2);
+
+        assert_eq!(doc.requirement_groups[2].name, "Delivery");
+        assert_eq!(doc.requirement_groups[2].execution_hint, "sequential");
+        assert_eq!(doc.requirement_groups[2].items.len(), 2);
+
+        // Flat requirements should contain all 6
+        assert_eq!(doc.requirements.len(), 6);
+    }
+
+    #[test]
+    fn test_parse_no_layer_headers_no_groups() {
+        let input = "\
+## Requirements
+- REQ-1: First
+- REQ-2: Second
+";
+        let doc = parse_design_doc(input);
+        assert!(doc.requirement_groups.is_empty());
+        assert_eq!(doc.requirements.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_layer_header_no_hint() {
+        let input = "\
+## Requirements
+
+### Layer 1: Foundation
+- REQ-1: Thing
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirement_groups.len(), 1);
+        assert_eq!(doc.requirement_groups[0].name, "Foundation");
+        assert_eq!(doc.requirement_groups[0].execution_hint, "");
+    }
+
+    #[test]
+    fn test_parse_phase_header_variant() {
+        let input = "\
+## Requirements
+
+### Phase 1: Setup
+- REQ-1: Init
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirement_groups.len(), 1);
+        assert_eq!(doc.requirement_groups[0].name, "Setup");
+    }
+
+    #[test]
+    fn test_sub_bullets_collapsed_into_parent() {
+        let input = "\
+## Requirements
+- REQ-1: Error enum
+  - SecretNotProvided
+  - SecretNotFound
+  - BackendError
+- REQ-2: Config section
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirements.len(), 2);
+        assert!(doc.requirements[0].contains("SecretNotProvided"));
+        assert!(doc.requirements[0].contains("SecretNotFound"));
+        assert!(doc.requirements[0].contains("BackendError"));
+        assert_eq!(doc.requirements[1], "REQ-2: Config section");
+    }
+
+    #[test]
+    fn test_sub_bullets_in_layer_groups() {
+        let input = "\
+## Requirements
+
+### Layer 1: Foundation (sequential)
+- REQ-1: Error enum
+  - SecretNotProvided
+  - SecretNotFound
+- REQ-2: Config
+";
+        let doc = parse_design_doc(input);
+        assert_eq!(doc.requirement_groups[0].items.len(), 2);
+        assert!(doc.requirement_groups[0].items[0].contains("SecretNotProvided"));
+    }
+
+    #[test]
+    fn test_parse_layer_header_details() {
+        let (name, hint) =
+            parse_layer_header("Layer 1: Foundation (sequential — everything depends on these)");
+        assert_eq!(name, "Foundation");
+        assert_eq!(hint, "sequential");
+    }
+
+    #[test]
+    fn test_parse_layer_header_parallel() {
+        let (name, hint) =
+            parse_layer_header("Phase 2: Backends + Integration (parallel — each independent)");
+        assert_eq!(name, "Backends + Integration");
+        assert_eq!(hint, "parallel");
+    }
+
+    #[test]
+    fn test_parse_layer_header_no_parens() {
+        let (name, hint) = parse_layer_header("Layer 3: End-to-end delivery");
+        assert_eq!(name, "End-to-end delivery");
+        assert_eq!(hint, "");
     }
 }

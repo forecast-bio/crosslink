@@ -1,4 +1,6 @@
 use anyhow::Result;
+use serde::Serialize;
+use serde_json;
 
 use crate::db::Database;
 use crate::models::Issue;
@@ -46,13 +48,54 @@ fn print_tree_recursive(
     Ok(())
 }
 
-pub fn run(db: &Database, status_filter: Option<&str>) -> Result<()> {
+#[derive(Serialize)]
+struct TreeNode {
+    id: i64,
+    display_id: String,
+    title: String,
+    status: String,
+    priority: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<TreeNode>,
+}
+
+fn build_tree_node(db: &Database, issue: &Issue, status_filter: Option<&str>) -> Result<TreeNode> {
+    let subissues = db.get_subissues(issue.id)?;
+    let children: Vec<TreeNode> = subissues
+        .iter()
+        .filter(|sub| match status_filter {
+            Some("all") | None => true,
+            Some(filter) => sub.status == filter,
+        })
+        .map(|sub| build_tree_node(db, sub, status_filter))
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(TreeNode {
+        id: issue.id,
+        display_id: format_issue_id(issue.id),
+        title: issue.title.clone(),
+        status: issue.status.clone(),
+        priority: issue.priority.clone(),
+        children,
+    })
+}
+
+pub fn run(db: &Database, status_filter: Option<&str>, json: bool) -> Result<()> {
     // Get all top-level issues (no parent)
     let all_issues = db.list_issues(status_filter, None, None)?;
     let top_level: Vec<_> = all_issues
         .into_iter()
         .filter(|i| i.parent_id.is_none())
         .collect();
+
+    if json {
+        let nodes: Vec<TreeNode> = top_level
+            .iter()
+            .map(|issue| build_tree_node(db, issue, status_filter))
+            .collect::<Result<Vec<_>>>()?;
+        println!("{}", serde_json::to_string_pretty(&nodes)?);
+        return Ok(());
+    }
 
     if top_level.is_empty() {
         println!("No issues found.");
@@ -102,7 +145,7 @@ mod tests {
     #[test]
     fn test_run_empty() {
         let (db, _dir) = setup_test_db();
-        run(&db, None).unwrap();
+        run(&db, None, false).unwrap();
         let issues = db.list_issues(None, None, None).unwrap();
         assert!(issues.is_empty());
     }
@@ -111,7 +154,7 @@ mod tests {
     fn test_run_single_issue() {
         let (db, _dir) = setup_test_db();
         let id = db.create_issue("Test issue", None, "medium").unwrap();
-        run(&db, None).unwrap();
+        run(&db, None, false).unwrap();
         let issues = db.list_issues(None, None, None).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].id, id);
@@ -125,7 +168,7 @@ mod tests {
             .create_subissue(parent, "Child 1", None, "medium")
             .unwrap();
         let c2 = db.create_subissue(parent, "Child 2", None, "low").unwrap();
-        run(&db, None).unwrap();
+        run(&db, None, false).unwrap();
         let subs = db.get_subissues(parent).unwrap();
         assert_eq!(subs.len(), 2);
         assert!(subs.iter().any(|s| s.id == c1));
@@ -140,7 +183,7 @@ mod tests {
             .create_subissue(grandparent, "Parent", None, "medium")
             .unwrap();
         let child = db.create_subissue(parent, "Child", None, "low").unwrap();
-        run(&db, None).unwrap();
+        run(&db, None, false).unwrap();
         let child_issue = db.get_issue(child).unwrap().unwrap();
         assert_eq!(child_issue.parent_id, Some(parent));
         let parent_issue = db.get_issue(parent).unwrap().unwrap();
@@ -153,7 +196,7 @@ mod tests {
         let closed_id = db.create_issue("Closed issue", None, "medium").unwrap();
         let open_id = db.create_issue("Open issue", None, "medium").unwrap();
         db.close_issue(closed_id).unwrap();
-        run(&db, Some("open")).unwrap();
+        run(&db, Some("open"), false).unwrap();
         let open_issues = db.list_issues(Some("open"), None, None).unwrap();
         assert_eq!(open_issues.len(), 1);
         assert_eq!(open_issues[0].id, open_id);
@@ -164,7 +207,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let id = db.create_issue("Issue", None, "medium").unwrap();
         db.close_issue(id).unwrap();
-        run(&db, Some("closed")).unwrap();
+        run(&db, Some("closed"), false).unwrap();
         let closed = db.list_issues(Some("closed"), None, None).unwrap();
         assert_eq!(closed.len(), 1);
         assert_eq!(closed[0].id, id);
@@ -176,7 +219,7 @@ mod tests {
         db.create_issue("Open issue", None, "medium").unwrap();
         let id = db.create_issue("Closed issue", None, "medium").unwrap();
         db.close_issue(id).unwrap();
-        run(&db, Some("all")).unwrap();
+        run(&db, Some("all"), false).unwrap();
         let all = db.list_issues(Some("all"), None, None).unwrap();
         assert_eq!(all.len(), 2);
     }
@@ -188,7 +231,7 @@ mod tests {
             for i in 0..count {
                 db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
             }
-            let result = run(&db, None);
+            let result = run(&db, None, false);
             prop_assert!(result.is_ok());
         }
 
@@ -199,7 +242,7 @@ mod tests {
             for i in 0..depth {
                 parent_id = db.create_subissue(parent_id, &format!("Child {}", i), None, "medium").unwrap();
             }
-            let result = run(&db, None);
+            let result = run(&db, None, false);
             prop_assert!(result.is_ok());
         }
     }

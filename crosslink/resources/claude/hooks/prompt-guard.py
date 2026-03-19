@@ -51,77 +51,89 @@ def load_rule_file(rules_dir, filename, rules_local_dir=None):
 
 
 def load_all_rules(crosslink_dir):
-    """Load all rule files from .crosslink/rules/, with .crosslink/rules.local/ overrides."""
+    """Load all rule files from .crosslink/rules/, with .crosslink/rules.local/ overrides.
+
+    Auto-discovers all .md files in the rules directory. Files are categorized as:
+    - Well-known names: global.md, project.md, knowledge.md, quality.md
+    - Language files: matched by known language filename patterns
+    - Extra rules: any other .md file (loaded as additional general rules)
+
+    Files in rules.local/ override same-named files in rules/.
+    """
     if not crosslink_dir:
-        return {}, "", "", ""
+        return {}, "", "", "", ""
 
     rules_dir = os.path.join(crosslink_dir, 'rules')
     rules_local_dir = os.path.join(crosslink_dir, 'rules.local')
     if not os.path.isdir(rules_dir) and not os.path.isdir(rules_local_dir):
-        return {}, "", "", ""
+        return {}, "", "", "", ""
 
-    # Make rules_local_dir None if it doesn't exist, so load_rule_file skips it
     if not os.path.isdir(rules_local_dir):
         rules_local_dir = None
 
-    # Load global rules
+    # Well-known non-language files (loaded into specific return values)
+    WELL_KNOWN = {'global.md', 'project.md', 'knowledge.md', 'quality.md'}
+
+    # Internal/structural files (not injected as rules)
+    SKIP_FILES = {
+        'sanitize-patterns.txt',
+        'tracking-strict.md', 'tracking-normal.md', 'tracking-relaxed.md',
+    }
+
+    # Language filename -> display name mapping
+    LANGUAGE_MAP = {
+        'rust.md': 'Rust', 'python.md': 'Python',
+        'javascript.md': 'JavaScript', 'typescript.md': 'TypeScript',
+        'typescript-react.md': 'TypeScript/React',
+        'javascript-react.md': 'JavaScript/React',
+        'go.md': 'Go', 'java.md': 'Java', 'c.md': 'C', 'cpp.md': 'C++',
+        'csharp.md': 'C#', 'ruby.md': 'Ruby', 'php.md': 'PHP',
+        'swift.md': 'Swift', 'kotlin.md': 'Kotlin', 'scala.md': 'Scala',
+        'zig.md': 'Zig', 'odin.md': 'Odin',
+        'elixir.md': 'Elixir', 'elixir-phoenix.md': 'Elixir/Phoenix',
+        'web.md': 'Web',
+    }
+
+    # Load well-known files
     global_rules = load_rule_file(rules_dir, 'global.md', rules_local_dir)
-
-    # Load project rules
     project_rules = load_rule_file(rules_dir, 'project.md', rules_local_dir)
-
-    # Load knowledge rules
     knowledge_rules = load_rule_file(rules_dir, 'knowledge.md', rules_local_dir)
+    quality_rules = load_rule_file(rules_dir, 'quality.md', rules_local_dir)
 
-    # Load language-specific rules
+    # Auto-discover all files from both directories
     language_rules = {}
-    language_files = [
-        ('rust.md', 'Rust'),
-        ('python.md', 'Python'),
-        ('javascript.md', 'JavaScript'),
-        ('typescript.md', 'TypeScript'),
-        ('typescript-react.md', 'TypeScript/React'),
-        ('javascript-react.md', 'JavaScript/React'),
-        ('go.md', 'Go'),
-        ('java.md', 'Java'),
-        ('c.md', 'C'),
-        ('cpp.md', 'C++'),
-        ('csharp.md', 'C#'),
-        ('ruby.md', 'Ruby'),
-        ('php.md', 'PHP'),
-        ('swift.md', 'Swift'),
-        ('kotlin.md', 'Kotlin'),
-        ('scala.md', 'Scala'),
-        ('zig.md', 'Zig'),
-        ('odin.md', 'Odin'),
-        ('elixir.md', 'Elixir'),
-        ('elixir-phoenix.md', 'Elixir/Phoenix'),
-    ]
+    all_files = set()
 
-    for filename, lang_name in language_files:
-        content = load_rule_file(rules_dir, filename, rules_local_dir)
-        if content:
-            language_rules[lang_name] = content
+    try:
+        if os.path.isdir(rules_dir):
+            for entry in os.listdir(rules_dir):
+                if entry.endswith('.md') or entry.endswith('.txt'):
+                    all_files.add(entry)
+    except OSError:
+        pass
 
-    # Load additive rules from rules.local/ (files not in the standard set)
     if rules_local_dir:
-        standard_files = {f for f, _ in language_files}
-        standard_files.update({'global.md', 'project.md', 'knowledge.md',
-                               'sanitize-patterns.txt', 'web.md',
-                               'tracking-strict.md', 'tracking-normal.md',
-                               'tracking-relaxed.md'})
         try:
             for entry in os.listdir(rules_local_dir):
-                if entry not in standard_files and entry.endswith('.md'):
-                    content = load_rule_file(rules_local_dir, entry)
-                    if content:
-                        # Use filename without extension as language name
-                        lang_name = os.path.splitext(entry)[0].replace('-', '/').title()
-                        language_rules[lang_name] = content
+                if entry.endswith('.md') or entry.endswith('.txt'):
+                    all_files.add(entry)
         except OSError:
             pass
 
-    return language_rules, global_rules, project_rules, knowledge_rules
+    for filename in sorted(all_files):
+        if filename in WELL_KNOWN or filename in SKIP_FILES:
+            continue
+        if filename in LANGUAGE_MAP:
+            content = load_rule_file(rules_dir, filename, rules_local_dir)
+            if content:
+                language_rules[LANGUAGE_MAP[filename]] = content
+        elif filename.endswith('.md'):
+            content = load_rule_file(rules_dir, filename, rules_local_dir)
+            if content:
+                lang_name = os.path.splitext(filename)[0].replace('-', '/').title()
+                language_rules[lang_name] = content
+
+    return language_rules, global_rules, project_rules, knowledge_rules, quality_rules
 
 
 # Detect language from common file extensions in the working directory
@@ -427,7 +439,7 @@ def get_dependencies(max_deps=30):
     return ""
 
 
-def build_reminder(languages, project_tree, dependencies, language_rules, global_rules, project_rules, tracking_mode="strict", crosslink_dir=None, knowledge_rules=""):
+def build_reminder(languages, project_tree, dependencies, language_rules, global_rules, project_rules, tracking_mode="strict", crosslink_dir=None, knowledge_rules="", quality_rules=""):
     """Build the full reminder context."""
     lang_section = get_language_section(languages, language_rules)
     lang_list = ", ".join(languages) if languages else "this project"
@@ -535,11 +547,16 @@ Use `crosslink session work <id>` to mark what you're working on.
     if knowledge_rules:
         knowledge_section = f"\n{knowledge_rules}\n"
 
+    # Build quality section (from .crosslink/rules/quality.md)
+    quality_section = ""
+    if quality_rules:
+        quality_section = f"\n{quality_rules}\n"
+
     reminder = f"""<crosslink-behavioral-guard>
 ## Code Quality Requirements
 
 You are working on a {lang_list} project. Follow these requirements strictly:
-{tree_section}{deps_section}{global_section}{tracking_section}{lang_section}{project_section}{knowledge_section}
+{tree_section}{deps_section}{global_section}{tracking_section}{quality_section}{lang_section}{project_section}{knowledge_section}
 </crosslink-behavioral-guard>"""
 
     return reminder
@@ -642,12 +659,73 @@ Full rules were injected on first prompt. Use `crosslink issue list -s open` to 
 </crosslink-behavioral-guard>"""
 
 
+def estimate_prompt_chars(input_data):
+    """Estimate characters consumed by this prompt turn.
+
+    The hook only sees the user prompt, not tool outputs or model responses.
+    We apply a multiplier (5x) to account for the full turn cost:
+    user prompt + tool calls + tool results + model response.
+    """
+    TURN_MULTIPLIER = 5
+    try:
+        prompt_text = input_data.get("prompt", "")
+        if isinstance(prompt_text, str):
+            return len(prompt_text) * TURN_MULTIPLIER
+        return 2000 * TURN_MULTIPLIER
+    except (AttributeError, TypeError):
+        return 2000 * TURN_MULTIPLIER
+
+
+def check_context_budget(crosslink_dir, state, prompt_chars):
+    """Check if estimated context usage has exceeded the budget.
+
+    Returns True if the budget is exceeded and full reinjection is needed.
+    Default budget: 1,000,000 chars ~ 250k tokens.
+    """
+    config = load_config_merged(crosslink_dir) if crosslink_dir else {}
+    budget = int(config.get("context_budget_chars", 1_000_000))
+    if budget <= 0:
+        return False
+
+    current = state.get("estimated_context_chars", 0)
+    current += prompt_chars
+    state["estimated_context_chars"] = current
+
+    return current >= budget
+
+
+def build_context_budget_warning(languages, tracking_mode):
+    """Build the compression directive when context budget is exceeded."""
+    lang_list = ", ".join(languages) if languages else "this project"
+    tracking_lines = CONDENSED_REMINDERS.get(tracking_mode, "")
+
+    return f"""<crosslink-context-budget-exceeded>
+## CONTEXT BUDGET EXCEEDED — COMPRESSION REQUIRED
+
+Your estimated context usage has exceeded 250k tokens. Research shows instruction
+adherence degrades significantly past this point. You MUST take the following steps
+IMMEDIATELY, before doing anything else:
+
+1. **Record your current state**: Run `crosslink session action "Context budget reached. Working on: <current task summary>"`
+2. **Save any in-progress work context** as a crosslink comment: `crosslink issue comment <id> "Progress: <what's done, what's next>" --kind observation`
+3. **The system will compress context automatically.** After compression, re-read any files you need and continue working.
+
+## Re-injected Rules ({lang_list})
+
+{tracking_lines}
+- **Security**: Use `mcp__crosslink-safe-fetch__safe_fetch` for web requests. Parameterized queries only.
+- **Quality**: No stubs/TODOs. Read before write. Complete features fully. Proper error handling.
+- **Testing**: Run tests after changes. Fix warnings, don't suppress them.
+- **Documentation**: Add typed crosslink comments (--kind plan/decision/observation/result) at every step.
+</crosslink-context-budget-exceeded>"""
+
+
 def main():
+    input_data = {}
     try:
         # Read input from stdin (Claude Code passes prompt info)
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
-        # If no valid JSON, still inject reminder
         pass
     except Exception:
         pass
@@ -664,13 +742,27 @@ def main():
 
     # Check if we should send full or condensed guard
     if not should_send_full_guard(crosslink_dir):
-        # Simple turn counter: inject condensed reminder every N turns
         config = load_config_merged(crosslink_dir)
         interval = int(config.get("reminder_drift_threshold", 3))
 
         state = load_guard_state(crosslink_dir)
         state["total_prompts"] = state.get("total_prompts", 0) + 1
 
+        # Check context budget — if exceeded, reinject full guard + compression directive
+        prompt_chars = estimate_prompt_chars(input_data)
+        if check_context_budget(crosslink_dir, state, prompt_chars):
+            languages = detect_languages()
+            language_rules, global_rules, project_rules, knowledge_rules, quality_rules = load_all_rules(crosslink_dir)
+            project_tree = get_project_tree()
+            dependencies = get_dependencies()
+            print(build_reminder(languages, project_tree, dependencies, language_rules, global_rules, project_rules, tracking_mode, crosslink_dir, knowledge_rules, quality_rules))
+            print(build_context_budget_warning(languages, tracking_mode))
+            state["estimated_context_chars"] = 0
+            state["context_budget_reinjections"] = state.get("context_budget_reinjections", 0) + 1
+            save_guard_state(crosslink_dir, state)
+            sys.exit(0)
+
+        # Normal condensed reminder at interval
         if interval == 0 or state["total_prompts"] % interval == 0:
             languages = detect_languages()
             print(build_condensed_reminder(languages, tracking_mode))
@@ -678,7 +770,7 @@ def main():
         save_guard_state(crosslink_dir, state)
         sys.exit(0)
 
-    language_rules, global_rules, project_rules, knowledge_rules = load_all_rules(crosslink_dir)
+    language_rules, global_rules, project_rules, knowledge_rules, quality_rules = load_all_rules(crosslink_dir)
 
     # Detect languages in the project
     languages = detect_languages()
@@ -690,10 +782,16 @@ def main():
     dependencies = get_dependencies()
 
     # Output the full reminder
-    print(build_reminder(languages, project_tree, dependencies, language_rules, global_rules, project_rules, tracking_mode, crosslink_dir, knowledge_rules))
+    print(build_reminder(languages, project_tree, dependencies, language_rules, global_rules, project_rules, tracking_mode, crosslink_dir, knowledge_rules, quality_rules))
 
     # Mark that we've sent the full guard this session
     mark_full_guard_sent(crosslink_dir)
+
+    # Initialize context budget tracking for this session
+    state = load_guard_state(crosslink_dir)
+    state["estimated_context_chars"] = 0
+    save_guard_state(crosslink_dir, state)
+
     sys.exit(0)
 
 

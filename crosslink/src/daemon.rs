@@ -23,7 +23,7 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
             println!("Daemon already running (PID {})", pid);
             return Ok(());
         }
-        // Stale PID file, remove it
+        // INTENTIONAL: stale PID file removal is best-effort — we proceed either way
         let _ = fs::remove_file(&pid_file);
     }
 
@@ -133,8 +133,17 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         let flag = Arc::clone(&should_exit);
-        let _ = signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&flag));
-        let _ = signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&flag));
+        if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&flag))
+        {
+            eprintln!(
+                "Warning: could not register SIGTERM handler: {e} — graceful shutdown unavailable"
+            );
+        }
+        if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGINT, flag) {
+            eprintln!(
+                "Warning: could not register SIGINT handler: {e} — graceful shutdown unavailable"
+            );
+        }
     }
 
     // Zombie prevention: Monitor stdin for closure.
@@ -236,6 +245,7 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
                     match crate::sync::SyncManager::new(crosslink_dir) {
                         Ok(sync) => {
                             consecutive_sync_failures = 0;
+                            // INTENTIONAL: cache init is best-effort — heartbeat will retry next interval
                             let _ = sync.init_cache();
 
                             // Push heartbeat

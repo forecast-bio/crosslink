@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use serde_json;
 
 use crate::db::Database;
 use crate::shared_writer::SharedWriter;
@@ -62,8 +63,29 @@ pub fn unblock(
     Ok(())
 }
 
-pub fn list_blocked(db: &Database) -> Result<()> {
+pub fn list_blocked(db: &Database, json: bool) -> Result<()> {
     let issues = db.list_blocked_issues()?;
+
+    if json {
+        let items: Vec<serde_json::Value> = issues
+            .iter()
+            .map(|issue| {
+                let blockers = db.get_blockers(issue.id).unwrap_or_default();
+                serde_json::json!({
+                    "id": issue.id,
+                    "display_id": format_issue_id(issue.id),
+                    "title": issue.title,
+                    "priority": issue.priority,
+                    "blocked_by": blockers.iter().map(|b| serde_json::json!({
+                        "id": b,
+                        "display_id": format_issue_id(*b),
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&items)?);
+        return Ok(());
+    }
 
     if issues.is_empty() {
         println!("No blocked issues.");
@@ -85,8 +107,13 @@ pub fn list_blocked(db: &Database) -> Result<()> {
     Ok(())
 }
 
-pub fn list_ready(db: &Database) -> Result<()> {
+pub fn list_ready(db: &Database, json: bool) -> Result<()> {
     let issues = db.list_ready_issues()?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&issues)?);
+        return Ok(());
+    }
 
     if issues.is_empty() {
         println!("No ready issues.");
@@ -217,7 +244,7 @@ mod tests {
     fn test_list_blocked_empty() {
         let (db, _dir) = setup_test_db();
 
-        list_blocked(&db).unwrap();
+        list_blocked(&db, false).unwrap();
         let blocked = db.list_blocked_issues().unwrap();
         assert!(blocked.is_empty());
     }
@@ -229,7 +256,7 @@ mod tests {
         let issue2 = db.create_issue("Blocker", None, "medium").unwrap();
         db.add_dependency(issue1, issue2).unwrap();
 
-        list_blocked(&db).unwrap();
+        list_blocked(&db, false).unwrap();
         let blocked = db.list_blocked_issues().unwrap();
         assert_eq!(blocked.len(), 1);
         assert_eq!(blocked[0].id, issue1);
@@ -244,7 +271,7 @@ mod tests {
         db.add_dependency(blocked, blocker1).unwrap();
         db.add_dependency(blocked, blocker2).unwrap();
 
-        list_blocked(&db).unwrap();
+        list_blocked(&db, false).unwrap();
         let blockers = db.get_blockers(blocked).unwrap();
         assert_eq!(blockers.len(), 2);
         assert!(blockers.contains(&blocker1));
@@ -256,7 +283,7 @@ mod tests {
     fn test_list_ready_empty() {
         let (db, _dir) = setup_test_db();
 
-        list_ready(&db).unwrap();
+        list_ready(&db, false).unwrap();
         let ready = db.list_ready_issues().unwrap();
         assert!(ready.is_empty());
     }
@@ -266,7 +293,7 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let id = db.create_issue("Ready issue", None, "medium").unwrap();
 
-        list_ready(&db).unwrap();
+        list_ready(&db, false).unwrap();
         let ready = db.list_ready_issues().unwrap();
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].id, id);

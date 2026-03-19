@@ -246,6 +246,10 @@ impl IssuesTab {
     }
 
     /// Handle key events in list view mode. Returns true if consumed.
+    ///
+    /// INTENTIONAL: `let _ =` on refresh/build_tree calls throughout this handler —
+    /// TUI event handlers cannot propagate errors, so DB failures are silently ignored
+    /// and the UI shows stale data until the next successful refresh.
     fn handle_list_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
         if self.searching {
             match key.code {
@@ -473,6 +477,7 @@ impl IssuesTab {
     }
 
     /// Handle key events in tree view mode.
+    /// INTENTIONAL: `let _ =` on build_tree calls — TUI event handlers cannot propagate errors.
     fn handle_tree_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
         match key.code {
             KeyCode::Esc => {
@@ -1053,6 +1058,7 @@ impl super::Tab for IssuesTab {
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
 
+    /// INTENTIONAL: `let _ =` on refresh/build_tree — force_refresh is best-effort, TUI shows stale data on failure.
     fn force_refresh(&mut self) {
         if let Ok(db) = self.open_db() {
             match self.view_mode {

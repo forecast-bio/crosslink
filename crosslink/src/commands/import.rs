@@ -92,6 +92,7 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
             if let Some(&new_blocked_id) = uuid_to_new_id.get(&issue.uuid) {
                 for blocker_uuid in &issue.blockers {
                     if let Some(&new_blocker_id) = uuid_to_new_id.get(blocker_uuid) {
+                        // INTENTIONAL: dependency failure is non-fatal — import proceeds without the graph edge
                         let _ = db.add_dependency(new_blocked_id, new_blocker_id);
                     }
                 }
