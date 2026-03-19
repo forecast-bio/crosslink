@@ -2631,6 +2631,85 @@ fn test_fetch_rebase_path_handles_unknown_revision() {
     assert!(manager.cache_dir.join("rebase-test.txt").exists());
 }
 
+#[test]
+fn test_fetch_rebase_conflict_aborts_preserving_local() {
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    manager.init_cache().unwrap();
+
+    // Push initial hub state
+    manager
+        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
+        .unwrap();
+
+    // Create a conflicting file on remote: simulate another agent pushing
+    // a change to the same file.
+    std::fs::write(
+        manager.cache_dir.join("conflict-file.txt"),
+        "remote content\n",
+    )
+    .unwrap();
+    manager
+        .git_in_cache(&["add", "conflict-file.txt"])
+        .unwrap();
+    manager
+        .git_in_cache(&["commit", "-m", "remote change"])
+        .unwrap();
+    manager
+        .git_in_cache(&["push", "origin", HUB_BRANCH])
+        .unwrap();
+    // Reset back so the "remote change" is only on origin
+    manager
+        .git_in_cache(&["reset", "--hard", "HEAD~1"])
+        .unwrap();
+
+    // Now make a LOCAL conflicting change to the same file
+    std::fs::write(
+        manager.cache_dir.join("conflict-file.txt"),
+        "local content\n",
+    )
+    .unwrap();
+    manager
+        .git_in_cache(&["add", "conflict-file.txt"])
+        .unwrap();
+    manager
+        .git_in_cache(&["commit", "-m", "local close event"])
+        .unwrap();
+
+    // fetch should succeed (rebase conflict is caught and aborted)
+    manager.fetch().unwrap();
+
+    // Local commit should be preserved (rebase was aborted, not applied)
+    let content = std::fs::read_to_string(manager.cache_dir.join("conflict-file.txt")).unwrap();
+    assert_eq!(content, "local content\n");
+}
+
+#[test]
+fn test_fetch_git_log_failure_preserves_local_state() {
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    manager.init_cache().unwrap();
+
+    // Write a local file (simulating a local-only close event)
+    std::fs::write(manager.cache_dir.join("local-close.txt"), "closed\n").unwrap();
+    manager.git_in_cache(&["add", "local-close.txt"]).unwrap();
+    manager
+        .git_in_cache(&["commit", "-m", "close issue #-1"])
+        .unwrap();
+
+    // Do NOT push to remote. The remote ref origin/crosslink/hub doesn't
+    // exist, so git log origin/crosslink/hub..HEAD will fail.
+    // fetch should keep local state instead of resetting.
+    manager.fetch().unwrap();
+
+    // Local file should still exist
+    assert!(manager.cache_dir.join("local-close.txt").exists());
+    let content = std::fs::read_to_string(manager.cache_dir.join("local-close.txt")).unwrap();
+    assert_eq!(content, "closed\n");
+}
+
 // ------------------------------------------------------------------
 // push_heartbeat
 // ------------------------------------------------------------------
