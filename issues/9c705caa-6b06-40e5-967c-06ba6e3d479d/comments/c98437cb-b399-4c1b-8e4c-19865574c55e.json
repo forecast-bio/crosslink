@@ -1,0 +1,10 @@
+{
+  "uuid": "c98437cb-b399-4c1b-8e4c-19865574c55e",
+  "issue_uuid": "9c705caa-6b06-40e5-967c-06ba6e3d479d",
+  "author": "maxine--basel--config-system-overhaul-2e70",
+  "content": "Committed: feat: config system overhaul with registry, layered loading, and TUI inline editing | Files: 6 files changed, 2539 insertions(+), 500 deletions(-)",
+  "created_at": "2026-03-19T21:54:07.001014Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAjIsZ2hv1LSwL4YhRnz6GC20eUjCBKq39AnNrsQ2HN1Mb9XeaZ8M6lrdWaR0riyXB4/V3BaV1lYMePEJl+scWDg=="
+}
