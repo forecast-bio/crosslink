@@ -1,0 +1,8 @@
+{
+  "uuid": "3105fa99-6f39-4550-bfec-e69267cacb19",
+  "issue_uuid": "ece0d978-e3c4-44ef-a30a-63e036c5c9df",
+  "author": "anon-295fd0bb",
+  "content": "Work complete — branch feat/test-frameworks-417 ready for human to push and open PR. Two commits added: (1) 53662f69 — migrate 42+ source files from eprintln!/warning! to tracing::warn!/info!/error!, add --log-level/--log-format CLI flags with init_tracing() in main.rs (JSON default for serve), and register 5 new smoke test modules (cli_extended, concurrency, lifecycle, server_extended, shared_writer); (2) 2d594d2a — complete the migration for signing.rs and tui/mod.rs which were missed in the initial pass. All 50 files clippy-clean and cargo fmt-verified.",
+  "created_at": "2026-03-19T00:49:12.589234809Z",
+  "kind": "result"
+}
