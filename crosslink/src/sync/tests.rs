@@ -2650,9 +2650,7 @@ fn test_fetch_rebase_conflict_aborts_preserving_local() {
         "remote content\n",
     )
     .unwrap();
-    manager
-        .git_in_cache(&["add", "conflict-file.txt"])
-        .unwrap();
+    manager.git_in_cache(&["add", "conflict-file.txt"]).unwrap();
     manager
         .git_in_cache(&["commit", "-m", "remote change"])
         .unwrap();
@@ -2670,9 +2668,7 @@ fn test_fetch_rebase_conflict_aborts_preserving_local() {
         "local content\n",
     )
     .unwrap();
-    manager
-        .git_in_cache(&["add", "conflict-file.txt"])
-        .unwrap();
+    manager.git_in_cache(&["add", "conflict-file.txt"]).unwrap();
     manager
         .git_in_cache(&["commit", "-m", "local close event"])
         .unwrap();
