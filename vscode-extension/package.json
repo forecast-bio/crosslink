@@ -183,17 +183,22 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
+    "test": "vscode-test",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "build:binaries": "node scripts/build-binaries.js"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^25.2.2",
     "@types/vscode": "^1.109.0",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.7.1",
     "eslint": "^9.39.3",
+    "mocha": "^11.5.0",
     "typescript": "^5.9.3"
   },
   "overrides": {
