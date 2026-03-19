@@ -1,0 +1,8 @@
+{
+  "uuid": "b6792321-f236-4830-bce7-73a0d8ffb380",
+  "issue_uuid": "19906a7f-bb1a-4eb2-bbbf-704ccf331d2e",
+  "author": "anon-295fd0bb",
+  "content": "GH #427: Three fixes needed. (1) hydrate_to_sqlite must refuse to clear SQLite when JSON has significantly fewer issues — prevents data loss from empty JSON cache after init --force. (2) create_issue --parent should fall back to SQLite when JSON cache miss occurs. (3) issue delete needs --yes flag for non-interactive use.",
+  "created_at": "2026-03-19T14:43:47.854069634Z",
+  "kind": "plan"
+}
