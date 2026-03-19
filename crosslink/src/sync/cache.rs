@@ -1,11 +1,113 @@
 use anyhow::{bail, Result};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::core::SyncManager;
 use super::HUB_BRANCH;
 use crate::locks::LocksFile;
 
+// ---------------------------------------------------------------------------
+// Hub cache write lock — serializes ALL mutations to the hub cache worktree.
+//
+// Used by fetch(), upgrade_to_v2(), and write_commit_push() to prevent
+// concurrent git operations from racing (#457, #459).
+// ---------------------------------------------------------------------------
+
+/// RAII guard for the hub cache write lock.
+pub(crate) struct HubWriteLock {
+    path: PathBuf,
+}
+
+impl Drop for HubWriteLock {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "failed to release hub write lock {}: {}",
+                    self.path.display(),
+                    e
+                );
+            }
+        }
+    }
+}
+
+/// Acquire the hub cache write lock at the given path.
+///
+/// Blocks up to 30 seconds, checking for stale locks via PID liveness.
+/// Returns an RAII guard that releases the lock on drop.
+pub(crate) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
+    let max_wait = Duration::from_secs(30);
+    let poll_interval = Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                if let Err(e) = writeln!(f, "{}", std::process::id()) {
+                    let _ = std::fs::remove_file(lock_path);
+                    bail!("Failed to write PID to hub lock file: {}", e);
+                }
+                return Ok(HubWriteLock {
+                    path: lock_path.to_path_buf(),
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if let Ok(content) = std::fs::read_to_string(lock_path) {
+                    if let Ok(pid) = content.trim().parse::<u32>() {
+                        let alive = std::process::Command::new("kill")
+                            .args(["-0", &pid.to_string()])
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false);
+                        if !alive {
+                            if let Err(rm_err) = std::fs::remove_file(lock_path) {
+                                if rm_err.kind() == std::io::ErrorKind::NotFound {
+                                    continue;
+                                }
+                                bail!(
+                                    "Cannot remove stale hub lock (PID {} is dead): {}",
+                                    pid,
+                                    rm_err
+                                );
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                if start.elapsed() > max_wait {
+                    if let Err(rm_err) = std::fs::remove_file(lock_path) {
+                        if rm_err.kind() != std::io::ErrorKind::NotFound {
+                            bail!(
+                                "Hub lock held for >30s and cannot be force-removed: {}",
+                                rm_err
+                            );
+                        }
+                    }
+                    continue;
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
 impl SyncManager {
+    /// Acquire the hub cache write lock.
+    ///
+    /// All code that mutates the hub cache worktree (fetch, upgrade,
+    /// write_commit_push) must hold this lock to prevent races (#457, #459).
+    pub(crate) fn acquire_lock(&self) -> Result<HubWriteLock> {
+        let lock_path = self.cache_dir.join(".hub-write-lock");
+        acquire_hub_lock(&lock_path)
+    }
     /// Initialize the hub cache directory.
     ///
     /// If the `crosslink/hub` branch exists on the remote, fetches it and
@@ -106,6 +208,10 @@ impl SyncManager {
     /// automatically during init_cache, to avoid side-effects on hubs that
     /// intentionally use v1 layout.
     pub fn upgrade_to_v2(&self) -> Result<usize> {
+        // Acquire the hub write lock to prevent agents from writing V1 files
+        // while we're migrating to V2 (#459).
+        let _lock_guard = self.acquire_lock()?;
+
         let meta_dir = self.cache_dir.join("meta");
         let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
         if version >= 2 {
@@ -357,6 +463,11 @@ impl SyncManager {
     /// pushed yet. Only resets to the remote when there are definitively no
     /// unpushed commits.
     pub fn fetch(&self) -> Result<()> {
+        // Acquire the hub write lock to serialize with write_commit_push (#457).
+        // fetch() modifies the working directory (reset, rebase) which races
+        // with concurrent CLI writes if not serialized.
+        let _lock_guard = self.acquire_lock()?;
+
         // Recover from broken git states before attempting fetch (#454, #455, #456)
         self.hub_health_check()?;
 

@@ -135,11 +135,11 @@ impl SharedWriter {
         // Re-hydrate with new positive IDs
         self.hydrate_with_retry(db)?;
 
-        // Record promoted UUIDs so they are never re-promoted (gh#313).
+        // Record promoted UUIDs so they are never re-promoted (#451).
+        // This MUST succeed — if it fails, the next sync will re-promote
+        // the same UUIDs with new display IDs, creating duplicates.
         let promoted_uuids: Vec<Uuid> = offline_info.iter().map(|(uuid, _)| *uuid).collect();
-        if let Err(e) = self.record_promoted_uuids(&promoted_uuids) {
-            tracing::warn!("failed to record promoted UUIDs: {}", e);
-        }
+        self.record_promoted_uuids(&promoted_uuids)?;
 
         let start_id = first_id.get();
         let mapping: Vec<(i64, i64, String)> = offline_info

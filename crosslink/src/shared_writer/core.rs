@@ -19,104 +19,7 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
-/// File-based lock for serializing hub cache writes.
-///
-/// Multiple agents launching simultaneously can race on git index.lock.
-/// This provides a higher-level lock that prevents concurrent write_commit_push
-/// operations from overlapping.
-pub(super) struct HubWriteLock {
-    path: PathBuf,
-}
-
-impl Drop for HubWriteLock {
-    fn drop(&mut self) {
-        if let Err(e) = std::fs::remove_file(&self.path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                // If we can't remove a file in the hub cache directory,
-                // the cache has a filesystem-level problem. Log it — this
-                // will cause the next acquire to detect a stale lock and
-                // handle it via PID check + force-break (#475).
-                tracing::warn!(
-                    "failed to release hub write lock {}: {}",
-                    self.path.display(),
-                    e
-                );
-            }
-        }
-    }
-}
-
-pub(super) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
-    let max_wait = std::time::Duration::from_secs(30);
-    let poll_interval = std::time::Duration::from_millis(100);
-    let start = std::time::Instant::now();
-
-    loop {
-        // Try to create the lock file exclusively
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_path)
-        {
-            Ok(mut f) => {
-                use std::io::Write;
-                // PID must be written — without it, other processes can't
-                // determine if we're alive and fall back to 30s timeout (#476).
-                if let Err(e) = writeln!(f, "{}", std::process::id()) {
-                    // I/O failure on an open file in the hub cache means the
-                    // cache directory has a fundamental problem. Remove the
-                    // lock we just created and propagate.
-                    let _ = std::fs::remove_file(lock_path);
-                    bail!("Failed to write PID to hub lock file: {}", e);
-                }
-                return Ok(HubWriteLock {
-                    path: lock_path.to_path_buf(),
-                });
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Check if the lock is stale (holder process dead)
-                if let Ok(content) = std::fs::read_to_string(lock_path) {
-                    if let Ok(pid) = content.trim().parse::<u32>() {
-                        let alive = std::process::Command::new("kill")
-                            .args(["-0", &pid.to_string()])
-                            .output()
-                            .map(|o| o.status.success())
-                            .unwrap_or(false);
-                        if !alive {
-                            // Dead process — remove stale lock (#479)
-                            if let Err(rm_err) = std::fs::remove_file(lock_path) {
-                                if rm_err.kind() == std::io::ErrorKind::NotFound {
-                                    continue; // Another process cleaned it up
-                                }
-                                bail!(
-                                    "Cannot remove stale hub lock (PID {} is dead): {}",
-                                    pid,
-                                    rm_err
-                                );
-                            }
-                            continue;
-                        }
-                    }
-                }
-
-                if start.elapsed() > max_wait {
-                    // Force-break after timeout — the holder may be wedged
-                    if let Err(rm_err) = std::fs::remove_file(lock_path) {
-                        if rm_err.kind() != std::io::ErrorKind::NotFound {
-                            bail!(
-                                "Hub lock held for >30s and cannot be force-removed: {}",
-                                rm_err
-                            );
-                        }
-                    }
-                    continue;
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-}
+// Hub cache write lock is in sync/cache.rs — acquired via self.sync.acquire_lock()
 
 /// Content to write in a single atomic commit-push operation.
 pub(super) struct WriteSet {
@@ -698,10 +601,8 @@ impl SharedWriter {
     where
         F: FnMut(&Self) -> Result<WriteSet>,
     {
-        // Serialize access to the hub cache to prevent index.lock races
-        // when multiple agents launch simultaneously (#400)
-        let lock_path = self.cache_dir.join(".hub-write-lock");
-        let _lock_guard = acquire_hub_lock(&lock_path)?;
+        // Serialize access to the hub cache via SyncManager's lock (#400, #457)
+        let _lock_guard = self.sync.acquire_lock()?;
 
         for attempt in 0..MAX_RETRIES {
             // Recover from broken git states before attempting write (#454, #455, #456)
