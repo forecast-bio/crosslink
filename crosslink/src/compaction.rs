@@ -193,7 +193,7 @@ pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<C
         // Still run git-based skew detection even with no new events
         let git_violations = crate::clock_skew::detect_git_skew_violations(cache_dir)
             .unwrap_or_else(|e| {
-                eprintln!("warning: git skew detection failed, defaulting to no violations: {e}");
+                tracing::warn!("git skew detection failed, defaulting to no violations: {e}");
                 Vec::new()
             });
         let git_skew_violations = git_violations.len();
@@ -253,7 +253,7 @@ pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<C
     // Run git-based clock skew detection
     let git_violations =
         crate::clock_skew::detect_git_skew_violations(cache_dir).unwrap_or_else(|e| {
-            eprintln!("warning: git skew detection failed, defaulting to no violations: {e}");
+            tracing::warn!("git skew detection failed, defaulting to no violations: {e}");
             Vec::new()
         });
     let git_skew_violations = git_violations.len();
@@ -518,6 +518,10 @@ fn apply(
 }
 
 /// Materialize checkpoint state to disk (issue.json + lock files).
+///
+/// Respects the hub layout version: writes V1 flat files or V2 directory
+/// files accordingly. Cleans up stale V1 flat files when writing V2 (#428).
+/// Writes `meta/version.json` if missing to prevent layout drift.
 fn materialize(
     cache_dir: &Path,
     state: &CheckpointState,
@@ -526,19 +530,40 @@ fn materialize(
 ) -> Result<()> {
     let issues_dir = cache_dir.join("issues");
     let locks_dir = cache_dir.join("locks");
+    let meta_dir = cache_dir.join("meta");
+
+    let layout_version = crate::issue_file::read_layout_version(&meta_dir)
+        .unwrap_or(crate::issue_file::CURRENT_LAYOUT_VERSION);
 
     // Materialize changed issues
     for uuid in changed_issues {
         if let Some(compact) = state.issues.get(uuid) {
-            let issue_dir = issues_dir.join(uuid.to_string());
-            std::fs::create_dir_all(&issue_dir)
-                .with_context(|| format!("Failed to create issue dir: {}", issue_dir.display()))?;
-
             let issue_file = compact_to_issue_file(compact);
-            let path = issue_dir.join("issue.json");
             let content = serde_json::to_string_pretty(&issue_file)?;
-            crate::utils::atomic_write(&path, content.as_bytes())?;
+
+            if layout_version >= 2 {
+                let issue_dir = issues_dir.join(uuid.to_string());
+                std::fs::create_dir_all(&issue_dir).with_context(|| {
+                    format!("Failed to create issue dir: {}", issue_dir.display())
+                })?;
+                let path = issue_dir.join("issue.json");
+                crate::utils::atomic_write(&path, content.as_bytes())?;
+
+                // Clean up stale V1 flat file if it exists (#428)
+                let v1_path = issues_dir.join(format!("{}.json", uuid));
+                if v1_path.exists() {
+                    let _ = std::fs::remove_file(&v1_path);
+                }
+            } else {
+                let path = issues_dir.join(format!("{}.json", uuid));
+                crate::utils::atomic_write(&path, content.as_bytes())?;
+            }
         }
+    }
+
+    // Ensure version marker exists to prevent layout drift (#428)
+    if !meta_dir.join("version.json").exists() {
+        let _ = crate::issue_file::write_layout_version(&meta_dir, layout_version);
     }
 
     // Materialize changed locks
@@ -711,6 +736,12 @@ mod tests {
         std::fs::create_dir_all(dir.join("issues")).unwrap();
         std::fs::create_dir_all(dir.join("locks")).unwrap();
         std::fs::create_dir_all(dir.join("checkpoint")).unwrap();
+        // Write V2 layout marker — matches real hub initialization
+        crate::issue_file::write_layout_version(
+            &dir.join("meta"),
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        )
+        .unwrap();
     }
 
     #[test]

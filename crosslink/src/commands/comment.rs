@@ -13,7 +13,7 @@ pub fn run(
     kind: &str,
 ) -> Result<()> {
     if !validate_comment_kind(kind) {
-        eprintln!("Warning: unknown comment kind '{}'. Known kinds: note, plan, decision, observation, blocker, resolution, result, handoff, human", kind);
+        tracing::warn!("unknown comment kind '{}'. Known kinds: note, plan, decision, observation, blocker, resolution, result, handoff, human", kind);
     }
     db.require_issue(issue_id)?;
     if let Some(w) = writer {

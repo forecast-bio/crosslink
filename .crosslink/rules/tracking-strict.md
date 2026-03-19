@@ -46,28 +46,28 @@ Add labels to control CHANGELOG.md section:
 crosslink quick "Fix login validation error on empty email" -p medium -l bug
 
 # Or use create with flags
-crosslink create "Fix login validation error on empty email" -p medium --label bug --work
+crosslink issue create "Fix login validation error on empty email" -p medium --label bug --work
 
 # Multi-part feature → Epic with subissues
-crosslink create "Add user authentication system" -p high --label feature
-crosslink subissue 1 "Add user registration endpoint"
-crosslink subissue 1 "Add login endpoint with JWT tokens"
-crosslink subissue 1 "Add session middleware for protected routes"
+crosslink issue create "Add user authentication system" -p high --label feature
+crosslink issue subissue 1 "Add user registration endpoint"
+crosslink issue subissue 1 "Add login endpoint with JWT tokens"
+crosslink issue subissue 1 "Add session middleware for protected routes"
 
 # Mark what you're working on
 crosslink session work 1
 
 # Add context as you discover things
-crosslink comment 1 "Found existing auth helper in utils/auth.ts" --kind observation
+crosslink issue comment 1 "Found existing auth helper in utils/auth.ts" --kind observation
 
 # Close when done — auto-updates CHANGELOG.md
-crosslink close 1
+crosslink issue close 1
 
 # Skip changelog for internal/refactor work
-crosslink close 1 --no-changelog
+crosslink issue close 1 --no-changelog
 
 # Batch close
-crosslink close-all --no-changelog
+crosslink issue close-all --no-changelog
 
 # Quiet mode for scripting
 crosslink -q create "Fix bug" -p high  # Outputs just the ID number
@@ -85,13 +85,13 @@ Your auto-memory directory (`~/.claude/projects/.../memory/`) contains plans, ar
 
 ```bash
 # Example: translating a memory plan into tracked work
-crosslink create "Implement webhook retry system" -p high --label feature
-crosslink comment 1 "Per memory/architecture.md: retry with exponential backoff, max 5 attempts, dead-letter queue after exhaustion. See 'Webhook Reliability' section." --kind plan
-crosslink subissue 1 "Add retry queue with exponential backoff (max 5 attempts)"
-crosslink comment 2 "Backoff schedule: 1s, 5s, 25s, 125s, 625s. Store attempt count in webhook_deliveries table." --kind plan
-crosslink subissue 1 "Add dead-letter queue for exhausted retries"
-crosslink comment 3 "Failed webhooks go to dead_letter_webhooks table with full payload + error history for manual inspection." --kind plan
-crosslink subissue 1 "Add webhook delivery dashboard endpoint"
+crosslink issue create "Implement webhook retry system" -p high --label feature
+crosslink issue comment 1 "Per memory/architecture.md: retry with exponential backoff, max 5 attempts, dead-letter queue after exhaustion. See 'Webhook Reliability' section." --kind plan
+crosslink issue subissue 1 "Add retry queue with exponential backoff (max 5 attempts)"
+crosslink issue comment 2 "Backoff schedule: 1s, 5s, 25s, 125s, 625s. Store attempt count in webhook_deliveries table." --kind plan
+crosslink issue subissue 1 "Add dead-letter queue for exhausted retries"
+crosslink issue comment 3 "Failed webhooks go to dead_letter_webhooks table with full payload + error history for manual inspection." --kind plan
+crosslink issue subissue 1 "Add webhook delivery dashboard endpoint"
 ```
 
 ### When to Create Issues
@@ -167,23 +167,23 @@ You are explicitly forbidden from using any of the following rationalizations to
 ```bash
 # Starting work on a bug fix
 crosslink quick "Fix authentication timeout on slow connections" -p high -l bug
-crosslink comment 1 "Plan: The timeout is hardcoded to 5s in auth_middleware.rs:47. Will make it configurable via AUTH_TIMEOUT_SECS env var with 30s default." --kind plan
+crosslink issue comment 1 "Plan: The timeout is hardcoded to 5s in auth_middleware.rs:47. Will make it configurable via AUTH_TIMEOUT_SECS env var with 30s default." --kind plan
 
 # You discover something while investigating
-crosslink comment 1 "Found that the timeout also affects the health check endpoint, which has its own 10s timeout that masks the auth timeout on slow connections" --kind observation
+crosslink issue comment 1 "Found that the timeout also affects the health check endpoint, which has its own 10s timeout that masks the auth timeout on slow connections" --kind observation
 
 # You make a design choice
-crosslink comment 1 "Decision: Using env var over config file. Rationale: other timeouts in this service use env vars (see DATABASE_TIMEOUT, REDIS_TIMEOUT). Consistency > flexibility here." --kind decision
+crosslink issue comment 1 "Decision: Using env var over config file. Rationale: other timeouts in this service use env vars (see DATABASE_TIMEOUT, REDIS_TIMEOUT). Consistency > flexibility here." --kind decision
 
 # Something blocks you
-crosslink comment 1 "Blocked: The test suite mocks the auth middleware in a way that bypasses the timeout entirely. Need to update test fixtures first." --kind blocker
+crosslink issue comment 1 "Blocked: The test suite mocks the auth middleware in a way that bypasses the timeout entirely. Need to update test fixtures first." --kind blocker
 
 # You resolve it
-crosslink comment 1 "Resolved: Updated test fixtures to use real timeout behavior. Added integration test for slow-connection scenario." --kind resolution
+crosslink issue comment 1 "Resolved: Updated test fixtures to use real timeout behavior. Added integration test for slow-connection scenario." --kind resolution
 
 # Before closing
-crosslink comment 1 "Result: AUTH_TIMEOUT_SECS env var now controls auth timeout (default 30s). Updated 3 test fixtures, added 2 integration tests. All 156 tests pass." --kind result
-crosslink close 1
+crosslink issue comment 1 "Result: AUTH_TIMEOUT_SECS env var now controls auth timeout (default 30s). Updated 3 test fixtures, added 2 integration tests. All 156 tests pass." --kind result
+crosslink issue close 1
 ```
 
 ### Priority Guide
@@ -194,16 +194,16 @@ crosslink close 1
 
 ### Dependencies
 ```bash
-crosslink block 2 1     # Issue 2 blocked by issue 1
-crosslink ready         # Show unblocked work
+crosslink issue block 2 1     # Issue 2 blocked by issue 1
+crosslink issue ready         # Show unblocked work
 ```
 
 ### Large Implementations (500+ lines)
-1. Create parent issue: `crosslink create "<feature>" -p high`
-2. Break into subissues: `crosslink subissue <id> "<component>"`
+1. Create parent issue: `crosslink issue create "<feature>" -p high`
+2. Break into subissues: `crosslink issue subissue <id> "<component>"`
 3. Work one subissue at a time, close each when done
 
 ### Context Window Management
 When conversation is long or task needs many steps:
-1. Create tracking issue: `crosslink create "Continue: <summary>" -p high`
-2. Add notes: `crosslink comment <id> "<what's done, what's next>"`
+1. Create tracking issue: `crosslink issue create "Continue: <summary>" -p high`
+2. Add notes: `crosslink issue comment <id> "<what's done, what's next>"`

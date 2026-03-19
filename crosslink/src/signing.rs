@@ -102,13 +102,13 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
             match dir_result {
                 Ok(output) if !output.status.success() => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!(
+                    tracing::warn!(
                         "warning: icacls failed to set permissions on keys directory: {}",
                         stderr.trim()
                     );
                 }
                 Err(e) => {
-                    eprintln!("warning: failed to run icacls on keys directory: {}", e);
+                    tracing::warn!("failed to run icacls on keys directory: {}", e);
                 }
                 _ => {}
             }
@@ -122,18 +122,18 @@ pub fn generate_agent_key(keys_dir: &Path, agent_id: &str, machine_id: &str) -> 
             match key_result {
                 Ok(output) if !output.status.success() => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    eprintln!(
+                    tracing::warn!(
                         "warning: icacls failed to set permissions on private key: {}",
                         stderr.trim()
                     );
                 }
                 Err(e) => {
-                    eprintln!("warning: failed to run icacls on private key: {}", e);
+                    tracing::warn!("failed to run icacls on private key: {}", e);
                 }
                 _ => {}
             }
         } else {
-            eprintln!("warning: USERNAME not set, skipping Windows ACL permissions for SSH keys");
+            tracing::warn!("USERNAME not set, skipping Windows ACL permissions for SSH keys");
         }
     }
 

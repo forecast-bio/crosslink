@@ -211,14 +211,14 @@ pub fn cleanup(
                 }
                 Ok(o) => {
                     let stderr = String::from_utf8_lossy(&o.stderr);
-                    eprintln!(
-                        "  Warning: failed to kill tmux session {}: {}",
+                    tracing::warn!(
+                        "failed to kill tmux session {}: {}",
                         session_name,
                         stderr.trim()
                     );
                 }
                 Err(e) => {
-                    eprintln!("  Warning: tmux error for {}: {}", session_name, e);
+                    tracing::warn!("tmux error for {}: {}", session_name, e);
                 }
             }
         }
@@ -262,12 +262,12 @@ pub fn cleanup(
                 Ok(o) => {
                     let stderr = String::from_utf8_lossy(&o.stderr);
                     let msg = format!("git worktree remove failed: {}", stderr.trim());
-                    eprintln!("  Warning: {}", msg);
+                    tracing::warn!("{}", msg);
                     result.error = Some(msg);
                 }
                 Err(e) => {
                     let msg = format!("git worktree remove error: {}", e);
-                    eprintln!("  Warning: {}", msg);
+                    tracing::warn!("{}", msg);
                     result.error = Some(msg);
                 }
             }

@@ -267,20 +267,14 @@ pub fn launch_budget_aware(
             );
         }
         BudgetRecommendation::Split { recommended_count } => {
-            eprintln!(
-                "Warning: Budget supports ~{} of {} agents. Consider splitting the phase.",
-                recommended_count, planned_count
+            tracing::warn!(
+                "Budget supports ~{} of {} agents. Consider splitting the phase. Launching all {} agents anyway. Use `crosslink swarm estimate {}` for details.",
+                recommended_count, planned_count, planned_count, phase_slug
             );
-            eprintln!(
-                "Launching all {} agents anyway. Use `crosslink swarm estimate {}` for details.",
-                planned_count, phase_slug
-            );
-            eprintln!();
         }
         BudgetRecommendation::ProceedWithCaution => {
             if !quiet {
-                eprintln!("Note: Budget is tight. Proceeding with caution.");
-                eprintln!();
+                tracing::info!("Budget is tight. Proceeding with caution.");
             }
         }
         BudgetRecommendation::Proceed => {}

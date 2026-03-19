@@ -62,7 +62,7 @@ pub fn dispatch(
                     .with_context(|| format!("Failed to read design doc: {}", path.display()))?;
                 let d = super::design_doc::parse_design_doc(&content);
                 for warning in super::design_doc::validate_design_doc(&d) {
-                    eprintln!("Warning: {}", warning);
+                    tracing::warn!("{}", warning);
                 }
                 Some(d)
             } else {
@@ -99,7 +99,7 @@ pub fn dispatch(
                 .with_context(|| format!("Failed to read design doc: {}", doc.display()))?;
             let design_doc = super::design_doc::parse_design_doc(&content);
             for warning in super::design_doc::validate_design_doc(&design_doc) {
-                eprintln!("Warning: {}", warning);
+                tracing::warn!("{}", warning);
             }
             let plan_opts = PlanOpts {
                 doc: &design_doc,

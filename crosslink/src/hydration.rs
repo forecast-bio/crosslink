@@ -64,7 +64,13 @@ pub struct HydrationStats {
 /// 3. Clears all shared data from SQLite (issues, comments, labels, deps, etc.)
 /// 4. Re-inserts everything from the JSON files in a single transaction
 ///
-/// Sessions are NOT touched — they are machine-local state.
+/// Sessions are machine-local state and are preserved across hydration.
+/// The `active_issue_id` FK constraint (`ON DELETE SET NULL`) is handled
+/// by saving and restoring work items around the clear/reinsert cycle.
+///
+/// **Data-loss guard (#427):** If JSON has significantly fewer issues than
+/// SQLite, hydration is skipped to avoid wiping SQLite-only issues that
+/// haven't been synced to JSON yet (e.g. after `init --force`).
 pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationStats> {
     let issues_dir = cache_dir.join("issues");
     let issue_files = read_all_issue_files(&issues_dir)?;
@@ -73,19 +79,38 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         return Ok(HydrationStats::default());
     }
 
+    // Data-loss guard: refuse to hydrate when JSON would wipe a significant
+    // portion of existing SQLite data. This catches the case where JSON is
+    // stale/empty (e.g. after `init --force`) but SQLite has real issues (#427).
+    let sqlite_count = db.get_issue_count().unwrap_or(0);
+    let json_count = issue_files.len() as i64;
+    if sqlite_count > 0 && json_count < sqlite_count / 2 && sqlite_count - json_count > 3 {
+        tracing::warn!(
+            "hydration skipped: JSON has {} issues but SQLite has {} — \
+             refusing to clear SQLite to avoid data loss. \
+             Run `crosslink sync` to reconcile, or `crosslink integrity hydration --repair` \
+             to force re-hydration. (#427)",
+            json_count,
+            sqlite_count
+        );
+        return Ok(HydrationStats::default());
+    }
+
     // Deduplicate: multiple JSON files may claim the same display_id (e.g. from
     // a sync loop that created duplicates). Keep the most recently updated file
     // for each display_id and log warnings for the rest.
     let (deduped, dupes) = dedup_issue_files(&issue_files);
     if !dupes.is_empty() {
-        eprintln!(
-            "warning: {} duplicate issue file(s) skipped during hydration (same display_id)",
+        tracing::warn!(
+            "{} duplicate issue file(s) skipped during hydration (same display_id)",
             dupes.len()
         );
         for d in &dupes {
-            eprintln!(
+            tracing::warn!(
                 "  skipped: {} (display_id {:?}, uuid {})",
-                d.title, d.display_id, d.uuid
+                d.title,
+                d.display_id,
+                d.uuid
             );
         }
     }
@@ -115,6 +140,19 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     let layout_version = read_layout_version(&cache_dir.join("meta")).unwrap_or(1);
 
     db.transaction(|| {
+        // Save active session work items before clearing issues, because the
+        // FK constraint `ON DELETE SET NULL` on sessions.active_issue_id will
+        // automatically NULL them when we delete issues (#443).
+        let saved_session_work: Vec<(i64, i64)> = db
+            .conn
+            .prepare(
+                "SELECT id, active_issue_id FROM sessions \
+                 WHERE active_issue_id IS NOT NULL",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+
         db.clear_shared_data()?;
 
         // Insert milestones first (issues may reference them)
@@ -251,6 +289,17 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
 
         // Hydrate relations (single-direction: related array, insert both directions)
         hydrate_relations(db, &deduped, &uuid_to_id, &mut stats)?;
+
+        // Restore session work items that were NULLed by the FK constraint
+        // during clear_shared_data(). Only restore if the issue still exists
+        // after re-hydration (#443).
+        for (session_id, issue_id) in &saved_session_work {
+            db.conn.execute(
+                "UPDATE sessions SET active_issue_id = ?1 \
+                 WHERE id = ?2 AND EXISTS (SELECT 1 FROM issues WHERE id = ?1)",
+                rusqlite::params![issue_id, session_id],
+            )?;
+        }
 
         Ok(stats)
     })

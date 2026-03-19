@@ -50,7 +50,7 @@ pub fn status_from_heartbeat(heartbeat: &Heartbeat) -> AgentStatus {
 pub fn start_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) {
     tokio::spawn(async move {
         if let Err(e) = run_watcher(crosslink_dir, tx).await {
-            eprintln!("watcher: error: {e}");
+            tracing::error!("watcher: error: {e}");
         }
     });
 }
@@ -84,7 +84,7 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
         match watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
             Ok(()) => true,
             Err(e) => {
-                eprintln!(
+                tracing::warn!(
                     "watcher: could not watch {}: {e}, falling back to polling",
                     watch_path.display()
                 );
@@ -92,7 +92,7 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
             }
         }
     } else {
-        eprintln!(
+        tracing::info!(
             "watcher: heartbeats directory not found at {}, polling only",
             watch_path.display()
         );
@@ -100,7 +100,7 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
     };
 
     if watch_active {
-        eprintln!(
+        tracing::info!(
             "watcher: watching {} for heartbeat changes",
             watch_path.display()
         );
@@ -157,7 +157,7 @@ fn diff_and_broadcast(
     let heartbeats = match sync.read_heartbeats_auto() {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("watcher: failed to read heartbeats: {e}");
+            tracing::warn!("watcher: failed to read heartbeats: {e}");
             return;
         }
     };

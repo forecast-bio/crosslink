@@ -15,6 +15,8 @@ enum ConfigType {
     Enum(&'static [&'static str]),
     String,
     StringArray,
+    Integer,
+    Map,
 }
 
 struct ConfigKey {
@@ -84,10 +86,38 @@ static REGISTRY: &[ConfigKey] = &[
         config_type: ConfigType::StringArray,
         description: "Bash commands that bypass the issue-required check",
     },
+    ConfigKey {
+        key: "external-cache-ttl",
+        config_type: ConfigType::Integer,
+        description: "TTL in seconds for cached external repo data (default: 300)",
+    },
+    ConfigKey {
+        key: "external-url-ttl",
+        config_type: ConfigType::Integer,
+        description: "TTL in seconds for cached URL resolution results (default: 86400)",
+    },
+    ConfigKey {
+        key: "repo-alias",
+        config_type: ConfigType::Map,
+        description: "Named aliases for external repositories (e.g. repo-alias.upstream)",
+    },
 ];
 
 fn find_registry_key(key: &str) -> Option<&'static ConfigKey> {
-    REGISTRY.iter().find(|k| k.key == key)
+    // Exact match first
+    if let Some(entry) = REGISTRY.iter().find(|k| k.key == key) {
+        return Some(entry);
+    }
+    // For Map types, match prefix (e.g. "repo-alias.upstream" matches "repo-alias")
+    if let Some(dot_pos) = key.find('.') {
+        let prefix = &key[..dot_pos];
+        if let Some(entry) = REGISTRY.iter().find(|k| k.key == prefix) {
+            if matches!(entry.config_type, ConfigType::Map) {
+                return Some(entry);
+            }
+        }
+    }
+    None
 }
 
 fn type_label(ct: ConfigType) -> &'static str {
@@ -96,6 +126,8 @@ fn type_label(ct: ConfigType) -> &'static str {
         ConfigType::Enum(_) => "enum",
         ConfigType::String => "string",
         ConfigType::StringArray => "string[]",
+        ConfigType::Integer => "integer",
+        ConfigType::Map => "map",
     }
 }
 
@@ -196,6 +228,18 @@ fn show(crosslink_dir: &Path) -> Result<()> {
                     }
                 }
             }
+        } else if matches!(entry.config_type, ConfigType::Map) {
+            println!(
+                "{} {} {}:",
+                entry.key,
+                annotation,
+                type_label(entry.config_type)
+            );
+            if let Some(serde_json::Value::Object(map)) = current {
+                for (k, v) in map {
+                    println!("  {}.{} = {}", entry.key, k, format_value(v));
+                }
+            }
         } else {
             println!("{} = {} {}", entry.key, current_str, annotation);
         }
@@ -208,17 +252,39 @@ fn show(crosslink_dir: &Path) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn get(crosslink_dir: &Path, key: &str) -> Result<()> {
-    if find_registry_key(key).is_none() {
+    let entry = find_registry_key(key);
+    if entry.is_none() {
         bail!("Unknown config key: \"{key}\". Run `crosslink config list` to see available keys.");
     }
 
     let config = read_config(crosslink_dir)?;
+
+    // Handle Map subkey access (e.g. "repo-alias.upstream")
+    if let Some(dot_pos) = key.find('.') {
+        if let Some(e) = entry {
+            if matches!(e.config_type, ConfigType::Map) {
+                let namespace = &key[..dot_pos];
+                let subkey = &key[dot_pos + 1..];
+                match config.get(namespace).and_then(|v| v.get(subkey)) {
+                    Some(v) => println!("{}", format_value(v)),
+                    None => println!("(unset)"),
+                }
+                return Ok(());
+            }
+        }
+    }
+
     match config.get(key) {
         Some(serde_json::Value::Array(arr)) => {
             for item in arr {
                 if let Some(s) = item.as_str() {
                     println!("{s}");
                 }
+            }
+        }
+        Some(serde_json::Value::Object(map)) => {
+            for (k, v) in map {
+                println!("{key}.{k} = {}", format_value(v));
             }
         }
         Some(v) => println!("{}", format_value(v)),
@@ -280,6 +346,48 @@ fn set(
             config[key] = serde_json::Value::String(val.to_string());
             write_config(crosslink_dir, &config)?;
             println!("{key} = {val}");
+        }
+        ConfigType::Integer => {
+            let val = value
+                .ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <number>"))?;
+            let _: u64 = val.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "Invalid value for {key}: expected a non-negative integer, got \"{val}\""
+                )
+            })?;
+            config[key] = serde_json::Value::String(val.to_string());
+            write_config(crosslink_dir, &config)?;
+            println!("{key} = {val}");
+        }
+        ConfigType::Map => {
+            // Map keys are accessed as "namespace.subkey" (e.g. "repo-alias.upstream")
+            if let Some(dot_pos) = key.find('.') {
+                let namespace = &key[..dot_pos];
+                let subkey = &key[dot_pos + 1..];
+                if subkey.is_empty() {
+                    bail!("Usage: crosslink config set {namespace}.<name> <value>");
+                }
+                let val = value
+                    .ok_or_else(|| anyhow::anyhow!("Usage: crosslink config set {key} <value>"))?;
+                let map = config
+                    .as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("Config is not a JSON object"))?;
+                let ns_obj = map
+                    .entry(namespace)
+                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+                if let Some(obj) = ns_obj.as_object_mut() {
+                    obj.insert(
+                        subkey.to_string(),
+                        serde_json::Value::String(val.to_string()),
+                    );
+                } else {
+                    bail!("{namespace} is not a map in config");
+                }
+                write_config(crosslink_dir, &config)?;
+                println!("{key} = {val}");
+            } else {
+                bail!("Usage: crosslink config set {key}.<name> <value>");
+            }
         }
         ConfigType::StringArray => {
             if let Some(item) = add {

@@ -192,10 +192,9 @@ fn check_staleness() {
     };
     if let Some(image_hash) = get_image_hash() {
         if image_hash != binary_hash {
-            eprintln!(
-                "Warning: container image is stale (built from a different crosslink binary)."
+            tracing::warn!(
+                "container image is stale (built from a different crosslink binary). Run 'crosslink container build' to update."
             );
-            eprintln!("Run 'crosslink container build' to update.");
         }
     }
 }

@@ -627,7 +627,7 @@ pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                 // The criteria file might have issue_id in extracted metadata
                 if let Some(id) = val.get("issue_id").and_then(|v| v.as_i64()) {
-                    return Some(format!("#{}", id));
+                    return Some(crate::utils::format_issue_id(id));
                 }
             }
         }
@@ -638,7 +638,7 @@ pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<
         if let Ok(content) = std::fs::read_to_string(&agent_json) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(id) = val.get("issue_id").and_then(|v| v.as_i64()) {
-                    return Some(format!("#{}", id));
+                    return Some(crate::utils::format_issue_id(id));
                 }
             }
         }

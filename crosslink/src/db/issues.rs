@@ -108,7 +108,7 @@ impl Database {
     /// Use this instead of get_issue when you need the issue to exist.
     pub fn require_issue(&self, id: i64) -> Result<Issue> {
         self.get_issue(id)?
-            .ok_or_else(|| anyhow::anyhow!("Issue #{} not found", id))
+            .ok_or_else(|| anyhow::anyhow!("Issue {} not found", crate::utils::format_issue_id(id)))
     }
 
     pub fn list_issues(

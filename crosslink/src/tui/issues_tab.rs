@@ -837,13 +837,44 @@ impl IssuesTab {
             Span::styled("Milestone: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(milestone_str),
         ]));
-        lines.push(Line::from(vec![
+        // Show timestamps with local time when terminal is wide enough (#402)
+        let created_utc = issue.created_at.format("%Y-%m-%d %H:%M UTC").to_string();
+        let updated_utc = issue.updated_at.format("%Y-%m-%d %H:%M UTC").to_string();
+        let wide_enough = area.width >= 90;
+
+        let mut ts_spans = vec![
             Span::styled(" Created: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(issue.created_at.format("%Y-%m-%d").to_string()),
-            Span::raw("  "),
-            Span::styled("Updated: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(issue.updated_at.format("%Y-%m-%d").to_string()),
-        ]));
+            Span::raw(created_utc),
+        ];
+        if wide_enough {
+            let local_created = issue
+                .created_at
+                .with_timezone(&chrono::Local)
+                .format("(%I:%M %p %Z)")
+                .to_string();
+            ts_spans.push(Span::styled(
+                format!("  {}", local_created),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        ts_spans.push(Span::raw("  "));
+        ts_spans.push(Span::styled(
+            "Updated: ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
+        ts_spans.push(Span::raw(updated_utc));
+        if wide_enough {
+            let local_updated = issue
+                .updated_at
+                .with_timezone(&chrono::Local)
+                .format("(%I:%M %p %Z)")
+                .to_string();
+            ts_spans.push(Span::styled(
+                format!("  {}", local_updated),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        lines.push(Line::from(ts_spans));
 
         // Dependencies
         let blocked_by_str = if detail.blocked_by.is_empty() {

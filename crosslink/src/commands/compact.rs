@@ -26,27 +26,27 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
                 println!("  No new events to process.");
             }
             if result.skew_warnings > 0 {
-                eprintln!(
-                    "  Warning: {} event clock skew warning(s) detected during compaction",
+                tracing::warn!(
+                    "{} event clock skew warning(s) detected during compaction",
                     result.skew_warnings
                 );
             }
             if result.unsigned_warnings > 0 {
-                eprintln!(
-                    "  Warning: {} unsigned event(s) detected during compaction",
+                tracing::warn!(
+                    "{} unsigned event(s) detected during compaction",
                     result.unsigned_warnings
                 );
             }
             if result.git_skew_violations > 0 {
-                eprintln!(
-                    "  Warning: {} clock skew violation(s) detected (see checkpoint/skew_warnings.json)",
+                tracing::warn!(
+                    "{} clock skew violation(s) detected (see checkpoint/skew_warnings.json)",
                     result.git_skew_violations
                 );
                 let violations =
                     crate::clock_skew::read_skew_violations(&cache_dir).unwrap_or_default();
                 for v in &violations {
-                    eprintln!(
-                        "    - agent={}, skew={}s, event={}, event_ts={}, commit_ts={}",
+                    tracing::warn!(
+                        "agent={}, skew={}s, event={}, event_ts={}, commit_ts={}",
                         v.agent_id,
                         v.skew_seconds,
                         v.event_description,

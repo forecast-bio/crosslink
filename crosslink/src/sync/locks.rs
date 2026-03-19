@@ -97,9 +97,9 @@ impl SyncManager {
                 }
                 if !force {
                     bail!(
-                        "Issue #{} is locked by '{}' (claimed {}). \
+                        "Issue {} is locked by '{}' (claimed {}). \
                          Use 'crosslink locks steal {}' if the lock is stale.",
-                        issue_id,
+                        crate::utils::format_issue_id(issue_id),
                         existing.agent_id,
                         existing.claimed_at.format("%Y-%m-%d %H:%M"),
                         issue_id
@@ -155,8 +155,8 @@ impl SyncManager {
             Some(existing) => {
                 if existing.agent_id != agent.agent_id && !force {
                     bail!(
-                        "Issue #{} is locked by '{}', not by you ('{}').",
-                        issue_id,
+                        "Issue {} is locked by '{}', not by you ('{}').",
+                        crate::utils::format_issue_id(issue_id),
                         existing.agent_id,
                         agent.agent_id
                     );

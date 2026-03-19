@@ -15,6 +15,12 @@ mod smoke {
     // Adversarial tests
     mod adversarial; // boundary, corruption, injection, concurrency
 
+    // Lifecycle tests
+    mod lifecycle; // timer roundtrip, session lifecycle, intervene, issue tree, daemon/swarm/kickoff
+
+    // Concurrency + network partition tests
+    mod concurrency; // concurrent API, parallel locks, offline ops, SQLITE_BUSY, split-brain
+
     // TUI + proptest
     mod tui_proptest; // TUI renders, proptest extensions
 }

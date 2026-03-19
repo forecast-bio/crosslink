@@ -2,18 +2,9 @@
 agent.json
 .hub-cache/
 .knowledge-cache/
-.cache/
+.external-cache/
 keys/
 integrations/
-
-# Machine-local state
-issues.db
-issues.db-wal
-issues.db-shm
-session.json
-daemon.pid
-daemon.log
-last_test_run
 
 # Machine-local overrides
 hook-config.local.json

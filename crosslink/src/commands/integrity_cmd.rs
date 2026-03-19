@@ -58,6 +58,11 @@ pub fn run(action: Option<&IntegrityCommands>, crosslink_dir: &Path, db: &Databa
             print_result(&result);
             Ok(())
         }
+        Some(IntegrityCommands::Layout { repair }) => {
+            let result = check_layout(crosslink_dir, *repair)?;
+            print_result(&result);
+            Ok(())
+        }
     }
 }
 
@@ -69,6 +74,7 @@ fn run_all(crosslink_dir: &Path, db: &Database) -> Result<()> {
         check_counters(crosslink_dir, db, false)?,
         check_hydration(crosslink_dir, db, false)?,
         check_locks(crosslink_dir, false)?,
+        check_layout(crosslink_dir, false)?,
     ];
 
     for result in &results {
@@ -299,7 +305,7 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
             for (id, stale_agent_id) in &stale {
                 match writer.steal_lock_v2(*id, stale_agent_id, None) {
                     Ok(_) => released += 1,
-                    Err(e) => eprintln!("Warning: Could not release stale lock #{}: {}", id, e),
+                    Err(e) => tracing::warn!("Could not release stale lock #{}: {}", id, e),
                 }
             }
         }
@@ -374,6 +380,140 @@ fn print_summary(results: &[CheckResult]) {
     }
 
     println!("Integrity: {}", parts.join(", "));
+}
+
+// ---------------------------------------------------------------------------
+// Layout check: detect mixed V1/V2 issue files
+// ---------------------------------------------------------------------------
+
+fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+    let issues_dir = cache_dir.join("issues");
+
+    if !issues_dir.exists() {
+        return Ok(CheckResult {
+            name: "layout".to_string(),
+            status: CheckStatus::Skipped("no issues directory".to_string()),
+        });
+    }
+
+    // Scan for V1 flat files and V2 directories
+    let mut v1_uuids: Vec<String> = Vec::new();
+    let mut v2_uuids: Vec<String> = Vec::new();
+    let mut both_uuids: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&issues_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            if path.is_file() && name.ends_with(".json") {
+                let uuid = name.trim_end_matches(".json").to_string();
+                v1_uuids.push(uuid);
+            } else if path.is_dir() && path.join("issue.json").exists() {
+                v2_uuids.push(name);
+            }
+        }
+    }
+
+    // Find UUIDs that exist in both formats
+    let v1_set: std::collections::HashSet<&str> = v1_uuids.iter().map(|s| s.as_str()).collect();
+    let v2_set: std::collections::HashSet<&str> = v2_uuids.iter().map(|s| s.as_str()).collect();
+    for uuid in &v1_set {
+        if v2_set.contains(uuid) {
+            both_uuids.push(uuid.to_string());
+        }
+    }
+
+    // Check version marker consistency
+    let meta_dir = cache_dir.join("meta");
+    let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
+    let v1_only: Vec<&str> = v1_uuids
+        .iter()
+        .filter(|u| !v2_set.contains(u.as_str()))
+        .map(|s| s.as_str())
+        .collect();
+
+    let has_problems = !both_uuids.is_empty() || (version >= 2 && !v1_only.is_empty());
+
+    if !has_problems {
+        return Ok(CheckResult {
+            name: "layout".to_string(),
+            status: CheckStatus::Pass,
+        });
+    }
+
+    let mut issues_desc = Vec::new();
+    if !both_uuids.is_empty() {
+        issues_desc.push(format!(
+            "{} UUID(s) have both V1 and V2 files",
+            both_uuids.len()
+        ));
+    }
+    if version >= 2 && !v1_only.is_empty() {
+        issues_desc.push(format!("{} V1 flat file(s) on a V2 hub", v1_only.len()));
+    }
+
+    if !repair {
+        return Ok(CheckResult {
+            name: "layout".to_string(),
+            status: CheckStatus::Fail(issues_desc.join("; ")),
+        });
+    }
+
+    // Repair: migrate V1 → V2 and remove stale V1 duplicates
+    let mut migrated = 0;
+    let mut cleaned = 0;
+
+    // Remove V1 files that have V2 equivalents (stale duplicates)
+    for uuid in &both_uuids {
+        let v1_path = issues_dir.join(format!("{}.json", uuid));
+        if v1_path.exists() {
+            let _ = std::fs::remove_file(&v1_path);
+            cleaned += 1;
+        }
+    }
+
+    // Migrate V1-only files to V2 format (when hub is V2)
+    if version >= 2 {
+        for uuid in &v1_only {
+            let v1_path = issues_dir.join(format!("{}.json", uuid));
+            let v2_dir = issues_dir.join(uuid);
+            let v2_path = v2_dir.join("issue.json");
+
+            if v1_path.exists() && !v2_path.exists() {
+                if let Ok(content) = std::fs::read(&v1_path) {
+                    if std::fs::create_dir_all(&v2_dir).is_ok()
+                        && std::fs::write(&v2_path, &content).is_ok()
+                    {
+                        let _ = std::fs::remove_file(&v1_path);
+                        migrated += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Ensure version marker exists
+    if !meta_dir.join("version.json").exists() {
+        let _ = crate::issue_file::write_layout_version(
+            &meta_dir,
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        );
+    }
+
+    let mut repair_desc = Vec::new();
+    if cleaned > 0 {
+        repair_desc.push(format!("{} stale V1 duplicate(s) removed", cleaned));
+    }
+    if migrated > 0 {
+        repair_desc.push(format!("{} V1 file(s) migrated to V2", migrated));
+    }
+
+    Ok(CheckResult {
+        name: "layout".to_string(),
+        status: CheckStatus::Repaired(repair_desc.join("; ")),
+    })
 }
 
 // ---------------------------------------------------------------------------

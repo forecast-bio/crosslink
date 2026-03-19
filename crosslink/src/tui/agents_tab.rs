@@ -511,7 +511,7 @@ impl AgentsTab {
                     };
 
                     Row::new(vec![
-                        format!("#{}", lock.issue_id),
+                        crate::utils::format_issue_id(lock.issue_id),
                         truncate_str(&lock.agent_id, 35),
                         truncate_str(lock.branch.as_deref().unwrap_or("—"), 22),
                         lock.claimed_ago.clone(),
