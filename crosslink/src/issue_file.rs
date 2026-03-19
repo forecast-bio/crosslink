@@ -188,10 +188,7 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
             match read_issue_file(&path) {
                 Ok(issue) => issues.push(issue),
                 Err(e) => {
-                    eprintln!(
-                        "Warning: skipping malformed issue file {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("skipping malformed issue file {}: {e}", path.display());
                 }
             }
         } else if path.is_dir() {
@@ -274,10 +271,7 @@ pub fn read_all_milestone_files(
             match read_milestone_file(&path) {
                 Ok(ms) => entries.push(ms),
                 Err(e) => {
-                    eprintln!(
-                        "Warning: skipping malformed milestone file {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("skipping malformed milestone file {}: {e}", path.display());
                 }
             }
         }
@@ -362,10 +356,7 @@ pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<
             match read_comment_file(&path) {
                 Ok(comment) => comments.push(comment),
                 Err(e) => {
-                    eprintln!(
-                        "Warning: skipping malformed comment file {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("skipping malformed comment file {}: {e}", path.display());
                 }
             }
         }

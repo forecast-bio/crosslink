@@ -187,7 +187,7 @@ async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<WsEvent>) {
                     // for this receiver.  Send a gap notification so the client
                     // knows to re-sync.
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        eprintln!("ws: client lagged, {n} events dropped");
+                        tracing::warn!("ws: client lagged, {n} events dropped");
                         seq += 1;
                         let gap = serde_json::json!({
                             "seq": seq,

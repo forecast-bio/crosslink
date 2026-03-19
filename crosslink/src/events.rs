@@ -168,8 +168,8 @@ impl EventCodec for NdjsonCodec {
                     // Tolerate a corrupt trailing line (crash mid-write) but
                     // treat corruption in the middle of the log as a hard error.
                     if i == total - 1 || (i == total - 2 && lines.last() == Some(&&b""[..])) {
-                        eprintln!(
-                            "warning: truncating incomplete trailing event line ({} bytes): {}",
+                        tracing::warn!(
+                            "truncating incomplete trailing event line ({} bytes): {}",
                             line.len(),
                             e
                         );
@@ -213,8 +213,8 @@ fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
         // No newline found at all — the entire file is one corrupt fragment.
         0
     };
-    eprintln!(
-        "warning: truncating {} bytes of incomplete trailing data from event log",
+    tracing::warn!(
+        "truncating {} bytes of incomplete trailing data from event log",
         len - truncate_to
     );
     file.set_len(truncate_to)?;

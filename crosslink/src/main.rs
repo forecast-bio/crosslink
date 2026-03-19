@@ -45,6 +45,19 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Log level for diagnostic output (error, warn, info, debug, trace)
+    #[arg(long, global = true, default_value = "warn", env = "CROSSLINK_LOG")]
+    log_level: String,
+
+    /// Log format (text, json)
+    #[arg(
+        long,
+        global = true,
+        default_value = "text",
+        env = "CROSSLINK_LOG_FORMAT"
+    )]
+    log_format: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -1573,6 +1586,22 @@ enum ContextCommands {
     Check,
 }
 
+fn init_tracing(log_level: &str, log_format: &str) {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    let filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("warn"));
+    if log_format == "json" {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().json())
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().with_target(false))
+            .init();
+    }
+}
+
 fn find_crosslink_dir() -> Result<PathBuf> {
     let mut current = env::current_dir()?;
 
@@ -1612,7 +1641,7 @@ fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWr
     match shared_writer::SharedWriter::new(crosslink_dir) {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("Warning: SharedWriter unavailable: {}", e);
+            tracing::warn!("SharedWriter unavailable: {}", e);
             None
         }
     }
@@ -1647,7 +1676,7 @@ fn parse_issue_id(s: &str) -> Result<i64> {
 /// Emit a hint to stderr (suppressed in quiet mode).
 fn hint(quiet: bool, msg: &str) {
     if !quiet {
-        eprintln!("hint: {}", msg);
+        tracing::info!("hint: {}", msg);
     }
 }
 
@@ -1955,6 +1984,12 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    let log_format = match &cli.command {
+        Commands::Serve { .. } if cli.log_format == "text" => "json",
+        _ => cli.log_format.as_str(),
+    };
+    init_tracing(&cli.log_level, log_format);
 
     match cli.command {
         Commands::Init {

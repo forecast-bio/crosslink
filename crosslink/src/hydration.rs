@@ -78,14 +78,16 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     // for each display_id and log warnings for the rest.
     let (deduped, dupes) = dedup_issue_files(&issue_files);
     if !dupes.is_empty() {
-        eprintln!(
-            "warning: {} duplicate issue file(s) skipped during hydration (same display_id)",
+        tracing::warn!(
+            "{} duplicate issue file(s) skipped during hydration (same display_id)",
             dupes.len()
         );
         for d in &dupes {
-            eprintln!(
+            tracing::warn!(
                 "  skipped: {} (display_id {:?}, uuid {})",
-                d.title, d.display_id, d.uuid
+                d.title,
+                d.display_id,
+                d.uuid
             );
         }
     }

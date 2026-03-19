@@ -131,10 +131,10 @@ impl SharedWriter {
             }
             // Amend the commit to reflect reverted state
             if let Err(e) = self.git_in_cache(&["add", "."]) {
-                eprintln!("Warning: failed to stage reverted state: {}", e);
+                tracing::warn!("failed to stage reverted state: {}", e);
             }
             if let Err(e) = self.git_in_cache(&["commit", "--amend", "--no-edit"]) {
-                eprintln!("Warning: failed to commit reverted state: {}", e);
+                tracing::warn!("failed to commit reverted state: {}", e);
                 // INTENTIONAL: last-resort dirty state cleanup is best-effort — prevents poisoning future syncs
                 let _ = self.sync.clean_dirty_state();
             }
@@ -147,7 +147,7 @@ impl SharedWriter {
         // Record promoted UUIDs so they are never re-promoted (gh#313).
         let promoted_uuids: Vec<Uuid> = offline_info.iter().map(|(uuid, _)| *uuid).collect();
         if let Err(e) = self.record_promoted_uuids(&promoted_uuids) {
-            eprintln!("Warning: failed to record promoted UUIDs: {}", e);
+            tracing::warn!("failed to record promoted UUIDs: {}", e);
         }
 
         let start_id = first_id.get();
@@ -255,7 +255,7 @@ impl SharedWriter {
         // Commit JSON changes if any
         if json_changed {
             if let Err(e) = self.git_in_cache(&["add", "issues/"]) {
-                eprintln!("Warning: failed to stage rewritten references: {}", e);
+                tracing::warn!("failed to stage rewritten references: {}", e);
             }
             if let Err(e) = self.git_in_cache(&[
                 "commit",
@@ -265,7 +265,7 @@ impl SharedWriter {
                     self.agent.agent_id
                 ),
             ]) {
-                eprintln!("Warning: failed to commit rewritten references: {}", e);
+                tracing::warn!("failed to commit rewritten references: {}", e);
             }
             // INTENTIONAL: push is best-effort — rewritten references will be pushed on next sync
             let _ = self.git_in_cache(&["push", self.sync.remote(), crate::sync::HUB_BRANCH]);

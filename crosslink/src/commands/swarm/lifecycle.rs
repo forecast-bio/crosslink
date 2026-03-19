@@ -820,7 +820,7 @@ pub fn launch(
 pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     // Auto-sync agent statuses before gating so phase JSON reflects live state
     if let Err(e) = sync_status(crosslink_dir) {
-        eprintln!("Warning: could not sync agent statuses: {}", e);
+        tracing::warn!("could not sync agent statuses: {}", e);
     }
 
     let sync = SyncManager::new(crosslink_dir)?;

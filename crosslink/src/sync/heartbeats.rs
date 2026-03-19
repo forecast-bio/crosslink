@@ -50,7 +50,7 @@ impl SyncManager {
             if err_str.contains("Could not resolve host")
                 || err_str.contains("Could not read from remote")
             {
-                eprintln!("Warning: heartbeat push failed (offline), changes saved locally only");
+                tracing::warn!("heartbeat push failed (offline), changes saved locally only");
                 return Ok(());
             }
             // If push is rejected (conflict), clean dirty state and try pull+push once

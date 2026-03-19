@@ -328,7 +328,7 @@ pub(super) fn init_worktree_agent(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Warning: crosslink init in worktree: {}", stderr.trim());
+        tracing::warn!("crosslink init in worktree: {}", stderr.trim());
     }
 
     // Derive agent ID from parent agent or hostname
@@ -350,7 +350,7 @@ pub(super) fn init_worktree_agent(
                 true, // no-key: inherit parent's key
                 false,
             ) {
-                eprintln!("Warning: could not initialize agent identity in worktree: {e} — agent will work without its own identity");
+                tracing::warn!("could not initialize agent identity in worktree: {e} — agent will work without its own identity");
             }
 
             // Copy parent's SSH key info into the new agent config and publish
@@ -365,7 +365,7 @@ pub(super) fn init_worktree_agent(
                         let agent_json = wt_crosslink.join("agent.json");
                         if let Ok(json) = serde_json::to_string_pretty(&child_config) {
                             if let Err(e) = std::fs::write(&agent_json, json) {
-                                eprintln!("Warning: could not write agent config to {}: {e} — agent will use inherited config", agent_json.display());
+                                tracing::warn!("could not write agent config to {}: {e} — agent will use inherited config", agent_json.display());
                             }
                         }
 
@@ -395,7 +395,7 @@ pub(super) fn init_worktree_agent(
 
     if let Ok(o) = output {
         if !o.status.success() {
-            eprintln!("Warning: crosslink sync in worktree returned non-zero");
+            tracing::warn!("crosslink sync in worktree returned non-zero");
         }
     }
 
@@ -504,7 +504,7 @@ pub(super) fn launch_local(
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {
         if let Err(e) = spawn_watchdog(session_name, worktree_dir, &watchdog_cfg) {
-            eprintln!("Warning: failed to spawn watchdog: {}", e);
+            tracing::warn!("failed to spawn watchdog: {}", e);
         }
     }
 

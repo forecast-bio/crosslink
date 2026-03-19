@@ -86,7 +86,7 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                                 }
                                 Ok(false) => {}
                                 Err(e) => {
-                                    eprintln!("Warning: Could not release lock: {}", e)
+                                    tracing::warn!("Could not release lock: {}", e)
                                 }
                             }
                         }
@@ -96,7 +96,7 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                                 println!("Released lock on issue {}", format_issue_id(issue_id))
                             }
                             Ok(false) => {}
-                            Err(e) => eprintln!("Warning: Could not release lock: {}", e),
+                            Err(e) => tracing::warn!("Could not release lock: {}", e),
                         }
                     }
                 }
@@ -115,13 +115,13 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                         e
                     );
                     if let Err(e) = db.add_comment(issue_id, notes_text, "handoff") {
-                        eprintln!("Warning: failed to save local handoff comment: {}", e);
+                        tracing::warn!("failed to save local handoff comment: {}", e);
                     }
                 }
             }
             _ => {
                 if let Err(e) = db.add_comment(issue_id, notes_text, "handoff") {
-                    eprintln!("Warning: failed to save local handoff comment: {}", e);
+                    tracing::warn!("failed to save local handoff comment: {}", e);
                 }
             }
         }

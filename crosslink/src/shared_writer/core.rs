@@ -175,7 +175,7 @@ impl SharedWriter {
     /// Derive the `.crosslink/` directory from the cache path.
     pub(super) fn crosslink_dir(&self) -> &Path {
         self.cache_dir.parent().unwrap_or_else(|| {
-            eprintln!("Warning: cache_dir has no parent, falling back to cache_dir itself");
+            tracing::warn!("cache_dir has no parent, falling back to cache_dir itself");
             &self.cache_dir
         })
     }

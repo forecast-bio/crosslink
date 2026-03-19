@@ -135,14 +135,10 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
         let flag = Arc::clone(&should_exit);
         if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&flag))
         {
-            eprintln!(
-                "Warning: could not register SIGTERM handler: {e} — graceful shutdown unavailable"
-            );
+            tracing::warn!("could not register SIGTERM handler: {e} — graceful shutdown unavailable");
         }
         if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGINT, flag) {
-            eprintln!(
-                "Warning: could not register SIGINT handler: {e} — graceful shutdown unavailable"
-            );
+            tracing::warn!("could not register SIGINT handler: {e} — graceful shutdown unavailable");
         }
     }
 
@@ -160,7 +156,7 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
             match stdin.read(&mut buf) {
                 Ok(0) => {
                     // EOF - parent closed stdin, time to exit
-                    eprintln!("Stdin closed, daemon shutting down (zombie prevention)");
+                    tracing::info!("Stdin closed, daemon shutting down (zombie prevention)");
                     should_exit_clone.store(true, Ordering::SeqCst);
                     break;
                 }

@@ -245,7 +245,7 @@ pub fn run(
                                         );
                                     }
                                     Err(e) => {
-                                        eprintln!("Warning: Could not auto-claim lock: {}", e)
+                                        tracing::warn!("Could not auto-claim lock: {}", e)
                                     }
                                 }
                             }
@@ -261,7 +261,7 @@ pub fn run(
                                     }
                                 }
                                 Ok(false) => {}
-                                Err(e) => eprintln!("Warning: Could not auto-claim lock: {}", e),
+                                Err(e) => tracing::warn!("Could not auto-claim lock: {}", e),
                             }
                         }
                     }
@@ -289,7 +289,7 @@ pub fn run(
                 println!("Now working on: {} {}", format_issue_id(id), title);
             }
         } else if !opts.quiet {
-            eprintln!("Warning: --work specified but no active session");
+            tracing::warn!("--work specified but no active session");
         }
     }
 
@@ -388,7 +388,7 @@ pub fn run_subissue(
                                         );
                                     }
                                     Err(e) => {
-                                        eprintln!("Warning: Could not auto-claim lock: {}", e)
+                                        tracing::warn!("Could not auto-claim lock: {}", e)
                                     }
                                 }
                             }
@@ -404,7 +404,7 @@ pub fn run_subissue(
                                     }
                                 }
                                 Ok(false) => {}
-                                Err(e) => eprintln!("Warning: Could not auto-claim lock: {}", e),
+                                Err(e) => tracing::warn!("Could not auto-claim lock: {}", e),
                             }
                         }
                     }
@@ -432,7 +432,7 @@ pub fn run_subissue(
                 println!("Now working on: {} {}", format_issue_id(id), title);
             }
         } else if !opts.quiet {
-            eprintln!("Warning: --work specified but no active session");
+            tracing::warn!("--work specified but no active session");
         }
     }
 

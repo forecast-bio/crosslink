@@ -66,7 +66,7 @@ pub fn run(
             db.add_label(id, "feature").err()
         };
         if let Some(e) = label_err {
-            eprintln!("Warning: could not label issue #{id} with 'feature': {e}");
+            tracing::warn!("could not label issue #{id} with 'feature': {e}");
         }
         if !opts.quiet {
             println!("Created issue #{}", id);

@@ -313,7 +313,7 @@ fn squash_branch(
 /// Entry point for `crosslink prune`.
 pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
     if !opts.force && !opts.dry_run {
-        eprintln!("Warning: This will rewrite branch history and force-push.");
+        tracing::warn!("This will rewrite branch history and force-push.");
         eprintln!("Use --force to confirm, or --dry-run to preview.");
         return Ok(());
     }

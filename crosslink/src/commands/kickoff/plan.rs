@@ -254,7 +254,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {
         if let Err(e) = spawn_watchdog(&session_name, &worktree_dir, &watchdog_cfg) {
-            eprintln!("Warning: failed to spawn watchdog: {}", e);
+            tracing::warn!("failed to spawn watchdog: {}", e);
         }
     }
 

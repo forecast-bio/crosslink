@@ -205,7 +205,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
             {
                 println!("Offline — committed locally, will push on next sync.");
             } else {
-                eprintln!("Warning: push failed: {}. Committed locally.", err);
+                tracing::warn!("push failed: {}. Committed locally.", err);
             }
         }
     }

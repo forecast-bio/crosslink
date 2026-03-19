@@ -172,7 +172,9 @@ pub async fn create_knowledge_page(
     // Commit the new page so it's tracked in git.
     let commit_msg = format!("Add knowledge page: {}", body.slug);
     if let Err(e) = km.commit(&commit_msg) {
-        eprintln!("Warning: could not commit knowledge page '{commit_msg}': {e} — will be committed on next sync");
+        tracing::warn!(
+            "could not commit knowledge page '{commit_msg}': {e} — will be committed on next sync"
+        );
     }
 
     let response = KnowledgePage {

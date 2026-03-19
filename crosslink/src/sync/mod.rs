@@ -70,7 +70,7 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
             .unwrap_or(false);
 
         if !origin_exists {
-            eprintln!("warning: remote \"origin\" does not exist; sync operations will fail");
+            tracing::warn!("remote \"origin\" does not exist; sync operations will fail");
         }
     }
 

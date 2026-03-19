@@ -91,7 +91,7 @@ impl SyncManager {
             .is_ok()
         {
             if let Err(e) = self.git_in_repo(&["branch", "-D", OLD_BRANCH]) {
-                eprintln!("Note: could not delete old branch '{OLD_BRANCH}': {e} — you can remove it manually with `git branch -D {OLD_BRANCH}`");
+                tracing::info!("could not delete old branch '{OLD_BRANCH}': {e} — you can remove it manually with `git branch -D {OLD_BRANCH}`");
             }
         }
 

@@ -279,7 +279,7 @@ pub fn launch_budget_aware(
         }
         BudgetRecommendation::ProceedWithCaution => {
             if !quiet {
-                eprintln!("Note: Budget is tight. Proceeding with caution.");
+                tracing::info!("Budget is tight. Proceeding with caution.");
                 eprintln!();
             }
         }
