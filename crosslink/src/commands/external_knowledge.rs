@@ -102,8 +102,10 @@ pub fn search(
         return Ok(());
     }
 
-    // Content search
-    let query = query.unwrap();
+    // Content search — query guaranteed Some by the guard at top of function
+    let Some(query) = query else {
+        bail!("Provide a search query or --source domain");
+    };
     let mut matches = reader.search_content(query, context)?;
 
     // Apply metadata filters

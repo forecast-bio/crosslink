@@ -692,7 +692,10 @@ fn group_matches(indices: &[usize], context: usize) -> Vec<Vec<usize>> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
     for &idx in indices {
         if let Some(last_group) = groups.last_mut() {
-            let last_idx = *last_group.last().unwrap();
+            let Some(&last_idx) = last_group.last() else {
+                groups.push(vec![idx]);
+                continue;
+            };
             // Merge if this match's context window overlaps with previous
             if idx <= last_idx + 2 * context + 1 {
                 last_group.push(idx);
