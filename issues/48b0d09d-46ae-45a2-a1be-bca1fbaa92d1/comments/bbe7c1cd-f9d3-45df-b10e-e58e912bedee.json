@@ -1,0 +1,10 @@
+{
+  "uuid": "bbe7c1cd-f9d3-45df-b10e-e58e912bedee",
+  "issue_uuid": "48b0d09d-46ae-45a2-a1be-bca1fbaa92d1",
+  "author": "maxine--basel",
+  "content": "Plan: Update README.md, commands.qmd, swarm.qmd, knowledge.qmd, and maintenance.qmd to document v0.5.2 features: external source querying, swarm plan editing, multi-swarm lifecycle, integrity layout check, crosslink-guide skill, and tracing/logging.",
+  "created_at": "2026-03-19T20:05:46.411870Z",
+  "kind": "plan",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA6GyF6j3roQ5w+jOcklIQIpgr7lX3Im454Tg261YundD8TI56jVjj56Z0akvxUgDqOT0qjzIVEZQGgbdkhPbcAg=="
+}
