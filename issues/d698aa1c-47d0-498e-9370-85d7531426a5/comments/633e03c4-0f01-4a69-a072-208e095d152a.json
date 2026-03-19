@@ -1,0 +1,8 @@
+{
+  "uuid": "633e03c4-0f01-4a69-a072-208e095d152a",
+  "issue_uuid": "d698aa1c-47d0-498e-9370-85d7531426a5",
+  "author": "anon-295fd0bb",
+  "content": "Found ~15 call sites using format!(\"#{}\", id) instead of format_issue_id(). Fixing all that could receive negative IDs: kickoff helpers/run/plan, TUI agents_tab, lock_check, sync/locks, server handlers, db/issues, orchestrator, shared_writer.",
+  "created_at": "2026-03-19T15:34:00.184964987Z",
+  "kind": "observation"
+}
