@@ -320,6 +320,8 @@ const REVIEW_CMD_MD: &str = include_str!("../../resources/claude/commands/review
 const AUDIT_CMD_MD: &str = include_str!("../../resources/claude/commands/audit.md");
 const MAINTAIN_CMD_MD: &str = include_str!("../../resources/claude/commands/maintain.md");
 const DESIGN_CMD_MD: &str = include_str!("../../resources/claude/commands/design.md");
+const CROSSLINK_GUIDE_CMD_MD: &str =
+    include_str!("../../resources/claude/commands/crosslink-guide.md");
 
 // Embed sanitization patterns
 const SANITIZE_PATTERNS: &str =
@@ -1467,6 +1469,11 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             .context("Failed to write maintain.md")?;
         fs::write(commands_dir.join("design.md"), DESIGN_CMD_MD)
             .context("Failed to write design.md")?;
+        fs::write(
+            commands_dir.join("crosslink-guide.md"),
+            CROSSLINK_GUIDE_CMD_MD,
+        )
+        .context("Failed to write crosslink-guide.md")?;
 
         let warnings =
             write_mcp_json_merged(&path.join(".mcp.json")).context("Failed to write .mcp.json")?;
