@@ -1,6 +1,6 @@
 [package]
 name = "crosslink"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.87"
 authors = ["dollspace-gay", "Maxine Levesque <hello@maxine.science>", "Forecast Analytical <analytical@forecast.bio>"]

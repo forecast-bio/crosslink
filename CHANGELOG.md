@@ -6,9 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-03-18
+
+### Added
+
+#### Init & Onboarding
+- Greenfield scaffold with interactive design questions and CLAUDE.md template generation ([CL-369])
+- First-user feedback fixes for smoother onboarding experience ([CL-369])
+
+#### Swarm Enhancements
+- Multi-swarm UUID data model and swarm lifecycle commands (`swarm create`, `swarm list`, `swarm switch`) ([CL-371])
+- Swarm workflow ergonomics improvements — better status output, cleaner phase transitions ([CL-371])
+- Swarm plan editing commands: `move`, `merge`, `split`, `remove`, `reorder`, `rename` ([CL-373])
+- Explicit layer/phase header support in `swarm init` design doc parsing ([CL-373])
+
+#### CLI Enhancements
+- `--json` support for `swarm status`, `session status`, `issue tree`, `blocked`, `ready`, and `next` commands ([CL-375], [CL-377])
+- Token-budget-aware behavioral guard reinjection for long sessions ([CL-384])
+- Auto-discover rule files in `build.rs` with `quality.md` rules ([CL-387])
+
+### Fixed
+- Prevent hub cache corruption and ensure agent issue mutations sync correctly ([CL-372])
+- Resolve main repo root in `kickoff show-plan` for worktree support ([CL-374])
+- Recognize local issue `L-` prefix in `work-check` hook ([CL-370])
+- Detect Claude Code sub-agent worktrees in `is_agent_context` ([CL-420])
+- Replace `unwrap`/`expect` with proper error handling in `build.rs`
+- Make `detect_hostname` test non-flaky in parallel test suites
+
+#### Adversarial Review Fixes
+- Apply all Group A correctness fixes from adversarial review ([CL-364])
+- Resolve clippy errors across Group A fixes ([CL-364])
+- Replace lazy `INTENTIONAL` suppressions with `eprintln!` warnings ([CL-L6])
+- Add `INTENTIONAL` comments to deliberate error suppression patterns ([CL-419])
+
+### Changed
+
+#### Codebase Decomposition
+- Decompose 6 god files into focused submodules — `shared_writer.rs`, `kickoff.rs`, `db.rs`, `sync.rs`, `knowledge.rs`, `commands/knowledge.rs` ([CL-413])
+- Split `kickoff.rs` into 10 submodules (conventions, container, plan, prompt, report, status, watchdog, worktree, wizard, cleanup) ([CL-413])
+- Split `commands/knowledge.rs` into `mod.rs` + `operations.rs` ([CL-413])
+- Make decomposed module edit functions `pub` and remove `#[allow(dead_code)]` ([CL-413])
+- Properly wire all swarm paths through `SwarmContext`, remove `allow(dead_code)` annotations
+
 ## [0.5.1] - 2026-03-15
 
 ### Added
+- Create GH issues for init flow revision and TUI config editing (#213)
+- Add install setup step for shell alias (xl) configuration (#195)
+- Create GH issue for external source querying in knowledge/issue commands (#202)
 
 #### Swarm Review System
 - `swarm review` command for parallel adversarial codebase exploration ([GH-342])
@@ -35,6 +80,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `justfile` with `render-docs` pipeline: SVG generation, quarto render via staging dir, collision detection for manually-maintained docs, asset lint for broken images/styles/scripts/links ([CL-192], [CL-193])
 
 ### Fixed
+- File GH bug for V1/V2 hub layout coexistence conflict (#216)
+- File GH bug for worktree path resolution (#215)
+- File GH bug for inconsistent issue number rendering (#214)
 - Missing banner and wordmark SVGs in docs site deployment — banner ref escaped the `docs/` boundary, wordmark not copied by Quarto ([CL-192])
 - Swarm launch failure — write `.kickoff-status` sentinel on launch and treat missing status as failed ([GH-359])
 - V2 comment hydration bug found during smoke testing ([GH-354])
