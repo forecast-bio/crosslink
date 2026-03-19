@@ -1,0 +1,8 @@
+{
+  "uuid": "eae59619-c338-476d-8017-409643405da9",
+  "issue_uuid": "89d71301-9973-4b41-96b9-d96448bd3c6f",
+  "author": "anon-295fd0bb",
+  "content": "Stopping the waffling. The V1 cleanup problem is a microcosm of the whole system's attitude: try once, shrug, move on. The correct approach for EVERY operation that fails is: diagnose why it failed, fix the cause, retry the operation, verify it worked. If the cause can't be fixed, that's a fatal error that should halt the operation with a clear diagnostic — not a warning that gets swallowed. Applying this principle to every INTENTIONAL call in the codebase.",
+  "created_at": "2026-03-19T19:38:53.781574743Z",
+  "kind": "decision"
+}
