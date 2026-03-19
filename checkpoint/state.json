@@ -22,12 +22,16 @@
     "217": {
       "agent_id": "agent-217-kickoff-ux",
       "claimed_at": "2026-03-19T01:44:17.744287Z"
+    },
+    "231": {
+      "agent_id": "maxine--basel--config-system-overhaul-2e70",
+      "claimed_at": "2026-03-19T18:19:12.276803Z"
     }
   },
   "issues": {},
   "watermark": {
-    "timestamp": "2026-03-19T17:31:06.643673Z",
-    "agent_id": "maxine--basel",
-    "agent_seq": 24
+    "timestamp": "2026-03-19T18:19:12.276803Z",
+    "agent_id": "maxine--basel--config-system-overhaul-2e70",
+    "agent_seq": 1
   }
 }
