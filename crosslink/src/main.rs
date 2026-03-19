@@ -230,7 +230,7 @@ enum Commands {
     /// Launch an agent to implement a feature (local process or container)
     Kickoff {
         #[command(subcommand)]
-        action: KickoffCommands,
+        action: Option<KickoffCommands>,
     },
     /// Launch a foreground Claude session for design document authoring
     Design {
@@ -2420,6 +2420,19 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
+            // Bare `crosslink kickoff` → launch the interactive wizard
+            let action = action.unwrap_or(KickoffCommands::Launch {
+                doc: None,
+                plan: false,
+                run: false,
+                verify: "local".to_string(),
+                model: "opus".to_string(),
+                timeout: "1h".to_string(),
+                container: "none".to_string(),
+                issue: None,
+                dry_run: false,
+                skip_permissions: false,
+            });
             commands::kickoff::dispatch(
                 action,
                 &crosslink_dir,
