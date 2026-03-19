@@ -112,7 +112,10 @@ impl SharedWriter {
         )?;
 
         if outcome == PushOutcome::LocalOnly {
-            // Still offline -- revert display_id assignments
+            // Still offline — revert display_id assignments so they can be
+            // re-claimed on next sync. Use a NEW commit instead of --amend
+            // to avoid creating ghost commits when the amend produces an
+            // empty commit (#452).
             for (uuid, _) in &offline_info {
                 let path = self.issue_path(uuid);
                 if let Ok(mut issue) = read_issue_file(&path) {
@@ -125,18 +128,40 @@ impl SharedWriter {
             }
             // Revert counter
             if let Ok(mut counters) = self.read_counters() {
-                counters.next_display_id -= count;
+                if counters.next_display_id > count {
+                    counters.next_display_id -= count;
+                }
                 // INTENTIONAL: counter revert is best-effort — counters will be corrected on next push
                 let _ = self.write_counters_to_cache(&counters);
             }
-            // Amend the commit to reflect reverted state
+            // Create a new revert commit (not --amend) so the promotion
+            // commit is cleanly cancelled rather than left as a ghost (#452).
             if let Err(e) = self.git_in_cache(&["add", "."]) {
                 tracing::warn!("failed to stage reverted state: {}", e);
             }
-            if let Err(e) = self.git_in_cache(&["commit", "--amend", "--no-edit"]) {
-                tracing::warn!("failed to commit reverted state: {}", e);
-                // INTENTIONAL: last-resort dirty state cleanup is best-effort — prevents poisoning future syncs
-                let _ = self.sync.clean_dirty_state();
+            let revert_result = self.git_in_cache(&[
+                "commit",
+                "-m",
+                &format!(
+                    "{}: revert offline promotion (still offline) at {}",
+                    self.agent.agent_id,
+                    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+                ),
+            ]);
+            match &revert_result {
+                Ok(_) => {}
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // Empty commit means the revert exactly matches the
+                    // pre-promotion state — that's fine, nothing to commit.
+                    if !err_str.contains("nothing to commit")
+                        && !err_str.contains("no changes added")
+                    {
+                        tracing::warn!("failed to commit reverted state: {}", err_str);
+                        // INTENTIONAL: last-resort dirty state cleanup is best-effort
+                        let _ = self.sync.clean_dirty_state();
+                    }
+                }
             }
             return Ok(vec![]);
         }
