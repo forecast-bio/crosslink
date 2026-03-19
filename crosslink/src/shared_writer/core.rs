@@ -30,8 +30,19 @@ pub(super) struct HubWriteLock {
 
 impl Drop for HubWriteLock {
     fn drop(&mut self) {
-        // INTENTIONAL: lock cleanup in Drop is best-effort — stale locks are detected by PID liveness check
-        let _ = std::fs::remove_file(&self.path);
+        if let Err(e) = std::fs::remove_file(&self.path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                // If we can't remove a file in the hub cache directory,
+                // the cache has a filesystem-level problem. Log it — this
+                // will cause the next acquire to detect a stale lock and
+                // handle it via PID check + force-break (#475).
+                tracing::warn!(
+                    "failed to release hub write lock {}: {}",
+                    self.path.display(),
+                    e
+                );
+            }
+        }
     }
 }
 
@@ -49,8 +60,15 @@ pub(super) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
         {
             Ok(mut f) => {
                 use std::io::Write;
-                // INTENTIONAL: PID write is best-effort — lock is held by file existence, PID is advisory
-                let _ = writeln!(f, "{}", std::process::id());
+                // PID must be written — without it, other processes can't
+                // determine if we're alive and fall back to 30s timeout (#476).
+                if let Err(e) = writeln!(f, "{}", std::process::id()) {
+                    // I/O failure on an open file in the hub cache means the
+                    // cache directory has a fundamental problem. Remove the
+                    // lock we just created and propagate.
+                    let _ = std::fs::remove_file(lock_path);
+                    bail!("Failed to write PID to hub lock file: {}", e);
+                }
                 return Ok(HubWriteLock {
                     path: lock_path.to_path_buf(),
                 });
@@ -59,23 +77,38 @@ pub(super) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
                 // Check if the lock is stale (holder process dead)
                 if let Ok(content) = std::fs::read_to_string(lock_path) {
                     if let Ok(pid) = content.trim().parse::<u32>() {
-                        // Check if PID is alive (Unix-specific)
                         let alive = std::process::Command::new("kill")
                             .args(["-0", &pid.to_string()])
                             .output()
                             .map(|o| o.status.success())
                             .unwrap_or(false);
                         if !alive {
-                            // INTENTIONAL: stale lock removal is best-effort — retry loop will re-attempt
-                            let _ = std::fs::remove_file(lock_path);
+                            // Dead process — remove stale lock (#479)
+                            if let Err(rm_err) = std::fs::remove_file(lock_path) {
+                                if rm_err.kind() == std::io::ErrorKind::NotFound {
+                                    continue; // Another process cleaned it up
+                                }
+                                bail!(
+                                    "Cannot remove stale hub lock (PID {} is dead): {}",
+                                    pid,
+                                    rm_err
+                                );
+                            }
                             continue;
                         }
                     }
                 }
 
                 if start.elapsed() > max_wait {
-                    // INTENTIONAL: force-break stale lock after timeout is best-effort — retry loop will re-attempt
-                    let _ = std::fs::remove_file(lock_path);
+                    // Force-break after timeout — the holder may be wedged
+                    if let Err(rm_err) = std::fs::remove_file(lock_path) {
+                        if rm_err.kind() != std::io::ErrorKind::NotFound {
+                            bail!(
+                                "Hub lock held for >30s and cannot be force-removed: {}",
+                                rm_err
+                            );
+                        }
+                    }
                     continue;
                 }
                 std::thread::sleep(poll_interval);
@@ -302,13 +335,21 @@ impl SharedWriter {
             signature: None,
         };
 
-        // Sign if key is available
+        // Sign if key is configured. If signing is configured but fails,
+        // log the failure — unsigned events are still valid, but a signing
+        // failure is distinguishable from "not configured" (#477).
         if let (Some(key_path), Some(fingerprint)) = (
             self.resolve_ssh_key_path(),
             self.agent.ssh_fingerprint.as_ref(),
         ) {
-            // INTENTIONAL: event signing is best-effort — unsigned events are still valid
-            let _ = crate::events::sign_event(&mut envelope, &key_path, fingerprint);
+            if let Err(e) = crate::events::sign_event(&mut envelope, &key_path, fingerprint) {
+                tracing::warn!(
+                    "event signing failed (key: {}, fingerprint: {}): {}",
+                    key_path.display(),
+                    fingerprint,
+                    e
+                );
+            }
         }
 
         envelope
@@ -691,16 +732,18 @@ impl SharedWriter {
                     std::fs::write(&full, content)?;
 
                     // Clean up stale V1 flat file when writing V2 directory
-                    // format, preventing both from coexisting (#428).
-                    // V2 path: issues/{uuid}/issue.json → stale V1: issues/{uuid}.json
+                    // format (#428). The sync-level cleanup_stale_layout_files()
+                    // is the guarantee; this is opportunistic (#478).
                     if rel_path.ends_with("/issue.json") {
                         if let Some(uuid_dir) = rel_path.strip_suffix("/issue.json") {
                             let v1_path = self.cache_dir.join(format!("{}.json", uuid_dir));
                             if v1_path.exists() {
-                                // INTENTIONAL: stale V1 file cleanup is best-effort — V2 file is the source of truth
                                 if let Err(e) = std::fs::remove_file(&v1_path) {
-                                    tracing::debug!(
-                                        "failed to remove stale V1 file {}: {}",
+                                    // We just wrote to this same directory, so
+                                    // a removal failure here is unexpected.
+                                    // The sync-level cleanup will handle it.
+                                    tracing::warn!(
+                                        "stale V1 file {} could not be removed (sync cleanup will retry): {}",
                                         v1_path.display(),
                                         e
                                     );
