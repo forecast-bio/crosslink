@@ -20,7 +20,8 @@ fn test_export_empty_db() {
     assert!(
         result.stdout.contains("0 issues") || result.stderr.contains("0 issues"),
         "Expected export to mention 0 issues.\nstdout: {}\nstderr: {}",
-        result.stdout, result.stderr
+        result.stdout,
+        result.stderr
     );
 }
 
