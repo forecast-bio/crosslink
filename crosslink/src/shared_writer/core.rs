@@ -569,6 +569,13 @@ impl SharedWriter {
         }
     }
 
+    /// Relative path to a comment JSON file (V2 layout only).
+    ///
+    /// `issues/{issue_uuid}/comments/{comment_uuid}.json`
+    pub(super) fn comment_rel_path(&self, issue_uuid: &Uuid, comment_uuid: &Uuid) -> String {
+        format!("issues/{}/comments/{}.json", issue_uuid, comment_uuid)
+    }
+
     /// Load an issue JSON file by its display ID.
     ///
     /// Scans the issues directory for a file matching the display ID.

@@ -1272,6 +1272,12 @@ enum IntegrityCommands {
         #[arg(long)]
         repair: bool,
     },
+    /// Detect mixed V1/V2 hub layout files
+    Layout {
+        /// Migrate V1 files to V2 and remove stale duplicates
+        #[arg(long)]
+        repair: bool,
+    },
 }
 
 #[derive(Subcommand)]

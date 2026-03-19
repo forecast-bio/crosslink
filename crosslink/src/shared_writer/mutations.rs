@@ -329,7 +329,7 @@ impl SharedWriter {
                         signature,
                     };
                     let json = serde_json::to_vec_pretty(&comment_file)?;
-                    let rel_path = format!("issues/{}/comments/{}.json", issue.uuid, comment_uuid);
+                    let rel_path = writer.comment_rel_path(&issue.uuid, &comment_uuid);
                     Ok(WriteSet {
                         files: vec![(rel_path, json)],
                         counters: Some(counters),
@@ -412,7 +412,7 @@ impl SharedWriter {
                         signature,
                     };
                     let json = serde_json::to_vec_pretty(&comment_file)?;
-                    let rel_path = format!("issues/{}/comments/{}.json", issue.uuid, comment_uuid);
+                    let rel_path = writer.comment_rel_path(&issue.uuid, &comment_uuid);
                     Ok(WriteSet {
                         files: vec![(rel_path, json)],
                         counters: Some(counters),
