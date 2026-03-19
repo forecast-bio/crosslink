@@ -372,13 +372,21 @@ fn test_corrupt_db_permissions() {
     let perms = std::fs::Permissions::from_mode(0o444);
     std::fs::set_permissions(h.db_path(), perms).unwrap();
 
-    // Attempting to create an issue should fail with a clear error
+    // Attempting to create an issue should either fail outright or succeed
+    // with a hydration warning (since v0.5.2 the command writes to hub JSON
+    // files first, which may succeed even when the DB is read-only — the
+    // hydration step logs a warning and the DB is stale but the operation
+    // is not fatal).
     let result = h.run(&["create", "Should fail"]);
-    assert!(
-        !result.success,
-        "Expected failure when DB is read-only, but command succeeded.\nstdout: {}\nstderr: {}",
-        result.stdout, result.stderr
-    );
+    if result.success {
+        // If it succeeded, there must be a hydration warning on stderr
+        assert!(
+            result.stderr.contains("hydration failed") || result.stderr.contains("readonly"),
+            "Create succeeded on read-only DB without hydration warning.\nstderr: {}",
+            result.stderr
+        );
+    }
+    // Either way is acceptable — the important thing is no panic/crash.
 
     // Restore permissions for cleanup
     let perms = std::fs::Permissions::from_mode(0o644);

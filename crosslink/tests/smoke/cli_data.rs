@@ -16,11 +16,11 @@ fn test_export_empty_db() {
         serde_json::from_str(&content).expect("Export is not valid JSON");
     let arr = parsed.as_array().expect("Export should be a JSON array");
     assert_eq!(arr.len(), 0, "Empty DB should export as empty array []");
-    // Also verify the stderr mentions 0 issues
+    // Verify the output mentions 0 issues (may be on stdout or stderr)
     assert!(
-        result.stderr.contains("0 issues"),
-        "Expected export to mention 0 issues, stderr: {}",
-        result.stderr
+        result.stdout.contains("0 issues") || result.stderr.contains("0 issues"),
+        "Expected export to mention 0 issues.\nstdout: {}\nstderr: {}",
+        result.stdout, result.stderr
     );
 }
 

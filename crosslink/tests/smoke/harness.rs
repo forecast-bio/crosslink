@@ -251,7 +251,9 @@ impl SmokeHarness {
         self.server_handle = Some(child);
         self.server_port = Some(port);
 
-        // Wait for the server to be ready by polling the port.
+        // Wait for the server to be ready by attempting a TCP connection.
+        // Previous approach used TcpListener::bind which is unreliable on macOS
+        // when the server binds 0.0.0.0 but the check binds 127.0.0.1.
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             if Instant::now() > deadline {
@@ -259,8 +261,13 @@ impl SmokeHarness {
                 self.stop_server();
                 panic!("crosslink serve did not become ready within 10 seconds on port {port}");
             }
-            if TcpListener::bind(("127.0.0.1", port)).is_err() {
-                // Port is in use -> server is listening
+            if std::net::TcpStream::connect_timeout(
+                &format!("127.0.0.1:{port}").parse().unwrap(),
+                Duration::from_millis(100),
+            )
+            .is_ok()
+            {
+                // Connection succeeded — server is accepting connections
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
