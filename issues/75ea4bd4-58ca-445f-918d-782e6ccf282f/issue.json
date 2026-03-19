@@ -1,0 +1,10 @@
+{
+  "uuid": "75ea4bd4-58ca-445f-918d-782e6ccf282f",
+  "display_id": 228,
+  "title": "Add integrity check for mixed layouts, HubWriter abstraction, and remove hardcoded paths",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-295fd0bb",
+  "created_at": "2026-03-19T17:43:28.833453826Z",
+  "updated_at": "2026-03-19T17:43:28.833453826Z"
+}
