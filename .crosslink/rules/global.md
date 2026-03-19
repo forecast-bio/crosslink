@@ -46,28 +46,28 @@ Add labels to control CHANGELOG.md section:
 crosslink quick "Fix login validation error on empty email" -p medium -l bug
 
 # Or use create with flags
-crosslink create "Fix login validation error on empty email" -p medium --label bug --work
+crosslink issue create "Fix login validation error on empty email" -p medium --label bug --work
 
 # Multi-part feature → Epic with subissues
-crosslink create "Add user authentication system" -p high --label feature
-crosslink subissue 1 "Add user registration endpoint"
-crosslink subissue 1 "Add login endpoint with JWT tokens"
-crosslink subissue 1 "Add session middleware for protected routes"
+crosslink issue create "Add user authentication system" -p high --label feature
+crosslink issue subissue 1 "Add user registration endpoint"
+crosslink issue subissue 1 "Add login endpoint with JWT tokens"
+crosslink issue subissue 1 "Add session middleware for protected routes"
 
 # Mark what you're working on
 crosslink session work 1
 
 # Add context as you discover things
-crosslink comment 1 "Found existing auth helper in utils/auth.ts" --kind observation
+crosslink issue comment 1 "Found existing auth helper in utils/auth.ts" --kind observation
 
 # Close when done — auto-updates CHANGELOG.md
-crosslink close 1
+crosslink issue close 1
 
 # Skip changelog for internal/refactor work
-crosslink close 1 --no-changelog
+crosslink issue close 1 --no-changelog
 
 # Batch close
-crosslink close-all --no-changelog
+crosslink issue close-all --no-changelog
 
 # Quiet mode for scripting
 crosslink -q create "Fix bug" -p high  # Outputs just the ID number
@@ -136,12 +136,12 @@ This software supports regulated biotech operations. Every issue MUST have a doc
 
 ```bash
 # These are NOT optional. You MUST use --kind on EVERY comment.
-crosslink comment <id> "Approach: using existing auth middleware" --kind plan
-crosslink comment <id> "Chose JWT over sessions — stateless, simpler for API consumers" --kind decision
-crosslink comment <id> "Found legacy endpoint at /api/v1/auth that conflicts" --kind observation
-crosslink comment <id> "Blocked: CI pipeline timeout on integration tests" --kind blocker
-crosslink comment <id> "Resolved: increased CI timeout to 10m, tests pass" --kind resolution
-crosslink comment <id> "Delivered: JWT auth with refresh tokens, all 47 tests passing" --kind result
+crosslink issue comment <id> "Approach: using existing auth middleware" --kind plan
+crosslink issue comment <id> "Chose JWT over sessions — stateless, simpler for API consumers" --kind decision
+crosslink issue comment <id> "Found legacy endpoint at /api/v1/auth that conflicts" --kind observation
+crosslink issue comment <id> "Blocked: CI pipeline timeout on integration tests" --kind blocker
+crosslink issue comment <id> "Resolved: increased CI timeout to 10m, tests pass" --kind resolution
+crosslink issue comment <id> "Delivered: JWT auth with refresh tokens, all 47 tests passing" --kind result
 ```
 
 **If you close an issue that has zero typed comments, you have violated this rule.**

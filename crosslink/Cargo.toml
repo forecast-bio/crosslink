@@ -44,6 +44,7 @@ tower-http = { version = "0.6", features = ["cors", "fs"] }
 tokio = { version = "1", features = ["full"] }
 notify = "6"
 toml = "0.8"
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 

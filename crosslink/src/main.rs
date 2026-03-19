@@ -5,6 +5,7 @@ mod compaction;
 mod daemon;
 mod db;
 mod events;
+mod external;
 mod findings;
 mod hydration;
 mod identity;
@@ -501,12 +502,24 @@ enum IssueCommands {
         /// Filter by priority
         #[arg(short, long)]
         priority: Option<String>,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Search issues by text
     Search {
         /// Search query
         query: String,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Show issue details
@@ -514,6 +527,12 @@ enum IssueCommands {
         /// Issue ID
         #[arg(value_parser = parse_issue_id_clap)]
         id: i64,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Update an issue
@@ -1103,11 +1122,20 @@ enum KnowledgeCommands {
         /// Import from a design document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Display a knowledge page
     Show {
         /// Page slug
         slug: String,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
     /// List all knowledge pages
     List {
@@ -1123,6 +1151,12 @@ enum KnowledgeCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
     /// Update an existing knowledge page
     Edit {
@@ -1149,14 +1183,24 @@ enum KnowledgeCommands {
         /// Replace content from a document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Remove a knowledge page
     Remove {
         /// Page slug
         slug: String,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Manually sync from remote
-    Sync,
+    Sync {
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
+    },
     /// Bulk import markdown files as knowledge pages
     Import {
         /// Directory containing .md files to import
@@ -1170,6 +1214,9 @@ enum KnowledgeCommands {
         /// Preview imports without writing
         #[arg(long = "dry-run")]
         dry_run: bool,
+        /// (Rejected — external sources are read-only)
+        #[arg(long, hide = true)]
+        repo: Option<String>,
     },
     /// Search knowledge page content
     Search {
@@ -1190,6 +1237,12 @@ enum KnowledgeCommands {
         /// Filter results by contributor
         #[arg(long)]
         contributor: Option<String>,
+        /// Query an external repository (URL, local path, or @alias)
+        #[arg(long)]
+        repo: Option<String>,
+        /// Force refresh of cached external data
+        #[arg(long)]
+        refresh: bool,
     },
 }
 
@@ -1785,30 +1838,79 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             status,
             label,
             priority,
+            repo,
+            refresh,
         } => {
-            let db = get_db()?;
-            if json {
-                commands::list::run_json(&db, Some(&status), label.as_deref(), priority.as_deref())
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::list(
+                    &crosslink_dir,
+                    &repo_value,
+                    Some(&status),
+                    label.as_deref(),
+                    priority.as_deref(),
+                    refresh,
+                    json,
+                    quiet,
+                )
             } else {
-                commands::list::run(&db, Some(&status), label.as_deref(), priority.as_deref())
+                let db = get_db()?;
+                if json {
+                    commands::list::run_json(
+                        &db,
+                        Some(&status),
+                        label.as_deref(),
+                        priority.as_deref(),
+                    )
+                } else {
+                    commands::list::run(&db, Some(&status), label.as_deref(), priority.as_deref())
+                }
             }
         }
 
-        IssueCommands::Search { query } => {
-            let db = get_db()?;
-            if json {
-                commands::search::run_json(&db, &query)
+        IssueCommands::Search {
+            query,
+            repo,
+            refresh,
+        } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::search(
+                    &crosslink_dir,
+                    &repo_value,
+                    &query,
+                    refresh,
+                    json,
+                    quiet,
+                )
             } else {
-                commands::search::run(&db, &query)
+                let db = get_db()?;
+                if json {
+                    commands::search::run_json(&db, &query)
+                } else {
+                    commands::search::run(&db, &query)
+                }
             }
         }
 
-        IssueCommands::Show { id } => {
-            let db = get_db()?;
-            if json {
-                commands::show::run_json(&db, id)
+        IssueCommands::Show { id, repo, refresh } => {
+            if let Some(repo_value) = repo {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::external_issues::show(
+                    &crosslink_dir,
+                    &repo_value,
+                    id,
+                    refresh,
+                    json,
+                    quiet,
+                )
             } else {
-                commands::show::run(&db, id)
+                let db = get_db()?;
+                if json {
+                    commands::show::run_json(&db, id)
+                } else {
+                    commands::show::run(&db, id)
+                }
             }
         }
 
@@ -2097,12 +2199,22 @@ fn main() -> Result<()> {
                 status,
                 label,
                 priority,
+                repo: None,
+                refresh: false,
             },
             cli.quiet,
             cli.json,
         ),
 
-        Commands::Show { id } => dispatch_issue(IssueCommands::Show { id }, cli.quiet, cli.json),
+        Commands::Show { id } => dispatch_issue(
+            IssueCommands::Show {
+                id,
+                repo: None,
+                refresh: false,
+            },
+            cli.quiet,
+            cli.json,
+        ),
 
         Commands::Close { id, no_changelog } => dispatch_issue(
             IssueCommands::Close { id, no_changelog },
@@ -2156,6 +2268,8 @@ fn main() -> Result<()> {
                         status,
                         label,
                         priority,
+                        repo: None,
+                        refresh: false,
                     },
                     cli.quiet,
                     cli.json,
@@ -2170,6 +2284,8 @@ fn main() -> Result<()> {
                         status: "open".to_string(),
                         label: None,
                         priority: None,
+                        repo: None,
+                        refresh: false,
                     },
                     cli.quiet,
                     cli.json,
