@@ -82,8 +82,8 @@ impl Database {
         if let Err(e) = self.conn.execute(sql, []) {
             let msg = e.to_string();
             if msg.contains("duplicate column") || msg.contains("already exists") {
-                eprintln!(
-                    "debug: migration skipped (already applied): {}: {}",
+                tracing::debug!(
+                    "migration skipped (already applied): {}: {}",
                     sql.trim(),
                     msg
                 );
@@ -116,8 +116,8 @@ impl Database {
                 |row| row.get(0),
             )
             .unwrap_or_else(|e| {
-                eprintln!(
-                    "warning: failed to read schema version (PRAGMA user_version): {e}, defaulting to 0"
+                tracing::warn!(
+                    "failed to read schema version (PRAGMA user_version): {e}, defaulting to 0"
                 );
                 0
             });

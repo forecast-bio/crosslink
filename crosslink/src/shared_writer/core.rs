@@ -189,14 +189,14 @@ impl SharedWriter {
         match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
             Ok(_) => Ok(()),
             Err(first_err) => {
-                eprintln!(
+                tracing::warn!(
                     "Warning: hydration failed ({}), retrying once...",
                     first_err
                 );
                 match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
                     Ok(_) => Ok(()),
                     Err(retry_err) => {
-                        eprintln!(
+                        tracing::warn!(
                             "Warning: hydration retry failed ({}). Run `crosslink sync` to recover.",
                             retry_err
                         );
@@ -366,7 +366,7 @@ impl SharedWriter {
                     if err_str.contains("Could not resolve host")
                         || err_str.contains("Could not read from remote")
                     {
-                        eprintln!(
+                        tracing::warn!(
                             "Warning: push failed (offline), changes saved locally only: {}",
                             message
                         );
@@ -386,7 +386,7 @@ impl SharedWriter {
                             ])?;
                             continue;
                         }
-                        eprintln!(
+                        tracing::warn!(
                             "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
                             MAX_RETRIES, message
                         );
@@ -756,7 +756,7 @@ impl SharedWriter {
                     if err_str.contains("Could not resolve host")
                         || err_str.contains("Could not read from remote")
                     {
-                        eprintln!(
+                        tracing::warn!(
                             "Warning: push failed (offline), changes saved locally only: {}",
                             message
                         );
@@ -793,7 +793,7 @@ impl SharedWriter {
                             continue;
                         }
                         // All retries exhausted -- keep as local-only
-                        eprintln!(
+                        tracing::warn!(
                             "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
                             MAX_RETRIES, message
                         );
