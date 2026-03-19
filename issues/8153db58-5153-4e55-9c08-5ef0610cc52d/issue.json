@@ -1,0 +1,10 @@
+{
+  "uuid": "8153db58-5153-4e55-9c08-5ef0610cc52d",
+  "display_id": 224,
+  "title": "Fix session work state dropping between tool calls",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-295fd0bb",
+  "created_at": "2026-03-19T16:38:01.199337786Z",
+  "updated_at": "2026-03-19T16:38:01.199337786Z"
+}
