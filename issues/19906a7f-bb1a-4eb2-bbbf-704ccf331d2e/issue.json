@@ -1,0 +1,10 @@
+{
+  "uuid": "19906a7f-bb1a-4eb2-bbbf-704ccf331d2e",
+  "display_id": 219,
+  "title": "Fix hydration data loss and --parent cache lookup failure",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-295fd0bb",
+  "created_at": "2026-03-19T14:43:28.365996693Z",
+  "updated_at": "2026-03-19T14:43:28.365996693Z"
+}
