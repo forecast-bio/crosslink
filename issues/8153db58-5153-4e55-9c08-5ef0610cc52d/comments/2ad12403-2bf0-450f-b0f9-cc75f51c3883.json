@@ -1,0 +1,8 @@
+{
+  "uuid": "2ad12403-2bf0-450f-b0f9-cc75f51c3883",
+  "issue_uuid": "8153db58-5153-4e55-9c08-5ef0610cc52d",
+  "author": "anon-295fd0bb",
+  "content": "Root cause: hydrate_to_sqlite calls clear_shared_data which DELETEs all issues. The FK constraint ON DELETE SET NULL on sessions.active_issue_id automatically NULLs the work focus. Fix: save and restore active_issue_id around the clear+reinsert cycle.",
+  "created_at": "2026-03-19T16:39:14.964138532Z",
+  "kind": "observation"
+}
