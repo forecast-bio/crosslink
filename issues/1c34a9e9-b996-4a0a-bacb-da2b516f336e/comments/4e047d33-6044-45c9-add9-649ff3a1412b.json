@@ -1,0 +1,8 @@
+{
+  "uuid": "4e047d33-6044-45c9-add9-649ff3a1412b",
+  "issue_uuid": "1c34a9e9-b996-4a0a-bacb-da2b516f336e",
+  "author": "anon-295fd0bb",
+  "content": "Implementing: (1) Create crosslink-guide.md Claude skill in resources/claude/commands, (2) deploy it via init. Skipping default knowledge pages for now — the skill approach is more immediate and doesn't require knowledge branch setup.",
+  "created_at": "2026-03-19T16:00:07.557641397Z",
+  "kind": "decision"
+}
