@@ -1,0 +1,10 @@
+{
+  "uuid": "1f7d5035-3395-4fbc-a8b4-95d42e42dded",
+  "display_id": 220,
+  "title": "Fix worktree creation to use repo root instead of pwd",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-295fd0bb",
+  "created_at": "2026-03-19T15:15:27.040112818Z",
+  "updated_at": "2026-03-19T15:15:27.040112818Z"
+}
