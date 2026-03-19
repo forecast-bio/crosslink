@@ -1,0 +1,8 @@
+{
+  "uuid": "8cf0a8f8-db28-447e-8185-4d00b93121d2",
+  "issue_uuid": "0b50899d-2709-4a6e-8b4a-de411e1755e8",
+  "author": "anon-295fd0bb",
+  "content": "GH #402: Add local timezone alongside UTC timestamps in TUI issue detail view. Need to find where Created/Updated are rendered, add chrono Local conversion, and only show when terminal width allows.",
+  "created_at": "2026-03-19T17:19:37.578006152Z",
+  "kind": "plan"
+}
