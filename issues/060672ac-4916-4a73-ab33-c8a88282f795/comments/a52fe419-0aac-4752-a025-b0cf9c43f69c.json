@@ -1,0 +1,8 @@
+{
+  "uuid": "a52fe419-0aac-4752-a025-b0cf9c43f69c",
+  "issue_uuid": "060672ac-4916-4a73-ab33-c8a88282f795",
+  "author": "anon-295fd0bb",
+  "content": "Starting implementation. Fixing in order: (1) read_layout_version to detect V2 from directory structure, (2) promote_offline_issues to use issue_rel_path, (3) read_all_issue_files to dedup by UUID preferring V2, (4) compaction materialize to respect layout version + clean stale V1, (5) write version.json during compaction if missing.",
+  "created_at": "2026-03-19T14:25:55.940802661Z",
+  "kind": "plan"
+}
