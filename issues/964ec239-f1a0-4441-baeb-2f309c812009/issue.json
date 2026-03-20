@@ -1,6 +1,6 @@
 {
   "uuid": "964ec239-f1a0-4441-baeb-2f309c812009",
-  "display_id": null,
+  "display_id": 238,
   "title": "Fix work-check hook to recognize local issue L-prefix",
   "status": "open",
   "priority": "high",

@@ -1,6 +1,6 @@
 {
   "uuid": "73081481-3b7f-43fa-9efc-93942ff68f42",
-  "display_id": null,
+  "display_id": 242,
   "title": "Concurrent compaction and materialization race",
   "status": "open",
   "priority": "critical",

@@ -1,6 +1,6 @@
 {
   "uuid": "50c2f561-3f2f-499b-99a6-1a531c99816d",
-  "display_id": null,
+  "display_id": 241,
   "title": "Promotion re-promotion loop from failed UUID tracking",
   "status": "open",
   "priority": "critical",

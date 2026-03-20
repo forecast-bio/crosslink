@@ -1,6 +1,6 @@
 {
   "uuid": "426803ee-8fe1-4a2b-9f74-55da53ec13df",
-  "display_id": null,
+  "display_id": 240,
   "title": "Non-atomic counter claims cause display ID collisions",
   "status": "open",
   "priority": "critical",
