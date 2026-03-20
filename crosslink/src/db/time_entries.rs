@@ -11,6 +11,7 @@ pub type TimeEntryRow = (i64, DateTime<Utc>, Option<DateTime<Utc>>, Option<i64>)
 impl Database {
     // Time tracking
     pub fn start_timer(&self, issue_id: i64) -> Result<i64> {
+        let issue_id = self.resolve_id(issue_id);
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "INSERT INTO time_entries (issue_id, started_at) VALUES (?1, ?2)",
@@ -20,6 +21,7 @@ impl Database {
     }
 
     pub fn stop_timer(&self, issue_id: i64) -> Result<bool> {
+        let issue_id = self.resolve_id(issue_id);
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 

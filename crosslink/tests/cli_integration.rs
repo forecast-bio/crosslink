@@ -31,6 +31,27 @@ fn run_crosslink_info(dir: &std::path::Path, args: &[&str]) -> (bool, String, St
     (output.status.success(), stdout, stderr)
 }
 
+/// Create a temp directory with a git repo and initial commit.
+/// Required because `crosslink init` verifies .git exists (#401).
+fn test_dir() -> tempfile::TempDir {
+    let dir = tempdir().unwrap();
+    assert!(Command::new("git")
+        .current_dir(dir.path())
+        .args(["init"])
+        .output()
+        .expect("git init failed")
+        .status
+        .success());
+    assert!(Command::new("git")
+        .current_dir(dir.path())
+        .args(["commit", "--allow-empty", "-m", "init"])
+        .output()
+        .expect("git commit failed")
+        .status
+        .success());
+    dir
+}
+
 /// Initialize crosslink in a temp directory
 fn init_crosslink(dir: &std::path::Path) {
     let (success, _, stderr) = run_crosslink(dir, &["init"]);
@@ -41,7 +62,7 @@ fn init_crosslink(dir: &std::path::Path) {
 
 #[test]
 fn test_init_creates_crosslink_directory() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     let (success, stdout, _) = run_crosslink(dir.path(), &["init"]);
 
     assert!(success);
@@ -52,7 +73,7 @@ fn test_init_creates_crosslink_directory() {
 
 #[test]
 fn test_init_twice_warns() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
 
     run_crosslink(dir.path(), &["init"]);
     let (success, stdout, _) = run_crosslink(dir.path(), &["init"]);
@@ -65,7 +86,7 @@ fn test_init_twice_warns() {
 
 #[test]
 fn test_create_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -80,7 +101,7 @@ fn test_create_issue() {
 
 #[test]
 fn test_create_issue_with_priority() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, _) =
@@ -95,7 +116,7 @@ fn test_create_issue_with_priority() {
 
 #[test]
 fn test_create_issue_with_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, _) = run_crosslink(
@@ -117,7 +138,7 @@ fn test_create_issue_with_description() {
 
 #[test]
 fn test_create_subissue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Parent issue"]);
@@ -139,7 +160,7 @@ fn test_create_subissue() {
 
 #[test]
 fn test_list_empty() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["list"]);
@@ -154,7 +175,7 @@ fn test_list_empty() {
 
 #[test]
 fn test_list_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1"]);
@@ -169,7 +190,7 @@ fn test_list_issues() {
 
 #[test]
 fn test_list_filter_by_status() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Open issue"]);
@@ -187,7 +208,7 @@ fn test_list_filter_by_status() {
 
 #[test]
 fn test_list_filter_by_label() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Bug issue"]);
@@ -204,7 +225,7 @@ fn test_list_filter_by_label() {
 
 #[test]
 fn test_show_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue", "-d", "Description"]);
@@ -218,7 +239,7 @@ fn test_show_issue() {
 
 #[test]
 fn test_show_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["show", "999"]);
@@ -230,7 +251,7 @@ fn test_show_nonexistent_issue() {
 
 #[test]
 fn test_update_issue_title() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Original title"]);
@@ -247,7 +268,7 @@ fn test_update_issue_title() {
 
 #[test]
 fn test_update_issue_priority() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue", "-p", "low"]);
@@ -261,13 +282,13 @@ fn test_update_issue_priority() {
 
 #[test]
 fn test_close_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
-    let (success, stdout, _) = run_crosslink(dir.path(), &["close", "1"]);
+    let (success, stdout, stderr) = run_crosslink(dir.path(), &["close", "1"]);
 
-    assert!(success);
+    assert!(success, "close failed: stdout={} stderr={}", stdout, stderr);
     assert!(stdout.contains("Closed") || stdout.contains("closed"));
 
     let (_, show_out, _) = run_crosslink(dir.path(), &["show", "1"]);
@@ -276,7 +297,7 @@ fn test_close_issue() {
 
 #[test]
 fn test_reopen_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -294,7 +315,7 @@ fn test_reopen_issue() {
 
 #[test]
 fn test_delete_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "To delete"]);
@@ -310,7 +331,7 @@ fn test_delete_issue() {
 
 #[test]
 fn test_add_label() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -324,7 +345,7 @@ fn test_add_label() {
 
 #[test]
 fn test_remove_label() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -341,7 +362,7 @@ fn test_remove_label() {
 
 #[test]
 fn test_add_comment() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -358,7 +379,7 @@ fn test_add_comment() {
 
 #[test]
 fn test_block_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Blocked issue"]);
@@ -373,7 +394,7 @@ fn test_block_issue() {
 
 #[test]
 fn test_unblock_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Blocked issue"]);
@@ -389,7 +410,7 @@ fn test_unblock_issue() {
 
 #[test]
 fn test_ready_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Blocked issue"]);
@@ -409,7 +430,7 @@ fn test_ready_issues() {
 
 #[test]
 fn test_session_start() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["session", "start"]);
@@ -420,7 +441,7 @@ fn test_session_start() {
 
 #[test]
 fn test_session_status() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["session", "start"]);
@@ -432,7 +453,7 @@ fn test_session_status() {
 
 #[test]
 fn test_session_work() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Working issue"]);
@@ -445,7 +466,7 @@ fn test_session_work() {
 
 #[test]
 fn test_session_end() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["session", "start"]);
@@ -460,7 +481,7 @@ fn test_session_end() {
 
 #[test]
 fn test_search_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Authentication bug"]);
@@ -478,7 +499,7 @@ fn test_search_issues() {
 
 #[test]
 fn test_command_without_init() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     // Don't init
 
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["list"]);
@@ -504,7 +525,7 @@ fn test_command_without_init() {
 
 #[test]
 fn test_invalid_priority() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["create", "Issue", "-p", "invalid"]);
@@ -521,7 +542,7 @@ fn test_invalid_priority() {
 
 #[test]
 fn test_sql_injection_in_title_cli() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let malicious = "'; DROP TABLE issues; --";
@@ -537,7 +558,7 @@ fn test_sql_injection_in_title_cli() {
 
 #[test]
 fn test_special_characters_in_fields() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let special = "Test <>&\"'\\n\\t issue";
@@ -551,7 +572,7 @@ fn test_special_characters_in_fields() {
 
 #[test]
 fn test_unicode_in_cli() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let unicode = "测试问题 🐛 émoji";
@@ -567,7 +588,7 @@ fn test_unicode_in_cli() {
 
 #[test]
 fn test_archive_closed_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue to archive"]);
@@ -580,7 +601,7 @@ fn test_archive_closed_issue() {
 
 #[test]
 fn test_archive_open_issue_fails() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Open issue"]);
@@ -598,7 +619,7 @@ fn test_archive_open_issue_fails() {
 
 #[test]
 fn test_archive_list() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue to archive"]);
@@ -614,7 +635,7 @@ fn test_archive_list() {
 
 #[test]
 fn test_unarchive_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue to archive"]);
@@ -639,7 +660,7 @@ fn test_unarchive_issue() {
 
 #[test]
 fn test_milestone_create() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(
@@ -653,7 +674,7 @@ fn test_milestone_create() {
 
 #[test]
 fn test_milestone_list() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -668,7 +689,7 @@ fn test_milestone_list() {
 
 #[test]
 fn test_milestone_show() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(
@@ -685,7 +706,7 @@ fn test_milestone_show() {
 
 #[test]
 fn test_milestone_add_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -703,7 +724,7 @@ fn test_milestone_add_issues() {
 
 #[test]
 fn test_milestone_close() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -715,7 +736,7 @@ fn test_milestone_close() {
 
 #[test]
 fn test_milestone_delete() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -732,7 +753,7 @@ fn test_milestone_delete() {
 
 #[test]
 fn test_timer_start() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue to time"]);
@@ -744,7 +765,7 @@ fn test_timer_start() {
 
 #[test]
 fn test_timer_stop() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue to time"]);
@@ -757,7 +778,7 @@ fn test_timer_stop() {
 
 #[test]
 fn test_timer_status() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue to time"]);
@@ -773,7 +794,7 @@ fn test_timer_status() {
 
 #[test]
 fn test_timer_status_no_timer() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["timer", "show"]);
@@ -790,7 +811,7 @@ fn test_timer_status_no_timer() {
 
 #[test]
 fn test_relate_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1"]);
@@ -803,7 +824,7 @@ fn test_relate_issues() {
 
 #[test]
 fn test_related_list() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1"]);
@@ -818,7 +839,7 @@ fn test_related_list() {
 
 #[test]
 fn test_unrelate_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1"]);
@@ -836,7 +857,7 @@ fn test_unrelate_issues() {
 
 #[test]
 fn test_tree_command() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Parent issue"]);
@@ -851,7 +872,7 @@ fn test_tree_command() {
 
 #[test]
 fn test_tree_with_status_filter() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Open parent"]);
@@ -870,7 +891,7 @@ fn test_tree_with_status_filter() {
 
 #[test]
 fn test_next_command() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Low priority", "-p", "low"]);
@@ -894,7 +915,7 @@ fn test_next_command() {
 
 #[test]
 fn test_next_no_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "next"]);
@@ -911,7 +932,7 @@ fn test_next_no_issues() {
 
 #[test]
 fn test_export_json() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1"]);
@@ -934,7 +955,7 @@ fn test_export_json() {
 
 #[test]
 fn test_export_markdown() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1", "-d", "Description 1"]);
@@ -964,7 +985,7 @@ fn test_export_markdown() {
 
 #[test]
 fn test_import_json() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create issues and export
@@ -976,7 +997,7 @@ fn test_import_json() {
     );
 
     // Create a fresh crosslink instance and import
-    let dir2 = tempdir().unwrap();
+    let dir2 = test_dir();
     init_crosslink(dir2.path());
 
     let (success, _, _) = run_crosslink(dir2.path(), &["import", export_path.to_str().unwrap()]);
@@ -992,7 +1013,7 @@ fn test_import_json() {
 
 #[test]
 fn test_tested_command() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["issue", "tested"]);
@@ -1009,7 +1030,7 @@ fn test_tested_command() {
 
 #[test]
 fn test_create_with_template() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, _) = run_crosslink(dir.path(), &["create", "Bug report", "-t", "bug"]);
@@ -1022,7 +1043,7 @@ fn test_create_with_template() {
 
 #[test]
 fn test_create_all_priorities() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     for priority in &["low", "medium", "high", "critical"] {
@@ -1042,7 +1063,7 @@ fn test_create_all_priorities() {
 
 #[test]
 fn test_subissue_with_priority() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Parent"]);
@@ -1056,7 +1077,7 @@ fn test_subissue_with_priority() {
 
 #[test]
 fn test_subissue_with_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Parent"]);
@@ -1075,7 +1096,7 @@ fn test_subissue_with_description() {
 
 #[test]
 fn test_delete_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "delete", "999", "-f"]);
@@ -1086,7 +1107,7 @@ fn test_delete_nonexistent_issue() {
 
 #[test]
 fn test_delete_with_subissues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Parent"]);
@@ -1106,7 +1127,7 @@ fn test_delete_with_subissues() {
 
 #[test]
 fn test_session_work_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["session", "start"]);
@@ -1118,7 +1139,7 @@ fn test_session_work_nonexistent_issue() {
 
 #[test]
 fn test_session_end_without_start() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["session", "end"]);
@@ -1132,7 +1153,7 @@ fn test_session_end_without_start() {
 
 #[test]
 fn test_session_status_without_session() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["session", "status"]);
@@ -1147,7 +1168,7 @@ fn test_session_status_without_session() {
 
 #[test]
 fn test_session_multiple_starts() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["session", "start"]);
@@ -1162,7 +1183,7 @@ fn test_session_multiple_starts() {
 
 #[test]
 fn test_next_with_blocked_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Blocked issue", "-p", "critical"]);
@@ -1186,7 +1207,7 @@ fn test_next_with_blocked_issues() {
 
 #[test]
 fn test_next_all_closed() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue 1"]);
@@ -1206,7 +1227,7 @@ fn test_next_all_closed() {
 
 #[test]
 fn test_archive_older_days() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Old issue"]);
@@ -1220,7 +1241,7 @@ fn test_archive_older_days() {
 
 #[test]
 fn test_archive_already_archived() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -1243,7 +1264,7 @@ fn test_archive_already_archived() {
 
 #[test]
 fn test_milestone_remove_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -1260,7 +1281,7 @@ fn test_milestone_remove_issue() {
 
 #[test]
 fn test_milestone_show_nonexistent() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["milestone", "show", "999"]);
@@ -1270,7 +1291,7 @@ fn test_milestone_show_nonexistent() {
 
 #[test]
 fn test_milestone_list_closed() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -1288,7 +1309,7 @@ fn test_milestone_list_closed() {
 
 #[test]
 fn test_list_filter_by_priority() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Low issue", "-p", "low"]);
@@ -1303,7 +1324,7 @@ fn test_list_filter_by_priority() {
 
 #[test]
 fn test_list_all_statuses() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Open issue"]);
@@ -1321,7 +1342,7 @@ fn test_list_all_statuses() {
 
 #[test]
 fn test_update_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -1338,7 +1359,7 @@ fn test_update_description() {
 
 #[test]
 fn test_update_nonexistent() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) =
@@ -1351,7 +1372,7 @@ fn test_update_nonexistent() {
 
 #[test]
 fn test_show_with_labels() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -1367,7 +1388,7 @@ fn test_show_with_labels() {
 
 #[test]
 fn test_show_with_comments() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -1383,7 +1404,7 @@ fn test_show_with_comments() {
 
 #[test]
 fn test_show_with_blockers() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Blocked"]);
@@ -1400,7 +1421,7 @@ fn test_show_with_blockers() {
 
 #[test]
 fn test_search_no_results() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -1417,7 +1438,7 @@ fn test_search_no_results() {
 
 #[test]
 fn test_search_in_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(
@@ -1435,7 +1456,7 @@ fn test_search_in_description() {
 
 #[test]
 fn test_init_force_update() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
 
     run_crosslink(dir.path(), &["init"]);
     let (success, stdout, _) = run_crosslink(dir.path(), &["init", "--force"]);
@@ -1453,7 +1474,7 @@ fn test_init_force_update() {
 
 #[test]
 fn test_full_issue_lifecycle() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create
@@ -1483,7 +1504,7 @@ fn test_full_issue_lifecycle() {
 
 #[test]
 fn test_dependency_chain() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create a chain: 1 <- 2 <- 3 (3 blocks 2, 2 blocks 1)
@@ -1512,7 +1533,7 @@ fn test_dependency_chain() {
 // --- next.rs: Multiple ready issues with runners-up ---
 #[test]
 fn test_next_with_multiple_ready_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create multiple issues with different priorities
@@ -1533,7 +1554,7 @@ fn test_next_with_multiple_ready_issues() {
 // --- next.rs: Issue with description preview ---
 #[test]
 fn test_next_with_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(
@@ -1557,7 +1578,7 @@ fn test_next_with_description() {
 // --- next.rs: Progress with subissues ---
 #[test]
 fn test_next_with_subissue_progress() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create parent with subissues
@@ -1584,7 +1605,7 @@ fn test_next_with_subissue_progress() {
 // --- next.rs: Only subissues ready (no parents) ---
 #[test]
 fn test_next_only_subissues_ready() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create parent that is blocked
@@ -1614,7 +1635,7 @@ fn test_next_only_subissues_ready() {
 // --- import.rs: Import with parent relationships ---
 #[test]
 fn test_import_with_parent_relationships() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create and export issues with parent-child relationship
@@ -1628,7 +1649,7 @@ fn test_import_with_parent_relationships() {
     );
 
     // Initialize a fresh directory and import
-    let dir2 = tempdir().unwrap();
+    let dir2 = test_dir();
     init_crosslink(dir2.path());
 
     // Copy export file to new location
@@ -1649,7 +1670,7 @@ fn test_import_with_parent_relationships() {
 // --- import.rs: Import issues with labels and comments ---
 #[test]
 fn test_import_with_labels_and_comments() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create issue with labels and comments
@@ -1666,7 +1687,7 @@ fn test_import_with_labels_and_comments() {
     );
 
     // Import to fresh directory
-    let dir2 = tempdir().unwrap();
+    let dir2 = test_dir();
     init_crosslink(dir2.path());
 
     std::fs::copy(&export_path, dir2.path().join("import.json")).unwrap();
@@ -1685,7 +1706,7 @@ fn test_import_with_labels_and_comments() {
 // --- session.rs: Session with handoff notes from previous session ---
 #[test]
 fn test_session_start_shows_handoff_notes() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Start and end first session with handoff notes
@@ -1710,7 +1731,7 @@ fn test_session_start_shows_handoff_notes() {
 // --- session.rs: Session status with active issue ---
 #[test]
 fn test_session_status_with_active_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Active task"]);
@@ -1726,7 +1747,7 @@ fn test_session_status_with_active_issue() {
 // --- create.rs: Template with user priority override ---
 #[test]
 fn test_template_with_priority_override() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Bug template defaults to high, override to critical
@@ -1745,7 +1766,7 @@ fn test_template_with_priority_override() {
 // --- create.rs: Template with user description ---
 #[test]
 fn test_template_with_user_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(
@@ -1771,7 +1792,7 @@ fn test_template_with_user_description() {
 // --- create.rs: Subissue with invalid parent ---
 #[test]
 fn test_subissue_invalid_parent() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["subissue", "999", "Orphan"]);
@@ -1783,7 +1804,7 @@ fn test_subissue_invalid_parent() {
 // --- relate.rs: Related issues display ---
 #[test]
 fn test_related_issues_display() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue A"]);
@@ -1803,7 +1824,7 @@ fn test_related_issues_display() {
 // --- label.rs: Multiple labels on same issue ---
 #[test]
 fn test_multiple_labels() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Multi-label issue"]);
@@ -1822,7 +1843,7 @@ fn test_multiple_labels() {
 // --- Export markdown format test ---
 #[test]
 fn test_export_markdown_format() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue for markdown"]);
@@ -1860,7 +1881,7 @@ fn test_export_markdown_format() {
 // --- Archive older days test ---
 #[test]
 fn test_archive_older_no_matches() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create and close an issue (just now, so not old)
@@ -1883,7 +1904,7 @@ fn test_archive_older_no_matches() {
 // --- relate.rs: Error cases ---
 #[test]
 fn test_relate_nonexistent_first_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Existing"]);
@@ -1896,7 +1917,7 @@ fn test_relate_nonexistent_first_issue() {
 
 #[test]
 fn test_relate_nonexistent_second_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Existing"]);
@@ -1909,7 +1930,7 @@ fn test_relate_nonexistent_second_issue() {
 
 #[test]
 fn test_relate_already_related() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue A"]);
@@ -1925,7 +1946,7 @@ fn test_relate_already_related() {
 
 #[test]
 fn test_unrelate_no_relation() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue A"]);
@@ -1944,7 +1965,7 @@ fn test_unrelate_no_relation() {
 
 #[test]
 fn test_related_no_relations() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Solo issue"]);
@@ -1961,7 +1982,7 @@ fn test_related_no_relations() {
 
 #[test]
 fn test_related_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "related", "999"]);
@@ -1973,7 +1994,7 @@ fn test_related_nonexistent_issue() {
 // --- label.rs: Error cases ---
 #[test]
 fn test_label_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "label", "999", "bug"]);
@@ -1984,7 +2005,7 @@ fn test_label_nonexistent_issue() {
 
 #[test]
 fn test_label_already_exists() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -1999,7 +2020,7 @@ fn test_label_already_exists() {
 
 #[test]
 fn test_unlabel_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["issue", "unlabel", "999", "bug"]);
@@ -2010,7 +2031,7 @@ fn test_unlabel_nonexistent_issue() {
 
 #[test]
 fn test_unlabel_nonexistent_label() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -2028,7 +2049,7 @@ fn test_unlabel_nonexistent_label() {
 // --- create.rs: Invalid priority ---
 #[test]
 fn test_create_invalid_priority() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["create", "Issue", "-p", "invalid"]);
@@ -2042,7 +2063,7 @@ fn test_create_invalid_priority() {
 // --- create.rs: Unknown template ---
 #[test]
 fn test_create_unknown_template() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, _, stderr) = run_crosslink(dir.path(), &["create", "Issue", "-t", "unknown"]);
@@ -2056,7 +2077,7 @@ fn test_create_unknown_template() {
 // --- block.rs: Error cases ---
 #[test]
 fn test_block_self() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -2073,7 +2094,7 @@ fn test_block_self() {
 
 #[test]
 fn test_block_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Issue"]);
@@ -2087,7 +2108,7 @@ fn test_block_nonexistent_issue() {
 // --- session.rs: Session status deleted issue ---
 #[test]
 fn test_session_status_deleted_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "To delete"]);
@@ -2105,7 +2126,7 @@ fn test_session_status_deleted_issue() {
 // --- show.rs: Show with related issues ---
 #[test]
 fn test_show_with_related_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Main issue"]);
@@ -2121,7 +2142,7 @@ fn test_show_with_related_issues() {
 // --- milestone.rs: Edge cases ---
 #[test]
 fn test_milestone_add_nonexistent_issue() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["milestone", "create", "v1.0"]);
@@ -2140,7 +2161,7 @@ fn test_milestone_add_nonexistent_issue() {
 
 #[test]
 fn test_milestone_delete_nonexistent() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(dir.path(), &["milestone", "delete", "999"]);
@@ -2155,7 +2176,7 @@ fn test_milestone_delete_nonexistent() {
 /// Test with long title at the limit (512 chars)
 #[test]
 fn test_stress_very_long_title() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Title at the 512-char limit should succeed
@@ -2183,7 +2204,7 @@ fn test_stress_very_long_title() {
 /// Note: Windows has ~8191 char command line limit, so we use a smaller size
 #[test]
 fn test_stress_very_long_description() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Use 5000 chars - safe for Windows command line limits
@@ -2202,7 +2223,7 @@ fn test_stress_very_long_description() {
 /// Test creating many issues (stress test)
 #[test]
 fn test_stress_many_issues() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create 100 issues
@@ -2226,7 +2247,7 @@ fn test_stress_many_issues() {
 /// Test deeply nested subissues
 #[test]
 fn test_stress_deep_nesting() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create root issue
@@ -2249,7 +2270,7 @@ fn test_stress_deep_nesting() {
 /// Test SQL injection in title (should be safely escaped)
 #[test]
 fn test_security_sql_injection_title() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let malicious_titles = [
@@ -2274,7 +2295,7 @@ fn test_security_sql_injection_title() {
 /// Test SQL injection in search
 #[test]
 fn test_security_sql_injection_search() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Normal issue"]);
@@ -2301,7 +2322,7 @@ fn test_security_sql_injection_search() {
 /// Test path traversal in export
 #[test]
 fn test_security_path_traversal_export() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test issue"]);
@@ -2326,7 +2347,7 @@ fn test_security_path_traversal_export() {
 /// Note: OS rejects null bytes in command args - this is correct security behavior
 #[test]
 fn test_security_null_bytes() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Null bytes are rejected at the OS level (can't pass via command line)
@@ -2342,7 +2363,7 @@ fn test_security_null_bytes() {
 /// Test newlines and control characters in input
 #[test]
 fn test_security_control_characters() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let control_inputs = [
@@ -2365,7 +2386,7 @@ fn test_security_control_characters() {
 /// Test empty strings
 #[test]
 fn test_edge_empty_strings() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Empty title - should either fail or succeed (both acceptable, just don't crash)
@@ -2390,7 +2411,7 @@ fn test_edge_empty_strings() {
 /// Test integer overflow in IDs
 #[test]
 fn test_edge_large_ids() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Test"]);
@@ -2416,7 +2437,7 @@ fn test_edge_large_ids() {
 /// Test concurrent-like rapid operations
 #[test]
 fn test_stress_rapid_operations() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Rapid create/close/reopen cycle
@@ -2439,7 +2460,7 @@ fn test_stress_rapid_operations() {
 /// Test export/import round-trip preserves data
 #[test]
 fn test_integrity_export_import_roundtrip() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create complex data
@@ -2460,7 +2481,7 @@ fn test_integrity_export_import_roundtrip() {
     assert!(success);
 
     // Import to new location
-    let dir2 = tempdir().unwrap();
+    let dir2 = test_dir();
     init_crosslink(dir2.path());
     std::fs::copy(&export_path, dir2.path().join("backup.json")).unwrap();
 
@@ -2488,7 +2509,7 @@ fn test_integrity_export_import_roundtrip() {
 /// Test issue creation and listing with Unicode arrows
 #[test]
 fn test_unicode_arrows_in_title() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // The exact issue that caused the original panic
@@ -2507,7 +2528,7 @@ fn test_unicode_arrows_in_title() {
 /// Test various Unicode characters in issue titles
 #[test]
 fn test_unicode_variety_in_titles() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let unicode_titles = [
@@ -2546,7 +2567,7 @@ fn test_unicode_variety_in_titles() {
 /// Test Unicode in descriptions and comments
 #[test]
 fn test_unicode_in_descriptions_and_comments() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create with Unicode description
@@ -2581,7 +2602,7 @@ fn test_unicode_in_descriptions_and_comments() {
 /// Test search with Unicode queries
 #[test]
 fn test_unicode_search() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "日本語のテスト"]);
@@ -2604,7 +2625,7 @@ fn test_unicode_search() {
 /// Test very long Unicode strings (stress test truncation)
 #[test]
 fn test_unicode_long_string_truncation() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Create title that's definitely longer than truncation limit
@@ -2630,7 +2651,7 @@ fn test_unicode_long_string_truncation() {
 /// Test blocked/ready lists with Unicode
 #[test]
 fn test_unicode_in_dependencies() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "ブロッカー (blocker) ←"]);
@@ -2649,7 +2670,7 @@ fn test_unicode_in_dependencies() {
 /// Test export/import preserves Unicode
 #[test]
 fn test_unicode_export_import_roundtrip() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let unicode_title = "Test: 日本語 ← → 🎉";
@@ -2667,7 +2688,7 @@ fn test_unicode_export_import_roundtrip() {
     assert!(success);
 
     // Import to new location
-    let dir2 = tempdir().unwrap();
+    let dir2 = test_dir();
     init_crosslink(dir2.path());
     std::fs::copy(&export_path, dir2.path().join("unicode_backup.json")).unwrap();
 
@@ -2692,7 +2713,7 @@ fn test_unicode_export_import_roundtrip() {
 /// Test zero-width and special Unicode characters
 #[test]
 fn test_unicode_special_characters() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // Zero-width characters (shouldn't break anything)
@@ -2722,7 +2743,7 @@ fn test_unicode_special_characters() {
 
 #[test]
 fn test_integrity_all_checks() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity"]);
     assert!(success, "integrity command failed");
@@ -2732,7 +2753,7 @@ fn test_integrity_all_checks() {
 
 #[test]
 fn test_integrity_schema_pass() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "schema"]);
     assert!(success);
@@ -2741,7 +2762,7 @@ fn test_integrity_schema_pass() {
 
 #[test]
 fn test_integrity_counters_skipped_without_sync() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "counters"]);
     assert!(success);
@@ -2750,7 +2771,7 @@ fn test_integrity_counters_skipped_without_sync() {
 
 #[test]
 fn test_integrity_locks_skipped_without_sync() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "locks"]);
     assert!(success);
@@ -2759,7 +2780,7 @@ fn test_integrity_locks_skipped_without_sync() {
 
 #[test]
 fn test_integrity_hydration_skipped_without_sync() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
     let (success, stdout, _) = run_crosslink(dir.path(), &["integrity", "hydration"]);
     assert!(success);
@@ -2804,7 +2825,7 @@ fn init_git_and_crosslink(dir: &std::path::Path) {
 
 #[test]
 fn test_kickoff_dry_run_prints_prompt_and_metadata() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
     let (success, stdout, stderr) = run_crosslink(
@@ -2833,7 +2854,7 @@ fn test_kickoff_dry_run_prints_prompt_and_metadata() {
 
 #[test]
 fn test_kickoff_dry_run_creates_kickoff_md() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(
@@ -2879,7 +2900,7 @@ fn test_kickoff_dry_run_creates_kickoff_md() {
 
 #[test]
 fn test_kickoff_dry_run_does_not_launch_agent() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
     let (success, stdout, _) = run_crosslink(
@@ -2898,7 +2919,7 @@ fn test_kickoff_dry_run_does_not_launch_agent() {
 
 #[test]
 fn test_knowledge_search_with_tag_filter() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
     // Add two knowledge pages with different tags
@@ -2953,7 +2974,7 @@ fn test_knowledge_search_with_tag_filter() {
 
 #[test]
 fn test_knowledge_import_dry_run() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_git_and_crosslink(dir.path());
 
     // Create a fixtures directory with markdown files
@@ -2994,7 +3015,7 @@ fn test_knowledge_import_dry_run() {
 
 #[test]
 fn test_init_deploys_mcp_knowledge_server_integration() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // knowledge-server.py must exist after init
@@ -3020,7 +3041,7 @@ fn test_init_deploys_mcp_knowledge_server_integration() {
 
 #[test]
 fn test_init_deploys_skill_files_integration() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let commands_dir = dir.path().join(".claude/commands");
@@ -3180,7 +3201,7 @@ fn test_offline_sync_does_not_panic() {
 
 #[test]
 fn test_issue_create_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, stderr) =
@@ -3202,7 +3223,7 @@ fn test_issue_create_canonical() {
 
 #[test]
 fn test_issue_create_with_parent() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Parent"]);
@@ -3219,7 +3240,7 @@ fn test_issue_create_with_parent() {
 
 #[test]
 fn test_issue_quick_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, stderr) = run_crosslink(
@@ -3245,7 +3266,7 @@ fn test_issue_quick_canonical() {
 
 #[test]
 fn test_issue_list_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Test issue"]);
@@ -3258,7 +3279,7 @@ fn test_issue_list_canonical() {
 
 #[test]
 fn test_issue_show_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Show me"]);
@@ -3271,7 +3292,7 @@ fn test_issue_show_canonical() {
 
 #[test]
 fn test_issue_close_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Close me"]);
@@ -3284,7 +3305,7 @@ fn test_issue_close_canonical() {
 
 #[test]
 fn test_issue_update_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Original"]);
@@ -3299,7 +3320,7 @@ fn test_issue_update_canonical() {
 
 #[test]
 fn test_issue_reopen_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Reopen me"]);
@@ -3312,7 +3333,7 @@ fn test_issue_reopen_canonical() {
 
 #[test]
 fn test_issue_delete_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Delete me"]);
@@ -3326,7 +3347,7 @@ fn test_issue_delete_canonical() {
 
 #[test]
 fn test_issue_comment_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Comment target"]);
@@ -3343,7 +3364,7 @@ fn test_issue_comment_canonical() {
 
 #[test]
 fn test_issue_label_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Label target"]);
@@ -3357,7 +3378,7 @@ fn test_issue_label_canonical() {
 
 #[test]
 fn test_issue_search_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Findable needle"]);
@@ -3372,7 +3393,7 @@ fn test_issue_search_canonical() {
 
 #[test]
 fn test_issue_block_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Blocked"]);
@@ -3387,7 +3408,7 @@ fn test_issue_block_canonical() {
 
 #[test]
 fn test_issue_tree_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Tree parent"]);
@@ -3405,7 +3426,7 @@ fn test_issue_tree_canonical() {
 
 #[test]
 fn test_issue_next_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Low prio", "-p", "low"]);
@@ -3421,7 +3442,7 @@ fn test_issue_next_canonical() {
 
 #[test]
 fn test_timer_start_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Timed issue"]);
@@ -3434,7 +3455,7 @@ fn test_timer_start_canonical() {
 
 #[test]
 fn test_timer_stop_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Timed issue"]);
@@ -3448,7 +3469,7 @@ fn test_timer_stop_canonical() {
 
 #[test]
 fn test_timer_show_canonical() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Timed issue"]);
@@ -3465,7 +3486,7 @@ fn test_timer_show_canonical() {
 
 #[test]
 fn test_new_alias_emits_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, stderr) = run_crosslink_info(dir.path(), &["new", "Aliased issue"]);
@@ -3481,7 +3502,7 @@ fn test_new_alias_emits_hint() {
 
 #[test]
 fn test_issues_alias_emits_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Visible issue"]);
@@ -3498,7 +3519,7 @@ fn test_issues_alias_emits_hint() {
 
 #[test]
 fn test_issues_list_alias_emits_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Listed issue"]);
@@ -3516,7 +3537,7 @@ fn test_issues_list_alias_emits_hint() {
 
 #[test]
 fn test_subissue_alias_emits_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Parent"]);
@@ -3534,7 +3555,7 @@ fn test_subissue_alias_emits_hint() {
 
 #[test]
 fn test_start_alias_emits_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Timer target"]);
@@ -3551,7 +3572,7 @@ fn test_start_alias_emits_hint() {
 
 #[test]
 fn test_stop_alias_emits_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["issue", "create", "Timer target"]);
@@ -3573,7 +3594,7 @@ fn test_stop_alias_emits_hint() {
 
 #[test]
 fn test_top_level_create_no_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, stderr) = run_crosslink(dir.path(), &["create", "Shortcut issue"]);
@@ -3589,7 +3610,7 @@ fn test_top_level_create_no_hint() {
 
 #[test]
 fn test_top_level_list_no_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Visible"]);
@@ -3604,7 +3625,7 @@ fn test_top_level_list_no_hint() {
 
 #[test]
 fn test_top_level_show_no_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Visible"]);
@@ -3619,7 +3640,7 @@ fn test_top_level_show_no_hint() {
 
 #[test]
 fn test_top_level_close_no_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     run_crosslink(dir.path(), &["create", "Close me"]);
@@ -3634,7 +3655,7 @@ fn test_top_level_close_no_hint() {
 
 #[test]
 fn test_top_level_quick_no_hint() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     let (success, stdout, stderr) =
@@ -3654,7 +3675,7 @@ fn test_top_level_quick_no_hint() {
 
 #[test]
 fn test_dry_run_flag_accepted() {
-    let dir = tempdir().unwrap();
+    let dir = test_dir();
     init_crosslink(dir.path());
 
     // --dry-run on style sync should be accepted without error

@@ -26,6 +26,7 @@ impl Database {
         description: Option<&str>,
         priority: &str,
     ) -> Result<i64> {
+        let parent_id = self.resolve_id(parent_id);
         self.create_issue_with_parent(title, description, priority, Some(parent_id))
     }
 
@@ -72,14 +73,35 @@ impl Database {
         Ok(issues)
     }
 
+    /// Resolve an issue ID, trying the local equivalent if a positive ID
+    /// isn't found. Users type "1" meaning "the first issue", regardless
+    /// of whether it's stored as #1 (hub) or L1 (local, id=-1 in SQLite).
+    pub fn resolve_id(&self, id: i64) -> i64 {
+        if id > 0 {
+            let exists: bool = self
+                .conn
+                .query_row("SELECT 1 FROM issues WHERE id = ?1", [id], |_| Ok(true))
+                .unwrap_or(false);
+            if !exists {
+                let local_exists: bool = self
+                    .conn
+                    .query_row("SELECT 1 FROM issues WHERE id = ?1", [-id], |_| Ok(true))
+                    .unwrap_or(false);
+                if local_exists {
+                    return -id;
+                }
+            }
+        }
+        id
+    }
+
     pub fn get_issue(&self, id: i64) -> Result<Option<Issue>> {
+        let id = self.resolve_id(id);
         let mut stmt = self.conn.prepare(
             "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at FROM issues WHERE id = ?1",
         )?;
 
-        let issue = stmt.query_row([id], issue_from_row).ok();
-
-        Ok(issue)
+        Ok(stmt.query_row([id], issue_from_row).ok())
     }
 
     /// Look up an issue's display ID by its UUID.
@@ -107,6 +129,7 @@ impl Database {
     /// Get an issue by ID, returning an error if not found.
     /// Use this instead of get_issue when you need the issue to exist.
     pub fn require_issue(&self, id: i64) -> Result<Issue> {
+        let id = self.resolve_id(id);
         self.get_issue(id)?
             .ok_or_else(|| anyhow::anyhow!("Issue {} not found", crate::utils::format_issue_id(id)))
     }
@@ -170,6 +193,7 @@ impl Database {
         description: Option<&str>,
         priority: Option<&str>,
     ) -> Result<bool> {
+        let id = self.resolve_id(id);
         if let Some(t) = title {
             if t.len() > MAX_TITLE_LEN {
                 anyhow::bail!(
@@ -220,6 +244,7 @@ impl Database {
     }
 
     pub fn close_issue(&self, id: i64) -> Result<bool> {
+        let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
         let rows = self.conn.execute(
             "UPDATE issues SET status = 'closed', closed_at = ?1, updated_at = ?1 WHERE id = ?2",
@@ -229,6 +254,7 @@ impl Database {
     }
 
     pub fn reopen_issue(&self, id: i64) -> Result<bool> {
+        let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
         let rows = self.conn.execute(
             "UPDATE issues SET status = 'open', closed_at = NULL, updated_at = ?1 WHERE id = ?2",
@@ -238,6 +264,7 @@ impl Database {
     }
 
     pub fn delete_issue(&self, id: i64) -> Result<bool> {
+        let id = self.resolve_id(id);
         let rows = self
             .conn
             .execute("DELETE FROM issues WHERE id = ?1", [id])?;
@@ -270,6 +297,7 @@ impl Database {
 
     // Archiving
     pub fn archive_issue(&self, id: i64) -> Result<bool> {
+        let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
         let rows = self.conn.execute(
             "UPDATE issues SET status = 'archived', updated_at = ?1 WHERE id = ?2 AND status = 'closed'",

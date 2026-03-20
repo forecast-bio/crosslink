@@ -9,6 +9,8 @@ use crate::models::Issue;
 impl Database {
     // Dependencies
     pub fn add_dependency(&self, blocked_id: i64, blocker_id: i64) -> Result<bool> {
+        let blocked_id = self.resolve_id(blocked_id);
+        let blocker_id = self.resolve_id(blocker_id);
         // Prevent self-blocking
         if blocked_id == blocker_id {
             anyhow::bail!("An issue cannot block itself");
@@ -53,6 +55,8 @@ impl Database {
     }
 
     pub fn remove_dependency(&self, blocked_id: i64, blocker_id: i64) -> Result<bool> {
+        let blocked_id = self.resolve_id(blocked_id);
+        let blocker_id = self.resolve_id(blocker_id);
         let rows = self.conn.execute(
             "DELETE FROM dependencies WHERE blocker_id = ?1 AND blocked_id = ?2",
             params![blocker_id, blocked_id],
@@ -61,6 +65,7 @@ impl Database {
     }
 
     pub fn get_blockers(&self, issue_id: i64) -> Result<Vec<i64>> {
+        let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
             .conn
             .prepare("SELECT blocker_id FROM dependencies WHERE blocked_id = ?1")?;
@@ -71,6 +76,7 @@ impl Database {
     }
 
     pub fn get_blocking(&self, issue_id: i64) -> Result<Vec<i64>> {
+        let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
             .conn
             .prepare("SELECT blocked_id FROM dependencies WHERE blocker_id = ?1")?;
@@ -123,6 +129,8 @@ impl Database {
 
     // Relations (bidirectional)
     pub fn add_relation(&self, issue_id_1: i64, issue_id_2: i64) -> Result<bool> {
+        let issue_id_1 = self.resolve_id(issue_id_1);
+        let issue_id_2 = self.resolve_id(issue_id_2);
         if issue_id_1 == issue_id_2 {
             anyhow::bail!("Cannot relate an issue to itself");
         }
@@ -141,6 +149,8 @@ impl Database {
     }
 
     pub fn remove_relation(&self, issue_id_1: i64, issue_id_2: i64) -> Result<bool> {
+        let issue_id_1 = self.resolve_id(issue_id_1);
+        let issue_id_2 = self.resolve_id(issue_id_2);
         let (a, b) = if issue_id_1 < issue_id_2 {
             (issue_id_1, issue_id_2)
         } else {
@@ -154,6 +164,7 @@ impl Database {
     }
 
     pub fn get_related_issues(&self, issue_id: i64) -> Result<Vec<Issue>> {
+        let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
             r#"
             SELECT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at
@@ -176,6 +187,7 @@ impl Database {
 
     /// Get related issue IDs (both directions of the relation).
     pub fn get_related_issue_ids(&self, issue_id: i64) -> Result<Vec<i64>> {
+        let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
             "SELECT issue_id_2 FROM relations WHERE issue_id_1 = ?1 UNION SELECT issue_id_1 FROM relations WHERE issue_id_2 = ?1",
         )?;

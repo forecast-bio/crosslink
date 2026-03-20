@@ -555,13 +555,14 @@ impl SharedWriter {
     ///
     /// For negative IDs, consults SQLite to resolve the UUID first.
     pub(super) fn load_issue_by_id(&self, id: i64, db: &Database) -> Result<IssueFile> {
-        if id >= 0 {
-            self.load_issue_by_display_id(id)
+        let resolved = db.resolve_id(id);
+        if resolved >= 0 {
+            self.load_issue_by_display_id(resolved)
         } else {
-            let uuid_str = db.get_issue_uuid_by_id(id)?;
-            let uuid: Uuid = uuid_str
-                .parse()
-                .with_context(|| format!("Invalid UUID for local issue L{}", id.unsigned_abs()))?;
+            let uuid_str = db.get_issue_uuid_by_id(resolved)?;
+            let uuid: Uuid = uuid_str.parse().with_context(|| {
+                format!("Invalid UUID for local issue L{}", resolved.unsigned_abs())
+            })?;
             read_issue_file(&self.issue_path(&uuid))
         }
     }
@@ -572,22 +573,26 @@ impl SharedWriter {
     /// back to SQLite if the JSON cache doesn't have the issue (#427).
     /// For negative IDs, looks up the UUID from SQLite.
     pub(super) fn resolve_uuid(&self, id: i64, db: &Database) -> Result<Uuid> {
-        if id >= 0 {
-            match self.load_issue_by_display_id(id) {
+        // Resolve positive IDs to their local equivalent if needed.
+        // Users type "1" meaning "the first issue" regardless of format.
+        let resolved = db.resolve_id(id);
+
+        if resolved >= 0 {
+            match self.load_issue_by_display_id(resolved) {
                 Ok(issue) => Ok(issue.uuid),
                 Err(_) => {
                     // JSON cache miss — fall back to SQLite (#427)
-                    let uuid_str = db.get_issue_uuid_by_id(id)?;
+                    let uuid_str = db.get_issue_uuid_by_id(resolved)?;
                     uuid_str.parse().with_context(|| {
-                        format!("Invalid UUID for issue #{} from SQLite fallback", id)
+                        format!("Invalid UUID for issue #{} from SQLite fallback", resolved)
                     })
                 }
             }
         } else {
-            let uuid_str = db.get_issue_uuid_by_id(id)?;
-            uuid_str
-                .parse()
-                .with_context(|| format!("Invalid UUID for local issue L{}", id.unsigned_abs()))
+            let uuid_str = db.get_issue_uuid_by_id(resolved)?;
+            uuid_str.parse().with_context(|| {
+                format!("Invalid UUID for local issue L{}", resolved.unsigned_abs())
+            })
         }
     }
 
