@@ -1,0 +1,10 @@
+{
+  "uuid": "438a50ba-913a-45c7-a42d-ac13a631ccbb",
+  "display_id": 236,
+  "title": "Fix kickoff/swarm branch name collision from prior phase",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-20T14:41:35.654367756Z",
+  "updated_at": "2026-03-20T14:41:35.654367756Z"
+}
