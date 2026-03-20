@@ -1,0 +1,8 @@
+{
+  "uuid": "c2a52654-c3b0-4778-a63e-f57dabff3b56",
+  "issue_uuid": "438a50ba-913a-45c7-a42d-ac13a631ccbb",
+  "author": "anon-ab6221f8",
+  "content": "GH #481: create_worktree checks if the worktree directory exists but not if the branch ref exists. When a branch was used in a prior phase and merged, the ref persists. Fix: check branch existence before git worktree add -b, and if it's fully merged into base, delete it and recreate.",
+  "created_at": "2026-03-20T14:42:08.005907141Z",
+  "kind": "plan"
+}
