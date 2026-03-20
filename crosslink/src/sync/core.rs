@@ -64,6 +64,21 @@ impl SyncManager {
         &self.cache_dir
     }
 
+    /// Check whether the configured git remote actually exists in the repo.
+    ///
+    /// Returns `false` when the remote (e.g. "origin") is not configured,
+    /// which means hub sync operations cannot work.
+    pub fn remote_exists(&self) -> bool {
+        Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(["remote", "get-url", &self.remote])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
     /// Check if the hub uses V2 layout (per-entity lock files in `locks/`).
     pub fn is_v2_layout(&self) -> bool {
         let meta_dir = self.cache_dir.join("meta");

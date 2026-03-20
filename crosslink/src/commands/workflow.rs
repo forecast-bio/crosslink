@@ -296,9 +296,35 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// Create a temp directory with a git repo and initial commit.
+    fn test_dir() -> tempfile::TempDir {
+        let dir = tempdir().unwrap();
+        let init = std::process::Command::new("git")
+            .current_dir(dir.path())
+            .args(["init"])
+            .output()
+            .expect("git init failed");
+        assert!(init.status.success(), "git init failed");
+        // Set identity so commit works in CI where no global config exists
+        for (key, val) in [("user.name", "test"), ("user.email", "test@test")] {
+            std::process::Command::new("git")
+                .current_dir(dir.path())
+                .args(["config", key, val])
+                .output()
+                .unwrap();
+        }
+        let commit = std::process::Command::new("git")
+            .current_dir(dir.path())
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .output()
+            .expect("git commit failed");
+        assert!(commit.status.success(), "git commit --allow-empty failed");
+        dir
+    }
+
     #[test]
     fn test_compare_file_matches() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().unwrap(); // This test doesn't call init — tempdir is fine
         let path = dir.path().join("test.txt");
         fs::write(&path, "hello world").unwrap();
         assert!(matches!(
@@ -332,7 +358,7 @@ mod tests {
     #[test]
     fn test_diff_defaults_match() {
         // Init a fresh crosslink dir, then diff — everything should match
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
@@ -356,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_diff_customized_file() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
@@ -388,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_diff_section_filter() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
@@ -414,7 +440,7 @@ mod tests {
 
     #[test]
     fn test_init_creates_commands_dir() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
@@ -436,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_check_passes_when_defaults_match() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
@@ -460,7 +486,7 @@ mod tests {
 
     #[test]
     fn test_check_passes_with_custom_marker() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         crate::commands::init::run(
             dir.path(),
             &crate::commands::init::InitOpts {
@@ -492,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_has_custom_marker_present() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         let path = dir.path().join("test.txt");
         fs::write(&path, "some content\n# crosslink:custom\nmore content").unwrap();
         assert!(has_custom_marker(&path));
@@ -500,7 +526,7 @@ mod tests {
 
     #[test]
     fn test_has_custom_marker_absent() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         let path = dir.path().join("test.txt");
         fs::write(&path, "some content\nno marker here").unwrap();
         assert!(!has_custom_marker(&path));
@@ -508,7 +534,7 @@ mod tests {
 
     #[test]
     fn test_has_custom_marker_missing_file() {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         let path = dir.path().join("nonexistent.txt");
         assert!(!has_custom_marker(&path));
     }
@@ -516,7 +542,7 @@ mod tests {
     // ==================== Trail Tests ====================
 
     fn setup_trail_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = test_dir();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

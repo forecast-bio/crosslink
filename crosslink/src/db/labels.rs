@@ -6,6 +6,7 @@ use super::core::{Database, MAX_LABEL_LEN};
 impl Database {
     // Labels
     pub fn add_label(&self, issue_id: i64, label: &str) -> Result<bool> {
+        let issue_id = self.resolve_id(issue_id);
         if label.len() > MAX_LABEL_LEN {
             anyhow::bail!(
                 "Label exceeds maximum length of {} characters",
@@ -20,6 +21,7 @@ impl Database {
     }
 
     pub fn remove_label(&self, issue_id: i64, label: &str) -> Result<bool> {
+        let issue_id = self.resolve_id(issue_id);
         let rows = self.conn.execute(
             "DELETE FROM labels WHERE issue_id = ?1 AND label = ?2",
             params![issue_id, label],
@@ -28,6 +30,7 @@ impl Database {
     }
 
     pub fn get_labels(&self, issue_id: i64) -> Result<Vec<String>> {
+        let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
             .conn
             .prepare("SELECT label FROM labels WHERE issue_id = ?1 ORDER BY label")?;

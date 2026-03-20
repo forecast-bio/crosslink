@@ -127,11 +127,11 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
             if json_uuids.contains(&row.uuid) {
                 return false; // Already in JSON — will be hydrated normally
             }
-            // Only preserve issues that were never part of the hub (created
-            // directly in SQLite, e.g., before SharedWriter was available).
-            // Issues with positive IDs that aren't in JSON were on the hub
-            // and were intentionally deleted — don't resurrect them.
-            row.id < 0
+            // Preserve only issues created via direct SQLite (db.create_issue),
+            // not issues that were tracked by SharedWriter and then deleted.
+            // SharedWriter-created issues have a created_by field (agent ID).
+            // Direct SQLite issues have created_by = NULL.
+            row.created_by.is_none()
         })
         .collect();
     if !sqlite_only_rows.is_empty() {

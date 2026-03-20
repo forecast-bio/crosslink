@@ -721,7 +721,7 @@ fn test_split_brain_lock_detection() {
                 || combined.contains("split")
                 || combined.contains("evict")
                 || combined.contains("remote")
-                || combined.len() > 0, // any non-empty output is acceptable
+                || !combined.is_empty(), // any non-empty output is acceptable
             "Sync failure should produce some output; got empty stdout+stderr",
         );
     }
