@@ -2,7 +2,6 @@
 agent.json
 .hub-cache/
 .knowledge-cache/
-.external-cache/
 keys/
 integrations/
 

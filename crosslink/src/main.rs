@@ -182,7 +182,11 @@ enum Commands {
     /// View and modify repo-level configuration
     Config {
         #[command(subcommand)]
-        command: ConfigCommands,
+        command: Option<ConfigCommands>,
+
+        /// Apply a preset configuration (team, solo)
+        #[arg(long)]
+        preset: Option<String>,
     },
 
     /// Measure and check context injection overhead
@@ -1465,6 +1469,9 @@ enum ConfigCommands {
         /// Remove a value from an array field
         #[arg(long)]
         remove: Option<String>,
+        /// Write to hook-config.local.json instead of hook-config.json
+        #[arg(long)]
+        local: bool,
     },
     /// List all available config keys with descriptions
     List,
@@ -2560,9 +2567,12 @@ fn main() -> Result<()> {
             commands::knowledge::dispatch(command, &crosslink_dir, cli.json)
         }
 
-        Commands::Config { command } => {
+        Commands::Config { command, preset } => {
             let crosslink_dir = find_crosslink_dir()?;
-            commands::config::run(command, &crosslink_dir)
+            match command {
+                Some(cmd) => commands::config::run(cmd, &crosslink_dir),
+                None => commands::config::run_bare(&crosslink_dir, preset.as_deref()),
+            }
         }
         Commands::Context { command } => {
             let crosslink_dir = find_crosslink_dir()?;

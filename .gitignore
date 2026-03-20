@@ -45,7 +45,6 @@ OPUS_4_6_SUGGESTIONS.md
 .crosslink/keys/
 .crosslink/.hub-cache/
 .crosslink/.knowledge-cache/
-.crosslink/.external-cache/
 .crosslink/.cache/
 .crosslink/hook-config.local.json
 .crosslink/integrations/
