@@ -1,0 +1,8 @@
+{
+  "uuid": "3bd40f80-c681-4ca5-925c-23b9fab4f929",
+  "issue_uuid": "438a50ba-913a-45c7-a42d-ac13a631ccbb",
+  "author": "anon-ab6221f8",
+  "content": "GH #480 is still valid. clean_dirty_state only runs in the rebase path, not before reset --hard. But the real issue is untracked heartbeat files blocking rebase. Fix: call clean_dirty_state unconditionally at the start of fetch() to stage any untracked files before any git operation.",
+  "created_at": "2026-03-20T15:45:00.457875184Z",
+  "kind": "observation"
+}
