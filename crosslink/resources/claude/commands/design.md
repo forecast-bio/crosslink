@@ -159,6 +159,25 @@ After validation:
    crosslink issue comment <id> "Design doc drafted: .design/<slug>.md" --kind plan
    ```
 
+### Pipeline State Initialization
+
+After writing the design document, create the pipeline state file so the kickoff wizard can track it:
+
+```bash
+cat > .design/<slug>.pipeline.json << 'PIPELINE_EOF'
+{
+  "schema_version": 1,
+  "design_doc": ".design/<slug>.md",
+  "doc_hash": "<sha256 hash of the design doc content>",
+  "stage": "designed",
+  "plans": [],
+  "runs": []
+}
+PIPELINE_EOF
+```
+
+Compute the `doc_hash` as the SHA-256 hex digest of the design doc file content, prefixed with `sha256:`. You can compute it with: `shasum -a 256 .design/<slug>.md | awk '{print "sha256:" $1}'`
+
 ### Summary Output
 
 Print this summary after every invocation:
@@ -173,8 +192,7 @@ Issue:      Commented on #<id>  (if applicable)
 Next steps:
   - Edit in your editor:  $EDITOR .design/<slug>.md
   - Continue iterating:   /design --continue <slug>
-  - Run gap analysis:     crosslink kickoff plan .design/<slug>.md
-  - Start implementation: crosslink kickoff run "<feature>" --doc .design/<slug>.md
+  - Launch pipeline:      crosslink kickoff .design/<slug>.md
 ```
 
 ### Rules

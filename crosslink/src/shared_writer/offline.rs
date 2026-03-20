@@ -112,43 +112,34 @@ impl SharedWriter {
         )?;
 
         if outcome == PushOutcome::LocalOnly {
-            // Still offline -- revert display_id assignments
-            for (uuid, _) in &offline_info {
-                let path = self.issue_path(uuid);
-                if let Ok(mut issue) = read_issue_file(&path) {
-                    issue.display_id = None;
-                    if let Ok(json) = serde_json::to_string_pretty(&issue) {
-                        // INTENTIONAL: reverting display_id on disk is best-effort — offline issues will be re-assigned on next push
-                        let _ = std::fs::write(&path, json);
-                    }
-                }
-            }
-            // Revert counter
-            if let Ok(mut counters) = self.read_counters() {
-                counters.next_display_id -= count;
-                // INTENTIONAL: counter revert is best-effort — counters will be corrected on next push
-                let _ = self.write_counters_to_cache(&counters);
-            }
-            // Amend the commit to reflect reverted state
-            if let Err(e) = self.git_in_cache(&["add", "."]) {
-                tracing::warn!("failed to stage reverted state: {}", e);
-            }
-            if let Err(e) = self.git_in_cache(&["commit", "--amend", "--no-edit"]) {
-                tracing::warn!("failed to commit reverted state: {}", e);
-                // INTENTIONAL: last-resort dirty state cleanup is best-effort — prevents poisoning future syncs
-                let _ = self.sync.clean_dirty_state();
-            }
+            // Keep the promotion commit local — don't revert (#467).
+            //
+            // The old approach reverted display_ids and counters on disk, then
+            // created a revert commit. This had 6 failure points that each
+            // needed error handling and could leave orphaned IDs or desynced
+            // counters.
+            //
+            // The new approach: do nothing. The promotion commit stays local
+            // with the correct display_ids and counter. On next sync:
+            // - If connectivity restored: push succeeds, promotion is published
+            // - If push conflicts: write_commit_push's retry loop resets and
+            //   the prepare closure re-reads fresh counters after rebase,
+            //   re-claiming from the correct value. No collision.
+            tracing::info!(
+                "promotion of {} issue(s) saved locally (push failed), will retry on next sync",
+                count
+            );
             return Ok(vec![]);
         }
 
         // Re-hydrate with new positive IDs
         self.hydrate_with_retry(db)?;
 
-        // Record promoted UUIDs so they are never re-promoted (gh#313).
+        // Record promoted UUIDs so they are never re-promoted (#451).
+        // This MUST succeed — if it fails, the next sync will re-promote
+        // the same UUIDs with new display IDs, creating duplicates.
         let promoted_uuids: Vec<Uuid> = offline_info.iter().map(|(uuid, _)| *uuid).collect();
-        if let Err(e) = self.record_promoted_uuids(&promoted_uuids) {
-            tracing::warn!("failed to record promoted UUIDs: {}", e);
-        }
+        self.record_promoted_uuids(&promoted_uuids)?;
 
         let start_id = first_id.get();
         let mapping: Vec<(i64, i64, String)> = offline_info
@@ -267,8 +258,12 @@ impl SharedWriter {
             ]) {
                 tracing::warn!("failed to commit rewritten references: {}", e);
             }
-            // INTENTIONAL: push is best-effort — rewritten references will be pushed on next sync
-            let _ = self.git_in_cache(&["push", self.sync.remote(), crate::sync::HUB_BRANCH]);
+            // Push rewritten references — if offline, next sync will push.
+            if let Err(e) =
+                self.git_in_cache(&["push", self.sync.remote(), crate::sync::HUB_BRANCH])
+            {
+                tracing::info!("reference rewrite push deferred to next sync: {}", e);
+            }
         }
 
         // 2. Rewrite session notes in SQLite

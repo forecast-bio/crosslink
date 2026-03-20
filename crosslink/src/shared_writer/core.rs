@@ -19,71 +19,7 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
-/// File-based lock for serializing hub cache writes.
-///
-/// Multiple agents launching simultaneously can race on git index.lock.
-/// This provides a higher-level lock that prevents concurrent write_commit_push
-/// operations from overlapping.
-pub(super) struct HubWriteLock {
-    path: PathBuf,
-}
-
-impl Drop for HubWriteLock {
-    fn drop(&mut self) {
-        // INTENTIONAL: lock cleanup in Drop is best-effort — stale locks are detected by PID liveness check
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
-pub(super) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
-    let max_wait = std::time::Duration::from_secs(30);
-    let poll_interval = std::time::Duration::from_millis(100);
-    let start = std::time::Instant::now();
-
-    loop {
-        // Try to create the lock file exclusively
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_path)
-        {
-            Ok(mut f) => {
-                use std::io::Write;
-                // INTENTIONAL: PID write is best-effort — lock is held by file existence, PID is advisory
-                let _ = writeln!(f, "{}", std::process::id());
-                return Ok(HubWriteLock {
-                    path: lock_path.to_path_buf(),
-                });
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Check if the lock is stale (holder process dead)
-                if let Ok(content) = std::fs::read_to_string(lock_path) {
-                    if let Ok(pid) = content.trim().parse::<u32>() {
-                        // Check if PID is alive (Unix-specific)
-                        let alive = std::process::Command::new("kill")
-                            .args(["-0", &pid.to_string()])
-                            .output()
-                            .map(|o| o.status.success())
-                            .unwrap_or(false);
-                        if !alive {
-                            // INTENTIONAL: stale lock removal is best-effort — retry loop will re-attempt
-                            let _ = std::fs::remove_file(lock_path);
-                            continue;
-                        }
-                    }
-                }
-
-                if start.elapsed() > max_wait {
-                    // INTENTIONAL: force-break stale lock after timeout is best-effort — retry loop will re-attempt
-                    let _ = std::fs::remove_file(lock_path);
-                    continue;
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-}
+// Hub cache write lock is in sync/cache.rs — acquired via self.sync.acquire_lock()
 
 /// Content to write in a single atomic commit-push operation.
 pub(super) struct WriteSet {
@@ -302,13 +238,21 @@ impl SharedWriter {
             signature: None,
         };
 
-        // Sign if key is available
+        // Sign if key is configured. If signing is configured but fails,
+        // log the failure — unsigned events are still valid, but a signing
+        // failure is distinguishable from "not configured" (#477).
         if let (Some(key_path), Some(fingerprint)) = (
             self.resolve_ssh_key_path(),
             self.agent.ssh_fingerprint.as_ref(),
         ) {
-            // INTENTIONAL: event signing is best-effort — unsigned events are still valid
-            let _ = crate::events::sign_event(&mut envelope, &key_path, fingerprint);
+            if let Err(e) = crate::events::sign_event(&mut envelope, &key_path, fingerprint) {
+                tracing::warn!(
+                    "event signing failed (key: {}, fingerprint: {}): {}",
+                    key_path.display(),
+                    fingerprint,
+                    e
+                );
+            }
         }
 
         envelope
@@ -335,10 +279,12 @@ impl SharedWriter {
             // Stage event log + compaction output
             let rel_log = format!("agents/{}/events.log", self.agent.agent_id);
             self.git_in_cache(&["add", &rel_log])?;
-            // INTENTIONAL: staging compaction dirs is best-effort — they may not exist yet
-            let _ = self.git_in_cache(&["add", "checkpoint/"]);
-            let _ = self.git_in_cache(&["add", "issues/"]);
-            let _ = self.git_in_cache(&["add", "locks/"]);
+            // Stage compaction output directories that exist (#472)
+            for dir in ["checkpoint/", "issues/", "locks/"] {
+                if self.cache_dir.join(dir).exists() {
+                    self.git_in_cache(&["add", dir])?;
+                }
+            }
 
             // Commit (unsigned when no SSH key)
             let commit_msg = format!(
@@ -374,16 +320,8 @@ impl SharedWriter {
                     }
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < MAX_RETRIES - 1 {
-                            // Bail if local has diverged too far -- sign of a rebase loop
                             self.check_divergence()?;
-                            // INTENTIONAL: reset is best-effort — the prepare closure re-generates content on retry
-                            let _ = self.git_in_cache(&["reset", "--hard", "HEAD~1"]);
-                            self.git_in_cache(&[
-                                "pull",
-                                "--rebase",
-                                remote,
-                                crate::sync::HUB_BRANCH,
-                            ])?;
+                            self.recover_from_push_conflict(remote)?;
                             continue;
                         }
                         tracing::warn!(
@@ -663,12 +601,15 @@ impl SharedWriter {
     where
         F: FnMut(&Self) -> Result<WriteSet>,
     {
-        // Serialize access to the hub cache to prevent index.lock races
-        // when multiple agents launch simultaneously (#400)
-        let lock_path = self.cache_dir.join(".hub-write-lock");
-        let _lock_guard = acquire_hub_lock(&lock_path)?;
+        // Serialize access to the hub cache via SyncManager's lock (#400, #457)
+        let _lock_guard = self.sync.acquire_lock()?;
 
         for attempt in 0..MAX_RETRIES {
+            // Recover from broken git states before attempting write (#454, #455, #456)
+            if let Err(e) = self.hub_health_check() {
+                tracing::warn!("hub health check failed (non-fatal): {}", e);
+            }
+
             // (Re-)generate content -- reads fresh counters/files after rebase
             let write_set = prepare(self)?;
 
@@ -692,13 +633,22 @@ impl SharedWriter {
                     std::fs::write(&full, content)?;
 
                     // Clean up stale V1 flat file when writing V2 directory
-                    // format, preventing both from coexisting (#428).
-                    // V2 path: issues/{uuid}/issue.json → stale V1: issues/{uuid}.json
+                    // format (#428). The sync-level cleanup_stale_layout_files()
+                    // is the guarantee; this is opportunistic (#478).
                     if rel_path.ends_with("/issue.json") {
                         if let Some(uuid_dir) = rel_path.strip_suffix("/issue.json") {
                             let v1_path = self.cache_dir.join(format!("{}.json", uuid_dir));
                             if v1_path.exists() {
-                                let _ = std::fs::remove_file(&v1_path);
+                                if let Err(e) = std::fs::remove_file(&v1_path) {
+                                    // We just wrote to this same directory, so
+                                    // a removal failure here is unexpected.
+                                    // The sync-level cleanup will handle it.
+                                    tracing::warn!(
+                                        "stale V1 file {} could not be removed (sync cleanup will retry): {}",
+                                        v1_path.display(),
+                                        e
+                                    );
+                                }
                             }
                         }
                     }
@@ -723,7 +673,17 @@ impl SharedWriter {
                     // disk but the commit fails (#427). --force handles
                     // modified files; --ignore-unmatch handles retries where
                     // the file is already gone.
-                    let _ = self.git_in_cache(&["rm", "--force", "--ignore-unmatch", path]);
+                    // -r enables recursive removal for V2 directories (#460)
+                    // INTENTIONAL: git rm is best-effort — --ignore-unmatch handles missing files on retry
+                    if let Err(e) =
+                        self.git_in_cache(&["rm", "-r", "--force", "--ignore-unmatch", path])
+                    {
+                        tracing::debug!(
+                            "git rm for '{}' did not succeed (may be already removed): {}",
+                            path,
+                            e
+                        );
+                    }
                 } else {
                     self.git_in_cache(&["add", path])?;
                 }
@@ -743,10 +703,15 @@ impl SharedWriter {
                     return Ok(PushOutcome::Pushed);
                 }
                 // Commit failed — if we were deleting files (git rm), restore
-                // them from HEAD to prevent split state (#427).
+                // Commit failed — reset index and working directory to HEAD
+                // to prevent split state (#427, #468). This is safe because
+                // the commit didn't succeed, so HEAD is the correct state.
                 if write_set.use_git_rm {
-                    for path in &paths {
-                        let _ = self.git_in_cache(&["checkout", "HEAD", "--", path]);
+                    if let Err(reset_err) = self.git_in_cache(&["reset", "--hard", "HEAD"]) {
+                        tracing::error!(
+                            "hub cache may be corrupt: commit failed and reset failed: {}",
+                            reset_err
+                        );
                     }
                 }
                 commit_result?;
@@ -776,27 +741,8 @@ impl SharedWriter {
                         if attempt < MAX_RETRIES - 1 {
                             // Bail if local has diverged too far -- sign of a rebase loop
                             self.check_divergence()?;
-                            // INTENTIONAL: reset is best-effort — prepare closure re-reads fresh state on retry
-                            let _ = self.git_in_cache(&["reset", "--hard", "HEAD~1"]);
-                            let rebase_result = self.git_in_cache(&[
-                                "pull",
-                                "--rebase",
-                                remote,
-                                crate::sync::HUB_BRANCH,
-                            ]);
-                            if let Err(re) = &rebase_result {
-                                let re_str = re.to_string();
-                                if re_str.contains("CONFLICT")
-                                    || re_str.contains("rebase")
-                                    || re_str.contains("could not apply")
-                                {
-                                    // INTENTIONAL: abort and reset are best-effort conflict recovery — retry loop continues
-                                    let _ = self.git_in_cache(&["rebase", "--abort"]);
-                                    let remote_ref =
-                                        format!("{}/{}", remote, crate::sync::HUB_BRANCH);
-                                    let _ = self.git_in_cache(&["reset", "--hard", &remote_ref]);
-                                }
-                            }
+                            // Escalating recovery: get to a known-good state (#466)
+                            self.recover_from_push_conflict(remote)?;
                             continue;
                         }
                         // All retries exhausted -- keep as local-only
@@ -820,6 +766,12 @@ impl SharedWriter {
         self.sync.check_divergence()
     }
 
+    /// Run hub health checks to recover from broken git states.
+    /// Delegates to `SyncManager::hub_health_check` via the shared `sync` field.
+    pub(super) fn hub_health_check(&self) -> Result<()> {
+        self.sync.hub_health_check()
+    }
+
     /// Run a git command in the cache worktree.
     pub(super) fn git_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
         let output = std::process::Command::new("git")
@@ -832,6 +784,80 @@ impl SharedWriter {
             bail!("git {:?} in cache failed: {}", args, stderr);
         }
         Ok(output)
+    }
+
+    /// Escalating recovery from a push conflict (#466).
+    ///
+    /// Attempts to get the hub cache back to a known-good state so the
+    /// retry loop can re-prepare and push again. Each step verifies it
+    /// worked before moving on:
+    ///
+    /// 1. Reset HEAD~1 to undo our commit
+    /// 2. Pull --rebase to sync with remote
+    /// 3. If rebase conflicts: abort, then reset to remote
+    /// 4. Verify we're on the branch and not mid-rebase
+    pub(super) fn recover_from_push_conflict(&self, remote: &str) -> Result<()> {
+        let remote_ref = format!("{}/{}", remote, crate::sync::HUB_BRANCH);
+
+        // Step 1: undo our commit
+        if self.git_in_cache(&["reset", "--hard", "HEAD~1"]).is_err() {
+            tracing::warn!("reset HEAD~1 failed, falling back to reset to remote");
+            self.git_in_cache(&["reset", "--hard", &remote_ref])?;
+            return self.verify_clean_state();
+        }
+
+        // Step 2: pull latest from remote
+        let pull_result = self.git_in_cache(&["pull", "--rebase", remote, crate::sync::HUB_BRANCH]);
+
+        if let Err(e) = pull_result {
+            let err_str = e.to_string();
+            if err_str.contains("CONFLICT")
+                || err_str.contains("rebase")
+                || err_str.contains("could not apply")
+            {
+                // Step 3: rebase conflicted — abort and force-align to remote
+                let _ = self.git_in_cache(&["rebase", "--abort"]);
+                self.git_in_cache(&["reset", "--hard", &remote_ref])?;
+            } else {
+                // Pull failed for non-conflict reason — health check + retry
+                self.hub_health_check()?;
+                self.git_in_cache(&["pull", "--rebase", remote, crate::sync::HUB_BRANCH])?;
+            }
+        }
+
+        // Step 4: verify we're in a known-good state before returning
+        self.verify_clean_state()
+    }
+
+    /// Verify the hub cache is in a clean, usable state.
+    ///
+    /// Checks: on the correct branch, not mid-rebase, clean working directory.
+    /// Called after recovery operations to confirm they actually worked.
+    fn verify_clean_state(&self) -> Result<()> {
+        // Must be on the hub branch, not detached
+        if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
+            bail!("hub cache recovery failed: HEAD is still detached");
+        }
+
+        // Must not be mid-rebase
+        let git_dir = self
+            .git_in_cache(&["rev-parse", "--git-dir"])
+            .map(|o| {
+                let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                let p = PathBuf::from(&raw);
+                if p.is_absolute() {
+                    p
+                } else {
+                    self.cache_dir.join(p)
+                }
+            })
+            .unwrap_or_else(|_| self.cache_dir.join(".git"));
+
+        if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
+            bail!("hub cache recovery failed: still in mid-rebase state");
+        }
+
+        Ok(())
     }
 
     /// Run a git commit in the cache worktree, disabling signing when

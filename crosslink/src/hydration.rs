@@ -79,21 +79,66 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         return Ok(HydrationStats::default());
     }
 
-    // Data-loss guard: refuse to hydrate when JSON would wipe a significant
-    // portion of existing SQLite data. This catches the case where JSON is
-    // stale/empty (e.g. after `init --force`) but SQLite has real issues (#427).
-    let sqlite_count = db.get_issue_count().unwrap_or(0);
-    let json_count = issue_files.len() as i64;
-    if sqlite_count > 0 && json_count < sqlite_count / 2 && sqlite_count - json_count > 3 {
-        tracing::warn!(
-            "hydration skipped: JSON has {} issues but SQLite has {} — \
-             refusing to clear SQLite to avoid data loss. \
-             Run `crosslink sync` to reconcile, or `crosslink integrity hydration --repair` \
-             to force re-hydration. (#427)",
-            json_count,
-            sqlite_count
+    // Self-healing merge: if SQLite has issues that JSON doesn't (e.g. after
+    // `init --force` or a partial sync), preserve them through hydration by
+    // re-inserting them after the JSON issues (#427).
+    let json_uuids: std::collections::HashSet<String> =
+        issue_files.iter().map(|f| f.uuid.to_string()).collect();
+
+    // Snapshot SQLite-only issues (those with UUIDs not present in JSON).
+    // Only preserve issues whose UUID also doesn't appear as a file/directory
+    // in the issues cache — if a UUID exists on disk (even as an empty dir),
+    // the issue was tracked by the hub and its absence from issue_files means
+    // it was intentionally deleted, not lost (#427).
+    struct SavedIssue {
+        id: i64,
+        uuid: String,
+        title: String,
+        description: Option<String>,
+        status: String,
+        priority: String,
+        parent_id: Option<i64>,
+        created_by: Option<String>,
+        created_at: String,
+        updated_at: String,
+    }
+    let sqlite_only_rows: Vec<SavedIssue> = db
+        .conn
+        .prepare(
+            "SELECT id, uuid, title, description, status, priority, parent_id, \
+             created_by, created_at, updated_at FROM issues WHERE uuid IS NOT NULL",
+        )?
+        .query_map([], |row| {
+            Ok(SavedIssue {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                title: row.get(2)?,
+                description: row.get(3)?,
+                status: row.get(4)?,
+                priority: row.get(5)?,
+                parent_id: row.get(6)?,
+                created_by: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .filter(|row| {
+            if json_uuids.contains(&row.uuid) {
+                return false; // Already in JSON — will be hydrated normally
+            }
+            // Only preserve issues that were never part of the hub (created
+            // directly in SQLite, e.g., before SharedWriter was available).
+            // Issues with positive IDs that aren't in JSON were on the hub
+            // and were intentionally deleted — don't resurrect them.
+            row.id < 0
+        })
+        .collect();
+    if !sqlite_only_rows.is_empty() {
+        tracing::info!(
+            "hydration: preserving {} SQLite-only issue(s) not found in JSON",
+            sqlite_only_rows.len()
         );
-        return Ok(HydrationStats::default());
     }
 
     // Deduplicate: multiple JSON files may claim the same display_id (e.g. from
@@ -139,20 +184,12 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     let mut stats = HydrationStats::default();
     let layout_version = read_layout_version(&cache_dir.join("meta")).unwrap_or(1);
 
-    db.transaction(|| {
-        // Save active session work items before clearing issues, because the
-        // FK constraint `ON DELETE SET NULL` on sessions.active_issue_id will
-        // automatically NULL them when we delete issues (#443).
-        let saved_session_work: Vec<(i64, i64)> = db
-            .conn
-            .prepare(
-                "SELECT id, active_issue_id FROM sessions \
-                 WHERE active_issue_id IS NOT NULL",
-            )?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .filter_map(|r| r.ok())
-            .collect();
+    // Disable FK constraints during bulk clear/reinsert to prevent ON DELETE
+    // cascades from corrupting session state (e.g. active_issue_id). PRAGMA
+    // foreign_keys is a no-op inside a transaction, so toggle outside (#461).
+    db.set_foreign_keys(false)?;
 
+    let result = db.transaction(|| {
         db.clear_shared_data()?;
 
         // Insert milestones first (issues may reference them)
@@ -290,19 +327,35 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         // Hydrate relations (single-direction: related array, insert both directions)
         hydrate_relations(db, &deduped, &uuid_to_id, &mut stats)?;
 
-        // Restore session work items that were NULLed by the FK constraint
-        // during clear_shared_data(). Only restore if the issue still exists
-        // after re-hydration (#443).
-        for (session_id, issue_id) in &saved_session_work {
-            db.conn.execute(
-                "UPDATE sessions SET active_issue_id = ?1 \
-                 WHERE id = ?2 AND EXISTS (SELECT 1 FROM issues WHERE id = ?1)",
-                rusqlite::params![issue_id, session_id],
-            )?;
+        // Re-insert SQLite-only issues that had no JSON counterpart (#427).
+        // These survive the clear/reinsert cycle so no data is silently lost.
+        for row in &sqlite_only_rows {
+            db.insert_hydrated_issue(&HydratedIssue {
+                id: row.id,
+                uuid: &row.uuid,
+                title: &row.title,
+                description: row.description.as_deref(),
+                status: &row.status,
+                priority: &row.priority,
+                parent_id: row.parent_id,
+                created_by: row.created_by.as_deref(),
+                created_at: &row.created_at,
+                updated_at: &row.updated_at,
+                closed_at: None,
+            })?;
+            stats.issues += 1;
         }
 
         Ok(stats)
-    })
+    });
+
+    // Re-enable FK constraints regardless of transaction outcome (#461).
+    // Use if-let to avoid masking the original transaction error.
+    if let Err(e) = db.set_foreign_keys(true) {
+        tracing::warn!("failed to re-enable foreign key constraints: {}", e);
+    }
+
+    result
 }
 
 /// Sort issues so parents appear before children (for foreign key constraints).

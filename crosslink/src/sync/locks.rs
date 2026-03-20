@@ -124,15 +124,47 @@ impl SyncManager {
             match self
                 .commit_and_push_locks(&format!("{}: claim lock on #{}", agent.agent_id, issue_id))
             {
-                Ok(()) => return Ok(true),
+                Ok(()) => {
+                    // Verify our claim survived any rebase during push (#458).
+                    // If overwritten, fall through to retry instead of bailing —
+                    // the system should self-heal, not require manual intervention.
+                    let verified = LocksFile::load(&self.cache_dir.join("locks.json"))?;
+                    match verified.get_lock(issue_id) {
+                        Some(lock) if lock.agent_id == agent.agent_id => {
+                            return Ok(true);
+                        }
+                        Some(lock) => {
+                            tracing::warn!(
+                                "lock claim for issue {} was overwritten by '{}', retrying",
+                                crate::utils::format_issue_id(issue_id),
+                                lock.agent_id
+                            );
+                            // Fall through to retry
+                        }
+                        None => {
+                            tracing::warn!(
+                                "lock claim for issue {} was lost during push, retrying",
+                                crate::utils::format_issue_id(issue_id)
+                            );
+                            // Fall through to retry
+                        }
+                    }
+                }
                 Err(e) => {
                     let err_str = e.to_string();
                     if err_str.contains("Push failed after") && attempt < 2 {
-                        // INTENTIONAL: pull/rebase failure is non-fatal — retry loop re-checks lock ownership
-                        let _ = self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
-                        continue;
+                        // Pull to sync before retry (#473). If pull fails,
+                        // health check and retry pull — don't push stale state.
+                        if self
+                            .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
+                            .is_err()
+                        {
+                            self.hub_health_check()?;
+                            self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
+                        }
+                    } else {
+                        return Err(e);
                     }
-                    return Err(e);
                 }
             }
         }
@@ -148,7 +180,7 @@ impl SyncManager {
     /// Returns `Ok(true)` if released, `Ok(false)` if not locked.
     /// Fails if locked by a different agent (unless `force` is true).
     pub fn release_lock(&self, agent: &AgentConfig, issue_id: i64, force: bool) -> Result<bool> {
-        let mut locks = self.read_locks()?;
+        let locks = self.read_locks()?;
 
         match locks.get_lock(issue_id) {
             None => return Ok(false),
@@ -164,13 +196,34 @@ impl SyncManager {
             }
         }
 
-        locks.locks.remove(&issue_id.to_string());
-        locks.save(&self.cache_dir.join("locks.json"))?;
+        // Retry release if push conflict re-introduces the lock (#458)
+        for release_attempt in 0..3 {
+            let mut current_locks = self.read_locks()?;
+            current_locks.locks.remove(&issue_id.to_string());
+            current_locks.save(&self.cache_dir.join("locks.json"))?;
 
-        self.commit_and_push_locks(&format!(
-            "{}: release lock on #{}",
-            agent.agent_id, issue_id
-        ))?;
+            self.commit_and_push_locks(&format!(
+                "{}: release lock on #{}",
+                agent.agent_id, issue_id
+            ))?;
+
+            // Verify the release survived any rebase during push
+            let verified = LocksFile::load(&self.cache_dir.join("locks.json"))?;
+            if verified.get_lock(issue_id).is_none() {
+                break; // Release confirmed
+            }
+            if release_attempt < 2 {
+                tracing::warn!(
+                    "lock release for issue {} was undone during push, retrying",
+                    crate::utils::format_issue_id(issue_id)
+                );
+            } else {
+                tracing::warn!(
+                    "lock release for issue {} failed after 3 attempts",
+                    crate::utils::format_issue_id(issue_id)
+                );
+            }
+        }
 
         Ok(true)
     }

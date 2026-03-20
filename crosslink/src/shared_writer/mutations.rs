@@ -259,29 +259,48 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let rel_path = writer.issue_rel_path(&uuid);
-                // Don't delete the file here — let `git rm` in the staging
-                // loop handle both index and disk removal atomically. This
-                // prevents split state where the file is gone from disk but
-                // the commit fails, causing a later hydration to silently
-                // drop the issue from SQLite (#427).
-                let mut files = vec![(rel_path, vec![])];
-                // Also stage stale V1 flat file for removal if on V2 (#428)
+                // Don't delete files here — let `git rm -r` in the staging
+                // loop handle both index and disk removal so the commit
+                // failure path can restore from HEAD (#427).
                 if writer.layout_version() >= 2 {
-                    let v1_rel = format!("issues/{}.json", uuid);
-                    let v1_path = writer.cache_dir.join(&v1_rel);
-                    if v1_path.exists() {
-                        files.push((v1_rel, vec![]));
-                    }
+                    // V2: pass the directory path so git rm -r removes
+                    // issue.json + comments/ recursively (#460)
+                    Ok(WriteSet {
+                        files: vec![(format!("issues/{}", uuid), vec![])],
+                        counters: None,
+                        use_git_rm: true,
+                    })
+                } else {
+                    // V1: pass the flat file path
+                    Ok(WriteSet {
+                        files: vec![(format!("issues/{}.json", uuid), vec![])],
+                        counters: None,
+                        use_git_rm: true,
+                    })
                 }
-                Ok(WriteSet {
-                    files,
-                    counters: None,
-                    use_git_rm: true,
-                })
             },
             &format!("delete issue #{}", display_id),
         )?;
+
+        // Post-commit cleanup: remove any untracked remnants (e.g. comment
+        // files created between commits that git rm didn't know about). Safe
+        // to do now because the commit already succeeded (#460).
+        let issue_dir = self.cache_dir.join("issues").join(uuid.to_string());
+        if issue_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&issue_dir) {
+                tracing::debug!(
+                    "post-delete cleanup of {} failed: {}",
+                    issue_dir.display(),
+                    e
+                );
+            }
+        }
+        let v1_path = self.cache_dir.join(format!("issues/{}.json", uuid));
+        if v1_path.exists() {
+            if let Err(e) = std::fs::remove_file(&v1_path) {
+                tracing::debug!("post-delete cleanup of {} failed: {}", v1_path.display(), e);
+            }
+        }
 
         self.hydrate_with_retry(db)?;
         Ok(())

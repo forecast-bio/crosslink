@@ -76,6 +76,18 @@ impl Database {
         }
     }
 
+    /// Toggle SQLite foreign key enforcement.
+    ///
+    /// Must be called outside a transaction (`PRAGMA foreign_keys` is a
+    /// no-op inside one). Used by hydration to prevent `ON DELETE` cascades
+    /// during bulk clear/reinsert (#461).
+    pub fn set_foreign_keys(&self, enabled: bool) -> Result<()> {
+        let value = if enabled { "ON" } else { "OFF" };
+        self.conn
+            .execute_batch(&format!("PRAGMA foreign_keys = {};", value))?;
+        Ok(())
+    }
+
     /// Run a migration statement, logging unexpected errors.
     /// Expected errors (duplicate column, table already exists) are logged at debug level.
     fn migrate(&self, sql: &str) {

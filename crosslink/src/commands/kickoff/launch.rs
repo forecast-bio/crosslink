@@ -327,6 +327,74 @@ pub(super) fn create_worktree(
     // Determine base ref
     let base = base_branch.unwrap_or("HEAD");
 
+    // Handle existing branch refs from prior phases (#481).
+    // A branch may exist from a previous kickoff/swarm phase that was
+    // already merged. Rather than failing, clean it up automatically.
+    let branch_exists = Command::new("git")
+        .current_dir(repo_root)
+        .args(["rev-parse", "--verify", &branch_name])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if branch_exists {
+        // Check if the branch has an active worktree
+        let wt_output = Command::new("git")
+            .current_dir(repo_root)
+            .args(["worktree", "list", "--porcelain"])
+            .output()
+            .context("Failed to list worktrees")?;
+        let wt_list = String::from_utf8_lossy(&wt_output.stdout);
+        let has_active_worktree = wt_list
+            .lines()
+            .any(|line| line.starts_with("branch ") && line.ends_with(&branch_name));
+
+        if has_active_worktree {
+            bail!(
+                "Branch '{}' already exists and has an active worktree. \
+                 Clean up the worktree first with: git worktree remove <path>",
+                branch_name
+            );
+        }
+
+        // Check if the branch is fully merged into the base
+        let is_merged = Command::new("git")
+            .current_dir(repo_root)
+            .args(["merge-base", "--is-ancestor", &branch_name, base])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if is_merged {
+            // Branch is fully merged — safe to delete and recreate
+            tracing::info!(
+                "branch '{}' exists from a prior phase and is fully merged, recreating",
+                branch_name
+            );
+            let delete_output = Command::new("git")
+                .current_dir(repo_root)
+                .args(["branch", "-d", &branch_name])
+                .output()
+                .context("Failed to delete merged branch")?;
+            if !delete_output.status.success() {
+                let stderr = String::from_utf8_lossy(&delete_output.stderr);
+                bail!(
+                    "Branch '{}' is merged but could not be deleted: {}",
+                    branch_name,
+                    stderr.trim()
+                );
+            }
+        } else {
+            bail!(
+                "Branch '{}' already exists and has unmerged changes. \
+                 Either merge it first, delete it manually with \
+                 `git branch -D {}`, or use a different slug.",
+                branch_name,
+                branch_name
+            );
+        }
+    }
+
     // Create the worktree with a new branch
     let output = Command::new("git")
         .current_dir(repo_root)

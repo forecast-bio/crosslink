@@ -23,8 +23,12 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
             println!("Daemon already running (PID {})", pid);
             return Ok(());
         }
-        // INTENTIONAL: stale PID file removal is best-effort — we proceed either way
-        let _ = fs::remove_file(&pid_file);
+        fs::remove_file(&pid_file).with_context(|| {
+            format!(
+                "Cannot remove stale daemon PID file at {}",
+                pid_file.display()
+            )
+        })?;
     }
 
     // Get the current executable path
@@ -246,8 +250,10 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
                     match crate::sync::SyncManager::new(crosslink_dir) {
                         Ok(sync) => {
                             consecutive_sync_failures = 0;
-                            // INTENTIONAL: cache init is best-effort — heartbeat will retry next interval
-                            let _ = sync.init_cache();
+                            if let Err(e) = sync.init_cache() {
+                                tracing::warn!("cache init failed, skipping heartbeat: {}", e);
+                                continue;
+                            }
 
                             // Push heartbeat
                             match sync.push_heartbeat(&agent, active_issue_id) {

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::core::SyncManager;
 use super::{HUB_BRANCH, OLD_BRANCH, OLD_CACHE_DIR};
@@ -24,20 +24,32 @@ impl SyncManager {
 
         tracing::info!("Migrating coordination branch: crosslink/locks -> crosslink/hub...");
 
-        // 1. Remove old worktree if it exists
+        // 1. Remove old worktree if it exists (#471)
         if has_old_local_cache {
-            // INTENTIONAL: worktree removal is best-effort — fallback below handles the case where it fails
-            let _ = self.git_in_repo(&[
-                "worktree",
-                "remove",
-                "--force",
-                &old_cache.to_string_lossy(),
-            ]);
-            // Fallback: if worktree remove fails, just delete the directory
-            if old_cache.exists() {
-                // INTENTIONAL: dir cleanup and worktree prune are best-effort during migration
-                let _ = std::fs::remove_dir_all(&old_cache);
-                let _ = self.git_in_repo(&["worktree", "prune"]);
+            // Try git worktree remove first
+            if self
+                .git_in_repo(&[
+                    "worktree",
+                    "remove",
+                    "--force",
+                    &old_cache.to_string_lossy(),
+                ])
+                .is_err()
+            {
+                // Worktree remove failed — delete the directory directly
+                if old_cache.exists() {
+                    std::fs::remove_dir_all(&old_cache).with_context(|| {
+                        format!(
+                            "Cannot remove old hub cache at {}. \
+                             Migration cannot proceed with stale worktree.",
+                            old_cache.display()
+                        )
+                    })?;
+                }
+                // Clean up dangling worktree metadata
+                if let Err(e) = self.git_in_repo(&["worktree", "prune"]) {
+                    tracing::warn!("worktree prune failed during migration: {}", e);
+                }
             }
         }
 

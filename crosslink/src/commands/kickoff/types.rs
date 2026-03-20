@@ -184,6 +184,8 @@ pub enum ReportFormat {
 /// Options for `crosslink kickoff plan`.
 pub struct PlanOpts<'a> {
     pub doc: &'a super::super::design_doc::DesignDoc,
+    /// Path to the original design doc file (for pipeline state tracking).
+    pub doc_path: Option<&'a std::path::Path>,
     pub model: &'a str,
     pub timeout: Duration,
     pub dry_run: bool,

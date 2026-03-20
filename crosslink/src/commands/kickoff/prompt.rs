@@ -262,6 +262,14 @@ these, ask the user to run it manually:
         }
     }
 
+    // Inject plan context if a prior gap analysis exists for this design doc
+    if let Some(doc_path) = opts.doc_path {
+        let plan_path = super::pipeline::plan_path_for_doc(std::path::Path::new(doc_path));
+        if let Some(section) = build_plan_context_section(&plan_path) {
+            prompt.push_str(&section);
+        }
+    }
+
     prompt.push_str(&build_test_lint_instructions(conventions, issue_id));
 
     if opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough {
@@ -282,6 +290,96 @@ these, ask the user to run it manually:
     prompt.push_str(build_final_steps_section());
 
     prompt
+}
+
+/// Build a "## Plan Context" section from a prior gap analysis JSON file.
+///
+/// Reads `.design/<slug>.plan.json` and renders estimated subtasks, assumptions,
+/// and advisory notes into the KICKOFF.md prompt.
+fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(plan_path).ok()?;
+    let plan: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let mut section = String::new();
+    section.push_str("\n## Plan Context\n\n");
+    section.push_str(
+        "A prior gap analysis was performed against this design document. \
+         Use these findings to guide your implementation:\n\n",
+    );
+
+    // Estimated subtasks
+    if let Some(subtasks) = plan.get("estimated_subtasks").and_then(|v| v.as_array()) {
+        if !subtasks.is_empty() {
+            section.push_str("### Estimated Subtasks\n");
+            for (i, task) in subtasks.iter().enumerate() {
+                let title = task
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(untitled)");
+                let scope = task
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let risk = task
+                    .get("risk")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                section.push_str(&format!(
+                    "{}. {} ({}, risk: {})\n",
+                    i + 1,
+                    title,
+                    scope,
+                    risk
+                ));
+            }
+            section.push('\n');
+        }
+    }
+
+    // Assumptions
+    if let Some(assumptions) = plan.get("assumptions").and_then(|v| v.as_array()) {
+        if !assumptions.is_empty() {
+            section.push_str("### Assumptions\n");
+            for assumption in assumptions {
+                let about = assumption
+                    .get("about")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("general");
+                let text = assumption
+                    .get("assumption")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(no detail)");
+                section.push_str(&format!("- **{}**: {}\n", about, text));
+            }
+            section.push('\n');
+        }
+    }
+
+    // Advisory gaps (non-blocking notes)
+    if let Some(gaps) = plan.get("gaps").and_then(|v| v.as_array()) {
+        let advisory: Vec<_> = gaps
+            .iter()
+            .filter(|g| g.get("severity").and_then(|v| v.as_str()).unwrap_or("") == "advisory")
+            .collect();
+        if !advisory.is_empty() {
+            section.push_str("### Advisory Notes\n");
+            for gap in &advisory {
+                let detail = gap
+                    .get("detail")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(no detail)");
+                section.push_str(&format!("- {}\n", detail));
+            }
+            section.push('\n');
+        }
+    }
+
+    if section.len() <= "## Plan Context\n\n".len() + 100 {
+        // Nearly empty — no useful content
+        return None;
+    }
+
+    Some(section)
 }
 
 /// Build the --allowedTools string for the claude CLI.

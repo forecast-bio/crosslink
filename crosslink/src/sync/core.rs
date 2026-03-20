@@ -151,15 +151,29 @@ impl SyncManager {
             } else {
                 "--local"
             };
-            // INTENTIONAL: git config writes are best-effort — commits will use global config as fallback
-            let _ = Command::new("git")
+            let email_result = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.email", "crosslink@localhost"])
                 .output();
-            let _ = Command::new("git")
+            let name_result = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.name", "crosslink"])
                 .output();
+            // Verify identity is actually set — don't let commits fail later
+            // with "Author identity unknown" (#469)
+            let verified = Command::new("git")
+                .current_dir(&self.cache_dir)
+                .args(["config", "user.email"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if !verified {
+                bail!(
+                    "Failed to set git identity in hub cache (email: {:?}, name: {:?})",
+                    email_result.map(|o| o.status.success()),
+                    name_result.map(|o| o.status.success()),
+                );
+            }
         }
         Ok(())
     }

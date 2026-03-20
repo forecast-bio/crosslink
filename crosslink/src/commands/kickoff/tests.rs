@@ -803,7 +803,7 @@ fn test_build_plan_prompt_contains_essentials() {
         out_of_scope: Vec::new(),
         unknown_sections: Vec::new(),
     };
-    let prompt = build_plan_prompt(&doc, Some(42));
+    let prompt = build_plan_prompt(&doc, Some(42), None);
 
     assert!(prompt.contains("KICKOFF PLAN"));
     assert!(prompt.contains("Batch Retry"));
@@ -831,7 +831,7 @@ fn test_build_plan_prompt_with_open_questions() {
         out_of_scope: Vec::new(),
         unknown_sections: Vec::new(),
     };
-    let prompt = build_plan_prompt(&doc, None);
+    let prompt = build_plan_prompt(&doc, None, None);
 
     assert!(prompt.contains("Escalation Required"));
     assert!(prompt.contains("Q1: OAuth or JWT?"));
@@ -852,7 +852,7 @@ fn test_build_plan_prompt_without_issue() {
         out_of_scope: Vec::new(),
         unknown_sections: Vec::new(),
     };
-    let prompt = build_plan_prompt(&doc, None);
+    let prompt = build_plan_prompt(&doc, None, None);
 
     assert!(prompt.contains("KICKOFF PLAN"));
     // No issue line when None

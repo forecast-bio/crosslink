@@ -332,6 +332,13 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         Err(e) => tracing::warn!("layout upgrade failed: {e}"),
     }
 
+    // Auto-cleanup stale V1 layout files on V2 hubs (#478)
+    match sync.cleanup_stale_layout_files() {
+        Ok(0) => {}
+        Ok(n) => println!("Cleaned up {n} stale V1 layout file(s)."),
+        Err(e) => tracing::warn!("layout cleanup failed: {e}"),
+    }
+
     // Hydrate local SQLite from JSON issue files on the coordination branch
     let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
     if stats.issues > 0 {

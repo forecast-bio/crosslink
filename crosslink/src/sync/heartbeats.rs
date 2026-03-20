@@ -58,9 +58,14 @@ impl SyncManager {
                 // Bail if local has diverged too far — sign of a rebase loop
                 self.check_divergence()?;
 
-                // INTENTIONAL: dirty state cleanup and pull are best-effort — heartbeat retry will try again next interval
-                let _ = self.clean_dirty_state();
-                let _ = self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
+                self.clean_dirty_state()?;
+                if self
+                    .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
+                    .is_err()
+                {
+                    self.hub_health_check()?;
+                    self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
+                }
                 if let Err(retry_err) = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]) {
                     tracing::warn!(
                         "heartbeat push failed after retry (conflict), changes saved locally only: {}",
@@ -204,9 +209,13 @@ impl SyncManager {
                         if attempt < 2 {
                             // Bail if local has diverged too far — sign of a rebase loop
                             self.check_divergence()?;
-                            // INTENTIONAL: pull/rebase failure is non-fatal — retry loop will bail on persistent conflicts
-                            let _ =
-                                self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
+                            if self
+                                .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
+                                .is_err()
+                            {
+                                self.hub_health_check()?;
+                                self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
+                            }
                             continue;
                         }
                         bail!("Push failed after 3 retries for agent dir {}", agent_id);

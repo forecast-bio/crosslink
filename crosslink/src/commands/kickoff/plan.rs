@@ -37,6 +37,7 @@ pub(crate) fn build_allowed_tools_plan() -> String {
 pub(crate) fn build_plan_prompt(
     doc: &super::super::design_doc::DesignDoc,
     issue_id: Option<i64>,
+    plan_copy_target: Option<&std::path::Path>,
 ) -> String {
     let issue_line = match issue_id {
         Some(id) => format!("- **Issue**: #{}\n", id),
@@ -120,9 +121,19 @@ Write a JSON file `.kickoff-plan.json` with exactly this structure:
 ### Final Steps
 
 1. Write `.kickoff-plan.json` (valid JSON only)
-2. Write the word `DONE` to `.kickoff-status`
 "#,
     );
+
+    // Add plan copy instruction if we know the target path
+    if let Some(target) = plan_copy_target {
+        prompt.push_str(&format!(
+            "2. Copy `.kickoff-plan.json` to `{}` so the plan is discoverable alongside the design doc\n",
+            target.display()
+        ));
+        prompt.push_str("3. Write the word `DONE` to `.kickoff-status`\n");
+    } else {
+        prompt.push_str("2. Write the word `DONE` to `.kickoff-status`\n");
+    }
 
     prompt
 }
@@ -173,8 +184,9 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     std::fs::write(worktree_dir.join(".kickoff-slug"), &slug)
         .context("Failed to write .kickoff-slug sentinel")?;
 
-    // 4. Build prompt
-    let prompt = build_plan_prompt(opts.doc, issue_id);
+    // 4. Build prompt (with plan copy instruction if doc_path is known)
+    let plan_copy_target = opts.doc_path.map(super::pipeline::plan_path_for_doc);
+    let prompt = build_plan_prompt(opts.doc, issue_id, plan_copy_target.as_deref());
 
     // 5. Write PLAN_KICKOFF.md
     std::fs::write(worktree_dir.join("PLAN_KICKOFF.md"), &prompt)
@@ -182,6 +194,15 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
 
     // 6. Exclude files from git
     exclude_kickoff_files(&worktree_dir)?;
+
+    // 6b. Update pipeline state to "planning"
+    if let Some(doc_path) = opts.doc_path {
+        let _ = super::pipeline::mark_planning(
+            doc_path,
+            &format!("driver--{}", slug),
+            &worktree_dir.to_string_lossy(),
+        );
+    }
 
     // Dry run: print and exit
     if opts.dry_run {

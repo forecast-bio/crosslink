@@ -62,11 +62,14 @@ impl SharedWriter {
             Some(lock) => {
                 // We lost -- clean up by emitting LockReleased
                 let release = crate::events::Event::LockReleased { issue_display_id };
-                // INTENTIONAL: cleanup release is best-effort — the lock is already held by the winner
-                let _ = self.emit_compact_push(
+                // We lost contention — emit release for our stale claim.
+                // If push fails, compaction will resolve it (winner's claim wins).
+                if let Err(e) = self.emit_compact_push(
                     release,
                     &format!("release lock on #{} (contention cleanup)", issue_display_id),
-                );
+                ) {
+                    tracing::info!("contention cleanup push deferred: {}", e);
+                }
                 Ok(LockClaimResult::Contended {
                     winner_agent_id: lock.agent_id,
                 })

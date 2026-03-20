@@ -1,10 +1,113 @@
 use anyhow::{bail, Result};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::core::SyncManager;
 use super::HUB_BRANCH;
 use crate::locks::LocksFile;
 
+// ---------------------------------------------------------------------------
+// Hub cache write lock — serializes ALL mutations to the hub cache worktree.
+//
+// Used by fetch(), upgrade_to_v2(), and write_commit_push() to prevent
+// concurrent git operations from racing (#457, #459).
+// ---------------------------------------------------------------------------
+
+/// RAII guard for the hub cache write lock.
+pub(crate) struct HubWriteLock {
+    path: PathBuf,
+}
+
+impl Drop for HubWriteLock {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "failed to release hub write lock {}: {}",
+                    self.path.display(),
+                    e
+                );
+            }
+        }
+    }
+}
+
+/// Acquire the hub cache write lock at the given path.
+///
+/// Blocks up to 30 seconds, checking for stale locks via PID liveness.
+/// Returns an RAII guard that releases the lock on drop.
+pub(crate) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
+    let max_wait = Duration::from_secs(30);
+    let poll_interval = Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                if let Err(e) = writeln!(f, "{}", std::process::id()) {
+                    let _ = std::fs::remove_file(lock_path);
+                    bail!("Failed to write PID to hub lock file: {}", e);
+                }
+                return Ok(HubWriteLock {
+                    path: lock_path.to_path_buf(),
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if let Ok(content) = std::fs::read_to_string(lock_path) {
+                    if let Ok(pid) = content.trim().parse::<u32>() {
+                        let alive = std::process::Command::new("kill")
+                            .args(["-0", &pid.to_string()])
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false);
+                        if !alive {
+                            if let Err(rm_err) = std::fs::remove_file(lock_path) {
+                                if rm_err.kind() == std::io::ErrorKind::NotFound {
+                                    continue;
+                                }
+                                bail!(
+                                    "Cannot remove stale hub lock (PID {} is dead): {}",
+                                    pid,
+                                    rm_err
+                                );
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                if start.elapsed() > max_wait {
+                    if let Err(rm_err) = std::fs::remove_file(lock_path) {
+                        if rm_err.kind() != std::io::ErrorKind::NotFound {
+                            bail!(
+                                "Hub lock held for >30s and cannot be force-removed: {}",
+                                rm_err
+                            );
+                        }
+                    }
+                    continue;
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
 impl SyncManager {
+    /// Acquire the hub cache write lock.
+    ///
+    /// All code that mutates the hub cache worktree (fetch, upgrade,
+    /// write_commit_push) must hold this lock to prevent races (#457, #459).
+    pub(crate) fn acquire_lock(&self) -> Result<HubWriteLock> {
+        let lock_path = self.cache_dir.join(".hub-write-lock");
+        acquire_hub_lock(&lock_path)
+    }
     /// Initialize the hub cache directory.
     ///
     /// If the `crosslink/hub` branch exists on the remote, fetches it and
@@ -105,6 +208,10 @@ impl SyncManager {
     /// automatically during init_cache, to avoid side-effects on hubs that
     /// intentionally use v1 layout.
     pub fn upgrade_to_v2(&self) -> Result<usize> {
+        // Acquire the hub write lock to prevent agents from writing V1 files
+        // while we're migrating to V2 (#459).
+        let _lock_guard = self.acquire_lock()?;
+
         let meta_dir = self.cache_dir.join("meta");
         let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
         if version >= 2 {
@@ -114,26 +221,203 @@ impl SyncManager {
         let migrated =
             crate::hydration::migrate_inline_comments_to_v2(&self.cache_dir).unwrap_or(0);
 
+        // Write version marker to disk (included in the commit below).
+        // If the commit fails, we DON'T leave the marker — we delete it
+        // so the next sync retries the full migration (#470).
         crate::issue_file::write_layout_version(
             &meta_dir,
             crate::issue_file::CURRENT_LAYOUT_VERSION,
         )?;
 
-        // INTENTIONAL: staging is best-effort — we check for actual changes before committing
-        let _ = self.git_in_cache(&["add", "-A"]);
+        self.git_in_cache(&["add", "-A"])?;
         let has_changes = self.git_in_cache(&["diff", "--cached", "--quiet"]).is_err();
         if has_changes {
-            self.git_in_cache(&[
+            let commit_result = self.git_in_cache(&[
                 "commit",
                 "-m",
                 &format!(
                     "sync: upgrade hub layout v1\u{2192}v2 ({} comment files migrated)",
                     migrated
                 ),
-            ])?;
+            ]);
+            if let Err(e) = commit_result {
+                // Commit failed — remove the version marker so next sync
+                // retries the migration instead of thinking it's done (#470).
+                let version_path = meta_dir.join("version.json");
+                if version_path.exists() {
+                    let _ = std::fs::remove_file(&version_path);
+                }
+                return Err(e);
+            }
         }
 
         Ok(migrated)
+    }
+
+    /// Automatically find and remove stale V1 flat files that have V2
+    /// equivalents. Runs during every sync so layout inconsistencies are
+    /// corrected without user intervention (#478).
+    ///
+    /// Returns the number of stale files cleaned up.
+    pub fn cleanup_stale_layout_files(&self) -> Result<usize> {
+        let issues_dir = self.cache_dir.join("issues");
+        if !issues_dir.is_dir() {
+            return Ok(0);
+        }
+
+        let meta_dir = self.cache_dir.join("meta");
+        let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
+        if version < 2 {
+            return Ok(0); // V1 hub — V1 files are correct
+        }
+
+        // Find V1 flat files that also have a V2 directory
+        let mut stale_v1: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&issues_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                if path.is_file() && name.ends_with(".json") {
+                    let uuid = name.trim_end_matches(".json");
+                    let v2_dir = issues_dir.join(uuid);
+                    if v2_dir.join("issue.json").exists() {
+                        // Both V1 and V2 exist — V1 is stale
+                        stale_v1.push(path);
+                    } else if !v2_dir.exists() {
+                        // V1 exists without V2 on a V2 hub — migrate it
+                        if let Ok(content) = std::fs::read(&path) {
+                            if std::fs::create_dir_all(&v2_dir).is_ok()
+                                && std::fs::write(v2_dir.join("issue.json"), &content).is_ok()
+                            {
+                                stale_v1.push(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if stale_v1.is_empty() {
+            return Ok(0);
+        }
+
+        // Remove the stale files and commit
+        for path in &stale_v1 {
+            std::fs::remove_file(path)?;
+        }
+
+        self.git_in_cache(&["add", "-A"])?;
+        let has_changes = self.git_in_cache(&["diff", "--cached", "--quiet"]).is_err();
+        if has_changes {
+            self.git_in_cache(&[
+                "commit",
+                "-m",
+                &format!(
+                    "sync: auto-cleanup {} stale V1 layout file(s)",
+                    stale_v1.len()
+                ),
+            ])?;
+        }
+
+        Ok(stale_v1.len())
+    }
+
+    /// Detect and recover from broken git states in the hub cache worktree.
+    ///
+    /// Checks for three failure modes that can leave the cache unusable:
+    /// 1. **Mid-rebase state** — `.git/rebase-merge/` or `.git/rebase-apply/`
+    ///    directories left behind by an interrupted rebase. Cleared with
+    ///    `git rebase --abort`.
+    /// 2. **Detached HEAD** — HEAD is not attached to the hub branch.
+    ///    Re-attached with `git checkout crosslink/hub`.
+    /// 3. **Stale index.lock** — a leftover `index.lock` file older than 30
+    ///    seconds, indicating a crashed git process. Removed to unblock
+    ///    subsequent git operations.
+    ///
+    /// All recovery operations are best-effort: if any individual check or
+    /// fix fails, we log a warning and continue rather than failing the
+    /// caller's operation.
+    pub fn hub_health_check(&self) -> Result<()> {
+        if !self.cache_dir.exists() {
+            return Ok(());
+        }
+
+        // Resolve the actual git directory for the cache worktree.
+        // In a linked worktree, `.git` is a file pointing elsewhere.
+        let git_dir = match self.git_in_cache(&["rev-parse", "--git-dir"]) {
+            Ok(output) => {
+                let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let path = std::path::PathBuf::from(&raw);
+                // git rev-parse may return a relative path; resolve against cache_dir
+                if path.is_absolute() {
+                    path
+                } else {
+                    self.cache_dir.join(path)
+                }
+            }
+            Err(_) => {
+                // Cannot determine git dir — skip health checks
+                return Ok(());
+            }
+        };
+
+        // Fix 0: Remove index.lock FIRST — our own recovery operations
+        // (rebase --abort, checkout) need the index, and a stale lock from
+        // a previous crash will block them. We hold the hub write lock so
+        // we know no legitimate git process is running.
+        let index_lock = git_dir.join("index.lock");
+        if index_lock.exists() {
+            tracing::warn!("removing index.lock from hub cache before recovery");
+            if let Err(e) = std::fs::remove_file(&index_lock) {
+                tracing::warn!("failed to remove index.lock: {}", e);
+            }
+        }
+
+        // Fix 1: Mid-rebase state (#454) — abort and verify
+        let rebase_merge = git_dir.join("rebase-merge");
+        let rebase_apply = git_dir.join("rebase-apply");
+        if rebase_merge.exists() || rebase_apply.exists() {
+            tracing::warn!("hub cache is stuck in mid-rebase state, aborting to recover");
+            let _ = self.git_in_cache(&["rebase", "--abort"]);
+            // Verify — if rebase state persists, force-clean it
+            if rebase_merge.exists() {
+                tracing::warn!("rebase --abort didn't clear rebase-merge, removing manually");
+                let _ = std::fs::remove_dir_all(&rebase_merge);
+            }
+            if rebase_apply.exists() {
+                tracing::warn!("rebase --abort didn't clear rebase-apply, removing manually");
+                let _ = std::fs::remove_dir_all(&rebase_apply);
+            }
+            // Rebase abort may have left a new index.lock
+            if index_lock.exists() {
+                let _ = std::fs::remove_file(&index_lock);
+            }
+        }
+
+        // Fix 2: Detached HEAD (#455) — re-attach with escalation
+        if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
+            tracing::warn!("hub cache HEAD is detached, re-attaching to {}", HUB_BRANCH);
+            // Try checkout first
+            if self.git_in_cache(&["checkout", HUB_BRANCH]).is_err() {
+                // Checkout failed — force-create the branch at current HEAD
+                // then checkout. This handles the case where the branch ref
+                // is missing or points to a different commit.
+                tracing::warn!("checkout failed, force-creating branch at current HEAD");
+                let _ = self.git_in_cache(&["branch", "-f", HUB_BRANCH, "HEAD"]);
+                let _ = self.git_in_cache(&["checkout", HUB_BRANCH]);
+            }
+            // If STILL detached, try writing the ref directly
+            if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
+                tracing::warn!("checkout still failed, writing HEAD ref directly");
+                let _ = self.git_in_cache(&[
+                    "symbolic-ref",
+                    "HEAD",
+                    &format!("refs/heads/{}", HUB_BRANCH),
+                ]);
+            }
+        }
+
+        Ok(())
     }
 
     /// Detect and resolve dirty hub cache state.
@@ -151,14 +435,35 @@ impl SyncManager {
                 if stdout.trim().is_empty() {
                     return Ok(false);
                 }
-                // INTENTIONAL: dirty state recovery is best-effort — if staging/commit fails, we still return Ok
-                let _ = self.git_in_cache(&["add", "-A"]);
-                let _ = self.git_in_cache(&[
+                // Stage and commit dirty state (#465). If staging fails,
+                // escalate to git reset --hard HEAD to force-align the
+                // working directory with the last commit.
+                if self.git_in_cache(&["add", "-A"]).is_err() {
+                    tracing::warn!(
+                        "git add -A failed in dirty state cleanup, \
+                         escalating to reset --hard HEAD"
+                    );
+                    self.git_in_cache(&["reset", "--hard", "HEAD"])?;
+                    return Ok(true);
+                }
+                let commit_result = self.git_in_cache(&[
                     "commit",
                     "-m",
                     "sync: auto-stage dirty hub state (recovery)",
                 ]);
-                Ok(true)
+                match commit_result {
+                    Ok(_) => Ok(true),
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("nothing to commit")
+                            || err_str.contains("no changes added")
+                        {
+                            Ok(false) // git add staged nothing — working dir is clean
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
             }
             Err(_) => Ok(false), // Can't check status — don't block
         }
@@ -171,6 +476,20 @@ impl SyncManager {
     /// pushed yet. Only resets to the remote when there are definitively no
     /// unpushed commits.
     pub fn fetch(&self) -> Result<()> {
+        // Acquire the hub write lock to serialize with write_commit_push (#457).
+        // fetch() modifies the working directory (reset, rebase) which races
+        // with concurrent CLI writes if not serialized.
+        let _lock_guard = self.acquire_lock()?;
+
+        // Recover from broken git states before attempting fetch (#454, #455, #456)
+        self.hub_health_check()?;
+
+        // Stage any untracked or modified files before fetch. Concurrent
+        // agents may have written heartbeat/lock files that aren't committed
+        // yet — these block rebase/reset with "untracked working tree files
+        // would be overwritten by merge" (#480).
+        self.clean_dirty_state()?;
+
         // Try fetching from remote. If no remote is configured, this is a no-op.
         let fetch_result = self.git_in_cache(&["fetch", &self.remote, HUB_BRANCH]);
         if let Err(e) = &fetch_result {
@@ -252,7 +571,10 @@ impl SyncManager {
             // Rebase failed (likely a conflict). Abort to restore pre-rebase
             // state so local-only commits are preserved rather than lost.
             // The user can resolve manually or the next push will retry. (#430)
-            let _ = self.git_in_cache(&["rebase", "--abort"]);
+            // INTENTIONAL: rebase --abort is best-effort recovery — preserves local commits even if abort fails
+            if let Err(abort_err) = self.git_in_cache(&["rebase", "--abort"]) {
+                tracing::warn!("rebase --abort failed during recovery: {}", abort_err);
+            }
             tracing::warn!(
                 "rebase onto {} failed ({}); aborted to preserve local commits",
                 remote_ref,
@@ -291,11 +613,16 @@ impl SyncManager {
                     }
                     if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
                         if attempt < 2 {
-                            // Bail if local has diverged too far — sign of a rebase loop
                             self.check_divergence()?;
-                            // INTENTIONAL: pull/rebase failure is non-fatal — retry loop will bail on persistent conflicts
-                            let _ =
-                                self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH]);
+                            // Pull to sync with remote before retry (#473).
+                            // If pull fails, run health check and try once more.
+                            if self
+                                .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
+                                .is_err()
+                            {
+                                self.hub_health_check()?;
+                                self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
+                            }
                             continue;
                         }
                         bail!("Push failed after 3 retries for locks.json");

@@ -28,6 +28,10 @@ crosslink-enterprise/
 .worktrees/
 OPUS_4_6_SUGGESTIONS.md
 
+# Pipeline state files (machine-local, ephemeral)
+*.pipeline.json
+*.plan.json
+
 # === Crosslink managed (do not edit between markers) ===
 # .crosslink/ — machine-local state (never commit)
 .crosslink/issues.db
