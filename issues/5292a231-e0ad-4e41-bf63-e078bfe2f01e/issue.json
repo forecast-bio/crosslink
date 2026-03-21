@@ -2,11 +2,12 @@
   "uuid": "5292a231-e0ad-4e41-bf63-e078bfe2f01e",
   "display_id": 250,
   "title": "Create codebase maintainability audit epic on GitHub",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-21T14:39:36.975321337Z",
-  "updated_at": "2026-03-21T14:39:44.827735327Z",
+  "updated_at": "2026-03-21T14:43:45.487922923Z",
+  "closed_at": "2026-03-21T14:43:45.487922923Z",
   "labels": [
     "enhancement"
   ]
