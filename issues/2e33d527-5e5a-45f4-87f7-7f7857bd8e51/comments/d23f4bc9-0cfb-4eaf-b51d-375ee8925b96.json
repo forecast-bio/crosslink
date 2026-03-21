@@ -1,0 +1,10 @@
+{
+  "uuid": "d23f4bc9-0cfb-4eaf-b51d-375ee8925b96",
+  "issue_uuid": "2e33d527-5e5a-45f4-87f7-7f7857bd8e51",
+  "author": "maxine--basel",
+  "content": "Design doc drafted: .design/kickoff-graph.md — covers command registration, topology collection, ASCII renderer, and annotation strategy (tmux > docker > status > orphan). One open question on terminal width handling.",
+  "created_at": "2026-03-21T19:44:08.334893Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAxYbujC+fdPk5T9dWyNgd/sya9xYUHleHpyNNBbiYwoyRhgybTLXeF+Bt/ofGJEcHlZN9PI3lLoN8ROgVnYVdDg=="
+}
