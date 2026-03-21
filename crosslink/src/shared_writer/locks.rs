@@ -135,6 +135,42 @@ impl SharedWriter {
         self.claim_lock_v2(issue_display_id, branch)
     }
 
+    /// Force-release a stale lock without re-claiming it.
+    ///
+    /// Used by `integrity locks --repair` to actually free stale locks.
+    /// Unlike `steal_lock_v2`, this does NOT call `claim_lock_v2` afterwards.
+    pub fn force_release_lock_v2(
+        &self,
+        issue_display_id: i64,
+        stale_agent_id: &str,
+    ) -> Result<bool> {
+        // Prune stale agent's compacted events so they don't replay
+        crate::compaction::prune_events(&self.cache_dir, stale_agent_id)?;
+
+        // Clear lock from checkpoint state
+        let mut state = crate::checkpoint::read_checkpoint(&self.cache_dir)?;
+        state.locks.remove(&issue_display_id);
+        crate::checkpoint::write_checkpoint(&self.cache_dir, &state)?;
+
+        // Remove materialized lock file
+        let lock_path = self
+            .cache_dir
+            .join("locks")
+            .join(format!("{}.json", issue_display_id));
+        if lock_path.exists() {
+            std::fs::remove_file(&lock_path)?;
+        }
+
+        // Emit a release event and push
+        let event = crate::events::Event::LockReleased { issue_display_id };
+        self.emit_compact_push(
+            event,
+            &format!("force-release stale lock on #{}", issue_display_id),
+        )?;
+
+        Ok(true)
+    }
+
     /// Read a V2 lock file for a specific issue.
     ///
     /// Returns None if the lock file doesn't exist.
