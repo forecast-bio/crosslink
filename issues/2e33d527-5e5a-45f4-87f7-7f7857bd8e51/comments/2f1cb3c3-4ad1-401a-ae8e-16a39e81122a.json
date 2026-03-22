@@ -1,0 +1,10 @@
+{
+  "uuid": "2f1cb3c3-4ad1-401a-ae8e-16a39e81122a",
+  "issue_uuid": "2e33d527-5e5a-45f4-87f7-7f7857bd8e51",
+  "author": "maxine--basel",
+  "content": "Q1 resolved: detect terminal width and truncate branch names/annotations to fit. Reuse truncate_str() from helpers.rs:586. Fall back to 80 columns if detection fails.",
+  "created_at": "2026-03-22T01:10:30.205956Z",
+  "kind": "decision",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXrhaKm2U8U10VsWkmsOFn+1rSlvIhCKbWIRc6Vh5jaROBJ1OKuO4sOaCKuq5mKhZHXezNWAVt34o4GMQAwNkBg=="
+}
