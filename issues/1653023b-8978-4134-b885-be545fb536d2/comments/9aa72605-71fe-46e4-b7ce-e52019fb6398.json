@@ -1,0 +1,10 @@
+{
+  "uuid": "9aa72605-71fe-46e4-b7ce-e52019fb6398",
+  "issue_uuid": "1653023b-8978-4134-b885-be545fb536d2",
+  "author": "maxine--basel--kickoff-graph-command-0fa7",
+  "content": "Completed: kickoff graph command (CL-252). Added crosslink kickoff graph subcommand with ASCII topology rendering, --all for orphan branches, --json for structured output, --no-pager (reserved). All 10 ACs pass. 3 files changed, 424 lines added. 2 pre-existing coordination test failures unrelated.",
+  "created_at": "2026-03-22T03:37:28.551263Z",
+  "kind": "handoff",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlchRwHrfpvZNKvT2+ZiFj6dYm4qqs+PUX/L+oOkTpdOZ1sAbrqjbC628aRHR3ZHKlQ+oh/ETQ1VOkLF0+MjPAQ=="
+}
