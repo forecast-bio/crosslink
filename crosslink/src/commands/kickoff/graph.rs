@@ -207,7 +207,7 @@ fn build_branch_node(
             // Use merge-base for HEAD
             if let Some(fork) = git_merge_base("HEAD", branch) {
                 let count = git_rev_list_count(&fork, branch).unwrap_or(0);
-                if best.is_none() || count < best.as_ref().unwrap().2 {
+                if best.as_ref().is_none_or(|b| count < b.2) {
                     best = Some((base.clone(), fork, count));
                 }
             }
@@ -215,7 +215,7 @@ fn build_branch_node(
         }
         if let Some(fork) = git_merge_base(base, branch) {
             let count = git_rev_list_count(&fork, branch).unwrap_or(0);
-            if best.is_none() || count < best.as_ref().unwrap().2 {
+            if best.as_ref().is_none_or(|b| count < b.2) {
                 best = Some((base.clone(), fork, count));
             }
         }
@@ -355,9 +355,9 @@ fn output_json(base_branches: &[String], nodes: &[BranchNode]) -> Result<()> {
 fn render_ascii(base_branches: &[String], nodes: &[BranchNode], term_width: usize) {
     if nodes.is_empty() {
         // REQ-7: show base branches only
-        for base in base_branches {
+        for (i, base) in base_branches.iter().enumerate() {
             println!("  * {}", base);
-            if base != base_branches.last().unwrap() {
+            if i < base_branches.len() - 1 {
                 println!("  |");
             }
         }
