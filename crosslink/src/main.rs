@@ -991,6 +991,16 @@ enum AgentCommands {
     },
     /// Show current agent identity
     Status,
+    /// Send a prompt to a running tmux-based agent session
+    Prompt {
+        /// Agent slug or tmux session name
+        session: String,
+        /// Prompt text to send (supports multiline)
+        message: String,
+        /// Don't press Enter after pasting (just type, don't submit)
+        #[arg(long)]
+        no_submit: bool,
+    },
     /// Bootstrap agent identity in a new or existing repo clone
     Bootstrap {
         /// Git repository URL to clone
