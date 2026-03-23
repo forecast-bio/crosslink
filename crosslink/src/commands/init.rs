@@ -682,9 +682,17 @@ impl InitUI {
             println!();
         } else {
             println!("Crosslink initialized successfully!");
-            println!("\nNext steps:");
-            println!("  crosslink session start     # Start a session");
+            println!();
+            println!("Crosslink tracks issues, comments, and sessions in .crosslink/issues.db.");
+            println!("AI agents use it to coordinate work across sessions and worktrees.");
+            println!();
+            println!("Quick start:");
             println!("  crosslink create \"Task\"     # Create an issue");
+            println!("  crosslink list              # See all issues");
+            println!("  crosslink session start     # Start a work session");
+            println!();
+            println!("Multi-agent features (agents, signing, locks, containers) are optional");
+            println!("and only needed when multiple AI agents collaborate on the same repo.");
         }
     }
 }

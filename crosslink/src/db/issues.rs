@@ -369,6 +369,26 @@ impl Database {
         Ok(count)
     }
 
+    /// Count issues created since a given timestamp.
+    pub fn count_issues_since(&self, since: &str) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM issues WHERE created_at >= ?1",
+            params![since],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Count comments created since a given timestamp.
+    pub fn count_comments_since(&self, since: &str) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM comments WHERE created_at >= ?1",
+            params![since],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
     /// Get the uuid and created_by metadata for an issue (columns added in migration v10).
     pub fn get_issue_export_metadata(
         &self,

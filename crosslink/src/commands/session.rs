@@ -207,6 +207,30 @@ pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Res
     }
 
     println!("Duration: {} minutes", minutes);
+
+    // Session activity summary — shows the value crosslink is providing
+    let since = session.started_at.to_rfc3339();
+    let issues_created = db.count_issues_since(&since).unwrap_or(0);
+    let comments_added = db.count_comments_since(&since).unwrap_or(0);
+    if issues_created > 0 || comments_added > 0 {
+        let mut parts = Vec::new();
+        if issues_created > 0 {
+            parts.push(format!(
+                "{} issue{} created",
+                issues_created,
+                if issues_created == 1 { "" } else { "s" }
+            ));
+        }
+        if comments_added > 0 {
+            parts.push(format!(
+                "{} comment{} recorded",
+                comments_added,
+                if comments_added == 1 { "" } else { "s" }
+            ));
+        }
+        println!("Activity: {}", parts.join(", "));
+    }
+
     Ok(())
 }
 

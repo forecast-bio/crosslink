@@ -100,7 +100,7 @@ pub fn init(
                 let json = serde_json::to_string_pretty(&config)?;
                 std::fs::write(&path, json)?;
 
-                println!("  SSH key: {}", keypair.fingerprint);
+                println!("  SSH key: configured (commit signing enabled)");
 
                 // Publish public key to hub for driver approval
                 if let Err(e) =
@@ -132,8 +132,8 @@ pub fn init(
     if let Some(desc) = &config.description {
         println!("  Description: {}", desc);
     }
-    if let Some(fp) = &config.ssh_fingerprint {
-        println!("  Key:     {}", fp);
+    if config.ssh_fingerprint.is_some() {
+        println!("  Signing: enabled");
     }
     println!();
     println!(
@@ -391,8 +391,8 @@ pub fn bootstrap(
     println!("Bootstrap complete:");
     println!("  Agent ID:  {}", config.agent_id);
     println!("  Machine:   {}", config.machine_id);
-    if let Some(fp) = &config.ssh_fingerprint {
-        println!("  SSH key:   {}", fp);
+    if config.ssh_fingerprint.is_some() {
+        println!("  Signing: enabled");
     }
     println!("  Repo path: {}", target_dir.display());
     println!();
@@ -413,13 +413,14 @@ pub fn status(crosslink_dir: &Path) -> Result<()> {
             if let Some(desc) = &config.description {
                 println!("Description: {}", desc);
             }
-            if let Some(fp) = &config.ssh_fingerprint {
-                println!("SSH key: {}", fp);
+            if config.ssh_fingerprint.is_some() {
+                println!("Signing: enabled");
             } else {
-                println!("SSH key: none (signing disabled)");
+                println!("Signing: disabled");
             }
 
             // Show locked issues (best-effort)
+            // Locks prevent other agents from working on the same issue simultaneously.
             if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
                 // INTENTIONAL: init and fetch are best-effort — status display works with stale data
                 let _ = sync.init_cache();
@@ -430,7 +431,7 @@ pub fn status(crosslink_dir: &Path) -> Result<()> {
                         println!("Locks: none");
                     } else {
                         println!(
-                            "Locks: {}",
+                            "Locks: {} (exclusively assigned to this agent)",
                             my_locks
                                 .iter()
                                 .map(|id| format_issue_id(*id))
