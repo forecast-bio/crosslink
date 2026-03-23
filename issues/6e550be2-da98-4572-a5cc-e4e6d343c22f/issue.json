@@ -1,12 +1,12 @@
 {
   "uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
   "display_id": 253,
-  "title": "Add CLI command and MCP tool for sending prompts to tmux-based agent sessions",
+  "title": "Lazy auto-hydration: re-sync SQLite when hub branch ref moves",
   "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-23T13:59:04.388095939Z",
-  "updated_at": "2026-03-23T16:13:56.468987973Z",
+  "updated_at": "2026-03-23T16:32:07.279261399Z",
   "labels": [
     "feature",
     "enhancement"
