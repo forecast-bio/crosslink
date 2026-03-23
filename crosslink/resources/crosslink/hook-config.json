@@ -32,6 +32,8 @@
       "git clean -f", "git clean -fd", "git clean -fdx",
       "git checkout .", "git restore ."
     ],
-    "gated_git_commands": []
+    "gated_git_commands": [],
+    "agent_lint_commands": [],
+    "agent_test_commands": []
   }
 }

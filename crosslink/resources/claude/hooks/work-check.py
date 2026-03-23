@@ -103,6 +103,13 @@ def load_config(crosslink_dir):
         blocked = overrides.get("blocked_git_commands", list(DEFAULT_AGENT_BLOCKED_GIT))
         gated = overrides.get("gated_git_commands", [])
         discipline = overrides.get("comment_discipline", "off")
+        # Merge agent lint/test commands into allowed prefixes (#495)
+        for cmd in overrides.get("agent_lint_commands", []):
+            if cmd not in allowed:
+                allowed.append(cmd)
+        for cmd in overrides.get("agent_test_commands", []):
+            if cmd not in allowed:
+                allowed.append(cmd)
 
     return mode, blocked, gated, allowed, is_agent, discipline
 

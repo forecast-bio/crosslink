@@ -1595,6 +1595,61 @@ pub fn read_repo_compact_id(crosslink_dir: &Path) -> String {
     crate::utils::base62_encode_4(hasher.finish())
 }
 
+/// Detect project lint/test commands and populate `agent_overrides` in
+/// hook-config.json so kickoff agents can self-validate their work (#495).
+///
+/// Only populates empty arrays — preserves any manually configured commands.
+fn populate_agent_tool_commands(config_path: &Path, project_root: &Path) -> Result<()> {
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    let raw = fs::read_to_string(config_path)?;
+    let mut config: serde_json::Value = serde_json::from_str(&raw)?;
+
+    let overrides = match config.get_mut("agent_overrides") {
+        Some(serde_json::Value::Object(m)) => m,
+        _ => return Ok(()),
+    };
+
+    // Only populate if arrays are empty (don't overwrite manual config)
+    let lint_empty = overrides
+        .get("agent_lint_commands")
+        .and_then(|v| v.as_array())
+        .is_none_or(|a| a.is_empty());
+    let test_empty = overrides
+        .get("agent_test_commands")
+        .and_then(|v| v.as_array())
+        .is_none_or(|a| a.is_empty());
+
+    if !lint_empty && !test_empty {
+        return Ok(()); // Both already configured
+    }
+
+    let conv = super::kickoff::detect_conventions(project_root);
+
+    if lint_empty && !conv.lint_commands.is_empty() {
+        overrides.insert(
+            "agent_lint_commands".to_string(),
+            serde_json::json!(conv.lint_commands),
+        );
+    }
+
+    if test_empty {
+        if let Some(ref test_cmd) = conv.test_command {
+            overrides.insert(
+                "agent_test_commands".to_string(),
+                serde_json::json!([test_cmd]),
+            );
+        }
+    }
+
+    let output = serde_json::to_string_pretty(&config)?;
+    fs::write(config_path, format!("{output}\n"))?;
+
+    Ok(())
+}
+
 pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
     let force = opts.force;
     let python_prefix = opts.python_prefix;
@@ -1709,6 +1764,9 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
 
     // Ensure repo_compact_id exists in hook-config.json (idempotent)
     ensure_repo_compact_id(&crosslink_dir)?;
+
+    // Auto-detect lint/test commands for agent overrides (#495)
+    populate_agent_tool_commands(&config_path, path)?;
 
     // Write .crosslink/.gitignore for multi-agent files
     let crosslink_gitignore = crosslink_dir.join(".gitignore");
