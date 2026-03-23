@@ -32,7 +32,9 @@ impl SyncManager {
         // Resolve private key path (relative to .crosslink/)
         let private_key = self.crosslink_dir.join(&rel_key);
         if !private_key.exists() {
-            return Ok(());
+            // Agent key is gone (e.g. worktree cleaned up). Fall back to the
+            // driver's signing key so hub commits keep working (#506).
+            return self.fallback_to_driver_signing();
         }
 
         // Set up allowed_signers path
@@ -47,6 +49,69 @@ impl SyncManager {
                 None
             },
         )?;
+
+        Ok(())
+    }
+
+    /// Fall back to the driver's signing key when the agent key is missing.
+    ///
+    /// Reads `user.signingkey` from the main repo's git config. If found and
+    /// the key file exists, configures the hub cache worktree to use it.
+    /// If no driver key is found, disables signing so commits can proceed
+    /// unsigned rather than failing fatally.
+    fn fallback_to_driver_signing(&self) -> Result<()> {
+        // Try to read the driver's signing key from the main repo config
+        let output = Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(["config", "user.signingkey"])
+            .output();
+
+        let driver_key = output.ok().and_then(|o| {
+            if o.status.success() {
+                let key = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !key.is_empty() {
+                    Some(key)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+        match driver_key {
+            Some(key_path) => {
+                let key = std::path::Path::new(&key_path);
+                // Expand ~ to home directory
+                let expanded = if key_path.starts_with('~') {
+                    std::env::var("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join(&key_path[2..]))
+                        .unwrap_or_else(|_| key.to_path_buf())
+                } else {
+                    key.to_path_buf()
+                };
+
+                if expanded.exists() {
+                    tracing::info!(
+                        "agent key missing, falling back to driver signing key: {}",
+                        expanded.display()
+                    );
+                    signing::configure_git_ssh_signing(&self.cache_dir, &expanded, None)?;
+                } else {
+                    tracing::warn!(
+                        "agent key missing and driver key not found at {}, disabling signing",
+                        expanded.display()
+                    );
+                    signing::disable_git_signing(&self.cache_dir)?;
+                }
+            }
+            None => {
+                tracing::warn!(
+                    "agent key missing and no driver signing key configured, disabling signing"
+                );
+                signing::disable_git_signing(&self.cache_dir)?;
+            }
+        }
 
         Ok(())
     }

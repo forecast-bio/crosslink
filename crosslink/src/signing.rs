@@ -400,6 +400,39 @@ fn run_git_config(repo_dir: &Path, key: &str, value: &str, worktree_scope: bool)
     Ok(())
 }
 
+/// Disable git signing in a repository.
+///
+/// Unsets signing-related config so commits proceed unsigned rather than
+/// failing due to a missing key. Uses worktree scope when appropriate.
+pub fn disable_git_signing(repo_dir: &Path) -> Result<()> {
+    let use_worktree = is_linked_worktree(repo_dir);
+
+    if use_worktree {
+        enable_worktree_config(repo_dir)?;
+    }
+
+    let scope_flag = if use_worktree {
+        "--worktree"
+    } else {
+        "--local"
+    };
+
+    for key in &[
+        "user.signingkey",
+        "gpg.format",
+        "commit.gpgsign",
+        "gpg.ssh.allowedSignersFile",
+    ] {
+        // --unset returns non-zero if key doesn't exist, which is fine
+        let _ = Command::new("git")
+            .current_dir(repo_dir)
+            .args(["config", scope_flag, "--unset", key])
+            .output();
+    }
+
+    Ok(())
+}
+
 // ── Allowed signers ─────────────────────────────────────────────────
 
 /// An entry in the `trust/allowed_signers` file (git's native format).
