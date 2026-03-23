@@ -375,6 +375,10 @@ fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
     // Simple two-pass: roots first, then children.
     // For deeper nesting, a full topo sort would be needed,
     // but crosslink typically has at most 1-2 levels of nesting.
+    //
+    // Sort roots by (created_at, uuid) so offline issues without display_id
+    // get assigned the same local IDs across re-hydration passes (#499).
+    roots.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.uuid.cmp(&b.uuid)));
     let mut sorted = roots;
 
     // Multi-pass: keep appending children whose parent is already in sorted
@@ -384,9 +388,10 @@ fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
             break;
         }
         let sorted_uuids: std::collections::HashSet<_> = sorted.iter().map(|i| i.uuid).collect();
-        let (ready, still_remaining): (Vec<&'a IssueFile>, Vec<&'a IssueFile>) = remaining
+        let (mut ready, still_remaining): (Vec<&'a IssueFile>, Vec<&'a IssueFile>) = remaining
             .into_iter()
             .partition(|i| i.parent_uuid.is_none_or(|p| sorted_uuids.contains(&p)));
+        ready.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.uuid.cmp(&b.uuid)));
         sorted.extend(ready);
         remaining = still_remaining;
     }
