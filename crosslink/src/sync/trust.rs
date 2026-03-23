@@ -106,7 +106,9 @@ impl SyncManager {
                 }
             }
             None => {
-                tracing::warn!("agent key missing and no driver signing key configured, disabling signing");
+                tracing::warn!(
+                    "agent key missing and no driver signing key configured, disabling signing"
+                );
                 signing::disable_git_signing(&self.cache_dir)?;
             }
         }
