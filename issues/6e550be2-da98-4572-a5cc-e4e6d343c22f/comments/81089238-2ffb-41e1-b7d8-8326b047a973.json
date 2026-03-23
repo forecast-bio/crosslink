@@ -1,0 +1,8 @@
+{
+  "uuid": "81089238-2ffb-41e1-b7d8-8326b047a973",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Implementing two hard enforcement hooks in work-check.py: (1) pre-commit gate requiring --kind plan comment on active issue, (2) issue close gate requiring --kind result comment. Using direct SQLite queries for speed within the 3-second hook timeout. Also adding comment_discipline config key support (required/encouraged/off).",
+  "created_at": "2026-03-23T15:28:10.875955687Z",
+  "kind": "plan"
+}
