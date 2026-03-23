@@ -341,6 +341,8 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
 
     // Hydrate local SQLite from JSON issue files on the coordination branch
     let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
+    // Record the hub ref so lazy auto-hydration knows we're current (#500)
+    crate::hydration::record_hydrated_ref(crosslink_dir);
     if stats.issues > 0 {
         println!(
             "Hydrated {} issue(s), {} comment(s), {} dep(s), {} relation(s), {} milestone(s).",

@@ -488,6 +488,86 @@ pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
     Ok(count)
 }
 
+// ── Lazy auto-hydration ─────────────────────────────────────────────
+
+const LAST_HYDRATED_REF_FILE: &str = ".last-hydrated-ref";
+
+/// Check if the hub branch has moved since the last hydration and re-hydrate
+/// if so. This makes read operations automatically pick up changes from other
+/// worktrees without requiring an explicit `crosslink sync` (#500).
+///
+/// Returns `true` if re-hydration was performed.
+pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
+    let sync = match crate::sync::SyncManager::new(crosslink_dir) {
+        Ok(s) => s,
+        Err(_) => return Ok(false), // No sync manager — nothing to hydrate
+    };
+
+    if !sync.is_initialized() {
+        return Ok(false);
+    }
+
+    let cache_dir = sync.cache_path();
+    let current_ref = hub_head_ref(crosslink_dir);
+    let current_ref = match current_ref {
+        Some(r) => r,
+        None => return Ok(false), // Can't determine hub ref — skip
+    };
+
+    let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
+    let last_ref = std::fs::read_to_string(&marker_path)
+        .ok()
+        .map(|s| s.trim().to_string());
+
+    if last_ref.as_deref() == Some(&current_ref) {
+        return Ok(false); // Hub hasn't moved — no re-hydration needed
+    }
+
+    tracing::debug!(
+        "hub ref moved ({} -> {}), auto-hydrating",
+        last_ref.as_deref().unwrap_or("none"),
+        &current_ref[..current_ref.len().min(8)]
+    );
+
+    hydrate_to_sqlite(cache_dir, db)?;
+
+    // Store the ref we just hydrated from
+    let _ = std::fs::write(&marker_path, &current_ref);
+
+    Ok(true)
+}
+
+/// Record the current hub branch HEAD ref after a successful hydration.
+///
+/// Called from `sync_cmd` and the daemon after explicit hydration so that
+/// lazy auto-hydration doesn't redundantly re-hydrate.
+pub fn record_hydrated_ref(crosslink_dir: &Path) {
+    if let Some(ref_sha) = hub_head_ref(crosslink_dir) {
+        let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);
+        let _ = std::fs::write(&marker_path, &ref_sha);
+    }
+}
+
+/// Get the current HEAD SHA of the hub branch from the hub cache worktree.
+fn hub_head_ref(crosslink_dir: &Path) -> Option<String> {
+    let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
+    if !sync.is_initialized() {
+        return None;
+    }
+
+    let output = std::process::Command::new("git")
+        .current_dir(sync.cache_path())
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

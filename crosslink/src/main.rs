@@ -1764,7 +1764,16 @@ fn find_crosslink_dir() -> Result<PathBuf> {
 fn get_db() -> Result<Database> {
     let crosslink_dir = find_crosslink_dir()?;
     let db_path = crosslink_dir.join("issues.db");
-    Database::open(&db_path).context("Failed to open database")
+    let db = Database::open(&db_path).context("Failed to open database")?;
+
+    // Auto-hydrate if the hub branch has moved since last hydration (#500).
+    // This is a sub-millisecond check (git rev-parse HEAD in the cache
+    // worktree) that only triggers re-hydration when the ref actually changed.
+    if let Err(e) = hydration::maybe_auto_hydrate(&crosslink_dir, &db) {
+        tracing::debug!("auto-hydration skipped: {}", e);
+    }
+
+    Ok(db)
 }
 
 /// Try to create a SharedWriter for multi-agent mode.

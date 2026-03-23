@@ -270,6 +270,9 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
                                     if let Ok(db) = Database::open(&db_path) {
                                         match hydrate_to_sqlite(sync.cache_path(), &db) {
                                             Ok(stats) => {
+                                                crate::hydration::record_hydrated_ref(
+                                                    crosslink_dir,
+                                                );
                                                 if stats.issues > 0 {
                                                     println!(
                                                         "Hydrated {} issue(s) at {}",
