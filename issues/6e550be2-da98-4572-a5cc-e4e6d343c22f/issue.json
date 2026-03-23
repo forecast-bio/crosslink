@@ -1,12 +1,12 @@
 {
   "uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
   "display_id": 253,
-  "title": "Improve first-use experience and onboarding clarity for new users",
+  "title": "Add jj (Jujutsu) read-only commands to allowed_bash_prefixes",
   "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-23T13:59:04.388095939Z",
-  "updated_at": "2026-03-23T18:08:16.573410405Z",
+  "updated_at": "2026-03-23T18:33:22.414251069Z",
   "labels": [
     "feature",
     "enhancement"
