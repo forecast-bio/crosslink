@@ -1,0 +1,8 @@
+{
+  "uuid": "be89b5e4-4aa4-4d84-85c2-38bc4b8a1b98",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Decision: Focus on proposal #1 (kickoff handles key lifecycle) and #3 (trust delegation). When kickoff launches a subagent: (a) generate a dedicated key for it instead of passing no_key=true, (b) publish the key to the hub, (c) if the invoking driver/agent is already trusted, auto-approve the subagent. This eliminates manual steps entirely. Proposals #2 (MCP) and #4 (test harness) are separate work items.",
+  "created_at": "2026-03-23T15:06:50.833609869Z",
+  "kind": "decision"
+}
