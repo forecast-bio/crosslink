@@ -1,0 +1,8 @@
+{
+  "uuid": "9a06ba58-6653-451e-89b7-5ff19bed1196",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Decision: Using Option B for SchedulingUpdated serde — no skip_serializing_if, so null values are explicit in the event log. This makes intent visible (cleared vs never set).",
+  "created_at": "2026-03-23T18:45:15.098380528Z",
+  "kind": "decision"
+}
