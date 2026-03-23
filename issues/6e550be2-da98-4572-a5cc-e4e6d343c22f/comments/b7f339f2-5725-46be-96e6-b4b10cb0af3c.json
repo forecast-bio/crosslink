@@ -1,0 +1,8 @@
+{
+  "uuid": "b7f339f2-5725-46be-96e6-b4b10cb0af3c",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Fix applied: added stable sort by (created_at, uuid) in topo_sort_issues for both roots and children. Verified with 10 consecutive runs of the flaky test — all pass.",
+  "created_at": "2026-03-23T14:23:28.375852855Z",
+  "kind": "result"
+}
