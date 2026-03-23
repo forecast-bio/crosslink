@@ -1,0 +1,8 @@
+{
+  "uuid": "80fee998-c14d-4ea2-91e9-89ae5340ea9d",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Implemented two hard enforcement gates in work-check.py: (1) git commit blocked without --kind plan comment on active issue, (2) crosslink issue close blocked without --kind result comment. Both respect the comment_discipline config key (required=block, encouraged=warn, off=skip). Updated resource template so crosslink init deploys the new hook.",
+  "created_at": "2026-03-23T15:34:49.819473528Z",
+  "kind": "result"
+}
