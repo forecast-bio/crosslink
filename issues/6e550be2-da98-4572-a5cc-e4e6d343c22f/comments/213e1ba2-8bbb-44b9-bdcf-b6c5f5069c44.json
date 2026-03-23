@@ -1,0 +1,8 @@
+{
+  "uuid": "213e1ba2-8bbb-44b9-bdcf-b6c5f5069c44",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "GH #365: Five friction points — (1) hide SSH fingerprint behind --verbose, (2) add orientation after init/session start, (3) label multi-agent features, (4) add lock context, (5) enrich session status. All are output formatting changes.",
+  "created_at": "2026-03-23T18:08:20.744199484Z",
+  "kind": "plan"
+}
