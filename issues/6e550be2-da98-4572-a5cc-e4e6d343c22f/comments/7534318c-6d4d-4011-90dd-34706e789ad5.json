@@ -1,0 +1,8 @@
+{
+  "uuid": "7534318c-6d4d-4011-90dd-34706e789ad5",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Implementing crosslink agent prompt <session> <message> CLI subcommand using tmux load-buffer + paste-buffer + send-keys Enter pattern. This avoids newline interpretation, length limits, and shell escaping issues.",
+  "created_at": "2026-03-23T16:14:04.328738342Z",
+  "kind": "plan"
+}
