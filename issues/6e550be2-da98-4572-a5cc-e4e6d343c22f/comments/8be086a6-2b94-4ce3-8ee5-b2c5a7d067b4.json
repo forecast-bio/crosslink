@@ -1,0 +1,8 @@
+{
+  "uuid": "8be086a6-2b94-4ce3-8ee5-b2c5a7d067b4",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Implemented lazy auto-hydration: get_db() now checks hub cache HEAD against .last-hydrated-ref marker. If ref moved, re-hydrates before returning. Sub-millisecond check on the common path (git rev-parse HEAD in cache worktree). Also records ref after explicit sync and daemon hydration to avoid redundant work.",
+  "created_at": "2026-03-23T16:37:35.878722331Z",
+  "kind": "result"
+}
