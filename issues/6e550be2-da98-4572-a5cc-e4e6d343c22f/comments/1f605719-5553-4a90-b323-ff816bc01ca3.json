@@ -1,0 +1,8 @@
+{
+  "uuid": "1f605719-5553-4a90-b323-ff816bc01ca3",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Design doc drafted: .design/issue-scheduling-fields.md — 10 requirements, 15 acceptance criteria, Q1 resolved (no events, direct mutation). Ready for kickoff.",
+  "created_at": "2026-03-23T19:17:38.935300204Z",
+  "kind": "plan"
+}
