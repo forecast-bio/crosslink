@@ -1,0 +1,8 @@
+{
+  "uuid": "5b46eeed-e268-4e2d-848c-7469c7d4118a",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "The bug: configure_signing() in trust.rs returns early (line 34-36) when agent key is missing, but doesn't clean up the stale signing config already set in the hub cache worktree. Fix: when the agent key is gone, clean stale signing config from hub cache and fall back to the driver's own signing key from the main repo git config.",
+  "created_at": "2026-03-23T14:35:53.210909937Z",
+  "kind": "plan"
+}
