@@ -178,6 +178,9 @@ pub fn run(
                 opts.skip_permissions,
             )?;
 
+            // Persist the actual session name so kickoff list can find it
+            let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
+
             // 10. Report
             if !opts.quiet {
                 println!("Feature agent launched.");

@@ -271,6 +271,9 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         bail!("Failed to send keys to tmux: {}", stderr.trim());
     }
 
+    // Persist the actual session name so kickoff list can find it
+    let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
+
     // Spawn watchdog sidecar to nudge idle agents
     let watchdog_cfg = read_watchdog_config(crosslink_dir);
     if watchdog_cfg.enabled {

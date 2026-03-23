@@ -157,8 +157,13 @@ pub(super) fn discover_agents(crosslink_dir: &Path) -> Result<Vec<AgentInfo>> {
             let agent_id = read_agent_id(&wt_path, crosslink_dir)
                 .unwrap_or_else(|| format!("driver--{}", dir_name));
 
-            // Check tmux session
-            let session_name = tmux_session_name(&dir_name);
+            // Check tmux session — prefer stored name (may include collision suffix),
+            // fall back to derived name for backward compatibility (#507).
+            let session_name = std::fs::read_to_string(wt_path.join(".kickoff-session"))
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| tmux_session_name(&dir_name));
             let tmux_active = tmux_session_exists(&session_name);
 
             // Reconcile status: check timeout, then tmux liveness
