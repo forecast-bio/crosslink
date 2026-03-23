@@ -1,0 +1,8 @@
+{
+  "uuid": "f61d8248-0163-4d1b-9170-e4dd8fdb5aae",
+  "issue_uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
+  "author": "anon-ab6221f8",
+  "content": "Fixed by persisting the actual tmux session name to .kickoff-session in the worktree during launch (both run.rs and plan.rs). discover_agents in monitor.rs now reads the stored name first, falling back to the derived name for backward compat. This handles both collision suffixes and any naming pattern mismatch between swarm launch and kickoff list.",
+  "created_at": "2026-03-23T14:56:33.612327220Z",
+  "kind": "result"
+}
