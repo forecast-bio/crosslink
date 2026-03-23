@@ -7,6 +7,10 @@
     "crosslink-knowledge": {
       "command": "uv",
       "args": ["run", ".claude/mcp/knowledge-server.py"]
+    },
+    "crosslink-agent-prompt": {
+      "command": "uv",
+      "args": ["run", ".claude/mcp/agent-prompt-server.py"]
     }
   }
 }
