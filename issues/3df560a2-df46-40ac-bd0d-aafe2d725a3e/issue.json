@@ -1,0 +1,49 @@
+{
+  "uuid": "3df560a2-df46-40ac-bd0d-aafe2d725a3e",
+  "display_id": 169,
+  "title": "Add TUI startup sync, periodic background sync, and manual refresh keybinding",
+  "status": "closed",
+  "priority": "high",
+  "parent_uuid": "078e82a2-3f55-4d6b-94da-00ae2b7c1504",
+  "created_by": "maxine--plan-050",
+  "created_at": "2026-03-10T22:41:18.904614Z",
+  "updated_at": "2026-03-24T00:30:11.489842Z",
+  "closed_at": "2026-03-24T00:30:11.489842Z",
+  "comments": [
+    {
+      "id": 254,
+      "author": "maxine--plan-050",
+      "content": "Covers REQ-3, AC-7 through AC-9. Three parts: (1) startup sync before App::new() (~30 lines), (2) periodic 30s background sync using mpsc channel pattern from agents_tab.rs (~80 lines), (3) global 'r' keybinding for manual sync+refresh (~20 lines). No tab currently uses bare 'r'. SyncManager can run on background thread safely since hub cache worktree is separate from working tree.",
+      "created_at": "2026-03-10T22:41:20.340168Z",
+      "kind": "plan"
+    },
+    {
+      "id": 260,
+      "author": "maxine--tui-startup-sync",
+      "content": "Plan: Three sync features for the TUI (REQ-3, AC-7/AC-8/AC-9): (1) Startup sync in run() before App::new() — SyncManager::fetch() + hydrate_to_sqlite() with 'Syncing...' message before alternate screen. (2) Periodic 30s background sync via mpsc channel (same pattern as agents_tab). (3) Global 'r' keybinding intercepted before tab dispatch triggers full sync. Per-tab 'r' handlers delegate to global. ':r' command palette remains as local disk refresh. Key files: tui/mod.rs (main), plus all 5 tab files.",
+      "created_at": "2026-03-10T23:42:59.335340Z",
+      "kind": "plan"
+    },
+    {
+      "id": 261,
+      "author": "maxine--tui-startup-sync",
+      "content": "Decision: Made 'r' a global keybinding that triggers full sync (fetch + hydrate) rather than keeping per-tab local refresh. ':r' command palette remains as local-only disk refresh. Added force_refresh() to Tab trait so sync completion can reload data for eagerly-loaded tabs (IssuesTab, KnowledgeTab). Tabs with on_enter refresh (AgentsTab, ConfigTab, MilestonesTab) use default force_refresh (on_leave + on_enter).",
+      "created_at": "2026-03-10T23:43:08.631620Z",
+      "kind": "decision"
+    },
+    {
+      "id": 262,
+      "author": "maxine--tui-startup-sync",
+      "content": "Decision: Background thread only does SyncManager::fetch() (network I/O). Hydration (hydrate_to_sqlite) runs on main thread to avoid SQLite threading issues. SyncResult struct carries cache_path and optional error across mpsc channel. PERIODIC_SYNC_INTERVAL = 30s defined as module-level constant for easy tuning.",
+      "created_at": "2026-03-10T23:43:16.270241Z",
+      "kind": "decision"
+    },
+    {
+      "id": 263,
+      "author": "maxine--tui-startup-sync",
+      "content": "Result: Implemented all 3 sync features (AC-7, AC-8, AC-9). Startup sync: mod.rs:665-671, fetch+hydrate before alternate screen with 'Syncing...' message. Periodic sync: mod.rs:692-694, checks elapsed > 30s each loop tick, spawns background fetch. Manual refresh: mod.rs:213-215, global 'r' calls start_background_sync(). On sync completion poll_sync() hydrates DB and calls force_refresh() on active tab. 6 files changed, 151 insertions, 52 deletions. All 186 tests pass, clippy clean, fmt clean. Commit d60cfec on branch feature/add-tui-startup-sync-periodic-refresh-and-manual-r. Ready for push and PR.",
+      "created_at": "2026-03-10T23:43:27.564776Z",
+      "kind": "result"
+    }
+  ]
+}
