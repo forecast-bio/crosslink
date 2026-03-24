@@ -2,11 +2,12 @@
   "uuid": "0c35c743-0412-480a-9c25-b0066b669d9b",
   "display_id": 227,
   "title": "Fix TUI screen scramble from hydration warnings printing to stdout",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-19T17:36:30.086490658Z",
-  "updated_at": "2026-03-19T17:36:38.542805553Z",
+  "updated_at": "2026-03-24T00:29:33.902166Z",
+  "closed_at": "2026-03-24T00:29:33.902166Z",
   "labels": [
     "bug"
   ]
