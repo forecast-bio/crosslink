@@ -8,3 +8,7 @@ build-linux.sh
 bin/crosslink-darwin
 bin/crosslink-darwin-arm64
 bin/*
+
+# Crosslink local state (should never be tracked)
+.crosslink/
+.chainlink/
