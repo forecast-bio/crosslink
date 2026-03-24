@@ -3,11 +3,12 @@
   "display_id": 231,
   "title": "Config system overhaul",
   "description": "Created by crosslink kickoff",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine--basel",
   "created_at": "2026-03-19T18:18:14.931030Z",
-  "updated_at": "2026-03-19T18:18:19.936857Z",
+  "updated_at": "2026-03-24T00:29:27.669440Z",
+  "closed_at": "2026-03-24T00:29:27.669440Z",
   "labels": [
     "feature"
   ]
