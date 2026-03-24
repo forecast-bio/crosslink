@@ -1,0 +1,25 @@
+{
+  "uuid": "f408b482-a553-4ddb-b5a5-045cb2c18ee1",
+  "display_id": 191,
+  "title": "Prepare v0.5.0 release",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "maxine--basel",
+  "created_at": "2026-03-15T09:43:43.581289Z",
+  "updated_at": "2026-03-24T00:29:57.048122Z",
+  "closed_at": "2026-03-24T00:29:57.048122Z",
+  "labels": [
+    "enhancement"
+  ],
+  "comments": [
+    {
+      "id": 300,
+      "author": "maxine--basel",
+      "content": "Published GitHub release v0.5.0 — web dashboard, CLI enhancements, docs overhaul, 14 adversarial fixes. https://github.com/forecast-bio/crosslink/releases/tag/v0.5.0",
+      "created_at": "2026-03-15T09:55:50.222926Z",
+      "kind": "result",
+      "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+      "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAqBewOmD1RMIENlJSAiayvvjzkAYjPysHBAsMfmdtm4pzhjLT65vgNiqWmT012E/U86AxQpMzczFULxgiGXklAQ=="
+    }
+  ]
+}
