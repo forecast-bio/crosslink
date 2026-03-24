@@ -23,10 +23,6 @@
       "agent_id": "maxine--basel--config-system-overhaul-2e70",
       "claimed_at": "2026-03-19T18:19:12.276803Z"
     },
-    "233": {
-      "agent_id": "maxine--basel",
-      "claimed_at": "2026-03-19T20:05:34.534186Z"
-    },
     "252": {
       "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
       "claimed_at": "2026-03-22T16:20:47.643373Z"
@@ -38,8 +34,8 @@
   },
   "issues": {},
   "watermark": {
-    "timestamp": "2026-03-24T00:29:17.187190Z",
+    "timestamp": "2026-03-24T00:29:23.979728Z",
     "agent_id": "maxine--basel",
-    "agent_seq": 40
+    "agent_seq": 41
   }
 }
