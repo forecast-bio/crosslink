@@ -2,11 +2,12 @@
   "uuid": "2e33d527-5e5a-45f4-87f7-7f7857bd8e51",
   "display_id": 251,
   "title": "Design document for GH-491",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine--basel",
   "created_at": "2026-03-21T19:14:25.038198Z",
-  "updated_at": "2026-03-21T19:14:27.106720Z",
+  "updated_at": "2026-03-24T00:29:15.685461Z",
+  "closed_at": "2026-03-24T00:29:15.685461Z",
   "labels": [
     "enhancement"
   ]
