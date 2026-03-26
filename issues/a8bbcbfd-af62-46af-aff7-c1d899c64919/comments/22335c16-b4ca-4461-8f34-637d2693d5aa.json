@@ -1,0 +1,8 @@
+{
+  "uuid": "22335c16-b4ca-4461-8f34-637d2693d5aa",
+  "issue_uuid": "a8bbcbfd-af62-46af-aff7-c1d899c64919",
+  "author": "anon-ab6221f8",
+  "content": "Replaced local find_crosslink_dir reimplementation in heartbeat.py with import from crosslink_config module.",
+  "created_at": "2026-03-26T19:43:09.277719007Z",
+  "kind": "result"
+}
