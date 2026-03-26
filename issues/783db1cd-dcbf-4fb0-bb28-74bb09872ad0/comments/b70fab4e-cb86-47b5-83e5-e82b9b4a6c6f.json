@@ -1,0 +1,8 @@
+{
+  "uuid": "b70fab4e-cb86-47b5-83e5-e82b9b4a6c6f",
+  "issue_uuid": "783db1cd-dcbf-4fb0-bb28-74bb09872ad0",
+  "author": "anon-ab6221f8",
+  "content": "Add hub write lock acquisition at the start of emit_compact_push, matching write_commit_push.",
+  "created_at": "2026-03-26T17:29:20.208835797Z",
+  "kind": "plan"
+}
