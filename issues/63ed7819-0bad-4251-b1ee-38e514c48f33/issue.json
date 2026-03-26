@@ -1,0 +1,10 @@
+{
+  "uuid": "63ed7819-0bad-4251-b1ee-38e514c48f33",
+  "display_id": 277,
+  "title": "Add PartialEq derive to EventEnvelope and Event for testability",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:20:54.764203522Z",
+  "updated_at": "2026-03-26T13:20:54.764203522Z"
+}
