@@ -1,0 +1,8 @@
+{
+  "uuid": "b6791cf9-29d2-4e7d-b993-dcdddca02ad9",
+  "issue_uuid": "8c56b323-90fd-4324-bb4d-c71ccc615de8",
+  "author": "anon-ab6221f8",
+  "content": "Add bearer token middleware. Generate a random token on server start, print it to stdout, and reject requests without a matching Authorization header. Read-only health endpoint exempt.",
+  "created_at": "2026-03-26T17:46:47.637792627Z",
+  "kind": "plan"
+}
