@@ -1,0 +1,8 @@
+{
+  "uuid": "636026f1-1eba-4f0b-a38b-da1b7877a3a0",
+  "issue_uuid": "0a7a4147-8bc0-407f-967e-5793c565944d",
+  "author": "anon-ab6221f8",
+  "content": "Replace sh -c invocation with Command::new that splits the test command on whitespace and passes args directly, avoiding shell interpretation.",
+  "created_at": "2026-03-26T16:17:27.137610379Z",
+  "kind": "plan"
+}
