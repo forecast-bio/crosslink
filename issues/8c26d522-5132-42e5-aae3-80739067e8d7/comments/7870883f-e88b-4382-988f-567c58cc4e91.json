@@ -1,0 +1,8 @@
+{
+  "uuid": "7870883f-e88b-4382-988f-567c58cc4e91",
+  "issue_uuid": "8c26d522-5132-42e5-aae3-80739067e8d7",
+  "author": "anon-ab6221f8",
+  "content": "Replaced 9-parameter build_reminder function signature with ReminderContext dataclass in prompt-guard.py. Updated both call sites to construct ReminderContext with named fields.",
+  "created_at": "2026-03-26T19:43:33.564641400Z",
+  "kind": "result"
+}
