@@ -1,0 +1,8 @@
+{
+  "uuid": "42d0e698-e4b1-441a-8f75-52a6f39fe83e",
+  "issue_uuid": "68a74a37-9c46-4a44-91c0-acbc340ba0b8",
+  "author": "anon-ab6221f8",
+  "content": "Child tables to snapshot: labels (issue_id, label), comments (full row), dependencies (blocker_id, blocked_id where either references our issue), relations (issue_id_1, issue_id_2 where either references our issue), time_entries (full row), milestone_issues (milestone_id, issue_id). Will collect all into Vec structs keyed by issue_id.",
+  "created_at": "2026-03-26T16:35:43.937528357Z",
+  "kind": "observation"
+}
