@@ -2,11 +2,12 @@
   "uuid": "b7cde38d-4091-4bf9-9e74-47eed19ff788",
   "display_id": 587,
   "title": "Invoke original panic hook in TUI TerminalGuard panic handler",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:58:50.730558835Z",
-  "updated_at": "2026-03-26T13:58:54.372745469Z",
+  "updated_at": "2026-03-26T19:57:27.772677111Z",
+  "closed_at": "2026-03-26T19:57:27.772677111Z",
   "labels": [
     "enhancement"
   ]
