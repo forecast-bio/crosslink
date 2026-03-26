@@ -2,11 +2,12 @@
   "uuid": "c47fc903-9019-4cca-88e7-eb49675b15ab",
   "display_id": 434,
   "title": "Extract duplicated release_lock_best_effort into shared module",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:38:27.453288163Z",
-  "updated_at": "2026-03-26T13:38:30.214253546Z",
+  "updated_at": "2026-03-26T16:59:24.144262299Z",
+  "closed_at": "2026-03-26T16:59:24.144262299Z",
   "labels": [
     "enhancement"
   ]
