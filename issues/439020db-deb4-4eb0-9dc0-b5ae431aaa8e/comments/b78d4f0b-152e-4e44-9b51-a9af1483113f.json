@@ -1,0 +1,8 @@
+{
+  "uuid": "b78d4f0b-152e-4e44-9b51-a9af1483113f",
+  "issue_uuid": "439020db-deb4-4eb0-9dc0-b5ae431aaa8e",
+  "author": "anon-ab6221f8",
+  "content": "cpitd is installed during crosslink init but never invoked by any hook or automated mechanism. The cpitd scan command exists as a manual CLI command but nothing triggers it automatically. Should be wired into post-edit-check.py or a periodic hook so clone detection actually runs.",
+  "created_at": "2026-03-26T18:35:24.921344998Z",
+  "kind": "observation"
+}
