@@ -1,0 +1,10 @@
+{
+  "uuid": "40e37ef6-1efc-40ab-8940-8a4d6bcdd421",
+  "display_id": 471,
+  "title": "Remove dead code block for unknown keys in config show",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:42:52.754558454Z",
+  "updated_at": "2026-03-26T13:42:52.754558454Z"
+}
