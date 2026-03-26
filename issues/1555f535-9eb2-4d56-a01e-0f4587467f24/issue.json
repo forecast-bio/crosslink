@@ -2,11 +2,12 @@
   "uuid": "1555f535-9eb2-4d56-a01e-0f4587467f24",
   "display_id": 395,
   "title": "Fix HashMap String key diverging from i64 lookup type in LocksFile",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:31:07.050191372Z",
-  "updated_at": "2026-03-26T13:31:11.272141457Z",
+  "updated_at": "2026-03-26T17:13:12.060064870Z",
+  "closed_at": "2026-03-26T17:13:12.060064870Z",
   "labels": [
     "bug"
   ]
