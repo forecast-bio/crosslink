@@ -1,0 +1,10 @@
+{
+  "uuid": "a042f4ad-e056-4e91-bf31-223841005583",
+  "display_id": 556,
+  "title": "Fix push_hub_cache reporting success when remote is unreachable",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:54:35.886402476Z",
+  "updated_at": "2026-03-26T13:54:35.886402476Z"
+}
