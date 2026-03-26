@@ -2,11 +2,12 @@
   "uuid": "2edab6d1-1b3d-44d2-84ad-ddd2217300be",
   "display_id": 440,
   "title": "Rename load_locks_filter to reflect side-effectful init and fetch",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:39:03.793293339Z",
-  "updated_at": "2026-03-26T13:39:06.015784200Z",
+  "updated_at": "2026-03-26T20:02:27.496146343Z",
+  "closed_at": "2026-03-26T20:02:27.496146343Z",
   "labels": [
     "enhancement"
   ]
