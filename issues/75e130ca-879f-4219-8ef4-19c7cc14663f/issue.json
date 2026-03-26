@@ -1,0 +1,10 @@
+{
+  "uuid": "75e130ca-879f-4219-8ef4-19c7cc14663f",
+  "display_id": 578,
+  "title": "Fix knowledge_tab refresh blocking main thread on git fetch",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:57:37.838515341Z",
+  "updated_at": "2026-03-26T13:57:37.838515341Z"
+}
