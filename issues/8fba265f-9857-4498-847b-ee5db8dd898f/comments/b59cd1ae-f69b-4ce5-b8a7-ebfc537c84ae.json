@@ -1,0 +1,8 @@
+{
+  "uuid": "b59cd1ae-f69b-4ce5-b8a7-ebfc537c84ae",
+  "issue_uuid": "8fba265f-9857-4498-847b-ee5db8dd898f",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Replaced unsafe type cast 'as [string, string][]' with type predicate function isDefined() in issues.list and usage.list/summary URLSearchParams construction.",
+  "created_at": "2026-03-26T19:50:23.233661080Z",
+  "kind": "result"
+}
