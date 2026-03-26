@@ -1,0 +1,10 @@
+{
+  "uuid": "820c477d-3a36-4a0d-81d6-a1143ab759a3",
+  "display_id": 632,
+  "title": "Replace bare except-pass blocks in hook files with specific exception types",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T15:12:31.253501772Z",
+  "updated_at": "2026-03-26T15:12:31.253501772Z"
+}
