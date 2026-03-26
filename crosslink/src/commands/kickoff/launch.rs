@@ -153,18 +153,24 @@ pub(super) fn build_agent_command(
     worktree_dir: &Path,
     skip_permissions: bool,
 ) -> String {
+    use crate::utils::shell_escape_arg;
+
     let skip_flag = if skip_permissions {
         " --dangerously-skip-permissions"
     } else {
         ""
     };
+    let escaped_model = shell_escape_arg(model);
+    let escaped_tools = shell_escape_arg(allowed_tools);
+    let escaped_kickoff = shell_escape_arg(kickoff_file);
     let claude_cmd = format!(
-        "env -u CLAUDECODE claude{} --model {} --allowedTools '{}' -- \"$(cat {})\"",
-        skip_flag, model, allowed_tools, kickoff_file
+        "env -u CLAUDECODE claude{} --model {} --allowedTools {} -- \"$(cat {})\"",
+        skip_flag, escaped_model, escaped_tools, escaped_kickoff
     );
     match sandbox_command {
         Some(cmd) => {
-            let expanded = cmd.replace("{{worktree}}", &worktree_dir.to_string_lossy());
+            let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
+            let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
             format!(
                 "{} {}s {} {}",
                 timeout_cmd, timeout_secs, expanded, claude_cmd

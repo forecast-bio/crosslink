@@ -170,7 +170,7 @@ pub async fn execute(
         let plan = OrchestratorExecutor::load_plan(&state.crosslink_dir)
             .map_err(|e| not_found(format!("No plan found: {e}")))?;
 
-        let db = state.db();
+        let db = state.db().await;
 
         let mut executor = OrchestratorExecutor::init(&state.crosslink_dir, &db, &plan)
             .map_err(|e| internal_error("Failed to initialize execution", e))?;
@@ -394,7 +394,7 @@ pub async fn mark_stage_done_handler(
     let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
-    let db = state.db();
+    let db = state.db().await;
     let (newly_ready, event, complete) = executor
         .mark_stage_done(&stage_id, &db)
         .map_err(|e| bad_request(format!("Cannot mark stage done: {e}")))?;
@@ -425,7 +425,7 @@ pub async fn mark_stage_failed_handler(
     let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
-    let event = executor
+    let (event, execution_complete) = executor
         .mark_stage_failed(&stage_id)
         .map_err(|e| bad_request(format!("Cannot mark stage failed: {e}")))?;
 
@@ -434,6 +434,7 @@ pub async fn mark_stage_failed_handler(
     Ok(Json(serde_json::json!({
         "ok": true,
         "stage_id": stage_id,
+        "execution_complete": execution_complete,
     })))
 }
 

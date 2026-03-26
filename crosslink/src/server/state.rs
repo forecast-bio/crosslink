@@ -1,7 +1,7 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex, MutexGuard};
 
 use crate::db::Database;
 use crate::server::ws::{self, WsEvent};
@@ -13,7 +13,7 @@ use crate::server::ws::{self, WsEvent};
 /// Fields `db` and `crosslink_dir` are used by API handlers.
 #[derive(Clone)]
 pub struct AppState {
-    /// Shared database handle — wrapped for concurrent handler access.
+    /// Shared database handle — wrapped for concurrent async handler access.
     pub db: Arc<Mutex<Database>>,
     /// Path to the `.crosslink` directory (used to construct SyncManager on demand).
     pub crosslink_dir: PathBuf,
@@ -24,28 +24,39 @@ pub struct AppState {
     /// Handlers that mutate state (e.g. issues, sessions) can push events here
     /// to notify all connected WebSocket clients in real-time.
     pub ws_tx: broadcast::Sender<WsEvent>,
+    /// Bearer token for API authentication.
+    pub auth_token: String,
 }
 
 impl AppState {
     pub fn new(db: Database, crosslink_dir: PathBuf) -> Self {
         let (ws_tx, _ws_rx) = ws::channel();
+        let auth_token = generate_auth_token();
         Self {
             db: Arc::new(Mutex::new(db)),
             crosslink_dir,
             version: env!("CARGO_PKG_VERSION"),
             ws_tx,
+            auth_token,
         }
     }
 
-    /// Acquire the database lock, recovering from mutex poisoning.
+    /// Acquire the database lock asynchronously.
     ///
-    /// `std::sync::Mutex` becomes permanently poisoned if a thread panics while
-    /// holding the guard.  Because the `Database` (backed by SQLite) is
-    /// transactional, a panic leaves the DB in a consistent state — so we can
-    /// safely recover by accepting the poisoned guard via `into_inner`.
-    pub fn db(&self) -> MutexGuard<'_, Database> {
-        // INTENTIONAL: recover from mutex poisoning — SQLite is transactional so
-        // a panic leaves the DB consistent; permanently locking out all threads is worse
-        self.db.lock().unwrap_or_else(|e| e.into_inner())
+    /// Uses `tokio::sync::Mutex` which yields the async task while waiting,
+    /// instead of blocking the Tokio worker thread.
+    pub async fn db(&self) -> MutexGuard<'_, Database> {
+        self.db.lock().await
     }
+}
+
+/// Generate a random 32-character hex token for API authentication.
+fn generate_auth_token() -> String {
+    use std::time::SystemTime;
+    let seed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    format!("{:032x}", seed ^ (pid << 64))
 }

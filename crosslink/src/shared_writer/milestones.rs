@@ -35,7 +35,7 @@ impl SharedWriter {
                     display_id: id,
                     name: name_owned.clone(),
                     description: desc_owned.clone(),
-                    status: "open".to_string(),
+                    status: crate::models::IssueStatus::Open,
                     created_at: now,
                     closed_at: None,
                 };
@@ -59,7 +59,7 @@ impl SharedWriter {
         let _ = self.write_commit_push(
             |writer| {
                 let mut entry = writer.load_milestone_by_id(milestone_id)?;
-                entry.status = "closed".to_string();
+                entry.status = crate::models::IssueStatus::Closed;
                 entry.closed_at = Some(Utc::now());
                 let mut json = Vec::new();
                 serde_json::to_writer_pretty(&mut json, &entry)?;

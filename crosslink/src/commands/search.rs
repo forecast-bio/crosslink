@@ -21,7 +21,7 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
     println!("Found {} issue(s) matching '{}':\n", results.len(), query);
 
     for issue in results {
-        let status_marker = if issue.status == "closed" { "✓" } else { " " };
+        let status_marker = if issue.status == crate::models::IssueStatus::Closed { "✓" } else { " " };
         let parent_str = issue
             .parent_id
             .map(|p| format!(" (sub of {})", format_issue_id(p)))
@@ -34,7 +34,7 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
             issue.priority,
             issue.title,
             parent_str,
-            if issue.status == "closed" {
+            if issue.status == crate::models::IssueStatus::Closed {
                 "(closed)"
             } else {
                 ""

@@ -45,7 +45,7 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
         // First pass: create all issues without parent relationships
         for issue in issues {
             let new_id =
-                db.create_issue(&issue.title, issue.description.as_deref(), &issue.priority)?;
+                db.create_issue(&issue.title, issue.description.as_deref(), issue.priority.as_str())?;
 
             // Add labels
             for label in &issue.labels {
@@ -58,7 +58,7 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
             }
 
             // Close if needed
-            if issue.status == "closed" {
+            if issue.status == crate::models::IssueStatus::Closed {
                 db.close_issue(new_id)?;
             }
 
@@ -144,10 +144,10 @@ fn import_issue(db: &Database, issue: &ExportedIssue, parent_id: Option<i64>) ->
             pid,
             &issue.title,
             issue.description.as_deref(),
-            &issue.priority,
+            issue.priority.as_str(),
         )?
     } else {
-        db.create_issue(&issue.title, issue.description.as_deref(), &issue.priority)?
+        db.create_issue(&issue.title, issue.description.as_deref(), issue.priority.as_str())?
     };
 
     // Add labels
@@ -161,7 +161,7 @@ fn import_issue(db: &Database, issue: &ExportedIssue, parent_id: Option<i64>) ->
     }
 
     // Close if needed
-    if issue.status == "closed" {
+    if issue.status == crate::models::IssueStatus::Closed {
         db.close_issue(id)?;
     }
 
@@ -204,7 +204,7 @@ mod tests {
             title: title.to_string(),
             description: None,
             status: status.to_string(),
-            priority: "medium".to_string(),
+            priority: crate::models::Priority::Medium,
             parent_id,
             labels: vec![],
             comments: vec![],
@@ -300,8 +300,8 @@ mod tests {
             display_id: Some(1),
             title: "New format issue".to_string(),
             description: Some("Imported from IssueFile".to_string()),
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::High,
             parent_uuid: None,
             created_by: "test".to_string(),
             created_at: Utc::now(),

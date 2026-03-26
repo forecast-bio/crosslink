@@ -182,7 +182,7 @@ impl AgentsTab {
             .locks
             .into_iter()
             .filter(|(_, lock)| lock.agent_id == agent_id)
-            .map(|(id_str, lock)| (id_str.parse::<i64>().unwrap_or(0), lock))
+            .map(|(id, lock)| (id, lock))
             .collect();
 
         // Read recent events for this agent
@@ -937,8 +937,7 @@ fn build_agent_rows_static(
         }
     }
 
-    for (issue_str, lock) in &locks.locks {
-        let issue_id: i64 = issue_str.parse().unwrap_or(0);
+    for (&issue_id, lock) in &locks.locks {
         let row = agents
             .entry(lock.agent_id.clone())
             .or_insert_with(|| AgentRow {
@@ -975,8 +974,7 @@ fn build_lock_rows_static(
     let mut rows: Vec<LockRow> = locks
         .locks
         .iter()
-        .map(|(issue_str, lock)| {
-            let issue_id: i64 = issue_str.parse().unwrap_or(0);
+        .map(|(&issue_id, lock)| {
             LockRow {
                 issue_id,
                 agent_id: lock.agent_id.clone(),

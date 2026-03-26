@@ -664,9 +664,9 @@ pub fn canonicalize_for_signing(fields: &[(&str, &str)]) -> Vec<u8> {
 ///
 /// Returns the base64-encoded signature (the content between the PEM markers).
 pub fn sign_content(private_key_path: &Path, content: &[u8], namespace: &str) -> Result<String> {
-    let tmp = make_temp_dir("crosslink-sign")?;
-    let content_path = tmp.join("content");
-    let sig_path = tmp.join("content.sig");
+    let tmp = TempDirGuard::new("crosslink-sign")?;
+    let content_path = tmp.path().join("content");
+    let sig_path = tmp.path().join("content.sig");
 
     std::fs::write(&content_path, content)?;
 
@@ -712,9 +712,9 @@ pub fn verify_content(
     content: &[u8],
     signature_b64: &str,
 ) -> Result<bool> {
-    let tmp = make_temp_dir("crosslink-verify")?;
-    let content_path = tmp.join("content");
-    let sig_path = tmp.join("content.sig");
+    let tmp = TempDirGuard::new("crosslink-verify")?;
+    let content_path = tmp.path().join("content");
+    let sig_path = tmp.path().join("content.sig");
 
     std::fs::write(&content_path, content)?;
 
@@ -763,9 +763,8 @@ pub fn verify_content(
                 Some(_) => break,
                 None => {
                     if start.elapsed() > timeout {
-                        // INTENTIONAL: kill and cleanup are best-effort on timeout — we bail immediately after
+                        // INTENTIONAL: kill is best-effort on timeout — tmp cleanup handled by TempDirGuard drop
                         let _ = child.kill();
-                        let _ = std::fs::remove_dir_all(&tmp);
                         bail!("ssh-keygen verification timed out after 30 seconds");
                     }
                     std::thread::sleep(Duration::from_millis(50));
@@ -775,8 +774,7 @@ pub fn verify_content(
     }
 
     let output = child.wait_with_output()?;
-    // INTENTIONAL: temp dir cleanup is best-effort — OS will reclaim it eventually
-    let _ = std::fs::remove_dir_all(&tmp);
+    // tmp cleanup handled by TempDirGuard drop
 
     if !output.status.success() {
         return Ok(false);
@@ -796,17 +794,41 @@ pub fn verify_content(
 
 // ── Platform helpers ────────────────────────────────────────────────
 
-/// Create a temporary directory with a descriptive prefix.
-fn make_temp_dir(prefix: &str) -> Result<PathBuf> {
-    let id = std::process::id();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("{}-{}-{}", prefix, id, ts));
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create temp dir {}", dir.display()))?;
-    Ok(dir)
+/// RAII guard for a temporary directory. Removes the directory and all
+/// contents on drop, ensuring cleanup on all exit paths including panics.
+struct TempDirGuard(PathBuf);
+
+impl TempDirGuard {
+    fn new(prefix: &str) -> Result<Self> {
+        let id = std::process::id();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{}-{}-{}", prefix, id, ts));
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create temp dir {}", dir.display()))?;
+        // Restrict permissions to owner-only (0o700) on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o700);
+            std::fs::set_permissions(&dir, perms).ok();
+        }
+        Ok(Self(dir))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_dir_all(&self.0) {
+            tracing::warn!("failed to clean up temp dir {}: {}", self.0.display(), e);
+        }
+    }
 }
 
 /// Get the user's home directory (cross-platform).
@@ -1356,13 +1378,12 @@ mod tests {
     }
 
     #[test]
-    fn test_make_temp_dir_creates_directory() {
-        let dir = make_temp_dir("test-prefix").unwrap();
-        assert!(dir.exists());
-        assert!(dir.is_dir());
-        let name = dir.file_name().unwrap().to_str().unwrap();
+    fn test_temp_dir_guard_creates_directory() {
+        let guard = TempDirGuard::new("test-prefix").unwrap();
+        assert!(guard.path().exists());
+        assert!(guard.path().is_dir());
+        let name = guard.path().file_name().unwrap().to_str().unwrap();
         assert!(name.starts_with("test-prefix-"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -2224,13 +2245,11 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
     }
 
     #[test]
-    fn test_make_temp_dir_unique() {
-        let dir1 = make_temp_dir("unique-test").unwrap();
+    fn test_temp_dir_guard_unique() {
+        let guard1 = TempDirGuard::new("unique-test").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let dir2 = make_temp_dir("unique-test").unwrap();
-        assert_ne!(dir1, dir2);
-        let _ = std::fs::remove_dir_all(&dir1);
-        let _ = std::fs::remove_dir_all(&dir2);
+        let guard2 = TempDirGuard::new("unique-test").unwrap();
+        assert_ne!(guard1.path(), guard2.path());
     }
 
     #[test]

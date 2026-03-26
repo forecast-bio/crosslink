@@ -19,7 +19,7 @@ pub fn archive(db: &Database, id: i64) -> Result<()> {
         None => bail!("Issue {} not found", format_issue_id(id)),
     };
 
-    if issue.status != "closed" {
+    if issue.status != crate::models::IssueStatus::Closed {
         bail!(
             "Can only archive closed issues. Issue {} is '{}'",
             format_issue_id(id),

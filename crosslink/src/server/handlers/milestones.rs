@@ -52,7 +52,7 @@ fn build_detail(
 ) -> anyhow::Result<MilestoneDetail> {
     let issues = db.get_milestone_issues(milestone.id)?;
     let issue_count = issues.len();
-    let completed_count = issues.iter().filter(|i| i.status == "closed").count();
+    let completed_count = issues.iter().filter(|i| i.status == crate::models::IssueStatus::Closed).count();
     let progress_percent = if issue_count == 0 {
         0.0
     } else {
@@ -78,7 +78,7 @@ pub async fn list_milestones(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<MilestoneListQuery>,
 ) -> Result<Json<MilestoneListResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let milestones = db
         .list_milestones(query.status.as_deref())
@@ -103,7 +103,7 @@ pub async fn create_milestone(
     State(state): State<AppState>,
     Json(body): Json<CreateMilestoneRequest>,
 ) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let milestone_id = db
         .create_milestone(&body.name, body.description.as_deref())
@@ -130,7 +130,7 @@ pub async fn get_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let milestone = db
         .get_milestone(id)
@@ -151,7 +151,7 @@ pub async fn assign_milestone(
     Path(milestone_id): Path<i64>,
     Json(body): Json<AssignMilestoneRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify the milestone exists.
     db.get_milestone(milestone_id)
@@ -174,7 +174,7 @@ pub async fn close_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify the milestone exists first.
     db.get_milestone(id)

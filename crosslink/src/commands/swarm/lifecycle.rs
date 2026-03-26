@@ -863,8 +863,12 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     println!("Running gate: {}", test_cmd);
     println!();
 
-    let output = std::process::Command::new("sh")
-        .args(["-c", test_cmd])
+    let cmd_parts: Vec<&str> = test_cmd.split_whitespace().collect();
+    let (program, args) = cmd_parts
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("Empty gate test command"))?;
+    let output = std::process::Command::new(program)
+        .args(args)
         .current_dir(root)
         .output()
         .with_context(|| format!("Failed to run gate command: {}", test_cmd))?;

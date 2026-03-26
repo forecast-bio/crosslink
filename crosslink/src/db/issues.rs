@@ -307,6 +307,7 @@ impl Database {
     }
 
     pub fn unarchive_issue(&self, id: i64) -> Result<bool> {
+        let id = self.resolve_id(id);
         let now = Utc::now().to_rfc3339();
         let rows = self.conn.execute(
             "UPDATE issues SET status = 'closed', updated_at = ?1 WHERE id = ?2 AND status = 'archived'",

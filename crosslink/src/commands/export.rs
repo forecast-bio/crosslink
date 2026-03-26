@@ -196,9 +196,9 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
     ));
 
     // Group by status
-    let open: Vec<_> = issues.iter().filter(|i| i.status == "open").collect();
-    let closed: Vec<_> = issues.iter().filter(|i| i.status == "closed").collect();
-    let archived: Vec<_> = issues.iter().filter(|i| i.status == "archived").collect();
+    let open: Vec<_> = issues.iter().filter(|i| i.status == crate::models::IssueStatus::Open).collect();
+    let closed: Vec<_> = issues.iter().filter(|i| i.status == crate::models::IssueStatus::Closed).collect();
+    let archived: Vec<_> = issues.iter().filter(|i| i.status == crate::models::IssueStatus::Archived).collect();
 
     if !open.is_empty() {
         md.push_str("## Open Issues\n\n");
@@ -235,7 +235,7 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
 }
 
 fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
-    let checkbox = if issue.status == "closed" {
+    let checkbox = if issue.status == crate::models::IssueStatus::Closed {
         "[x]"
     } else {
         "[ ]"

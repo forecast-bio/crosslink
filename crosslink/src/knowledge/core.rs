@@ -416,11 +416,12 @@ pub fn serialize_frontmatter(fm: &PageFrontmatter) -> String {
 
     out.push_str(&format!("title: {}\n", yaml_escape(&fm.title)));
 
-    // Tags as inline array
+    // Tags as inline array (each value escaped to prevent YAML injection)
     if fm.tags.is_empty() {
         out.push_str("tags: []\n");
     } else {
-        out.push_str(&format!("tags: [{}]\n", fm.tags.join(", ")));
+        let escaped_tags: Vec<String> = fm.tags.iter().map(|t| yaml_escape(t)).collect();
+        out.push_str(&format!("tags: [{}]\n", escaped_tags.join(", ")));
     }
 
     // Sources as multi-line array
@@ -429,19 +430,20 @@ pub fn serialize_frontmatter(fm: &PageFrontmatter) -> String {
     } else {
         out.push_str("sources:\n");
         for src in &fm.sources {
-            out.push_str(&format!("  - url: {}\n", &src.url));
+            out.push_str(&format!("  - url: {}\n", yaml_escape(&src.url)));
             out.push_str(&format!("    title: {}\n", yaml_escape(&src.title)));
             if let Some(ref accessed) = src.accessed_at {
-                out.push_str(&format!("    accessed_at: {}\n", accessed));
+                out.push_str(&format!("    accessed_at: {}\n", yaml_escape(accessed)));
             }
         }
     }
 
-    // Contributors as inline array
+    // Contributors as inline array (each value escaped to prevent YAML injection)
     if fm.contributors.is_empty() {
         out.push_str("contributors: []\n");
     } else {
-        out.push_str(&format!("contributors: [{}]\n", fm.contributors.join(", ")));
+        let escaped_contribs: Vec<String> = fm.contributors.iter().map(|c| yaml_escape(c)).collect();
+        out.push_str(&format!("contributors: [{}]\n", escaped_contribs.join(", ")));
     }
 
     out.push_str(&format!("created: {}\n", &fm.created));

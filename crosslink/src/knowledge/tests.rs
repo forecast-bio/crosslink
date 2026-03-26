@@ -1215,7 +1215,7 @@ fn test_serialize_frontmatter_sources_without_accessed_at() {
     };
 
     let serialized = serialize_frontmatter(&fm);
-    assert!(serialized.contains("url: https://example.com"));
+    assert!(serialized.contains("url: \"https://example.com\""));
     assert!(!serialized.contains("accessed_at"));
 }
 
@@ -1504,7 +1504,7 @@ fn test_serialize_frontmatter_multiple_contributors() {
         updated: "2026-01-01".to_string(),
     };
     let serialized = serialize_frontmatter(&fm);
-    assert!(serialized.contains("contributors: [alice, bob, carol]"));
+    assert!(serialized.contains(r#"contributors: ["alice", "bob", "carol"]"#));
 }
 
 #[test]
@@ -1522,7 +1522,7 @@ fn test_serialize_frontmatter_multiple_tags() {
         updated: "2026-01-01".to_string(),
     };
     let serialized = serialize_frontmatter(&fm);
-    assert!(serialized.contains("tags: [rust, async, testing]"));
+    assert!(serialized.contains(r#"tags: ["rust", "async", "testing"]"#));
 }
 
 #[test]
@@ -3140,7 +3140,7 @@ fn test_serialize_frontmatter_source_with_accessed_at() {
         updated: "2026-01-01".to_string(),
     };
     let s = serialize_frontmatter(&fm);
-    assert!(s.contains("accessed_at: 2026-03-01"));
+    assert!(s.contains("accessed_at: \"2026-03-01\""));
 }
 
 #[test]

@@ -99,7 +99,7 @@ pub fn detect_seams(repo_root: &Path, max_partitions: usize) -> Result<Vec<Parti
     }
 
     // 4. Ensure every source file is assigned (catch stragglers).
-    partitions = ensure_complete_coverage(partitions, &all_files);
+    partitions = ensure_complete_coverage(partitions, &all_files, repo_root);
 
     // 5. Git-coupling analysis: merge partitions whose files are tightly
     //    coupled according to commit history.
@@ -408,6 +408,7 @@ fn directory_based_partitions(root: &Path, all_files: &[PathBuf]) -> Result<Vec<
 fn ensure_complete_coverage(
     mut partitions: Vec<Partition>,
     all_files: &[PathBuf],
+    repo_root: &Path,
 ) -> Vec<Partition> {
     let assigned: HashSet<PathBuf> = partitions
         .iter()
@@ -421,13 +422,11 @@ fn ensure_complete_coverage(
         .collect();
 
     if !missing.is_empty() {
-        // We don't have root here, so line_count will be approximate (0).
-        // The caller can recompute if needed, but in practice the main entry
-        // point recomputes after coupling.  For now, store 0.
+        let line_count = count_lines_many(repo_root, &missing);
         partitions.push(Partition {
             label: "_uncategorized".to_string(),
             files: missing,
-            line_count: 0,
+            line_count,
         });
     }
 
@@ -1761,13 +1760,14 @@ mod inline_mod {
     /// de-duplicates when files appear in multiple partitions.
     #[test]
     fn test_ensure_complete_coverage_adds_uncategorized() {
+        let tmp = tempfile::tempdir().unwrap();
         let partitions = vec![Partition {
             label: "known".to_string(),
             files: vec![PathBuf::from("a.rs")],
             line_count: 10,
         }];
         let all_files = vec![PathBuf::from("a.rs"), PathBuf::from("missing.rs")];
-        let result = ensure_complete_coverage(partitions, &all_files);
+        let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
         let labels: Vec<&str> = result.iter().map(|p| p.label.as_str()).collect();
         assert!(labels.contains(&"_uncategorized"));
         let uncat = result.iter().find(|p| p.label == "_uncategorized").unwrap();
@@ -1776,6 +1776,7 @@ mod inline_mod {
 
     #[test]
     fn test_ensure_complete_coverage_deduplicates() {
+        let tmp = tempfile::tempdir().unwrap();
         // a.rs appears in both partitions.
         let partitions = vec![
             Partition {
@@ -1794,7 +1795,7 @@ mod inline_mod {
             PathBuf::from("b.rs"),
             PathBuf::from("c.rs"),
         ];
-        let result = ensure_complete_coverage(partitions, &all_files);
+        let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
         let mut all_files_in_result: Vec<PathBuf> = result
             .iter()
             .flat_map(|p| p.files.iter().cloned())
@@ -1807,6 +1808,7 @@ mod inline_mod {
 
     #[test]
     fn test_ensure_complete_coverage_removes_empty_partitions() {
+        let tmp = tempfile::tempdir().unwrap();
         // After dedup, if a partition ends up empty it should be removed.
         let partitions = vec![
             Partition {
@@ -1821,7 +1823,7 @@ mod inline_mod {
             },
         ];
         let all_files = vec![PathBuf::from("a.rs")];
-        let result = ensure_complete_coverage(partitions, &all_files);
+        let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
         // "empty_after_dedup" should be removed.
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "first");

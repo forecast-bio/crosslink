@@ -58,7 +58,11 @@ fn close_inner(
     // Clear session active work item if this was the active issue
     // Prevents the cascade where closing the active issue leaves the session
     // without a work item, causing work-check hook to block all tool calls (#399)
-    if let Ok(Some(session)) = db.get_current_session_for_agent(None) {
+    let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
+        .ok()
+        .flatten()
+        .map(|a| a.agent_id);
+    if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
         if session.active_issue_id == Some(id) {
             // INTENTIONAL: clearing stale session issue is best-effort — prevents work-check hook from blocking
             let _ = db.clear_session_issue(session.id);

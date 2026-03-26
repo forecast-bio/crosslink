@@ -88,8 +88,7 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
     let stale_ids: Vec<i64> = stale.iter().map(|(id, _)| *id).collect();
 
     println!("Active locks:");
-    for (issue_id_str, lock) in &locks_file.locks {
-        let issue_id: i64 = issue_id_str.parse().unwrap_or(0);
+    for (&issue_id, lock) in &locks_file.locks {
         let title = db
             .get_issue(issue_id)?
             .map(|i| truncate(&i.title, 40))

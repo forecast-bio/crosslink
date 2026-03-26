@@ -84,7 +84,7 @@ pub async fn global_search(
 
     // --- Search issues ---
     {
-        let db = state.db();
+        let db = state.db().await;
 
         let issues = db
             .search_issues(&query)
@@ -108,30 +108,20 @@ pub async fn global_search(
             });
         }
 
-        // --- Search comments ---
-        // Get all open + closed issues and search their comments.
-        let all_issues = db
-            .list_issues(Some("all"), None, None)
-            .map_err(|e| internal_error("Failed to list issues for comment search", e))?;
+        // --- Search comments (single query instead of N+1) ---
+        let matching_comments = db
+            .search_comments(&query)
+            .map_err(|e| internal_error("Failed to search comments", e))?;
 
-        let query_lower = query.to_lowercase();
-        for issue in &all_issues {
-            let comments = db
-                .get_comments(issue.id)
-                .map_err(|e| internal_error("Failed to fetch comments", e))?;
-
-            for comment in comments {
-                if comment.content.to_lowercase().contains(&query_lower) {
-                    let snippet = comment.content.chars().take(200).collect::<String>();
-                    results.push(SearchResultItem {
-                        kind: "comment".to_string(),
-                        title: format!("Comment on #{}: {}", issue.id, issue.title),
-                        snippet,
-                        id: comment.id.to_string(),
-                        issue_id: Some(issue.id),
-                    });
-                }
-            }
+        for (comment, issue_id, issue_title) in matching_comments {
+            let snippet = comment.content.chars().take(200).collect::<String>();
+            results.push(SearchResultItem {
+                kind: "comment".to_string(),
+                title: format!("Comment on #{}: {}", issue_id, issue_title),
+                snippet,
+                id: comment.id.to_string(),
+                issue_id: Some(issue_id),
+            });
         }
     }
 
@@ -266,7 +256,7 @@ mod tests {
 
         // Create an issue to search for.
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Fix authentication bug", None, "high")
                 .unwrap();
         }
@@ -303,7 +293,7 @@ mod tests {
 
         // Create an issue and a comment.
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Some issue", None, "medium").unwrap();
             db.add_comment(1, "The frobulator is broken and needs replacement", "note")
                 .unwrap();
@@ -397,7 +387,7 @@ mod tests {
 
         // Create an issue with no description so the snippet is empty.
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Undescribed widget", None, "low").unwrap();
         }
 

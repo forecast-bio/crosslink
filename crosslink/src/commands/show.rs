@@ -143,7 +143,7 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
     if !related.is_empty() {
         println!("\nRelated:");
         for rel in related {
-            let status_marker = if rel.status == "closed" { "✓" } else { " " };
+            let status_marker = if rel.status == crate::models::IssueStatus::Closed { "✓" } else { " " };
             println!(
                 "  {} [{}] {} - {}",
                 format_issue_id(rel.id),
