@@ -2,11 +2,12 @@
   "uuid": "b9a29156-1892-4615-9344-8877cebe9dfc",
   "display_id": 328,
   "title": "Fix TOCTOU race in compaction lock file retry path",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:25:14.926750403Z",
-  "updated_at": "2026-03-26T13:25:17.366088679Z",
+  "updated_at": "2026-03-26T16:40:42.785917177Z",
+  "closed_at": "2026-03-26T16:40:42.785917177Z",
   "labels": [
     "bug"
   ]
