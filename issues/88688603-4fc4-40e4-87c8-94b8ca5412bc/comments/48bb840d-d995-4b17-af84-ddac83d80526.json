@@ -1,0 +1,8 @@
+{
+  "uuid": "48bb840d-d995-4b17-af84-ddac83d80526",
+  "issue_uuid": "88688603-4fc4-40e4-87c8-94b8ca5412bc",
+  "author": "anon-ab6221f8",
+  "content": "Added closed_at field to SavedIssue struct, added it to the SELECT query (column index 10), and passed row.closed_at.as_deref() through to insert_hydrated_issue instead of None. Closed SQLite-only issues now preserve their close timestamp across re-hydration. All 1665 tests pass.",
+  "created_at": "2026-03-26T15:54:56.430594950Z",
+  "kind": "result"
+}
