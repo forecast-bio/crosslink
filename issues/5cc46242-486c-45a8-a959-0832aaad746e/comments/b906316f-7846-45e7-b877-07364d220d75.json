@@ -1,0 +1,8 @@
+{
+  "uuid": "b906316f-7846-45e7-b877-07364d220d75",
+  "issue_uuid": "5cc46242-486c-45a8-a959-0832aaad746e",
+  "author": "anon-ab6221f8",
+  "content": "Complete. Defined IssueStatus (Open/Closed/Archived) and Priority (Low/Medium/High/Critical) enums in models.rs with serde, rusqlite ToSql/FromSql, Display, FromStr, and PartialEq<String/str> implementations. Updated ~30 files across models, db, hydration, compaction, checkpoint, issue_file, shared_writer, server handlers, CLI commands, and TUI. Events keep String fields for CRDT log compatibility — parsed at the compaction boundary. All 1665 lib tests pass, binary builds clean.",
+  "created_at": "2026-03-26T19:28:06.586791971Z",
+  "kind": "result"
+}
