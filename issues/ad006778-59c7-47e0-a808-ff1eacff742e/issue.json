@@ -2,11 +2,12 @@
   "uuid": "ad006778-59c7-47e0-a808-ff1eacff742e",
   "display_id": 613,
   "title": "Fix VS Code handleConfigChange using hardcoded extension ID for path",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:03:00.636413677Z",
-  "updated_at": "2026-03-26T14:03:03.239508855Z",
+  "updated_at": "2026-03-26T19:58:28.290554231Z",
+  "closed_at": "2026-03-26T19:58:28.290554231Z",
   "labels": [
     "bug"
   ]
