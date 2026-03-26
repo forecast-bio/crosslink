@@ -2,11 +2,12 @@
   "uuid": "a08d9b72-0719-444f-955e-f86532603338",
   "display_id": 629,
   "title": "Add version comparison before overwriting binary in installToUserBin",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:04:55.078825876Z",
-  "updated_at": "2026-03-26T14:05:02.163881891Z",
+  "updated_at": "2026-03-26T19:58:53.643142520Z",
+  "closed_at": "2026-03-26T19:58:53.643142520Z",
   "labels": [
     "enhancement"
   ]
