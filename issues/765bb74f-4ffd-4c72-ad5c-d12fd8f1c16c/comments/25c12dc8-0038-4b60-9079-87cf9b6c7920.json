@@ -1,0 +1,8 @@
+{
+  "uuid": "25c12dc8-0038-4b60-9079-87cf9b6c7920",
+  "issue_uuid": "765bb74f-4ffd-4c72-ad5c-d12fd8f1c16c",
+  "author": "anon-ab6221f8",
+  "content": "Replaced std::fs::write with crate::utils::atomic_write in prune_events at compaction.rs:309. A crash during pruning now leaves the original log intact instead of truncating it. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:02:32.195486777Z",
+  "kind": "result"
+}
