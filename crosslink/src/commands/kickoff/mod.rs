@@ -15,7 +15,10 @@ mod wizard;
 mod tests;
 
 // Re-export public types used by external callers (swarm, main, etc.)
-pub use types::{ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel};
+pub use types::{
+    ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel,
+    DEFAULT_AGENT_IMAGE,
+};
 
 // Re-export parse functions (used by dispatch and swarm)
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
@@ -263,7 +266,7 @@ fn dispatch_launch(
             container: parse_container_mode(&container)?,
             verify: parse_verify_level(&verify)?,
             model: &model,
-            image: "ghcr.io/forecast-bio/crosslink-agent:latest",
+            image: types::DEFAULT_AGENT_IMAGE,
             timeout: parse_duration(&timeout)?,
             dry_run,
             branch: None,
@@ -346,7 +349,7 @@ fn dispatch_launch(
                 container: parse_container_mode(&config.container)?,
                 verify: parse_verify_level(&config.verify)?,
                 model: &config.model,
-                image: "ghcr.io/forecast-bio/crosslink-agent:latest",
+                image: types::DEFAULT_AGENT_IMAGE,
                 timeout: parse_duration(&config.timeout)?,
                 dry_run: false,
                 branch: None,

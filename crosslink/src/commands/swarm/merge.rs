@@ -92,11 +92,28 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
 }
 
 /// Extract line ranges modified by a diff for a specific file in a worktree.
+///
+/// Tries multiple base refs (develop, main, origin/develop, origin/main) to handle
+/// worktrees created from different bases, matching `discover_worktrees` behavior.
 fn extract_diff_ranges(worktree: &Path, file: &str) -> Result<Vec<(usize, usize)>> {
-    let output = std::process::Command::new("git")
-        .current_dir(worktree)
-        .args(["diff", "develop...HEAD", "--", file])
-        .output()
+    // Try multiple base refs instead of hardcoding "develop"
+    let base_refs = ["develop", "main", "origin/develop", "origin/main"];
+    let mut last_output = None;
+    for base in &base_refs {
+        let output = std::process::Command::new("git")
+            .current_dir(worktree)
+            .args(["diff", &format!("{}...HEAD", base), "--", file])
+            .output();
+        if let Ok(ref o) = output {
+            if o.status.success() && !o.stdout.is_empty() {
+                last_output = Some(output);
+                break;
+            }
+        }
+        last_output = Some(output);
+    }
+    let output = last_output
+        .ok_or_else(|| anyhow::anyhow!("No base ref available for diff"))?
         .context("Failed to run git diff")?;
 
     if !output.status.success() {
