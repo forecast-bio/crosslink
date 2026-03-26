@@ -2,12 +2,11 @@
   "uuid": "ad87f7c0-4bf7-494c-a49c-4ed4f4d8fc5f",
   "display_id": 285,
   "title": "Fix missing resolve_id in add_intervention_comment",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:34.339237425Z",
-  "updated_at": "2026-03-26T15:26:34.738298778Z",
-  "closed_at": "2026-03-26T15:26:34.738298778Z",
+  "updated_at": "2026-03-26T15:28:00.972126740Z",
   "labels": [
     "bug"
   ]
