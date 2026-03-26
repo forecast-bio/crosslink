@@ -1,0 +1,8 @@
+{
+  "uuid": "b85a45ba-f78e-4847-8ab0-3c6c883671da",
+  "issue_uuid": "2726665a-58ef-4a4a-9b85-22d43f52c1d2",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Added configureApiClient() function that accepts optional baseUrl and fetchFn for dependency injection. Default remains /api/v1 and globalThis.fetch.",
+  "created_at": "2026-03-26T19:49:07.941902697Z",
+  "kind": "result"
+}
