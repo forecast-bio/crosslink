@@ -2,11 +2,12 @@
   "uuid": "ee139df1-7ec0-4c2a-886e-7b8e38b5ad52",
   "display_id": 611,
   "title": "Fix VS Code daemon stop using shell string interpolation for PID",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:02:45.907814214Z",
-  "updated_at": "2026-03-26T14:02:50.454989430Z",
+  "updated_at": "2026-03-26T19:58:14.625148329Z",
+  "closed_at": "2026-03-26T19:58:14.625148329Z",
   "labels": [
     "security"
   ]
