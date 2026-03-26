@@ -2,11 +2,12 @@
   "uuid": "2d091dfe-5952-440a-9147-2f79394436d7",
   "display_id": 448,
   "title": "Rename status.rs to lifecycle.rs to match close and reopen contents",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:40:00.948331235Z",
-  "updated_at": "2026-03-26T13:40:03.734858052Z",
+  "updated_at": "2026-03-26T20:02:55.289939456Z",
+  "closed_at": "2026-03-26T20:02:55.289939456Z",
   "labels": [
     "enhancement"
   ]
