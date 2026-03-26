@@ -1,0 +1,8 @@
+{
+  "uuid": "1e48573b-9c3a-43f3-adf9-814469caa48f",
+  "issue_uuid": "bdfa37fb-17de-42d5-9fcd-7145a68325f0",
+  "author": "anon-ab6221f8",
+  "content": "Found issue in merge.rs: include_str paths have one too many ../ levels. Files in init/ subdir need ../../../resources not ../../../../resources. The original sed s|../../|../../../| was correct for going from init.rs (in commands/) to init/merge.rs (in commands/init/), but the MCP_JSON line was manually written with the wrong depth.",
+  "created_at": "2026-03-26T18:36:47.627065724Z",
+  "kind": "observation"
+}
