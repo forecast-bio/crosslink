@@ -2,11 +2,12 @@
   "uuid": "8c56b323-90fd-4324-bb4d-c71ccc615de8",
   "display_id": 547,
   "title": "Add authentication to server REST API endpoints",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:53:23.010918530Z",
-  "updated_at": "2026-03-26T13:53:25.946146681Z",
+  "updated_at": "2026-03-26T17:49:09.973340743Z",
+  "closed_at": "2026-03-26T17:49:09.973340743Z",
   "labels": [
     "security"
   ]
