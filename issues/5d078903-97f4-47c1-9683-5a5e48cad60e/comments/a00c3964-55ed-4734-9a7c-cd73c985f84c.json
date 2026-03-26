@@ -1,0 +1,8 @@
+{
+  "uuid": "a00c3964-55ed-4734-9a7c-cd73c985f84c",
+  "issue_uuid": "5d078903-97f4-47c1-9683-5a5e48cad60e",
+  "author": "anon-ab6221f8",
+  "content": "No shell-escape crate in deps. Adding a shell_escape_arg function to utils.rs that wraps values in single quotes with embedded single-quote escaping.",
+  "created_at": "2026-03-26T16:11:30.582148049Z",
+  "kind": "decision"
+}
