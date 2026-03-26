@@ -1,0 +1,8 @@
+{
+  "uuid": "5fc77f2d-3cbf-4045-b67e-f15ae90b9ff6",
+  "issue_uuid": "33ca8e7a-94c4-48b3-b548-bbb2eda1c78a",
+  "author": "anon-ab6221f8",
+  "content": "Restructured per_agent==0 handling as an early return instead of a nested conditional. Division by zero is now impossible regardless of code reordering. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:20:34.385338110Z",
+  "kind": "result"
+}
