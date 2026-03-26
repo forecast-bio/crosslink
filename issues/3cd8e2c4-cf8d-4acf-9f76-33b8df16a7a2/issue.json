@@ -1,0 +1,10 @@
+{
+  "uuid": "3cd8e2c4-cf8d-4acf-9f76-33b8df16a7a2",
+  "display_id": 298,
+  "title": "Add test asserting SCHEMA_VERSION matches highest migration block",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:22:44.668837728Z",
+  "updated_at": "2026-03-26T13:22:44.668837728Z"
+}
