@@ -1,0 +1,8 @@
+{
+  "uuid": "cbbddf72-d295-43dd-a2fd-cf85b449559f",
+  "issue_uuid": "a08d9b72-0719-444f-955e-f86532603338",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: installToUserBin now compares SHA256 checksums of source and target binaries when file sizes match, skipping the copy if they're identical.",
+  "created_at": "2026-03-26T19:58:49.204365212Z",
+  "kind": "result"
+}
