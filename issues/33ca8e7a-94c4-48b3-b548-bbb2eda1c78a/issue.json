@@ -2,11 +2,12 @@
   "uuid": "33ca8e7a-94c4-48b3-b548-bbb2eda1c78a",
   "display_id": 520,
   "title": "Fix latent division by zero in budget_recommendation per_agent",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:49:35.023081568Z",
-  "updated_at": "2026-03-26T13:49:39.220553839Z",
+  "updated_at": "2026-03-26T16:20:37.293118449Z",
+  "closed_at": "2026-03-26T16:20:37.293118449Z",
   "labels": [
     "bug"
   ]
