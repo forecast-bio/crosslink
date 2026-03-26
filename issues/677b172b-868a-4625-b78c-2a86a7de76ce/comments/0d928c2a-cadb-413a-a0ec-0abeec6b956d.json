@@ -1,0 +1,8 @@
+{
+  "uuid": "0d928c2a-cadb-413a-a0ec-0abeec6b956d",
+  "issue_uuid": "677b172b-868a-4625-b78c-2a86a7de76ce",
+  "author": "anon-ab6221f8",
+  "content": "Replaced .filter_map(|r| r.ok()) with .collect::<Result<Vec<_>, _>>()? so deserialization errors propagate instead of silently dropping rows. Separated the rusqlite result collection from the business-logic filter. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:34:12.576989356Z",
+  "kind": "result"
+}
