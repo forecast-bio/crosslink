@@ -1,0 +1,8 @@
+{
+  "uuid": "77d6ba3f-e6f4-41aa-abeb-aea138b235d9",
+  "issue_uuid": "6bc7b86b-f000-419a-97bf-1d3a71b138e7",
+  "author": "anon-ab6221f8",
+  "content": "Fix applied: added resolve_id call at db/issues.rs:310. All 1665 lib tests pass.",
+  "created_at": "2026-03-26T14:09:10.347596635Z",
+  "kind": "result"
+}
