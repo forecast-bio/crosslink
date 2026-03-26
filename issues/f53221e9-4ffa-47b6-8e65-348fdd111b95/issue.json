@@ -2,11 +2,12 @@
   "uuid": "f53221e9-4ffa-47b6-8e65-348fdd111b95",
   "display_id": 294,
   "title": "Fix get_token_usage collecting all rows instead of using query_row",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:22:15.478088612Z",
-  "updated_at": "2026-03-26T13:22:17.395877146Z",
+  "updated_at": "2026-03-26T19:59:12.943838106Z",
+  "closed_at": "2026-03-26T19:59:12.943838106Z",
   "labels": [
     "enhancement"
   ]
