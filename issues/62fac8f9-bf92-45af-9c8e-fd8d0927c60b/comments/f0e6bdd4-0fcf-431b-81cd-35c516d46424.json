@@ -1,0 +1,8 @@
+{
+  "uuid": "f0e6bdd4-0fcf-431b-81cd-35c516d46424",
+  "issue_uuid": "62fac8f9-bf92-45af-9c8e-fd8d0927c60b",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Main event loop now only calls poll_updates() on the active tab instead of iterating all tabs.",
+  "created_at": "2026-03-26T19:57:57.865662238Z",
+  "kind": "result"
+}
