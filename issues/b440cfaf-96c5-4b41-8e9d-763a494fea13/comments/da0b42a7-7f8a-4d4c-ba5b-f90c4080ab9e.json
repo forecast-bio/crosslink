@@ -1,0 +1,8 @@
+{
+  "uuid": "da0b42a7-7f8a-4d4c-ba5b-f90c4080ab9e",
+  "issue_uuid": "b440cfaf-96c5-4b41-8e9d-763a494fea13",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Extracted format_event_description to tui/mod.rs as a shared function. Both agents_tab::format_event_summary and config_tab::describe_event now delegate to it. The shared version handles all Event variants including IssueUpdated with title display.",
+  "created_at": "2026-03-26T20:01:00.969708332Z",
+  "kind": "result"
+}
