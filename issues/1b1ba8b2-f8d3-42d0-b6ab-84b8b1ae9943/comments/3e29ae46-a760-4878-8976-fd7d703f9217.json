@@ -1,0 +1,8 @@
+{
+  "uuid": "3e29ae46-a760-4878-8976-fd7d703f9217",
+  "issue_uuid": "1b1ba8b2-f8d3-42d0-b6ab-84b8b1ae9943",
+  "author": "anon-ab6221f8",
+  "content": "Removed glob-style '*.egg-info' entry from SKIP_DIRS set in prompt-guard.py. The should_skip function already handles .egg-info directories via name.endswith('.egg-info').",
+  "created_at": "2026-03-26T19:43:20.074506817Z",
+  "kind": "result"
+}
