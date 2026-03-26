@@ -1,0 +1,8 @@
+{
+  "uuid": "273dd910-dea4-4d37-a770-926c0b78d33f",
+  "issue_uuid": "7394b4a6-be2d-4c62-9202-8a4862cda3b6",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: save_array_items now checks the source of the config entry — writes to hook-config.local.json when source is Local, otherwise to hook-config.json.",
+  "created_at": "2026-03-26T19:57:47.053655392Z",
+  "kind": "result"
+}
