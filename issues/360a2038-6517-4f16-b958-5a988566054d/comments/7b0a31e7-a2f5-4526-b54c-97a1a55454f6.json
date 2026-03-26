@@ -1,0 +1,8 @@
+{
+  "uuid": "7b0a31e7-a2f5-4526-b54c-97a1a55454f6",
+  "issue_uuid": "360a2038-6517-4f16-b958-5a988566054d",
+  "author": "anon-ab6221f8",
+  "content": "Replaced make_temp_dir with TempDirGuard RAII struct. Drop impl ensures cleanup on all exit paths including panics. Unix permissions set to 0o700 (owner-only). Removed manual cleanup calls from verify_content. Updated 2 tests. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:27:20.335663939Z",
+  "kind": "result"
+}
