@@ -1,0 +1,8 @@
+{
+  "uuid": "20244b8e-35c6-4d59-a67c-492b9721c403",
+  "issue_uuid": "4239eefa-28d7-4ab6-9622-6c04cf2c3771",
+  "author": "anon-ab6221f8",
+  "content": "Loaded agent_id from AgentConfig before session lookup in close_inner. get_current_session_for_agent now receives the actual agent_id instead of None, preventing cross-agent session corruption. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:05:21.183354868Z",
+  "kind": "result"
+}
