@@ -1,0 +1,8 @@
+{
+  "uuid": "02e97b17-d6ab-4ddf-8c22-f059c70eaad5",
+  "issue_uuid": "5d078903-97f4-47c1-9683-5a5e48cad60e",
+  "author": "anon-ab6221f8",
+  "content": "Add a shell_escape helper that wraps values in single quotes with proper escaping. Apply to all interpolated values in build_agent_command.",
+  "created_at": "2026-03-26T16:10:41.826317108Z",
+  "kind": "plan"
+}
