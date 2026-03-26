@@ -1,0 +1,10 @@
+{
+  "uuid": "4239eefa-28d7-4ab6-9622-6c04cf2c3771",
+  "display_id": 432,
+  "title": "Fix hardcoded None agent_id in close_inner corrupting other sessions",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:38:15.150423914Z",
+  "updated_at": "2026-03-26T13:38:15.150423914Z"
+}
