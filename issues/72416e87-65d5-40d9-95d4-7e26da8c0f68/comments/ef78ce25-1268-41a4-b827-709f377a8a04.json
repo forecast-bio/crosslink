@@ -1,0 +1,8 @@
+{
+  "uuid": "ef78ce25-1268-41a4-b827-709f377a8a04",
+  "issue_uuid": "72416e87-65d5-40d9-95d4-7e26da8c0f68",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Moved usage summary aggregation (by-agent and by-model grouping) from API client to usage store. API client now returns raw RawUsageSummary. Store applies aggregateUsageSummary() transformer.",
+  "created_at": "2026-03-26T19:52:16.128548629Z",
+  "kind": "result"
+}
