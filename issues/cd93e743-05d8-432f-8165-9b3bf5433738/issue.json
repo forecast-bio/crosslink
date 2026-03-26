@@ -2,11 +2,12 @@
   "uuid": "cd93e743-05d8-432f-8165-9b3bf5433738",
   "display_id": 301,
   "title": "Replace CommentAuthorRow and TimeEntryRow tuples with named structs",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:22:59.420508105Z",
-  "updated_at": "2026-03-26T13:23:02.209911392Z",
+  "updated_at": "2026-03-26T19:59:23.178986375Z",
+  "closed_at": "2026-03-26T19:59:23.178986375Z",
   "labels": [
     "enhancement"
   ]
