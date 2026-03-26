@@ -1,0 +1,8 @@
+{
+  "uuid": "bc7c8163-e428-4047-a75e-bacbf70b15ad",
+  "issue_uuid": "ea48950a-2340-45e1-ab65-30534a3c4bf3",
+  "author": "anon-ab6221f8",
+  "content": "Added explicit Bool(true) arm returning Some(1) as default multiplier. Also added String 'true' handling for consistency. Updated 2 tests that previously asserted the buggy None behavior. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:30:20.890690842Z",
+  "kind": "result"
+}
