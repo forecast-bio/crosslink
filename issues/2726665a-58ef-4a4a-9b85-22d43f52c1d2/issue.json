@@ -1,0 +1,10 @@
+{
+  "uuid": "2726665a-58ef-4a4a-9b85-22d43f52c1d2",
+  "display_id": 608,
+  "title": "Add dependency injection to dashboard API client for testability",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T14:02:14.545419247Z",
+  "updated_at": "2026-03-26T14:02:14.545419247Z"
+}
