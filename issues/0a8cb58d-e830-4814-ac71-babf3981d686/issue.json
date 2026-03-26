@@ -2,11 +2,12 @@
   "uuid": "0a8cb58d-e830-4814-ac71-babf3981d686",
   "display_id": 609,
   "title": "Fix Sessions clearWork using magic sentinel value zero",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:02:35.881129509Z",
-  "updated_at": "2026-03-26T14:02:38.046830604Z",
+  "updated_at": "2026-03-26T19:49:40.628921147Z",
+  "closed_at": "2026-03-26T19:49:40.628921147Z",
   "labels": [
     "bug"
   ]
