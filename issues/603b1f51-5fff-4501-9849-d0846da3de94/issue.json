@@ -2,11 +2,12 @@
   "uuid": "603b1f51-5fff-4501-9849-d0846da3de94",
   "display_id": 374,
   "title": "Fix rewrite_local_references bypassing write_commit_push entirely",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:56.158276512Z",
-  "updated_at": "2026-03-26T13:28:58.004079055Z",
+  "updated_at": "2026-03-26T17:33:00.610115837Z",
+  "closed_at": "2026-03-26T17:33:00.610115837Z",
   "labels": [
     "bug"
   ]
