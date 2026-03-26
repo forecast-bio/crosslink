@@ -1,0 +1,8 @@
+{
+  "uuid": "c620b216-764a-4ac4-b711-b8ef2ca66d37",
+  "issue_uuid": "0e85ac68-17cb-4d45-b47d-21f49e4d5053",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: knowledge_tab apply_filters now builds an index of matching page indices first, then clones only the matching pages instead of cloning all pages upfront.",
+  "created_at": "2026-03-26T19:57:29.582111417Z",
+  "kind": "result"
+}
