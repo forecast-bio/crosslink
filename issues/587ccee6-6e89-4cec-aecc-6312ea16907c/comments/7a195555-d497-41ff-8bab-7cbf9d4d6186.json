@@ -1,0 +1,8 @@
+{
+  "uuid": "7a195555-d497-41ff-8bab-7cbf9d4d6186",
+  "issue_uuid": "587ccee6-6e89-4cec-aecc-6312ea16907c",
+  "author": "anon-ab6221f8",
+  "content": "Consolidated into single read+parse. File is read once, parsed once, title extracted from the single DesignDoc. Eliminates TOCTOU race and redundant IO. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:22:05.864417401Z",
+  "kind": "result"
+}
