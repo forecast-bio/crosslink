@@ -1,0 +1,10 @@
+{
+  "uuid": "ceb495f4-349b-4190-b89d-f160ffaf6f60",
+  "display_id": 504,
+  "title": "Fix report_all sending table format when markdown requested",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:46:58.466252905Z",
+  "updated_at": "2026-03-26T13:46:58.466252905Z"
+}
