@@ -1,0 +1,8 @@
+{
+  "uuid": "a6ffd7c9-9110-4643-b366-bab1366ef8e1",
+  "issue_uuid": "eade6a06-6929-4fb6-bce5-f7881f5c263c",
+  "author": "anon-ab6221f8",
+  "content": "Added released bool tracking. Loop sets it to true only when verification confirms the lock is gone. Return value now reflects actual release status instead of unconditional Ok(true). All 1665 tests pass.",
+  "created_at": "2026-03-26T16:43:45.311487358Z",
+  "kind": "result"
+}
