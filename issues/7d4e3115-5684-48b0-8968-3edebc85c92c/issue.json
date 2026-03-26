@@ -2,11 +2,12 @@
   "uuid": "7d4e3115-5684-48b0-8968-3edebc85c92c",
   "display_id": 614,
   "title": "Replace module-level mutable global with lru_cache for crosslink binary",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:03:05.543548059Z",
-  "updated_at": "2026-03-26T14:03:09.060950562Z",
+  "updated_at": "2026-03-26T19:42:56.858028998Z",
+  "closed_at": "2026-03-26T19:42:56.858028998Z",
   "labels": [
     "enhancement"
   ]
