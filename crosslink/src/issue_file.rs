@@ -156,6 +156,30 @@ pub struct MilestoneEntry {
     pub closed_at: Option<DateTime<Utc>>,
 }
 
+impl From<&crate::checkpoint::CompactIssue> for IssueFile {
+    fn from(compact: &crate::checkpoint::CompactIssue) -> Self {
+        IssueFile {
+            uuid: compact.uuid,
+            display_id: compact.display_id,
+            title: compact.title.clone(),
+            description: compact.description.clone(),
+            status: compact.status.clone(),
+            priority: compact.priority.clone(),
+            parent_uuid: compact.parent_uuid,
+            created_by: compact.created_by.clone(),
+            created_at: compact.created_at,
+            updated_at: compact.updated_at,
+            closed_at: compact.closed_at,
+            labels: compact.labels.iter().cloned().collect(),
+            comments: vec![],
+            blockers: compact.blockers.iter().cloned().collect(),
+            related: compact.related.iter().cloned().collect(),
+            milestone_uuid: compact.milestone_uuid,
+            time_entries: vec![],
+        }
+    }
+}
+
 /// Read an issue file from disk.
 pub fn read_issue_file(path: &std::path::Path) -> anyhow::Result<IssueFile> {
     let content = std::fs::read_to_string(path)

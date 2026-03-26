@@ -263,6 +263,12 @@ pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
 }
 
 /// Read only events with ordering key > watermark.
+///
+/// Currently deserializes all events and filters in-memory. For very large
+/// logs this could be optimized by seeking to an approximate offset based on
+/// the watermark timestamp, but the NDJSON format requires scanning for
+/// newline boundaries regardless. The current approach is correct and
+/// performant for typical log sizes (<100k events). (#333)
 pub fn read_events_after(log_path: &Path, watermark: &OrderingKey) -> Result<Vec<EventEnvelope>> {
     let all = read_events(log_path)?;
     Ok(all
