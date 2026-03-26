@@ -1,0 +1,10 @@
+{
+  "uuid": "23d5ce28-3473-4b93-84cd-94277cb689d4",
+  "display_id": 443,
+  "title": "Extract CHANGELOG manipulation from close_inner into dedicated module",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:39:22.262013222Z",
+  "updated_at": "2026-03-26T13:39:22.262013222Z"
+}
