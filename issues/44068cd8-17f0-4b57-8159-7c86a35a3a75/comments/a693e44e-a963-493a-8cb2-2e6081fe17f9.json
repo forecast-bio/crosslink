@@ -1,0 +1,8 @@
+{
+  "uuid": "a693e44e-a963-493a-8cb2-2e6081fe17f9",
+  "issue_uuid": "44068cd8-17f0-4b57-8159-7c86a35a3a75",
+  "author": "anon-ab6221f8",
+  "content": "Added _lock_guard = self.sync.acquire_lock()? at start of rewrite_as_offline. Counter decrement is now serialized with other hub cache mutations. All 1665 tests pass.",
+  "created_at": "2026-03-26T17:32:50.367211609Z",
+  "kind": "result"
+}
