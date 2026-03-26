@@ -5,8 +5,8 @@ description: Check on background feature agents running in containers or tmux se
 
 ## Context
 
-- Running containers: !`docker ps --filter label=crosslink-agent=true --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || echo "Docker not available"`
-- Active tmux sessions: !`tmux list-sessions 2>/dev/null || echo "no tmux server running"`
+- Running containers: !`docker ps --filter label=crosslink-agent=true --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null`
+- Active tmux sessions: !`tmux list-sessions 2>/dev/null`
 - Current worktrees: !`git worktree list`
 
 ## Your task

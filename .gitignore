@@ -49,6 +49,7 @@ OPUS_4_6_SUGGESTIONS.md
 .crosslink/hook-config.local.json
 .crosslink/integrations/
 .crosslink/rules.local/
+.crosslink/driver-key.pub
 
 # .crosslink/ — DO track these (project-level policy):
 #   .crosslink/hook-config.json   — shared team configuration
@@ -59,6 +60,7 @@ OPUS_4_6_SUGGESTIONS.md
 .claude/hooks/
 .claude/commands/
 .claude/mcp/
+.claude/worktrees/
 
 # .claude/ — DO track these (if manually configured):
 #   .claude/settings.json         — Claude Code project settings

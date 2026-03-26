@@ -7,7 +7,7 @@ description: Full context dump for debugging — use when stuck or disoriented
 
 - Session status: !`crosslink session status`
 - Open issues: !`crosslink issue list -s open`
-- Active locks: !`crosslink locks list 2>/dev/null || echo "(no locks)"`
+- Active locks: !`crosslink locks list 2>/dev/null`
 - Current branch: !`git branch --show-current`
 - Working tree: !`git status --short`
 

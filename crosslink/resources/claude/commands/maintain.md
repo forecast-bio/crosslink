@@ -8,7 +8,7 @@ description: Codebase maintenance — dependency audit, lint health, dead code, 
 - Project root: !`git rev-parse --show-toplevel`
 - Current branch: !`git branch --show-current`
 - Active session: !`crosslink session status`
-- Open issues: !`crosslink issue list -s open --json 2>/dev/null | grep -c '"id"' || crosslink issue list -s open 2>/dev/null | wc -l`
+- Open issues: !`crosslink issue list -s open 2>/dev/null`
 
 ## Your task
 

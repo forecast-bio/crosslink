@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-24
+
+### Added
+
+#### Kickoff & Multi-Agent
+- Unified design-plan-run pipeline UX for `crosslink kickoff` — bare `kickoff` launches interactive wizard ([GH-445])
+- `crosslink kickoff graph` command for branch topology visualization with merge detection ([GH-502])
+- Compact base62 naming for agents, branches, and tmux sessions — `<repo>-<agent>-<slug>` format ([GH-494])
+- Generate dedicated signing keys and auto-approve kickoff subagents ([GH-511])
+- Add CLI command and MCP tool for reliable tmux prompt delivery to agents ([GH-513])
+- Auto-detect and configure lint/test commands for kickoff agents based on project tooling ([GH-515])
+
+#### Config System
+- Config system overhaul with registry-based validation, layered loading (defaults → team → local), provenance tracking, and TUI inline editing ([GH-490])
+- `--team` / `--solo` presets and ConfigGroup categorization (Workflow, Security, Infrastructure, Agents)
+
+#### Workflow Enforcement
+- Enforce comment discipline via hooks — `git commit` and `issue close` require typed comments ([GH-512])
+- Lazy auto-hydration on read when hub branch ref moves — no more explicit `crosslink sync` for reads ([GH-514])
+
+#### Onboarding
+- Improve first-use experience and onboarding clarity ([GH-516])
+- Add jj (Jujutsu) read-only commands to allowed_bash_prefixes ([GH-517])
+
+### Fixed
+
+#### Hub Stability
+- Hub stability bundle — self-healing health checks, FK protection, lock verification, orphan cleanup ([GH-464])
+- Hub structural fixes — lock serialization, promotion tracking, lock ownership refactor ([GH-482])
+- Hub health check — remove index.lock first, escalate detached HEAD recovery ([GH-483])
+- Stage untracked files before fetch to prevent heartbeat race ([GH-488])
+- Replace `--amend` with new revert commit in promotion rollback ([GH-463])
+
+#### Agent Coordination
+- Persist tmux session name so `kickoff list` detects swarm-launched agents ([GH-510])
+- Fall back to driver signing key when agent key is missing after cleanup ([GH-509])
+- Stabilize local ID assignment for offline issues across re-hydration ([GH-508])
+- Handle branch name collision from prior kickoff/swarm phases ([GH-487])
+- Integrity locks `--repair` releases stale locks instead of stealing them ([GH-497])
+
+#### Init & Config
+- `crosslink init` verifies git repo and initial commit exist before proceeding ([GH-489])
+
+### Changed
+- Config loading is now layered: embedded defaults → `.crosslink/hook-config.json` (team) → `.crosslink/hook-config.local.json` (local). Pre-overhaul configs are fully backward-compatible.
+- New agent IDs, branch names, and tmux sessions use compact `<repo>-<agent>-<slug>` format. Existing agents are preserved.
+
+### Known Issues
+- `crosslink serve` dashboard frontend is not included in `cargo install crosslink` — build from source or use release binaries ([GH-429])
 ## [0.5.2] - 2026-03-19
 
 ### Added

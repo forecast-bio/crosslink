@@ -8,8 +8,8 @@ description: Interactive, iterative design document authoring grounded in codeba
 - Current repo root: !`git rev-parse --show-toplevel`
 - Current branch: !`git branch --show-current`
 - Active session: !`crosslink session status`
-- Existing design docs: !`ls .design/*.md 2>/dev/null || echo "(none)"`
-- Architecture files: !`ls README.md CLAUDE.md ARCHITECTURE.md ADR.md 2>/dev/null || echo "(none found)"`
+- Existing design docs: !`ls .design/*.md 2>/dev/null`
+- Architecture files: !`ls README.md CLAUDE.md ARCHITECTURE.md ADR.md 2>/dev/null`
 
 ## Your task
 

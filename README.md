@@ -79,6 +79,7 @@ Launch multiple agents and let them coordinate automatically.
   - Design doc-driven: pass `--doc` to generate implementation plans from a design document
   - `kickoff plan` — Read-only gap analysis against the codebase before committing to a build
   - `kickoff report` — Spec validation reports from completed agents
+  - `kickoff graph` — Visual branch topology of active kickoff branches
   - `kickoff list` / `kickoff cleanup` — Monitor and manage running agents
 - **`crosslink swarm`** — Multi-agent phased builds from design documents
   - `swarm init --doc` — Decompose a design document into phases and work units
@@ -106,6 +107,7 @@ Research done by one agent is available to all.
 Your agents follow the rules without being told.
 
 - **Issue tracking enforcement** — Hooks block code changes without an active crosslink issue
+- **Comment discipline** — Hooks enforce typed comments before commits and issue close
 - **No-stubs policy** — Post-edit hooks detect `TODO`, `FIXME`, `unimplemented!()` stubs
 - **Drift detection** — Adaptive reminders when agent behavior drifts from project norms
 - **Tracking modes** — Strict, normal, and relaxed enforcement (`crosslink workflow`)
@@ -147,6 +149,8 @@ Browser-based dashboard for visual project oversight — charts, drag-and-drop, 
 - **Typed comments** — Comments carry `kind` (plan, decision, observation, blocker, resolution, result)
 - **Clock skew detection** — Uses git commit timestamps as witness to detect time drift
 - **Context measurement** — `crosslink context` measures and optimizes context injection overhead
+- **Lazy auto-hydration** — Local database auto-refreshes when the hub branch moves, no manual sync needed
+- **Config presets** — `--team` and `--solo` presets for quick setup; layered config with local overrides
 - **Configurable git remote** — Use any remote for hub/knowledge branches, not just `origin`
 - **Works everywhere** — CLI + VS Code extension + context provider for any AI agent
 
