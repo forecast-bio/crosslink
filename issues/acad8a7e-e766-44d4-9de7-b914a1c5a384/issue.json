@@ -2,11 +2,12 @@
   "uuid": "acad8a7e-e766-44d4-9de7-b914a1c5a384",
   "display_id": 607,
   "title": "Fix systematic silent error swallowing across dashboard pages",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:02:08.866822787Z",
-  "updated_at": "2026-03-26T14:02:11.919498560Z",
+  "updated_at": "2026-03-26T19:48:58.868857794Z",
+  "closed_at": "2026-03-26T19:48:58.868857794Z",
   "labels": [
     "bug"
   ]
