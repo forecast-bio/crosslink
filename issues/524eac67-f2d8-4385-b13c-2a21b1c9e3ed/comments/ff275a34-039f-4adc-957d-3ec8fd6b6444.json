@@ -1,0 +1,8 @@
+{
+  "uuid": "ff275a34-039f-4adc-957d-3ec8fd6b6444",
+  "issue_uuid": "524eac67-f2d8-4385-b13c-2a21b1c9e3ed",
+  "author": "anon-ab6221f8",
+  "content": "Extracted WalkthroughCore into config_registry.rs with all shared state and methods (new, total_screens, is_preset_screen, is_confirm_screen, move_up, move_down, cycle_value, confirm, go_back, apply_preset_selections, build_config, options_for_key). Config uses it directly via type alias. Init wraps it with alias_selected and shell_config_file, overriding move_up/move_down for alias screen handling. Draw functions remain in their respective files. All 1665 tests pass.",
+  "created_at": "2026-03-26T18:16:28.836678641Z",
+  "kind": "result"
+}
