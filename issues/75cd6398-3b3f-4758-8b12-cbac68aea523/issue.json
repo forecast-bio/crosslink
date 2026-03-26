@@ -2,11 +2,12 @@
   "uuid": "75cd6398-3b3f-4758-8b12-cbac68aea523",
   "display_id": 271,
   "title": "Consolidate redundant home_dir and home_dir_fallback functions",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:20:30.831277546Z",
-  "updated_at": "2026-03-26T13:20:33.034169947Z",
+  "updated_at": "2026-03-26T19:58:42.754415264Z",
+  "closed_at": "2026-03-26T19:58:42.754415264Z",
   "labels": [
     "enhancement"
   ]
