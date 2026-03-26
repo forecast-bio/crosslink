@@ -1,0 +1,10 @@
+{
+  "uuid": "783db1cd-dcbf-4fb0-bb28-74bb09872ad0",
+  "display_id": 372,
+  "title": "Fix emit_compact_push missing hub write lock acquisition",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:28:48.232134113Z",
+  "updated_at": "2026-03-26T13:28:48.232134113Z"
+}
