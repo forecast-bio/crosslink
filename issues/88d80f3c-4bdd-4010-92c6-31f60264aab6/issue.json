@@ -2,11 +2,12 @@
   "uuid": "88d80f3c-4bdd-4010-92c6-31f60264aab6",
   "display_id": 624,
   "title": "Replace browser prompt with dialog for theme import in Appearance",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:04:08.325033127Z",
-  "updated_at": "2026-03-26T14:04:12.020783243Z",
+  "updated_at": "2026-03-26T19:51:27.286465403Z",
+  "closed_at": "2026-03-26T19:51:27.286465403Z",
   "labels": [
     "enhancement"
   ]
