@@ -1,0 +1,8 @@
+{
+  "uuid": "45e2ea46-ff62-4d31-856a-1b13122f804f",
+  "issue_uuid": "68a74a37-9c46-4a44-91c0-acbc340ba0b8",
+  "author": "anon-ab6221f8",
+  "content": "Snapshot child table data (labels, comments, deps, relations, time_entries, milestone_issues) for SQLite-only issues before clear_shared_data, then re-insert after hydration. Must be careful about the ordering since child tables have FK constraints.",
+  "created_at": "2026-03-26T16:35:02.498830098Z",
+  "kind": "plan"
+}
