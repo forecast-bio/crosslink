@@ -1,0 +1,8 @@
+{
+  "uuid": "bd1461bd-3c9b-4d7f-9a0e-af138abf3330",
+  "issue_uuid": "ee139df1-7ec0-4c2a-886e-7b8e38b5ad52",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Replaced cp.execSync with cp.execFileSync('taskkill', ['/PID', String(pid)]) to avoid shell string interpolation.",
+  "created_at": "2026-03-26T19:58:12.045346192Z",
+  "kind": "result"
+}
