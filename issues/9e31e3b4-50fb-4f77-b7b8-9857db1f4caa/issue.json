@@ -1,0 +1,10 @@
+{
+  "uuid": "9e31e3b4-50fb-4f77-b7b8-9857db1f4caa",
+  "display_id": 548,
+  "title": "Fix N+1 query in global search fetching all issues then all comments",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:53:30.305591458Z",
+  "updated_at": "2026-03-26T13:53:30.305591458Z"
+}
