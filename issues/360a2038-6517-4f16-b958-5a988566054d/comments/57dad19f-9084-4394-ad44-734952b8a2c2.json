@@ -1,0 +1,8 @@
+{
+  "uuid": "57dad19f-9084-4394-ad44-734952b8a2c2",
+  "issue_uuid": "360a2038-6517-4f16-b958-5a988566054d",
+  "author": "anon-ab6221f8",
+  "content": "Replace manual make_temp_dir with tempfile::tempdir which provides RAII cleanup on drop and restrictive permissions. Ensure cleanup on all exit paths.",
+  "created_at": "2026-03-26T16:23:10.019907015Z",
+  "kind": "plan"
+}
