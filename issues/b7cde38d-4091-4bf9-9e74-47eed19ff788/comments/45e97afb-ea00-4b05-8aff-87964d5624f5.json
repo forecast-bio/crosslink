@@ -1,0 +1,8 @@
+{
+  "uuid": "45e97afb-ea00-4b05-8aff-87964d5624f5",
+  "issue_uuid": "b7cde38d-4091-4bf9-9e74-47eed19ff788",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: TerminalGuard now moves the original panic hook into the closure via move semantics. The original hook is invoked (not just printed) during panics, preserving backtrace output.",
+  "created_at": "2026-03-26T19:57:25.659788268Z",
+  "kind": "result"
+}
