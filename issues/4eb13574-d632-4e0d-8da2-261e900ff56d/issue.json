@@ -1,0 +1,10 @@
+{
+  "uuid": "4eb13574-d632-4e0d-8da2-261e900ff56d",
+  "display_id": 546,
+  "title": "Fix server binding to 0.0.0.0 instead of localhost 127.0.0.1",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:53:15.652507170Z",
+  "updated_at": "2026-03-26T13:53:15.652507170Z"
+}
