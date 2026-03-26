@@ -288,7 +288,7 @@ pub fn try_claim_lock(
             }
         }
     } else {
-        match sync.claim_lock(&agent, issue_id, branch, false)? {
+        match sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
             true => Ok(ClaimResult::Claimed),
             false => Ok(ClaimResult::AlreadyHeld),
         }
@@ -316,7 +316,7 @@ pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
         };
         writer.release_lock_v2(issue_id)
     } else {
-        sync.release_lock(&agent, issue_id, false)
+        sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal)
     }
 }
 
