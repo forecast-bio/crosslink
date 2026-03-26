@@ -2,11 +2,12 @@
   "uuid": "8e395a5e-352d-499c-8e8d-c7f2dfaedb1a",
   "display_id": 596,
   "title": "Fix pre-web-check fail-open on malformed stdin permitting all tools",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:00:08.693824380Z",
-  "updated_at": "2026-03-26T15:28:40.468264436Z",
+  "updated_at": "2026-03-26T15:29:14.302831465Z",
+  "closed_at": "2026-03-26T15:29:14.302831465Z",
   "labels": [
     "security"
   ]
