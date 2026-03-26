@@ -1,0 +1,8 @@
+{
+  "uuid": "4c8e8b1b-52c4-4ec4-8efa-dbf39a4287a5",
+  "issue_uuid": "44068cd8-17f0-4b57-8159-7c86a35a3a75",
+  "author": "anon-ab6221f8",
+  "content": "Add hub write lock acquisition at start of rewrite_as_offline.",
+  "created_at": "2026-03-26T17:30:19.018688911Z",
+  "kind": "plan"
+}
