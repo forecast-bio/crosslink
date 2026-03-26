@@ -2,11 +2,12 @@
   "uuid": "bddbef67-0bcc-4ffa-8bc1-4f72ecd146d0",
   "display_id": 570,
   "title": "Fix double database query on every refresh in issues_tab",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:56:37.666697029Z",
-  "updated_at": "2026-03-26T13:56:41.360491964Z",
+  "updated_at": "2026-03-26T19:53:54.689923682Z",
+  "closed_at": "2026-03-26T19:53:54.689923682Z",
   "labels": [
     "bug"
   ]
