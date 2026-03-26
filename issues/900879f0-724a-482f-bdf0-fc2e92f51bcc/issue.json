@@ -1,0 +1,10 @@
+{
+  "uuid": "900879f0-724a-482f-bdf0-fc2e92f51bcc",
+  "display_id": 566,
+  "title": "Implement Serialize directly on WsEvent to eliminate manual dispatch",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:55:59.213644358Z",
+  "updated_at": "2026-03-26T13:55:59.213644358Z"
+}
