@@ -1,0 +1,8 @@
+{
+  "uuid": "710e3450-bfb2-44ff-a4a5-7953c9e1b3da",
+  "issue_uuid": "603b1f51-5fff-4501-9849-d0846da3de94",
+  "author": "anon-ab6221f8",
+  "content": "Add hub write lock and use git_commit_in_cache instead of raw git commit (for signing bypass in anonymous mode).",
+  "created_at": "2026-03-26T17:30:52.613756562Z",
+  "kind": "plan"
+}
