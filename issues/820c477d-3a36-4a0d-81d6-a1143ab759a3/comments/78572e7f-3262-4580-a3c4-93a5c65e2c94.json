@@ -1,0 +1,8 @@
+{
+  "uuid": "78572e7f-3262-4580-a3c4-93a5c65e2c94",
+  "issue_uuid": "820c477d-3a36-4a0d-81d6-a1143ab759a3",
+  "author": "anon-ab6221f8",
+  "content": "All hook files use bare except-pass that swallows everything including KeyboardInterrupt, MemoryError, NameError, etc. Each should be narrowed to the expected failure mode: OSError for file reads, json.JSONDecodeError for parsing, KeyError/TypeError for config lookups. Affects prompt-guard.py (~12 sites), work-check.py, pre-web-check.py, heartbeat.py, session-start.py.",
+  "created_at": "2026-03-26T15:12:45.230038100Z",
+  "kind": "plan"
+}
