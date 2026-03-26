@@ -1,0 +1,8 @@
+{
+  "uuid": "3b7f4dd3-7ea9-4558-8f0e-8a6f39878f95",
+  "issue_uuid": "7d4e3115-5684-48b0-8968-3edebc85c92c",
+  "author": "anon-ab6221f8",
+  "content": "Replaced module-level mutable global _crosslink_bin with @functools.lru_cache(maxsize=1) on _cached_crosslink_bin() in crosslink_config.py. Also narrowed the except clause in run_crosslink from bare Exception to OSError.",
+  "created_at": "2026-03-26T19:42:54.013999753Z",
+  "kind": "result"
+}
