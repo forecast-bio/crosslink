@@ -1,0 +1,10 @@
+{
+  "uuid": "339c68e6-3de5-4080-aee7-b0261da52069",
+  "display_id": 595,
+  "title": "Fix work-check fail-open on malformed stdin disabling enforcement",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:59:58.470089883Z",
+  "updated_at": "2026-03-26T13:59:58.470089883Z"
+}
