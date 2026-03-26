@@ -2,11 +2,12 @@
   "uuid": "e618b81e-cb6f-47f2-86f0-84f47e1c2d06",
   "display_id": 348,
   "title": "Fix claim_lock and release_lock ignoring V2 layout",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:27:04.659007586Z",
-  "updated_at": "2026-03-26T13:27:07.414339098Z",
+  "updated_at": "2026-03-26T17:46:30.439929779Z",
+  "closed_at": "2026-03-26T17:46:30.439929779Z",
   "labels": [
     "bug"
   ]
