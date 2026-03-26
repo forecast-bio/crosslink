@@ -2,11 +2,12 @@
   "uuid": "587ccee6-6e89-4cec-aecc-6312ea16907c",
   "display_id": 496,
   "title": "Fix TOCTOU double file read in dispatch_launch run path",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:45:51.262035890Z",
-  "updated_at": "2026-03-26T13:45:55.173587676Z",
+  "updated_at": "2026-03-26T16:22:09.282243417Z",
+  "closed_at": "2026-03-26T16:22:09.282243417Z",
   "labels": [
     "bug"
   ]
