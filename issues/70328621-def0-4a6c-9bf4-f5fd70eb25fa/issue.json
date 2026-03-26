@@ -2,11 +2,12 @@
   "uuid": "70328621-def0-4a6c-9bf4-f5fd70eb25fa",
   "display_id": 433,
   "title": "Extract duplicated lock-claim logic from create run and run_subissue",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:38:20.950770986Z",
-  "updated_at": "2026-03-26T13:38:24.618226738Z",
+  "updated_at": "2026-03-26T17:18:05.178474099Z",
+  "closed_at": "2026-03-26T17:18:05.178474099Z",
   "labels": [
     "enhancement"
   ]
