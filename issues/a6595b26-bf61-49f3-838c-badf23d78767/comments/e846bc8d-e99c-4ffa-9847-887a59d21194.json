@@ -1,0 +1,8 @@
+{
+  "uuid": "e846bc8d-e99c-4ffa-9847-887a59d21194",
+  "issue_uuid": "a6595b26-bf61-49f3-838c-badf23d78767",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: agents_tab detail scroll now uses u16::try_from().unwrap_or(u16::MAX) instead of unchecked 'as u16' cast.",
+  "created_at": "2026-03-26T19:56:33.583121365Z",
+  "kind": "result"
+}
