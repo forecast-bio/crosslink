@@ -1,0 +1,8 @@
+{
+  "uuid": "ca187791-a993-42db-907b-8e7c79c94956",
+  "issue_uuid": "ae9cab82-2430-449f-a91d-dc396c3a85ef",
+  "author": "anon-ab6221f8",
+  "content": "Extracted per-language linters from run_linter into _lint_rust, _lint_python, _lint_js_ts, _lint_go, _lint_elixir. Added _LINTER_DISPATCH dict mapping extensions to functions. run_linter is now a thin dispatcher.",
+  "created_at": "2026-03-26T19:43:50.301167045Z",
+  "kind": "result"
+}
