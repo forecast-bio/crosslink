@@ -1,0 +1,8 @@
+{
+  "uuid": "7d05b5f5-145f-4daa-833c-97c7bf051f89",
+  "issue_uuid": "c47fc903-9019-4cca-88e7-eb49675b15ab",
+  "author": "anon-ab6221f8",
+  "content": "Move release_lock_best_effort to lock_check.rs (which already handles lock concerns), make it pub, and import from both create.rs and session.rs.",
+  "created_at": "2026-03-26T16:56:00.961855654Z",
+  "kind": "plan"
+}
