@@ -1,0 +1,10 @@
+{
+  "uuid": "dfebabfa-a1b9-4368-8305-9a7d8bdc51c9",
+  "display_id": 413,
+  "title": "Fix YAML injection via unescaped tags and URLs in serialize_frontmatter",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:33:39.923413939Z",
+  "updated_at": "2026-03-26T13:33:39.923413939Z"
+}
