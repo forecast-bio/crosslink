@@ -1,0 +1,8 @@
+{
+  "uuid": "66a93e41-648b-4540-88e2-0c674ce224c5",
+  "issue_uuid": "bb903c2c-6d29-46d2-a776-9e9d13f6c79d",
+  "author": "anon-ab6221f8",
+  "content": "Rewrote is_allowed_bash to split on chain operators and require every subcommand to match the allow list. Extracted _is_single_command_allowed helper. Tested 6 cases including bypass attempts. Python compiles clean.",
+  "created_at": "2026-03-26T15:25:47.670248280Z",
+  "kind": "result"
+}
