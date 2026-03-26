@@ -1,0 +1,10 @@
+{
+  "uuid": "ad41bea3-7506-45e3-8ebb-54decca3621c",
+  "display_id": 559,
+  "title": "Propagate errors instead of unwrap_or_default in issue detail hydration",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:55:01.097118922Z",
+  "updated_at": "2026-03-26T13:55:01.097118922Z"
+}
