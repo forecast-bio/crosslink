@@ -2,11 +2,12 @@
   "uuid": "1d4785d2-67ef-4cf6-8f76-93ebb5adbf73",
   "display_id": 261,
   "title": "Create crosslink issues for full-codebase QA audit findings",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:15:21.205796075Z",
-  "updated_at": "2026-03-26T13:15:31.738419843Z",
+  "updated_at": "2026-03-26T15:45:35.535208806Z",
+  "closed_at": "2026-03-26T15:45:35.535208806Z",
   "labels": [
     "enhancement"
   ]
