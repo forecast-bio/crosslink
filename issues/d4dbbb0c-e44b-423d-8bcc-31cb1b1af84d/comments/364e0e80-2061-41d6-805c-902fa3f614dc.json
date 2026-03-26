@@ -1,0 +1,8 @@
+{
+  "uuid": "364e0e80-2061-41d6-805c-902fa3f614dc",
+  "issue_uuid": "d4dbbb0c-e44b-423d-8bcc-31cb1b1af84d",
+  "author": "anon-ab6221f8",
+  "content": "Pass repo_root through ensure_complete_coverage and compute actual line counts for uncategorized files using the existing count_lines helper.",
+  "created_at": "2026-03-26T17:23:43.914675401Z",
+  "kind": "plan"
+}
