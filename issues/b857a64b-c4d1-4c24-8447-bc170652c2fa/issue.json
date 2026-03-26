@@ -2,11 +2,12 @@
   "uuid": "b857a64b-c4d1-4c24-8447-bc170652c2fa",
   "display_id": 617,
   "title": "Remove unused request type interfaces from dashboard types",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:03:23.029525881Z",
-  "updated_at": "2026-03-26T14:03:25.809847123Z",
+  "updated_at": "2026-03-26T19:50:03.539613726Z",
+  "closed_at": "2026-03-26T19:50:03.539613726Z",
   "labels": [
     "enhancement"
   ]
