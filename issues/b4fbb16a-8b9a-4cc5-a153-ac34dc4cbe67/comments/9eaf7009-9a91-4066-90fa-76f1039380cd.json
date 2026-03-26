@@ -1,0 +1,8 @@
+{
+  "uuid": "9eaf7009-9a91-4066-90fa-76f1039380cd",
+  "issue_uuid": "b4fbb16a-8b9a-4cc5-a153-ac34dc4cbe67",
+  "author": "anon-ab6221f8",
+  "content": "Extracted per-language parsers from get_dependencies into _parse_cargo_deps, _parse_node_deps, _parse_python_deps, _parse_elixir_deps, _parse_go_deps. get_dependencies now delegates to these focused functions.",
+  "created_at": "2026-03-26T19:43:39.101592285Z",
+  "kind": "result"
+}
