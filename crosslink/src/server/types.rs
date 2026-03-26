@@ -519,54 +519,12 @@ pub struct TokenUsageSummaryResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Orchestrator
+// Orchestrator — re-exported from canonical definitions in orchestrator::models (#480)
 // ---------------------------------------------------------------------------
 
-/// An atomic work item within an orchestration stage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorTask {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    /// Estimated complexity in agent-hours.
-    pub complexity_hours: f64,
-}
-
-/// A work unit within a phase — may have parallel agents.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorStage {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub tasks: Vec<OrchestratorTask>,
-    /// IDs of stages that must complete before this one starts.
-    pub depends_on: Vec<String>,
-    /// Suggested number of parallel agents for this stage.
-    pub agent_count: usize,
-    pub complexity_hours: f64,
-}
-
-/// A major sequential milestone in the execution plan.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorPhase {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub stages: Vec<OrchestratorStage>,
-    /// Criteria for declaring this phase complete (e.g. test pass, merge gate).
-    pub gate_criteria: Vec<String>,
-}
-
-/// The full LLM-decomposed execution plan.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorPlan {
-    pub id: String,
-    pub document_slug: String,
-    pub phases: Vec<OrchestratorPhase>,
-    pub created_at: DateTime<Utc>,
-    pub total_stages: usize,
-    pub estimated_hours: f64,
-}
+pub use crate::orchestrator::models::{
+    OrchestratorPhase, OrchestratorPlan, OrchestratorStage, OrchestratorTask,
+};
 
 /// Request body for `POST /api/v1/orchestrator/decompose`.
 #[derive(Debug, Clone, Deserialize)]
@@ -587,6 +545,9 @@ pub enum StageStatus {
     Done,
     Failed,
     Skipped,
+    /// Reserved for dashboard display. The orchestrator engine uses `Pending`
+    /// combined with DAG dependency checking instead of an explicit Blocked
+    /// state, but the frontend uses this variant for visualization (#488).
     Blocked,
 }
 

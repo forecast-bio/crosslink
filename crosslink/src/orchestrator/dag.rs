@@ -46,6 +46,10 @@ pub struct Dag {
     forward: HashMap<String, HashSet<String>>,
     /// Reverse edges: `stage_id → set of stages it depends on`.
     reverse: HashMap<String, HashSet<String>>,
+    /// Cached topological sort result. Computed once after construction since
+    /// the graph structure (nodes/edges) never changes — only statuses do (#485).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cached_topo_order: Option<Vec<String>>,
 }
 
 impl Dag {
@@ -55,6 +59,7 @@ impl Dag {
             nodes: HashMap::new(),
             forward: HashMap::new(),
             reverse: HashMap::new(),
+            cached_topo_order: None,
         }
     }
 
@@ -94,10 +99,9 @@ impl Dag {
             }
         }
 
-        // Validate acyclicity.
-        if dag.has_cycle() {
-            bail!("Dependency graph contains a cycle");
-        }
+        // Validate acyclicity and cache topological order (#485).
+        let topo = dag.topological_sort()?;
+        dag.cached_topo_order = Some(topo);
 
         Ok(dag)
     }
@@ -212,7 +216,14 @@ impl Dag {
         }
         node.status = StageStatus::Done;
 
-        // Find newly unblocked dependents.
+        Ok(self.find_newly_unblocked(id))
+    }
+
+    /// Find dependents of `id` that are now unblocked (all deps terminal and node pending).
+    ///
+    /// Shared by `mark_done` and `mark_skipped_and_unblock` to avoid duplicating
+    /// the unblocking logic (#483).
+    fn find_newly_unblocked(&self, id: &str) -> Vec<String> {
         let dependents = self.forward.get(id).cloned().unwrap_or_default();
         let mut newly_ready = Vec::new();
         for dep_id in dependents {
@@ -242,8 +253,16 @@ impl Dag {
                 }
             }
         }
+        newly_ready
+    }
 
-        Ok(newly_ready)
+    /// Mark a stage as skipped and return newly-unblocked dependents.
+    ///
+    /// Combines `mark_skipped` with the same unblocking logic used by `mark_done`
+    /// so callers don't need to reimplement it (#483).
+    pub fn mark_skipped_and_unblock(&mut self, id: &str) -> Result<Vec<String>> {
+        self.mark_skipped(id)?;
+        Ok(self.find_newly_unblocked(id))
     }
 
     /// Mark a stage as failed. Valid from `Pending` or `Running`.
@@ -435,17 +454,24 @@ impl Dag {
     }
 
     /// Return all stages grouped by phase ID, preserving topological order within each phase.
+    ///
+    /// Uses the cached topological sort computed at construction time (#485).
     pub fn stages_by_phase(&self) -> HashMap<String, Vec<String>> {
         let mut by_phase: HashMap<String, Vec<String>> = HashMap::new();
-        // Use topological order for consistent ordering.
-        if let Ok(order) = self.topological_sort() {
+        // Use cached topological order for consistent ordering without recomputation.
+        let order = self
+            .cached_topo_order
+            .as_ref()
+            .cloned()
+            .or_else(|| self.topological_sort().ok());
+        if let Some(order) = order {
             for id in order {
                 if let Some(node) = self.nodes.get(&id) {
                     by_phase.entry(node.phase_id.clone()).or_default().push(id);
                 }
             }
         } else {
-            // Fallback: arbitrary order.
+            // Fallback: arbitrary order (should not happen for valid DAGs).
             for (id, node) in &self.nodes {
                 by_phase
                     .entry(node.phase_id.clone())
@@ -553,7 +579,8 @@ mod tests {
             make_node("b", "p1", &["a"]),
         ]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cycle"));
+        let err_msg = result.unwrap_err().to_string().to_lowercase();
+        assert!(err_msg.contains("cycle"), "Expected 'cycle' in error: {}", err_msg);
     }
 
     #[test]

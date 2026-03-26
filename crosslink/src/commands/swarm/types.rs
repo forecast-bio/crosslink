@@ -135,6 +135,16 @@ pub struct BudgetConfig {
     pub model: String,
 }
 
+/// Default: 5-hour window, opus model (#521).
+impl Default for BudgetConfig {
+    fn default() -> Self {
+        Self {
+            budget_window_s: 18000,
+            model: "opus".to_string(),
+        }
+    }
+}
+
 /// Historical cost log stored at `swarm/history/cost-log.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CostLog {

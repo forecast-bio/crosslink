@@ -154,10 +154,7 @@ pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     let (phase, _) = load_phase(&sync, phase_slug)?;
 
     let budget_config: BudgetConfig =
-        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig {
-            budget_window_s: 18000, // default 5h
-            model: "opus".to_string(),
-        });
+        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig::default());
 
     let cost_log: CostLog = read_hub_json(&sync, &ctx.history_path()).unwrap_or_default();
 
@@ -243,10 +240,7 @@ pub fn launch_budget_aware(
     let (phase, _) = load_phase(&sync, phase_slug)?;
 
     let budget_config: BudgetConfig =
-        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig {
-            budget_window_s: 18000,
-            model: "opus".to_string(),
-        });
+        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig::default());
 
     let cost_log: CostLog = read_hub_json(&sync, &ctx.history_path()).unwrap_or_default();
 
@@ -432,7 +426,12 @@ pub(super) fn recompute_model_estimates(cost_log: &mut CostLog) {
     for (model, mut durations) in by_model {
         durations.sort();
         let len = durations.len();
-        let median = durations[len / 2];
+        // Correct median for even-length arrays: average the two middle values.
+        let median = if len % 2 == 0 && len >= 2 {
+            (durations[len / 2 - 1] + durations[len / 2]) / 2
+        } else {
+            durations[len / 2]
+        };
         let p90_idx = ((len as f64) * 0.9).ceil() as usize;
         let p90 = durations[p90_idx.min(len - 1)];
 
@@ -542,10 +541,7 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
         .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
 
     let budget_config: BudgetConfig =
-        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig {
-            budget_window_s: 18000,
-            model: "opus".to_string(),
-        });
+        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig::default());
 
     let window_s = if let Some(w) = budget_window {
         kickoff::parse_duration(w)?.as_secs()

@@ -1,13 +1,18 @@
-//! Domain types for LLM-assisted document decomposition.
+//! Domain types for the orchestrator module.
 //!
-//! These types are the raw schema expected from the LLM (Claude CLI) output.
-//! [`crate::orchestrator::decompose`] transforms them into the API-facing
-//! [`OrchestratorPlan`](crate::server::types::OrchestratorPlan) types.
-//!
-//! They are also used for on-disk storage in `.crosslink/orchestrator/`.
+//! Contains both the raw LLM response schema and the canonical orchestrator
+//! plan types (`OrchestratorPlan`, `OrchestratorPhase`, `OrchestratorStage`,
+//! `OrchestratorTask`). These plan types are re-exported from
+//! `crate::server::types` for backward compatibility with the REST API.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+/// Directory within `.crosslink/` for orchestrator state and plan storage.
+///
+/// Used by both `decompose` (plan files) and `executor` (execution state).
+/// Consolidated here to avoid duplication (#491).
+pub const ORCHESTRATOR_DIR: &str = "orchestrator";
 
 // ---------------------------------------------------------------------------
 // LLM response schema
@@ -69,6 +74,59 @@ fn default_agent_count() -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Orchestrator plan types (canonical definitions — #480)
+// ---------------------------------------------------------------------------
+// These types were previously defined in `server::types` but belong in the
+// orchestrator domain module. They are re-exported from `server::types` for
+// backward compatibility with existing API handlers and dashboard code.
+
+/// An atomic work item within an orchestration stage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorTask {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    /// Estimated complexity in agent-hours.
+    pub complexity_hours: f64,
+}
+
+/// A work unit within a phase — may have parallel agents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorStage {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub tasks: Vec<OrchestratorTask>,
+    /// IDs of stages that must complete before this one starts.
+    pub depends_on: Vec<String>,
+    /// Suggested number of parallel agents for this stage.
+    pub agent_count: usize,
+    pub complexity_hours: f64,
+}
+
+/// A major sequential milestone in the execution plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorPhase {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub stages: Vec<OrchestratorStage>,
+    /// Criteria for declaring this phase complete (e.g. test pass, merge gate).
+    pub gate_criteria: Vec<String>,
+}
+
+/// The full LLM-decomposed execution plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorPlan {
+    pub id: String,
+    pub document_slug: String,
+    pub phases: Vec<OrchestratorPhase>,
+    pub created_at: DateTime<Utc>,
+    pub total_stages: usize,
+    pub estimated_hours: f64,
+}
+
+// ---------------------------------------------------------------------------
 // Plan storage
 // ---------------------------------------------------------------------------
 
@@ -79,7 +137,7 @@ fn default_agent_count() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredPlan {
     /// The plan itself (same shape as the API response).
-    pub plan: crate::server::types::OrchestratorPlan,
+    pub plan: OrchestratorPlan,
     /// The raw markdown document that was decomposed.
     pub source_document: String,
     /// When the plan was stored.
@@ -156,7 +214,6 @@ mod tests {
 
     #[test]
     fn stored_plan_round_trip() {
-        use crate::server::types::OrchestratorPlan;
         let plan = StoredPlan {
             plan: OrchestratorPlan {
                 id: "test-plan".to_string(),
