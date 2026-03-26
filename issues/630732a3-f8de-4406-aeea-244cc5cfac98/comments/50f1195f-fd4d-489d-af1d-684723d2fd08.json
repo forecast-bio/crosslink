@@ -1,0 +1,8 @@
+{
+  "uuid": "50f1195f-fd4d-489d-af1d-684723d2fd08",
+  "issue_uuid": "630732a3-f8de-4406-aeea-244cc5cfac98",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Extracted make_test_key() to tui/mod.rs as a pub #[cfg(test)] function. All 6 tab test modules now delegate to it.",
+  "created_at": "2026-03-26T19:55:59.560618259Z",
+  "kind": "result"
+}
