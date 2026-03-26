@@ -1,0 +1,8 @@
+{
+  "uuid": "984714d9-cb6a-4ccd-a95b-396fe3d37247",
+  "issue_uuid": "f8614df4-3699-4465-9cc5-17540faa054d",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Extracted duplicated priorityVariant function into @/lib/utils.ts as a shared export. Updated Issues.tsx and IssueDetail.tsx to import from utils.",
+  "created_at": "2026-03-26T19:51:50.346931031Z",
+  "kind": "result"
+}
