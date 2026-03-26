@@ -2,11 +2,12 @@
   "uuid": "7394b4a6-be2d-4c62-9202-8a4862cda3b6",
   "display_id": 590,
   "title": "Fix config_tab save_array_items always writing to team scope",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:59:18.085152427Z",
-  "updated_at": "2026-03-26T13:59:22.066078213Z",
+  "updated_at": "2026-03-26T19:57:49.261789088Z",
+  "closed_at": "2026-03-26T19:57:49.261789088Z",
   "labels": [
     "bug"
   ]
