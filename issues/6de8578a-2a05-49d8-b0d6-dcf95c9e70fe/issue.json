@@ -1,0 +1,10 @@
+{
+  "uuid": "6de8578a-2a05-49d8-b0d6-dcf95c9e70fe",
+  "display_id": 555,
+  "title": "Add path traversal protection to knowledge page slug validation",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:54:28.657233013Z",
+  "updated_at": "2026-03-26T13:54:28.657233013Z"
+}
