@@ -1,0 +1,10 @@
+{
+  "uuid": "e7cd0687-2da3-4dd6-967c-d6763dbbc981",
+  "display_id": 369,
+  "title": "Split cleanup_stale_layout_files into cleanup and migration functions",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:28:36.757701128Z",
+  "updated_at": "2026-03-26T13:28:36.757701128Z"
+}
