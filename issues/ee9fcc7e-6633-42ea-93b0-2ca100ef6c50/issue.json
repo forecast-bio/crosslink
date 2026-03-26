@@ -2,11 +2,12 @@
   "uuid": "ee9fcc7e-6633-42ea-93b0-2ca100ef6c50",
   "display_id": 479,
   "title": "Fix mark_failed and mark_skipped accepting any source state",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:43:51.307591957Z",
-  "updated_at": "2026-03-26T13:43:55.150192007Z",
+  "updated_at": "2026-03-26T15:47:52.762294675Z",
+  "closed_at": "2026-03-26T15:47:52.762294675Z",
   "labels": [
     "bug"
   ]
