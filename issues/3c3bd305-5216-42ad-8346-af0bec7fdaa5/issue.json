@@ -2,11 +2,12 @@
   "uuid": "3c3bd305-5216-42ad-8346-af0bec7fdaa5",
   "display_id": 627,
   "title": "Cache platform info in VS Code ensureExecutable instead of re-detecting",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:04:24.708447590Z",
-  "updated_at": "2026-03-26T14:04:28.113774728Z",
+  "updated_at": "2026-03-26T19:52:06.756813413Z",
+  "closed_at": "2026-03-26T19:52:06.756813413Z",
   "labels": [
     "enhancement"
   ]
