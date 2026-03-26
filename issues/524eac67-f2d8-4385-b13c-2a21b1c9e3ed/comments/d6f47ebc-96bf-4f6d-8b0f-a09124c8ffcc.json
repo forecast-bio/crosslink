@@ -1,0 +1,8 @@
+{
+  "uuid": "d6f47ebc-96bf-4f6d-8b0f-a09124c8ffcc",
+  "issue_uuid": "524eac67-f2d8-4385-b13c-2a21b1c9e3ed",
+  "author": "anon-ab6221f8",
+  "content": "Extract the shared walkthrough TUI state machine into config_registry.rs (or a new walkthrough.rs). Both init.rs and config.rs have near-identical preset/group/confirm screen flows. Will read both implementations first to catalog the differences.",
+  "created_at": "2026-03-26T18:04:33.522498362Z",
+  "kind": "plan"
+}
