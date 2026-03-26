@@ -1,0 +1,8 @@
+{
+  "uuid": "d7bfb370-4b1a-4cc5-bf4e-19e17f9af79a",
+  "issue_uuid": "ad87f7c0-4bf7-494c-a49c-4ed4f4d8fc5f",
+  "author": "anon-ab6221f8",
+  "content": "Fix applied: added resolve_id call as first line of add_intervention_comment. All 1665 lib tests pass.",
+  "created_at": "2026-03-26T14:07:26.858472440Z",
+  "kind": "result"
+}
