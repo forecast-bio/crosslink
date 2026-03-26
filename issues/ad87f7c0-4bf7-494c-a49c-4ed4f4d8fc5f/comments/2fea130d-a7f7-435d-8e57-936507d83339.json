@@ -1,0 +1,8 @@
+{
+  "uuid": "2fea130d-a7f7-435d-8e57-936507d83339",
+  "issue_uuid": "ad87f7c0-4bf7-494c-a49c-4ed4f4d8fc5f",
+  "author": "anon-ab6221f8",
+  "content": "One-line fix: add self.resolve_id(issue_id) as first line of add_intervention_comment, matching the pattern in add_comment and get_comments.",
+  "created_at": "2026-03-26T14:02:28.240400227Z",
+  "kind": "plan"
+}
