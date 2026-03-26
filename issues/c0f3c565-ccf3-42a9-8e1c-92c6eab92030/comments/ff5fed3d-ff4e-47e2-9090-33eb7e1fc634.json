@@ -1,0 +1,8 @@
+{
+  "uuid": "ff5fed3d-ff4e-47e2-9090-33eb7e1fc634",
+  "issue_uuid": "c0f3c565-ccf3-42a9-8e1c-92c6eab92030",
+  "author": "anon-ab6221f8",
+  "content": "Investigated: commands are in the binary crate (main.rs), not lib.rs. A shared test_helpers module in lib.rs cannot be imported by binary-crate tests. The per-file setup_test_db pattern is the correct approach for this crate structure. Setup functions were normalized to use consistent Database::open pattern.",
+  "created_at": "2026-03-26T20:03:15.823581399Z",
+  "kind": "resolution"
+}
