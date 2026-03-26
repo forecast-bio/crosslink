@@ -2,11 +2,12 @@
   "uuid": "64f3f898-93bf-43bf-a298-c670e52b74e0",
   "display_id": 569,
   "title": "Replace raw HashMap with typed query struct for session parameters",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:56:23.149670637Z",
-  "updated_at": "2026-03-26T13:56:30.000930510Z",
+  "updated_at": "2026-03-26T19:53:51.879626975Z",
+  "closed_at": "2026-03-26T19:53:51.879626975Z",
   "labels": [
     "enhancement"
   ]
