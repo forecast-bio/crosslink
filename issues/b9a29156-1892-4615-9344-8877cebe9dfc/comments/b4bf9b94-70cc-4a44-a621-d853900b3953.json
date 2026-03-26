@@ -1,0 +1,8 @@
+{
+  "uuid": "b4bf9b94-70cc-4a44-a621-d853900b3953",
+  "issue_uuid": "b9a29156-1892-4615-9344-8877cebe9dfc",
+  "author": "anon-ab6221f8",
+  "content": "Simplify the lock acquisition: first try_create with create_new(true) is already atomic. If it fails with AlreadyExists, go to stale-lock check. If it fails for any other reason, propagate the error. Remove the double-create pattern.",
+  "created_at": "2026-03-26T16:39:22.137332472Z",
+  "kind": "plan"
+}
