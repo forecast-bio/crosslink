@@ -1,0 +1,10 @@
+{
+  "uuid": "fa7189ba-9a1b-4796-9813-7c01ae0ee774",
+  "display_id": 563,
+  "title": "Derive WsEvent event_type from type instead of manual string field",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:55:31.754502160Z",
+  "updated_at": "2026-03-26T13:55:31.754502160Z"
+}
