@@ -1,0 +1,8 @@
+{
+  "uuid": "b6e86901-14b9-434c-8d2d-8b89a5b7b8e3",
+  "issue_uuid": "339c68e6-3de5-4080-aee7-b0261da52069",
+  "author": "anon-ab6221f8",
+  "content": "Change the except block in main() stdin parsing to exit with code 2 and an error message instead of proceeding with empty tool_name.",
+  "created_at": "2026-03-26T15:13:07.713803281Z",
+  "kind": "plan"
+}
