@@ -1,0 +1,10 @@
+{
+  "uuid": "32d8b6f7-b722-4029-a8c8-15db6ca01881",
+  "display_id": 425,
+  "title": "Remove trivial truncate delegation in knowledge edit module",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:37:21.581510700Z",
+  "updated_at": "2026-03-26T13:37:21.581510700Z"
+}
