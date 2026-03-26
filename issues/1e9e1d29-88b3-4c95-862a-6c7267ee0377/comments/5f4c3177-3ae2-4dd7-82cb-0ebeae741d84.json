@@ -1,0 +1,8 @@
+{
+  "uuid": "5f4c3177-3ae2-4dd7-82cb-0ebeae741d84",
+  "issue_uuid": "1e9e1d29-88b3-4c95-862a-6c7267ee0377",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Split registerCommands into 8 focused functions: registerInitCommands, registerSessionCommands, registerDaemonCommands, registerIssueListingCommands, registerIssueCreationCommands, registerIssueModificationCommands, registerCommentAndLabelCommands, registerDependencyCommands.",
+  "created_at": "2026-03-26T19:58:19.015310013Z",
+  "kind": "result"
+}
