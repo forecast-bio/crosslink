@@ -2,11 +2,12 @@
   "uuid": "913ad52d-11c4-44fd-9b1d-5a77c11d1e5a",
   "display_id": 631,
   "title": "Fix KnowledgeDetail using create endpoint for page edits",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:05:13.738853577Z",
-  "updated_at": "2026-03-26T14:05:16.298361045Z",
+  "updated_at": "2026-03-26T19:52:30.387793751Z",
+  "closed_at": "2026-03-26T19:52:30.387793751Z",
   "labels": [
     "bug"
   ]
