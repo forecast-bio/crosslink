@@ -1,0 +1,10 @@
+{
+  "uuid": "62fac8f9-bf92-45af-9c8e-fd8d0927c60b",
+  "display_id": 592,
+  "title": "Poll updates only for active tab in TUI main event loop",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:59:36.224478514Z",
+  "updated_at": "2026-03-26T13:59:36.224478514Z"
+}
