@@ -1,0 +1,8 @@
+{
+  "uuid": "079da118-aced-44d9-ade1-b717dd3ad2fc",
+  "issue_uuid": "d2bf8d64-eec8-4296-b238-ed9ee4215766",
+  "author": "anon-ab6221f8",
+  "content": "Replaced two-step SELECT+UPDATE with single UPDATE computing duration per-row via julianday SQL. Each timer gets correct duration. All 1665 tests pass.",
+  "created_at": "2026-03-26T14:34:31.789973851Z",
+  "kind": "result"
+}
