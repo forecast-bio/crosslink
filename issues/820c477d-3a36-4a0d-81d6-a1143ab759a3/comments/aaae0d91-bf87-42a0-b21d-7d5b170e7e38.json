@@ -1,0 +1,8 @@
+{
+  "uuid": "aaae0d91-bf87-42a0-b21d-7d5b170e7e38",
+  "issue_uuid": "820c477d-3a36-4a0d-81d6-a1143ab759a3",
+  "author": "anon-ab6221f8",
+  "content": "Replaced all bare except-pass and overly broad Exception catches across ALL hook files with specific types: OSError for file ops, json.JSONDecodeError for parsing, KeyError/TypeError for config lookups, subprocess.TimeoutExpired/FileNotFoundError for process spawning. Files: crosslink_config.py, pre-web-check.py, prompt-guard.py, post-edit-check.py, work-check.py, session-start.py.",
+  "created_at": "2026-03-26T19:43:57.530222877Z",
+  "kind": "result"
+}
