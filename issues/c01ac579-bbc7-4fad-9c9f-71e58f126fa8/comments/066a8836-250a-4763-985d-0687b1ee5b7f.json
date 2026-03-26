@@ -1,0 +1,8 @@
+{
+  "uuid": "066a8836-250a-4763-985d-0687b1ee5b7f",
+  "issue_uuid": "c01ac579-bbc7-4fad-9c9f-71e58f126fa8",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Renamed WsClient private field 'closed' to 'isClosed' to avoid shadowing with WebSocket.close() method name.",
+  "created_at": "2026-03-26T19:50:34.527420998Z",
+  "kind": "result"
+}
