@@ -1,0 +1,8 @@
+{
+  "uuid": "a8622584-fbad-4137-b025-bfe3a3c10e21",
+  "issue_uuid": "bdfa37fb-17de-42d5-9fcd-7145a68325f0",
+  "author": "anon-ab6221f8",
+  "content": "Revised approach: extract the cleanly self-contained chunks (python/cpitd, signing, merge/gitignore) into submodules. The walkthrough and InitUI stay in mod.rs since they're tightly coupled to the run function and to each other via TuiChoices. This reduces mod.rs by ~500 LOC to ~2350 while keeping the module boundaries clean.",
+  "created_at": "2026-03-26T18:21:40.297016425Z",
+  "kind": "decision"
+}
