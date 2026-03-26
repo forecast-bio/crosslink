@@ -2,11 +2,12 @@
   "uuid": "c01ac579-bbc7-4fad-9c9f-71e58f126fa8",
   "display_id": 620,
   "title": "Rename WsClient closed field to isClosed for clarity",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:03:38.227813448Z",
-  "updated_at": "2026-03-26T14:03:41.038499351Z",
+  "updated_at": "2026-03-26T19:50:37.182020728Z",
+  "closed_at": "2026-03-26T19:50:37.182020728Z",
   "labels": [
     "enhancement"
   ]
