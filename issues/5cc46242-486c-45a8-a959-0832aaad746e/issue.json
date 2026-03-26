@@ -2,11 +2,12 @@
   "uuid": "5cc46242-486c-45a8-a959-0832aaad746e",
   "display_id": 264,
   "title": "Replace stringly-typed status and priority fields with enums across codebase",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:19:40.076193122Z",
-  "updated_at": "2026-03-26T13:19:43.202250701Z",
+  "updated_at": "2026-03-26T19:28:09.912518841Z",
+  "closed_at": "2026-03-26T19:28:09.912518841Z",
   "labels": [
     "bug"
   ]
