@@ -1,0 +1,10 @@
+{
+  "uuid": "630732a3-f8de-4406-aeea-244cc5cfac98",
+  "display_id": 575,
+  "title": "Extract shared make_key test helper from duplicated TUI test modules",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:57:17.597769539Z",
+  "updated_at": "2026-03-26T13:57:17.597769539Z"
+}
