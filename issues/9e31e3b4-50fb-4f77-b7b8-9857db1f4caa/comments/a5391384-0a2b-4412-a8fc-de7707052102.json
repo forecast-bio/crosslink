@@ -1,0 +1,8 @@
+{
+  "uuid": "a5391384-0a2b-4412-a8fc-de7707052102",
+  "issue_uuid": "9e31e3b4-50fb-4f77-b7b8-9857db1f4caa",
+  "author": "anon-ab6221f8",
+  "content": "Add a search_comments method to the Database layer that searches across all comments in a single SQL query, replacing the N+1 loop.",
+  "created_at": "2026-03-26T17:33:15.104538603Z",
+  "kind": "plan"
+}
