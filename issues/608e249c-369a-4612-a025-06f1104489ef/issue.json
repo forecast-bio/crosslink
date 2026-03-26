@@ -1,0 +1,10 @@
+{
+  "uuid": "608e249c-369a-4612-a025-06f1104489ef",
+  "display_id": 300,
+  "title": "Add FTS5 search or document O(n) scan limitation in search_issues",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:22:54.415747862Z",
+  "updated_at": "2026-03-26T13:22:54.415747862Z"
+}
