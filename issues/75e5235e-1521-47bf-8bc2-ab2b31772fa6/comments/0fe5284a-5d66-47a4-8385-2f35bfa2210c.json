@@ -1,0 +1,8 @@
+{
+  "uuid": "0fe5284a-5d66-47a4-8385-2f35bfa2210c",
+  "issue_uuid": "75e5235e-1521-47bf-8bc2-ab2b31772fa6",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: executeCrosslinkCommand now has an explicit null check on daemonManager inside the progress callback, replacing the non-null assertion (\\!).",
+  "created_at": "2026-03-26T19:58:40.555145425Z",
+  "kind": "result"
+}
