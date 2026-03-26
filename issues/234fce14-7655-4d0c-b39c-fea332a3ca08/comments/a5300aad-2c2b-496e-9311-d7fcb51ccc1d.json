@@ -1,0 +1,8 @@
+{
+  "uuid": "a5300aad-2c2b-496e-9311-d7fcb51ccc1d",
+  "issue_uuid": "234fce14-7655-4d0c-b39c-fea332a3ca08",
+  "author": "anon-ab6221f8",
+  "content": "Added is_complete check to mark_stage_failed. Execution now transitions to Failed when last stage fails. Updated return type to include execution_complete bool. Updated handler and 4 test sites. Updated test assertion from Running to Failed reflecting correct behavior. All 1665 tests pass.",
+  "created_at": "2026-03-26T15:43:16.362851402Z",
+  "kind": "result"
+}
