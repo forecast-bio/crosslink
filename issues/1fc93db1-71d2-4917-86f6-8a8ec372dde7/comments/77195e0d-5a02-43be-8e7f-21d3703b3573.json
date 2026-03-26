@@ -1,0 +1,8 @@
+{
+  "uuid": "77195e0d-5a02-43be-8e7f-21d3703b3573",
+  "issue_uuid": "1fc93db1-71d2-4917-86f6-8a8ec372dde7",
+  "author": "anon-ab6221f8",
+  "content": "Replaced local find_crosslink_dir and run_crosslink reimplementations in session-start.py with imports from crosslink_config module. Simplified check_crosslink_initialized to delegate to find_crosslink_dir.",
+  "created_at": "2026-03-26T19:43:13.776373069Z",
+  "kind": "result"
+}
