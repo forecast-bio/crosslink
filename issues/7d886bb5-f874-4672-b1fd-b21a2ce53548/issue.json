@@ -2,11 +2,12 @@
   "uuid": "7d886bb5-f874-4672-b1fd-b21a2ce53548",
   "display_id": 625,
   "title": "Rename NavItem component to avoid shadowing NavItem interface",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:04:14.501682605Z",
-  "updated_at": "2026-03-26T14:04:16.992025578Z",
+  "updated_at": "2026-03-26T19:51:41.956318395Z",
+  "closed_at": "2026-03-26T19:51:41.956318395Z",
   "labels": [
     "enhancement"
   ]
