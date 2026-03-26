@@ -2,11 +2,12 @@
   "uuid": "b0624b76-7774-4c71-92d3-221374358b11",
   "display_id": 274,
   "title": "Add target_uuid and event_type_name helper methods to Event enum",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:20:42.918371382Z",
-  "updated_at": "2026-03-26T13:20:44.811084414Z",
+  "updated_at": "2026-03-26T19:58:46.979893092Z",
+  "closed_at": "2026-03-26T19:58:46.979893092Z",
   "labels": [
     "enhancement"
   ]
