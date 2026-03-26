@@ -2,11 +2,12 @@
   "uuid": "93a207f4-5507-4327-b6d8-d7e8a9ba88fd",
   "display_id": 445,
   "title": "Extract display sections in show.rs into focused helper functions",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:39:33.892295794Z",
-  "updated_at": "2026-03-26T13:39:38.318477138Z",
+  "updated_at": "2026-03-26T20:02:37.449012293Z",
+  "closed_at": "2026-03-26T20:02:37.449012293Z",
   "labels": [
     "enhancement"
   ]
