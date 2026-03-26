@@ -1,0 +1,10 @@
+{
+  "uuid": "32c18ce2-c93f-41fb-891d-eaa10296c891",
+  "display_id": 586,
+  "title": "Fix config_tab scroll and cursor desynchronization",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:58:42.355380383Z",
+  "updated_at": "2026-03-26T13:58:42.355380383Z"
+}
