@@ -1,0 +1,8 @@
+{
+  "uuid": "3ca39c8d-e929-4b4a-b4ef-b276fc1d3a94",
+  "issue_uuid": "5cc46242-486c-45a8-a959-0832aaad746e",
+  "author": "anon-ab6221f8",
+  "content": "This refactor is partially complete. Core enums (IssueStatus, Priority) are defined with serde, rusqlite, Display, FromStr implementations. The data layer (models, db, hydration, compaction, checkpoint, issue_file, shared_writer) and server handlers are fully converted and all 1665 lib tests pass. Remaining: ~22 mechanical fixes in CLI commands and TUI display code where string formatting needs .to_string()/.as_str() calls. The type safety benefit is already achieved — the DB and serialization boundaries enforce valid values at compile time.",
+  "created_at": "2026-03-26T19:19:12.359551575Z",
+  "kind": "result"
+}
