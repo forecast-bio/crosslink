@@ -1,0 +1,10 @@
+{
+  "uuid": "518f01df-23c2-4dda-a30c-6726dcc9775b",
+  "display_id": 573,
+  "title": "Consolidate duplicate truncate_str functions across TUI tabs",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:57:01.219720878Z",
+  "updated_at": "2026-03-26T13:57:01.219720878Z"
+}
