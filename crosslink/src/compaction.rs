@@ -50,12 +50,16 @@ impl CompactionLockGuard {
 
         match Self::try_create(&path, agent_id) {
             Ok(guard) => return Ok(Some(guard)),
-            Err(_) if !path.exists() => {
-                if let Ok(guard) = Self::try_create(&path, agent_id) {
-                    return Ok(Some(guard));
+            Err(e) => {
+                // If the file doesn't exist, the error is not AlreadyExists —
+                // it's a real filesystem error (permissions, disk full, etc.).
+                // Propagate it instead of falling through to stale-lock logic.
+                if !path.exists() {
+                    return Err(e);
                 }
+                // File exists → another process holds the lock. Fall through
+                // to stale-lock detection below.
             }
-            Err(_) => {}
         }
 
         if let Some(info) = Self::read_lock_info(&path) {
@@ -306,7 +310,7 @@ pub fn prune_events(cache_dir: &Path, agent_id: &str) -> Result<usize> {
         let bytes = <crate::events::NdjsonCodec as crate::events::EventCodec>::encode_batch(
             &codec, &remaining,
         )?;
-        std::fs::write(&log_path, bytes)
+        crate::utils::atomic_write(&log_path, &bytes)
             .with_context(|| format!("Failed to write pruned log: {}", log_path.display()))?;
     }
 
@@ -346,8 +350,8 @@ fn apply(
                     display_id: Some(display_id),
                     title: title.clone(),
                     description: description.clone(),
-                    status: "open".to_string(),
-                    priority: priority.clone(),
+                    status: crate::models::IssueStatus::Open,
+                    priority: priority.parse().unwrap_or(crate::models::Priority::Medium),
                     parent_uuid: *parent_uuid,
                     created_by: created_by.clone(),
                     created_at: envelope.timestamp,
@@ -408,7 +412,9 @@ fn apply(
                     issue.description = Some(d.clone());
                 }
                 if let Some(p) = priority {
-                    issue.priority = p.clone();
+                    if let Ok(parsed) = p.parse() {
+                        issue.priority = parsed;
+                    }
                 }
                 issue.updated_at = envelope.timestamp;
                 changed_issues.insert(*uuid);
@@ -422,7 +428,7 @@ fn apply(
         } => {
             if let Some(issue) = state.issues.get_mut(uuid) {
                 // Last-writer-wins (latest timestamp)
-                issue.status = new_status.clone();
+                issue.status = new_status.parse().unwrap_or(issue.status);
                 issue.closed_at = *closed_at;
                 issue.updated_at = envelope.timestamp;
                 changed_issues.insert(*uuid);
@@ -792,7 +798,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&issue_path).unwrap()).unwrap();
         assert_eq!(issue.title, "Test issue");
         assert_eq!(issue.display_id, Some(1));
-        assert_eq!(issue.priority, "high");
+        assert_eq!(issue.priority, crate::models::Priority::High);
         assert_eq!(issue.labels, vec!["bug".to_string()]);
     }
 
@@ -1503,7 +1509,7 @@ mod tests {
         compact(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
-        assert_eq!(state.issues[&uuid].status, "closed");
+        assert_eq!(state.issues[&uuid].status, crate::models::IssueStatus::Closed);
         assert!(state.issues[&uuid].closed_at.is_some());
     }
 
@@ -1671,8 +1677,8 @@ mod tests {
         assert_eq!(issue.display_id, Some(1));
         assert_eq!(issue.title, "Materialized");
         assert_eq!(issue.description.as_deref(), Some("desc"));
-        assert_eq!(issue.status, "open");
-        assert_eq!(issue.priority, "critical");
+        assert_eq!(issue.status, crate::models::IssueStatus::Open);
+        assert_eq!(issue.priority, crate::models::Priority::Critical);
         assert!(issue.comments.is_empty());
         assert!(issue.time_entries.is_empty());
     }
@@ -2774,7 +2780,7 @@ mod tests {
             Some("New description"),
             "Description should be updated"
         );
-        assert_eq!(issue.priority, "critical", "Priority should be updated");
+        assert_eq!(issue.priority, crate::models::Priority::Critical, "Priority should be updated");
     }
 
     #[test]
@@ -2955,8 +2961,8 @@ mod tests {
             display_id: Some(42),
             title: "Full issue".to_string(),
             description: Some("With all fields".to_string()),
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::High,
             parent_uuid: Some(Uuid::new_v4()),
             created_by: "agent-1".to_string(),
             created_at: Utc::now(),
@@ -2986,7 +2992,7 @@ mod tests {
         assert_eq!(issue_file.display_id, Some(42));
         assert_eq!(issue_file.title, "Full issue");
         assert_eq!(issue_file.description.as_deref(), Some("With all fields"));
-        assert_eq!(issue_file.priority, "high");
+        assert_eq!(issue_file.priority, crate::models::Priority::High);
         assert!(issue_file.closed_at.is_some());
         assert_eq!(issue_file.blockers, vec![blocker]);
         assert_eq!(issue_file.related, vec![related]);

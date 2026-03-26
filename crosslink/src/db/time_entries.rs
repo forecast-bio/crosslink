@@ -22,33 +22,13 @@ impl Database {
 
     pub fn stop_timer(&self, issue_id: i64) -> Result<bool> {
         let issue_id = self.resolve_id(issue_id);
-        let now = Utc::now();
-        let now_str = now.to_rfc3339();
+        let now_str = Utc::now().to_rfc3339();
 
-        // Get the active entry
-        let started_at: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT started_at FROM time_entries WHERE issue_id = ?1 AND ended_at IS NULL",
-                [issue_id],
-                |row| row.get(0),
-            )
-            .ok();
-
-        if let Some(started) = started_at {
-            let start_dt = DateTime::parse_from_rfc3339(&started)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or(now);
-            let duration = now.signed_duration_since(start_dt).num_seconds();
-
-            let rows = self.conn.execute(
-                "UPDATE time_entries SET ended_at = ?1, duration_seconds = ?2 WHERE issue_id = ?3 AND ended_at IS NULL",
-                params![now_str, duration, issue_id],
-            )?;
-            Ok(rows > 0)
-        } else {
-            Ok(false)
-        }
+        let rows = self.conn.execute(
+            "UPDATE time_entries SET ended_at = ?1, duration_seconds = CAST((julianday(?1) - julianday(started_at)) * 86400 AS INTEGER) WHERE issue_id = ?2 AND ended_at IS NULL",
+            params![now_str, issue_id],
+        )?;
+        Ok(rows > 0)
     }
 
     pub fn get_active_timer(&self) -> Result<Option<(i64, DateTime<Utc>)>> {

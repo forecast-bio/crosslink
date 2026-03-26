@@ -48,7 +48,7 @@ impl SyncManager {
                 claimed_at: lock_v2.claimed_at,
                 signed_by: lock_v2.signed_by.unwrap_or_default(),
             };
-            locks.insert(lock_v2.issue_id.to_string(), lock);
+            locks.insert(lock_v2.issue_id, lock);
         }
 
         Ok(LocksFile {
@@ -86,6 +86,11 @@ impl SyncManager {
         branch: Option<&str>,
         force: bool,
     ) -> Result<bool> {
+        if self.is_v2_layout() {
+            tracing::warn!(
+                "claim_lock called on V2 hub — prefer SharedWriter::claim_lock_v2"
+            );
+        }
         // Retry loop: re-check lock ownership after push conflicts
         for attempt in 0..3 {
             let mut locks = self.read_locks()?;
@@ -118,7 +123,7 @@ impl SyncManager {
                     .unwrap_or_else(|| agent.agent_id.clone()),
             };
 
-            locks.locks.insert(issue_id.to_string(), lock);
+            locks.locks.insert(issue_id, lock);
             locks.save(&self.cache_dir.join("locks.json"))?;
 
             match self
@@ -180,6 +185,11 @@ impl SyncManager {
     /// Returns `Ok(true)` if released, `Ok(false)` if not locked.
     /// Fails if locked by a different agent (unless `force` is true).
     pub fn release_lock(&self, agent: &AgentConfig, issue_id: i64, force: bool) -> Result<bool> {
+        if self.is_v2_layout() {
+            tracing::warn!(
+                "release_lock called on V2 hub — prefer SharedWriter::release_lock_v2"
+            );
+        }
         let locks = self.read_locks()?;
 
         match locks.get_lock(issue_id) {
@@ -197,9 +207,10 @@ impl SyncManager {
         }
 
         // Retry release if push conflict re-introduces the lock (#458)
+        let mut released = false;
         for release_attempt in 0..3 {
             let mut current_locks = self.read_locks()?;
-            current_locks.locks.remove(&issue_id.to_string());
+            current_locks.locks.remove(&issue_id);
             current_locks.save(&self.cache_dir.join("locks.json"))?;
 
             self.commit_and_push_locks(&format!(
@@ -210,6 +221,7 @@ impl SyncManager {
             // Verify the release survived any rebase during push
             let verified = LocksFile::load(&self.cache_dir.join("locks.json"))?;
             if verified.get_lock(issue_id).is_none() {
+                released = true;
                 break; // Release confirmed
             }
             if release_attempt < 2 {
@@ -225,7 +237,7 @@ impl SyncManager {
             }
         }
 
-        Ok(true)
+        Ok(released)
     }
 
     /// Find locks that have gone stale (no heartbeat within the timeout).
@@ -244,7 +256,7 @@ impl SyncManager {
         let now = Utc::now();
 
         let mut stale = Vec::new();
-        for (issue_id_str, lock) in &locks.locks {
+        for (issue_id, lock) in &locks.locks {
             let has_fresh_heartbeat = heartbeats.iter().any(|hb| {
                 hb.agent_id == lock.agent_id
                     && now
@@ -253,9 +265,7 @@ impl SyncManager {
                         < timeout
             });
             if !has_fresh_heartbeat {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone()));
-                }
+                stale.push((*issue_id, lock.agent_id.clone()));
             }
         }
         Ok(stale)
@@ -271,7 +281,7 @@ impl SyncManager {
         let now = Utc::now();
         let mut stale = Vec::new();
 
-        for (issue_id_str, lock) in &locks.locks {
+        for (issue_id, lock) in &locks.locks {
             let heartbeat_path = self
                 .cache_dir
                 .join("agents")
@@ -306,9 +316,7 @@ impl SyncManager {
             };
 
             if is_stale {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone()));
-                }
+                stale.push((*issue_id, lock.agent_id.clone()));
             }
         }
 
@@ -330,7 +338,7 @@ impl SyncManager {
         let now = Utc::now();
 
         let mut stale = Vec::new();
-        for (issue_id_str, lock) in &locks.locks {
+        for (issue_id, lock) in &locks.locks {
             let latest_heartbeat = heartbeats
                 .iter()
                 .filter(|hb| hb.agent_id == lock.agent_id)
@@ -347,9 +355,7 @@ impl SyncManager {
             };
 
             if age >= timeout {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone(), age.num_minutes() as u64));
-                }
+                stale.push((*issue_id, lock.agent_id.clone(), age.num_minutes() as u64));
             }
         }
         Ok(stale)
@@ -361,7 +367,7 @@ impl SyncManager {
         let threshold = chrono::Duration::minutes(30);
         let mut stale = Vec::new();
 
-        for (issue_id_str, lock) in &locks.locks {
+        for (issue_id, lock) in &locks.locks {
             let heartbeat_path = self
                 .cache_dir
                 .join("agents")
@@ -396,9 +402,7 @@ impl SyncManager {
             };
 
             if let Some(mins) = age_minutes {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone(), mins));
-                }
+                stale.push((*issue_id, lock.agent_id.clone(), mins));
             }
         }
         Ok(stale)

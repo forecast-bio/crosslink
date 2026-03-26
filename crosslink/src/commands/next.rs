@@ -24,13 +24,13 @@ fn load_locks_filter(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
 }
 
 /// Priority order for sorting (higher = more important)
-fn priority_weight(priority: &str) -> i32 {
+fn priority_weight(priority: &crate::models::Priority) -> i32 {
+    use crate::models::Priority;
     match priority {
-        "critical" => 4,
-        "high" => 3,
-        "medium" => 2,
-        "low" => 1,
-        _ => 0,
+        Priority::Critical => 4,
+        Priority::High => 3,
+        Priority::Medium => 2,
+        Priority::Low => 1,
     }
 }
 
@@ -42,7 +42,7 @@ fn calculate_progress(db: &Database, issue: &Issue) -> Result<Progress> {
     }
 
     let total = subissues.len() as i32;
-    let closed = subissues.iter().filter(|s| s.status == "closed").count() as i32;
+    let closed = subissues.iter().filter(|s| s.status == crate::models::IssueStatus::Closed).count() as i32;
     Ok(Some((closed, total)))
 }
 

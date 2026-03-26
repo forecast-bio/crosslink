@@ -14,8 +14,12 @@ use crate::locks::LocksFile;
 // ---------------------------------------------------------------------------
 
 /// RAII guard for the hub cache write lock.
+///
+/// Holds the lock file handle open so the OS releases it on crash.
+/// On normal drop, removes the lock file.
 pub(crate) struct HubWriteLock {
     path: PathBuf,
+    _file: std::fs::File,
 }
 
 impl Drop for HubWriteLock {
@@ -32,6 +36,21 @@ impl Drop for HubWriteLock {
     }
 }
 
+/// Try to atomically create the lock file and write our PID.
+/// Returns the guard on success, or the IO error on failure.
+fn try_create_lock(lock_path: &Path) -> std::io::Result<HubWriteLock> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(lock_path)?;
+    use std::io::Write;
+    writeln!(f, "{}", std::process::id())?;
+    Ok(HubWriteLock {
+        path: lock_path.to_path_buf(),
+        _file: f,
+    })
+}
+
 /// Acquire the hub cache write lock at the given path.
 ///
 /// Blocks up to 30 seconds, checking for stale locks via PID liveness.
@@ -42,55 +61,43 @@ pub(crate) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
     let start = std::time::Instant::now();
 
     loop {
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_path)
-        {
-            Ok(mut f) => {
-                use std::io::Write;
-                if let Err(e) = writeln!(f, "{}", std::process::id()) {
-                    let _ = std::fs::remove_file(lock_path);
-                    bail!("Failed to write PID to hub lock file: {}", e);
-                }
-                return Ok(HubWriteLock {
-                    path: lock_path.to_path_buf(),
-                });
-            }
+        match try_create_lock(lock_path) {
+            Ok(guard) => return Ok(guard),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                if let Ok(content) = std::fs::read_to_string(lock_path) {
-                    if let Ok(pid) = content.trim().parse::<u32>() {
-                        let alive = std::process::Command::new("kill")
+                // Lock file exists — check if the holder is still alive.
+                let holder_alive = std::fs::read_to_string(lock_path)
+                    .ok()
+                    .and_then(|content| content.trim().parse::<u32>().ok())
+                    .map(|pid| {
+                        std::process::Command::new("kill")
                             .args(["-0", &pid.to_string()])
                             .output()
                             .map(|o| o.status.success())
-                            .unwrap_or(false);
-                        if !alive {
-                            if let Err(rm_err) = std::fs::remove_file(lock_path) {
-                                if rm_err.kind() == std::io::ErrorKind::NotFound {
-                                    continue;
-                                }
-                                bail!(
-                                    "Cannot remove stale hub lock (PID {} is dead): {}",
-                                    pid,
-                                    rm_err
-                                );
-                            }
-                            continue;
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+
+                if !holder_alive {
+                    // Stale lock — remove and immediately re-attempt in the same
+                    // iteration to minimize the TOCTOU window (#347).
+                    let _ = std::fs::remove_file(lock_path);
+                    match try_create_lock(lock_path) {
+                        Ok(guard) => return Ok(guard),
+                        Err(_) => {
+                            // Another process won the race — fall through to retry loop
                         }
                     }
                 }
 
                 if start.elapsed() > max_wait {
-                    if let Err(rm_err) = std::fs::remove_file(lock_path) {
-                        if rm_err.kind() != std::io::ErrorKind::NotFound {
-                            bail!(
-                                "Hub lock held for >30s and cannot be force-removed: {}",
-                                rm_err
-                            );
-                        }
+                    // Force-remove after timeout
+                    let _ = std::fs::remove_file(lock_path);
+                    match try_create_lock(lock_path) {
+                        Ok(guard) => return Ok(guard),
+                        Err(_) => bail!(
+                            "Hub lock held for >30s and could not be acquired after force-removal"
+                        ),
                     }
-                    continue;
                 }
                 std::thread::sleep(poll_interval);
             }

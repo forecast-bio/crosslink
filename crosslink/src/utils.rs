@@ -135,6 +135,12 @@ pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()
     Ok(())
 }
 
+/// Escape a string for safe interpolation into a shell command.
+/// Wraps in single quotes with embedded single quotes escaped as `'\''`.
+pub fn shell_escape_arg(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 // ── Compact identifiers (base62) ─────────────────────────────────────────
 
 const BASE62_CHARS: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";

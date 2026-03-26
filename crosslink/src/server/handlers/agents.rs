@@ -356,21 +356,20 @@ pub async fn list_locks(
     let entries: Vec<LockEntry> = locks_file
         .locks
         .iter()
-        .filter_map(|(id_str, lock)| {
-            let issue_id = id_str.parse::<i64>().ok()?;
+        .map(|(issue_id, lock)| {
             let age = now
                 .signed_duration_since(lock.claimed_at)
                 .max(Duration::zero());
             let is_stale = age >= stale_timeout;
-            Some(LockEntry {
-                issue_id,
+            LockEntry {
+                issue_id: *issue_id,
                 agent_id: lock.agent_id.clone(),
                 branch: lock.branch.clone(),
                 claimed_at: lock.claimed_at,
                 signed_by: lock.signed_by.clone(),
                 age_seconds: age.num_seconds(),
                 is_stale,
-            })
+            }
         })
         .collect();
 

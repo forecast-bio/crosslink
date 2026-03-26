@@ -122,11 +122,14 @@ pub(super) fn budget_recommendation(
         } else {
             0
         };
-        let affordable = if per_agent > 0 {
-            ((remaining_budget - overhead) / per_agent) as usize
-        } else {
-            0
-        };
+        // Guard: if per-agent cost is zero (phase_cost == overhead), we can't
+        // compute a meaningful split. Default to running with 1 agent.
+        if per_agent == 0 {
+            return BudgetRecommendation::Split {
+                recommended_count: 1,
+            };
+        }
+        let affordable = ((remaining_budget - overhead) / per_agent) as usize;
         return BudgetRecommendation::Split {
             recommended_count: affordable.max(1),
         };

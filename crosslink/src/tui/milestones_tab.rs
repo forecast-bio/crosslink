@@ -136,12 +136,12 @@ impl MilestonesTab {
                     .into_iter()
                     .map(|m| {
                         let issues = db.get_milestone_issues(m.id).unwrap_or_default();
-                        let closed_count = issues.iter().filter(|i| i.status == "closed").count();
+                        let closed_count = issues.iter().filter(|i| i.status == crate::models::IssueStatus::Closed).count();
                         let total_count = issues.len();
                         MilestoneRow {
                             id: m.id,
                             name: m.name,
-                            status: m.status,
+                            status: m.status.to_string(),
                             closed_count,
                             total_count,
                             description: m.description,
@@ -184,12 +184,12 @@ impl MilestonesTab {
                 .map(|i| MilestoneIssue {
                     id: i.id,
                     title: i.title,
-                    status: i.status,
-                    priority: i.priority,
+                    status: i.status.to_string(),
+                    priority: i.priority.to_string(),
                 })
                 .collect();
 
-            let closed_count = issues.iter().filter(|i| i.status == "closed").count();
+            let closed_count = issues.iter().filter(|i| i.status == crate::models::IssueStatus::Closed).count();
             let total_count = issues.len();
             let open_count = total_count - closed_count;
 
@@ -280,7 +280,7 @@ impl MilestonesTab {
                 let issues_str = format!("{}/{}", m.closed_count, m.total_count);
                 let pct_str = format!("{pct}%");
 
-                let status_style = if m.status == "closed" {
+                let status_style = if m.status == crate::models::IssueStatus::Closed {
                     Style::default().fg(Color::Green)
                 } else {
                     Style::default().fg(Color::Yellow)
@@ -343,7 +343,7 @@ impl MilestonesTab {
         ));
 
         // Metadata
-        let status_color = if detail.status == "closed" {
+        let status_color = if detail.status == crate::models::IssueStatus::Closed {
             Color::Green
         } else {
             Color::Yellow
@@ -418,12 +418,12 @@ impl MilestonesTab {
             )));
         } else {
             for issue in &detail.issues {
-                let status_icon = if issue.status == "closed" {
+                let status_icon = if issue.status == crate::models::IssueStatus::Closed {
                     "✓"
                 } else {
                     "○"
                 };
-                let status_color = if issue.status == "closed" {
+                let status_color = if issue.status == crate::models::IssueStatus::Closed {
                     Color::Green
                 } else {
                     Color::White
@@ -549,7 +549,7 @@ impl MilestonesTab {
             if !d.issues.is_empty() {
                 text.push_str(&format!("\nIssues ({}):\n", d.issues.len()));
                 for issue in &d.issues {
-                    let marker = if issue.status == "closed" {
+                    let marker = if issue.status == crate::models::IssueStatus::Closed {
                         "✓"
                     } else {
                         "○"

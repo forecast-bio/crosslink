@@ -223,7 +223,7 @@ fn test_find_stale_locks_with_stale() {
     // Create a lock
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "5".to_string(),
+        5i64,
         crate::locks::Lock {
             agent_id: "worker-1".to_string(),
             branch: None,
@@ -258,7 +258,7 @@ fn test_find_stale_locks_with_fresh_heartbeat() {
     // Create a lock
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "5".to_string(),
+        5i64,
         crate::locks::Lock {
             agent_id: "worker-1".to_string(),
             branch: None,
@@ -1183,7 +1183,7 @@ fn test_find_stale_locks_with_age_stale_lock_no_heartbeat() {
     let old_time = Utc::now() - chrono::Duration::hours(2);
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "42".to_string(),
+        42i64,
         crate::locks::Lock {
             agent_id: "stale-agent".to_string(),
             branch: None,
@@ -1219,7 +1219,7 @@ fn test_find_stale_locks_with_age_fresh_heartbeat_not_stale() {
 
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "10".to_string(),
+        10i64,
         crate::locks::Lock {
             agent_id: "fresh-agent".to_string(),
             branch: None,
@@ -2004,8 +2004,8 @@ fn test_verify_entry_signatures_unsigned_comments() {
         display_id: Some(1),
         title: "Test issue".to_string(),
         description: None,
-        status: "open".to_string(),
-        priority: "medium".to_string(),
+        status: crate::models::IssueStatus::Open,
+        priority: crate::models::Priority::Medium,
         parent_uuid: None,
         created_by: "test-agent".to_string(),
         created_at: Utc::now(),
@@ -2070,8 +2070,8 @@ fn test_verify_entry_signatures_with_fake_signature_no_allowed_signers() {
         display_id: Some(2),
         title: "Signed issue".to_string(),
         description: None,
-        status: "open".to_string(),
-        priority: "medium".to_string(),
+        status: crate::models::IssueStatus::Open,
+        priority: crate::models::Priority::Medium,
         parent_uuid: None,
         created_by: "test-agent".to_string(),
         created_at: Utc::now(),

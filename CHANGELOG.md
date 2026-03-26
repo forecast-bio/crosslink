@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [0.5.2] - 2026-03-19
 
 ### Added
+- Split init.rs god module into focused submodules (#452)
+- Split init.rs god module into focused submodules (#452)
+- Deduplicate TUI walkthrough state machine between init and config (#453)
+- Extract config registry types to eliminate bidirectional module coupling (#454)
+- Extract duplicated lock-claim logic from create run and run_subissue (#433)
+- Extract duplicated release_lock_best_effort into shared module (#434)
+- Create crosslink issues for full-codebase QA audit findings (#261)
 
 #### External Source Querying
 - `crosslink issue --from` and `crosslink knowledge --from` flags for querying external repositories ([CL-206], [GH-428])
@@ -39,6 +46,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- Replace stringly-typed status and priority fields with enums across codebase (#264)
+- Fix claim_lock and release_lock ignoring V2 layout (#348)
+- Fix TOCTOU race in hub lock allowing dual lock acquisition (#347)
+- Replace blocking std Mutex with tokio Mutex on async runtime (#549)
+- Fix N+1 query in global search fetching all issues then all comments (#548)
+- Fix rewrite_local_references bypassing write_commit_push entirely (#374)
+- Fix rewrite_as_offline non-atomic counter decrement without lock (#373)
+- Fix emit_compact_push missing hub write lock acquisition (#372)
+- Fix ensure_complete_coverage setting line_count to zero for uncategorized (#396)
+- Fix HashMap String key diverging from i64 lookup type in LocksFile (#395)
+- Fix unconditional git reset --hard destroying uncommitted knowledge edits (#414)
+- Fix release_lock returning success after three failed attempts (#349)
+- Fix TOCTOU race in compaction lock file retry path (#328)
+- Fix SQLite-only issues losing all child data during re-hydration (#310)
+- Fix silent error swallowing on SQLite row deserialization in hydration (#311)
+- Fix auto_steal_config treating boolean true as disabled (#394)
+- Fix TOCTOU double file read in dispatch_launch run path (#496)
+- Fix latent division by zero in budget_recommendation per_agent (#520)
+- Fix hardcoded None agent_id in close_inner corrupting other sessions (#432)
+- Fix non-atomic write in prune_events causing data loss on crash (#329)
+- Fix closed_at silently dropped during SQLite-only issue re-hydration (#309)
+- Fix transaction closure missing rollback-on-panic guarantee (#284)
+- Fix mark_failed and mark_skipped accepting any source state (#479)
+- Fix mark_stage_failed never checking execution completion state (#478)
+- Fix ready_nodes ignoring Skipped dependencies in orchestrator DAG (#477)
+- Fix stop_timer updating all active timers with single row duration (#287)
+- Fix missing resolve_id in unarchive_issue (#286)
+- Fix missing resolve_id in add_intervention_comment (#285)
 
 #### Hub & Sync
 - V1/V2 hub layout coexistence — resolve inconsistent write paths and cache corruption ([GH-428])
@@ -260,6 +295,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Skip worktree agent init and tmux/claude prerequisite checks in dry-run mode
 
 ### Security
+- Add authentication to server REST API endpoints (#547)
+- Fix YAML injection via unescaped tags and URLs in serialize_frontmatter (#413)
+- Fix temp file leak and world-readable permissions in SSH signing (#263)
+- Fix shell injection via sh -c with config-derived test command (#519)
+- Fix shell injection via unsanitized interpolation in tmux send-keys (#495)
+- Fix allow-list bypass via command chaining in is_allowed_bash (#597)
+- Fix pre-web-check fail-open on malformed stdin permitting all tools (#596)
+- Fix work-check fail-open on malformed stdin disabling enforcement (#595)
+- Replace MD5 with SHA256 in prompt-guard cache hashing (#594)
+- Fix command injection via shell=True in prompt-guard run_command (#593)
+- Fix server binding to 0.0.0.0 instead of localhost 127.0.0.1 (#546)
+- Fix signing oracle from unwrap_or_default in canonicalize_event (#262)
 - VS Code extension security hardening (E1-E3) ([GH-169], [GH-175])
 - CI/CD fuzz testing improvements (T1-T5) ([GH-168])
 

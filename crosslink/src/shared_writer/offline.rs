@@ -168,6 +168,9 @@ impl SharedWriter {
             return Ok(RewriteStats::default());
         }
 
+        // Serialize access to the hub cache (#374)
+        let _lock_guard = self.sync.acquire_lock()?;
+
         // Build replacement map: "L1" -> "#5", "L2" -> "#6"
         let replacements: Vec<(String, String)> = mapping
             .iter()
@@ -248,14 +251,10 @@ impl SharedWriter {
             if let Err(e) = self.git_in_cache(&["add", "issues/"]) {
                 tracing::warn!("failed to stage rewritten references: {}", e);
             }
-            if let Err(e) = self.git_in_cache(&[
-                "commit",
-                "-m",
-                &format!(
-                    "{}: rewrite local references after promotion",
-                    self.agent.agent_id
-                ),
-            ]) {
+            if let Err(e) = self.git_commit_in_cache(&format!(
+                "{}: rewrite local references after promotion",
+                self.agent.agent_id
+            )) {
                 tracing::warn!("failed to commit rewritten references: {}", e);
             }
             // Push rewritten references — if offline, next sync will push.

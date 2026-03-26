@@ -130,7 +130,18 @@ impl KnowledgeManager {
             }
         }
 
-        // No unpushed commits — safe to reset to match remote
+        // No unpushed commits — check for uncommitted changes before resetting.
+        // A dirty worktree means write_page() was called without commit(),
+        // and reset --hard would destroy those edits.
+        if let Ok(status_output) = self.git_in_cache(&["status", "--porcelain"]) {
+            let status_str = String::from_utf8_lossy(&status_output.stdout);
+            if !status_str.trim().is_empty() {
+                tracing::warn!(
+                    "knowledge sync: skipping reset — worktree has uncommitted changes"
+                );
+                return Ok(SyncOutcome::default());
+            }
+        }
         let reset_result = self.git_in_cache(&["reset", "--hard", &remote_ref]);
         if let Err(e) = &reset_result {
             let err_str = e.to_string();

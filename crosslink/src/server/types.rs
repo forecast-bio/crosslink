@@ -216,7 +216,7 @@ pub struct SessionResponse {
 pub struct MilestoneSummary {
     pub id: i64,
     pub name: String,
-    pub status: String,
+    pub status: crate::models::IssueStatus,
 }
 
 /// Request body for `POST /api/v1/milestones`.

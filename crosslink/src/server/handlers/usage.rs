@@ -45,7 +45,7 @@ pub async fn list_usage(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageListQuery>,
 ) -> Result<Json<TokenUsageListResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let items = db
         .list_token_usage(
@@ -70,7 +70,7 @@ pub async fn create_usage(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenUsageRequest>,
 ) -> Result<(StatusCode, Json<crate::models::TokenUsage>), (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let id = db
         .create_token_usage(
@@ -100,7 +100,7 @@ pub async fn usage_summary(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageSummaryQuery>,
 ) -> Result<Json<TokenUsageSummaryResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let items = db
         .get_usage_summary(

@@ -80,8 +80,10 @@ fn read_auto_steal_config(crosslink_dir: &Path) -> Option<u64> {
     let content = std::fs::read_to_string(&config_path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
     match parsed.get("auto_steal_stale_locks")? {
+        serde_json::Value::Bool(true) => Some(1),
         serde_json::Value::Bool(false) => None,
         serde_json::Value::Number(n) => n.as_u64().filter(|&v| v > 0),
+        serde_json::Value::String(s) if s == "true" => Some(1),
         serde_json::Value::String(s) if s == "false" => None,
         serde_json::Value::String(s) => s.parse::<u64>().ok().filter(|&v| v > 0),
         _ => None,
@@ -206,6 +208,37 @@ pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Resul
                     agent_id,
                     issue_id
                 )
+            }
+        }
+    }
+}
+
+/// Best-effort lock release for an issue. Dispatches between V1 and V2 hub layouts.
+/// Logs warnings on failure but never returns an error — callers use this when
+/// lock release is a courtesy, not a hard requirement (e.g., after closing an issue).
+pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
+    if let Ok(Some(agent)) = AgentConfig::load(crosslink_dir) {
+        if let Ok(sync) = SyncManager::new(crosslink_dir) {
+            if sync.is_initialized() {
+                if sync.is_v2_layout() {
+                    if let Ok(Some(writer)) =
+                        crate::shared_writer::SharedWriter::new(crosslink_dir)
+                    {
+                        if let Err(e) = writer.release_lock_v2(issue_id) {
+                            tracing::warn!(
+                                "Could not release lock on {}: {}",
+                                crate::utils::format_issue_id(issue_id),
+                                e
+                            );
+                        }
+                    }
+                } else if let Err(e) = sync.release_lock(&agent, issue_id, false) {
+                    tracing::warn!(
+                        "Could not release lock on {}: {}",
+                        crate::utils::format_issue_id(issue_id),
+                        e
+                    );
+                }
             }
         }
     }
@@ -422,17 +455,16 @@ mod tests {
         assert_eq!(read_auto_steal_config(dir.path()), None);
     }
 
-    /// Bool(true) falls through to the `_` catch-all arm and returns None.
+    /// Bool(true) enables auto-steal with default multiplier of 1.
     #[test]
-    fn test_auto_steal_config_bool_true_returns_none() {
+    fn test_auto_steal_config_bool_true_returns_default() {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("hook-config.json"),
             r#"{"auto_steal_stale_locks": true}"#,
         )
         .unwrap();
-        // Bool(true) is not explicitly handled → _ arm → None
-        assert_eq!(read_auto_steal_config(dir.path()), None);
+        assert_eq!(read_auto_steal_config(dir.path()), Some(1));
     }
 
     /// Null value falls through to the `_` catch-all arm and returns None.
@@ -1276,8 +1308,7 @@ mod tests {
             r#"{"auto_steal_stale_locks": true}"#,
         )
         .unwrap();
-        // Bool(true) has no explicit match arm → `_` catch-all → None
-        assert_eq!(read_auto_steal_config(dir.path()), None);
+        assert_eq!(read_auto_steal_config(dir.path()), Some(1));
     }
 
     /// `"auto_steal_stale_locks": 600` → Some(600).

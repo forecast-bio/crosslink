@@ -3,6 +3,7 @@ use chrono::Utc;
 use std::path::Path;
 
 use crate::db::Database;
+use crate::lock_check::release_lock_best_effort;
 use crate::utils::format_issue_id;
 use crate::SessionCommands;
 
@@ -234,33 +235,6 @@ pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Res
     Ok(())
 }
 
-/// Best-effort lock release: tries v2 first, then falls back to v1.
-fn release_lock_best_effort(crosslink_dir: &std::path::Path, issue_id: i64) {
-    if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
-        if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
-            if sync.is_initialized() {
-                if sync.is_v2_layout() {
-                    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir)
-                    {
-                        if let Err(e) = writer.release_lock_v2(issue_id) {
-                            eprintln!(
-                                "Warning: Could not release lock on {}: {}",
-                                format_issue_id(issue_id),
-                                e
-                            );
-                        }
-                    }
-                } else if let Err(e) = sync.release_lock(&agent, issue_id, false) {
-                    eprintln!(
-                        "Warning: Could not release lock on {}: {}",
-                        format_issue_id(issue_id),
-                        e
-                    );
-                }
-            }
-        }
-    }
-}
 
 pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);

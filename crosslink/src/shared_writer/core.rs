@@ -273,6 +273,9 @@ impl SharedWriter {
         event: crate::events::Event,
         message: &str,
     ) -> Result<PushOutcome> {
+        // Serialize access to the hub cache via SyncManager's lock (#372)
+        let _lock_guard = self.sync.acquire_lock()?;
+
         let envelope = self.create_envelope(event);
         let log_path = self.event_log_path();
         crate::events::append_event(&log_path, &envelope)?;

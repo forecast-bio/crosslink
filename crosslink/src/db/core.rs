@@ -56,24 +56,16 @@ impl Database {
 
     /// Execute a closure within a database transaction.
     /// If the closure returns Ok, the transaction is committed.
-    /// If the closure returns Err, the transaction is rolled back.
+    /// If the closure returns Err or the closure panics, the transaction is
+    /// rolled back automatically via rusqlite's RAII `Transaction` type.
     pub fn transaction<T, F>(&self, f: F) -> Result<T>
     where
         F: FnOnce() -> Result<T>,
     {
-        self.conn.execute("BEGIN TRANSACTION", [])?;
-        match f() {
-            Ok(result) => {
-                self.conn.execute("COMMIT", [])?;
-                Ok(result)
-            }
-            Err(e) => {
-                if let Err(rollback_err) = self.conn.execute("ROLLBACK", []) {
-                    tracing::warn!("ROLLBACK failed: {}", rollback_err);
-                }
-                Err(e)
-            }
-        }
+        let tx = self.conn.unchecked_transaction()?;
+        let result = f()?;
+        tx.commit()?;
+        Ok(result)
     }
 
     /// Toggle SQLite foreign key enforcement.

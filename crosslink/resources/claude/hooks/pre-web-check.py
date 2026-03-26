@@ -115,8 +115,9 @@ def main():
         # Read input from stdin (Claude Code passes tool info)
         input_data = json.load(sys.stdin)
         tool_name = input_data.get('tool_name', '')
-    except (json.JSONDecodeError, Exception):
-        tool_name = ''
+    except (json.JSONDecodeError, ValueError, TypeError):
+        print("pre-web-check: failed to parse stdin — blocking tool call (fail-closed)")
+        sys.exit(2)
 
     # Find crosslink directory and load web rules
     crosslink_dir = find_crosslink_dir()

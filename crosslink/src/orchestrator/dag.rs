@@ -133,7 +133,7 @@ impl Dag {
     }
 
     /// Return stage IDs that are ready to execute: status is `Pending` and all
-    /// dependencies have status `Done`.
+    /// dependencies have a terminal status (`Done` or `Skipped`).
     pub fn ready_nodes(&self) -> Vec<String> {
         self.nodes
             .iter()
@@ -145,7 +145,12 @@ impl Dag {
                         deps.iter().all(|dep_id| {
                             self.nodes
                                 .get(dep_id)
-                                .map(|d| d.status == StageStatus::Done)
+                                .map(|d| {
+                                    matches!(
+                                        d.status,
+                                        StageStatus::Done | StageStatus::Skipped
+                                    )
+                                })
                                 .unwrap_or(false)
                         })
                     })
@@ -215,19 +220,24 @@ impl Dag {
                 if dep_node.status != StageStatus::Pending {
                     continue;
                 }
-                let all_deps_done = self
+                let all_deps_terminal = self
                     .reverse
                     .get(&dep_id)
                     .map(|deps| {
                         deps.iter().all(|d| {
                             self.nodes
                                 .get(d)
-                                .map(|n| n.status == StageStatus::Done)
+                                .map(|n| {
+                                    matches!(
+                                        n.status,
+                                        StageStatus::Done | StageStatus::Skipped
+                                    )
+                                })
                                 .unwrap_or(false)
                         })
                     })
                     .unwrap_or(true);
-                if all_deps_done {
+                if all_deps_terminal {
                     newly_ready.push(dep_id);
                 }
             }
@@ -236,22 +246,36 @@ impl Dag {
         Ok(newly_ready)
     }
 
-    /// Mark a stage as failed.
+    /// Mark a stage as failed. Valid from `Pending` or `Running`.
     pub fn mark_failed(&mut self, id: &str) -> Result<()> {
         let node = self
             .nodes
             .get_mut(id)
             .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", id))?;
+        if !matches!(node.status, StageStatus::Pending | StageStatus::Running) {
+            bail!(
+                "Cannot mark '{}' as failed — current status is {:?}, must be Pending or Running",
+                id,
+                node.status
+            );
+        }
         node.status = StageStatus::Failed;
         Ok(())
     }
 
-    /// Mark a stage as skipped.
+    /// Mark a stage as skipped. Valid from `Pending` or `Failed`.
     pub fn mark_skipped(&mut self, id: &str) -> Result<()> {
         let node = self
             .nodes
             .get_mut(id)
             .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", id))?;
+        if !matches!(node.status, StageStatus::Pending | StageStatus::Failed) {
+            bail!(
+                "Cannot mark '{}' as skipped — current status is {:?}, must be Pending or Failed",
+                id,
+                node.status
+            );
+        }
         node.status = StageStatus::Skipped;
         Ok(())
     }

@@ -168,8 +168,8 @@ impl IssuesTab {
     pub fn refresh(&mut self, db: &Database) -> anyhow::Result<()> {
         // Get counts before filtering
         let all_issues = db.list_issues(Some("all"), None, None)?;
-        self.open_count = all_issues.iter().filter(|i| i.status == "open").count();
-        self.closed_count = all_issues.iter().filter(|i| i.status == "closed").count();
+        self.open_count = all_issues.iter().filter(|i| i.status == crate::models::IssueStatus::Open).count();
+        self.closed_count = all_issues.iter().filter(|i| i.status == crate::models::IssueStatus::Closed).count();
 
         // Fetch with status filter
         let status_arg = match self.status_filter {
@@ -466,8 +466,8 @@ impl IssuesTab {
             // Respect status filter
             let dominated = match self.status_filter {
                 StatusFilter::All => false,
-                StatusFilter::Open => child.status != "open",
-                StatusFilter::Closed => child.status != "closed",
+                StatusFilter::Open => child.status != crate::models::IssueStatus::Open,
+                StatusFilter::Closed => child.status != crate::models::IssueStatus::Closed,
             };
             if !dominated {
                 self.build_tree_recursive(db, child, depth + 1)?;
@@ -576,7 +576,7 @@ impl IssuesTab {
                         ""
                     };
 
-                    let status_marker = if node.issue.status == "closed" {
+                    let status_marker = if node.issue.status == crate::models::IssueStatus::Closed {
                         Span::styled("\u{2713} ", Style::default().fg(Color::DarkGray))
                     } else {
                         Span::styled("\u{25cf} ", priority_color(&node.issue.priority))
@@ -589,7 +589,7 @@ impl IssuesTab {
                         format!(" [{}]", node.labels.join(", "))
                     };
 
-                    let title_style = if node.issue.status == "closed" {
+                    let title_style = if node.issue.status == crate::models::IssueStatus::Closed {
                         Style::default().fg(Color::DarkGray)
                     } else {
                         Style::default()
@@ -702,7 +702,7 @@ impl IssuesTab {
                         _ => Style::default(),
                     };
 
-                    let status_style = if issue.status == "closed" {
+                    let status_style = if issue.status == crate::models::IssueStatus::Closed {
                         Style::default().fg(Color::DarkGray)
                     } else {
                         Style::default().fg(Color::Green)
@@ -720,8 +720,8 @@ impl IssuesTab {
 
                     Row::new(vec![
                         ratatui::text::Text::styled(id_str, Style::default()),
-                        ratatui::text::Text::styled(issue.priority.clone(), priority_style),
-                        ratatui::text::Text::styled(issue.status.clone(), status_style),
+                        ratatui::text::Text::styled(issue.priority.to_string(), priority_style),
+                        ratatui::text::Text::styled(issue.status.to_string(), status_style),
                         ratatui::text::Text::styled(labels, Style::default().fg(Color::Magenta)),
                         ratatui::text::Text::raw(&issue.title),
                         ratatui::text::Text::styled(updated, Style::default().fg(Color::DarkGray)),
@@ -810,10 +810,10 @@ impl IssuesTab {
 
         lines.push(Line::from(vec![
             Span::styled(" Status: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(&issue.status, status_color(&issue.status)),
+            Span::styled(issue.status.as_str(), status_color(&issue.status)),
             Span::raw("       "),
             Span::styled("Priority: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(&issue.priority, priority_color(&issue.priority)),
+            Span::styled(issue.priority.as_str(), priority_color(&issue.priority)),
             Span::raw("       "),
             Span::styled("Labels: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(labels_str, Style::default().fg(Color::Magenta)),
@@ -931,12 +931,12 @@ impl IssuesTab {
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             for sub in &detail.subissues {
-                let status_marker = if sub.status == "closed" {
+                let status_marker = if sub.status == crate::models::IssueStatus::Closed {
                     Span::styled("  \u{2713} ", Style::default().fg(Color::DarkGray))
                 } else {
                     Span::styled("  \u{25cf} ", priority_color(&sub.priority))
                 };
-                let title_style = if sub.status == "closed" {
+                let title_style = if sub.status == crate::models::IssueStatus::Closed {
                     Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default()
@@ -961,12 +961,12 @@ impl IssuesTab {
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             for rel in &detail.related {
-                let status_marker = if rel.status == "closed" {
+                let status_marker = if rel.status == crate::models::IssueStatus::Closed {
                     Span::styled("  \u{2713} ", Style::default().fg(Color::DarkGray))
                 } else {
                     Span::styled("  \u{25cb} ", Style::default().fg(Color::Cyan))
                 };
-                let title_style = if rel.status == "closed" {
+                let title_style = if rel.status == crate::models::IssueStatus::Closed {
                     Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default()
@@ -1114,31 +1114,32 @@ fn format_issue_id(id: i64) -> String {
     }
 }
 
-fn priority_rank(priority: &str) -> u8 {
+fn priority_rank(priority: &crate::models::Priority) -> u8 {
+    use crate::models::Priority;
     match priority {
-        "critical" => 0,
-        "high" => 1,
-        "medium" => 2,
-        "low" => 3,
-        _ => 4,
+        Priority::Critical => 0,
+        Priority::High => 1,
+        Priority::Medium => 2,
+        Priority::Low => 3,
     }
 }
 
-fn priority_color(priority: &str) -> Style {
+fn priority_color(priority: &crate::models::Priority) -> Style {
+    use crate::models::Priority;
     match priority {
-        "critical" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        "high" => Style::default().fg(Color::Red),
-        "medium" => Style::default().fg(Color::Cyan),
-        "low" => Style::default().fg(Color::Green),
-        _ => Style::default(),
+        Priority::Critical => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        Priority::High => Style::default().fg(Color::Red),
+        Priority::Medium => Style::default().fg(Color::Cyan),
+        Priority::Low => Style::default().fg(Color::Green),
     }
 }
 
-fn status_color(status: &str) -> Style {
+fn status_color(status: &crate::models::IssueStatus) -> Style {
+    use crate::models::IssueStatus;
     match status {
-        "open" => Style::default().fg(Color::Green),
-        "closed" => Style::default().fg(Color::DarkGray),
-        _ => Style::default(),
+        IssueStatus::Open => Style::default().fg(Color::Green),
+        IssueStatus::Closed => Style::default().fg(Color::DarkGray),
+        IssueStatus::Archived => Style::default(),
     }
 }
 

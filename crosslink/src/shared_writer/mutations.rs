@@ -26,7 +26,7 @@ impl SharedWriter {
         let now = Utc::now();
         let title_owned = title.to_string();
         let desc_owned = description.map(|s| s.to_string());
-        let priority_owned = priority.to_string();
+        let priority_parsed: crate::models::Priority = priority.parse()?;
         let agent_id = self.agent.agent_id.clone();
         let display_id = Cell::new(0i64);
 
@@ -40,8 +40,8 @@ impl SharedWriter {
                     display_id: Some(id),
                     title: title_owned.clone(),
                     description: desc_owned.clone(),
-                    status: "open".to_string(),
-                    priority: priority_owned.clone(),
+                    status: crate::models::IssueStatus::Open,
+                    priority: priority_parsed,
                     parent_uuid: None,
                     created_by: agent_id.clone(),
                     created_at: now,
@@ -101,7 +101,7 @@ impl SharedWriter {
         let now = Utc::now();
         let title_owned = title.to_string();
         let desc_owned = description.map(|s| s.to_string());
-        let priority_owned = priority.to_string();
+        let priority_parsed: crate::models::Priority = priority.parse()?;
         let agent_id = self.agent.agent_id.clone();
         let display_id = Cell::new(0i64);
 
@@ -115,8 +115,8 @@ impl SharedWriter {
                     display_id: Some(id),
                     title: title_owned.clone(),
                     description: desc_owned.clone(),
-                    status: "open".to_string(),
-                    priority: priority_owned.clone(),
+                    status: crate::models::IssueStatus::Open,
+                    priority: priority_parsed,
                     parent_uuid: Some(parent_uuid),
                     created_by: agent_id.clone(),
                     created_at: now,
@@ -171,8 +171,8 @@ impl SharedWriter {
     ) -> Result<()> {
         let title_owned = title.map(|s| s.to_string());
         let desc_owned = description.map(|d| d.map(|s| s.to_string()));
-        let status_owned = status.map(|s| s.to_string());
-        let priority_owned = priority.map(|s| s.to_string());
+        let status_parsed = status.map(|s| s.parse::<crate::models::IssueStatus>()).transpose()?;
+        let priority_parsed = priority.map(|s| s.parse::<crate::models::Priority>()).transpose()?;
 
         let _ = self.write_commit_push(
             |writer| {
@@ -183,11 +183,11 @@ impl SharedWriter {
                 if let Some(ref d) = desc_owned {
                     issue.description = d.clone();
                 }
-                if let Some(ref s) = status_owned {
-                    issue.status = s.clone();
+                if let Some(s) = status_parsed {
+                    issue.status = s;
                 }
-                if let Some(ref p) = priority_owned {
-                    issue.priority = p.clone();
+                if let Some(p) = priority_parsed {
+                    issue.priority = p;
                 }
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
@@ -211,7 +211,7 @@ impl SharedWriter {
             |writer| {
                 let mut issue = writer.load_issue_by_id(display_id, db)?;
                 let now = Utc::now();
-                issue.status = "closed".to_string();
+                issue.status = crate::models::IssueStatus::Closed;
                 issue.closed_at = Some(now);
                 issue.updated_at = now;
                 let json = serde_json::to_vec_pretty(&issue)?;
@@ -234,7 +234,7 @@ impl SharedWriter {
         let _ = self.write_commit_push(
             |writer| {
                 let mut issue = writer.load_issue_by_id(display_id, db)?;
-                issue.status = "open".to_string();
+                issue.status = crate::models::IssueStatus::Open;
                 issue.closed_at = None;
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
@@ -632,6 +632,9 @@ impl SharedWriter {
     /// counter bump. Used when a push failed (offline/exhausted retries) so the
     /// locally-claimed display ID doesn't collide with remote state.
     pub(super) fn rewrite_as_offline(&self, uuid: Uuid) -> Result<()> {
+        // Serialize access to the hub cache (#373)
+        let _lock_guard = self.sync.acquire_lock()?;
+
         let path = self.issue_path(&uuid);
         let mut issue = crate::issue_file::read_issue_file(&path)?;
         issue.display_id = None;

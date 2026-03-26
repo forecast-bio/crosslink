@@ -149,13 +149,39 @@ def is_gated_git(input_data, gated_list):
     return _matches_command_list(command, gated_list)
 
 
-def is_allowed_bash(input_data, allowed_list):
-    """Check if a Bash command is on the allow list (read-only/infra)."""
-    command = input_data.get("tool_input", {}).get("command", "").strip()
+def _is_single_command_allowed(command, allowed_list):
+    """Check if a single (non-chained) command matches any allow-list prefix."""
     for prefix in allowed_list:
         if command.startswith(prefix):
             return True
     return False
+
+
+def is_allowed_bash(input_data, allowed_list):
+    """Check if a Bash command is on the allow list (read-only/infra).
+
+    Splits on chain operators (&&, ;, |) and requires EVERY subcommand
+    to match the allow list. A single non-allowed subcommand fails the
+    entire chain, preventing bypass via 'allowed_cmd ; malicious_cmd'.
+    """
+    command = input_data.get("tool_input", {}).get("command", "").strip()
+    if not command:
+        return False
+
+    # Split on all chain operators to get individual commands
+    parts = [command]
+    for sep in (" && ", " ; ", " | "):
+        expanded = []
+        for part in parts:
+            expanded.extend(part.split(sep))
+        parts = expanded
+
+    # Every non-empty subcommand must be on the allow list
+    for part in parts:
+        part = part.strip()
+        if part and not _is_single_command_allowed(part, allowed_list):
+            return False
+    return True
 
 
 def is_claude_memory_path(input_data):
@@ -235,8 +261,9 @@ def main():
     try:
         input_data = json.load(sys.stdin)
         tool_name = input_data.get('tool_name', '')
-    except (json.JSONDecodeError, Exception):
-        tool_name = ''
+    except (json.JSONDecodeError, ValueError, TypeError):
+        print("work-check: failed to parse stdin — blocking tool call (fail-closed)")
+        sys.exit(2)
 
     # Only check on Write, Edit, Bash
     if tool_name not in ('Write', 'Edit', 'Bash'):

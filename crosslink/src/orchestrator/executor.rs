@@ -442,8 +442,11 @@ impl OrchestratorExecutor {
 
     /// Record that a stage has failed.
     ///
-    /// Returns a WebSocket event.
-    pub fn mark_stage_failed(&mut self, stage_id: &str) -> Result<WsExecutionProgressEvent> {
+    /// Returns a WebSocket event and whether the entire execution is now complete.
+    pub fn mark_stage_failed(
+        &mut self,
+        stage_id: &str,
+    ) -> Result<(WsExecutionProgressEvent, bool)> {
         let phase_id = self
             .snapshot
             .dag
@@ -452,9 +455,17 @@ impl OrchestratorExecutor {
             .unwrap_or_default();
 
         self.snapshot.dag.mark_failed(stage_id)?;
+
+        // Check if the entire execution is now complete.
+        let execution_complete = self.snapshot.dag.is_complete();
+        if execution_complete {
+            self.snapshot.state = ExecutionState::Failed;
+            self.snapshot.completed_at = Some(Utc::now());
+        }
+
         self.persist()?;
 
-        Ok(WsExecutionProgressEvent {
+        let event = WsExecutionProgressEvent {
             event_type: "execution_progress",
             plan_id: self.snapshot.plan_id.clone(),
             phase_id,
@@ -465,7 +476,9 @@ impl OrchestratorExecutor {
                 .dag
                 .get(stage_id)
                 .and_then(|n| n.agent_id.clone()),
-        })
+        };
+
+        Ok((event, execution_complete))
     }
 
     /// Skip a stage (e.g. after a failure, to unblock downstream stages).
@@ -902,7 +915,7 @@ mod tests {
         executor.start().unwrap();
 
         executor.mark_stage_running("p1-server", "agent-1").unwrap();
-        let event = executor.mark_stage_failed("p1-server").unwrap();
+        let (event, _) = executor.mark_stage_failed("p1-server").unwrap();
         assert_eq!(event.status, StageStatus::Failed);
         assert!(executor.dag().has_failures());
 
@@ -1052,7 +1065,7 @@ mod tests {
         executor.mark_stage_running("s1", "agent-1").unwrap();
         executor.mark_stage_running("s2", "agent-2").unwrap();
 
-        executor.mark_stage_failed("s1").unwrap();
+        let (_, _) = executor.mark_stage_failed("s1").unwrap();
         let (_, _, complete) = executor.mark_stage_done("s2", &db).unwrap();
 
         assert!(complete);
@@ -1294,18 +1307,11 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
         executor.mark_stage_running("s1", "agent-1").unwrap();
-        executor.mark_stage_failed("s1").unwrap();
+        let (_, execution_complete) = executor.mark_stage_failed("s1").unwrap();
 
-        // Complete the single stage so execution becomes Failed
-        // Actually the execution won't auto-complete to Failed from mark_stage_failed alone;
-        // it only transitions when is_complete() is true via mark_stage_done.
-        // But is_complete checks all terminal. Failed IS terminal.
-        // So we need to check if execution was set to Failed via mark_stage_done path.
-        // Let's check: the dag has one node in Failed state -> is_complete = true.
-        // But mark_stage_failed doesn't check is_complete. Only mark_stage_done does.
-        // So the state is still Running even though the only stage failed.
-        // The retry should still work from Running state.
-        assert_eq!(executor.state(), &ExecutionState::Running);
+        // The single stage failed, so the execution is now complete.
+        assert!(execution_complete);
+        assert_eq!(executor.state(), &ExecutionState::Failed);
 
         let ready = executor.retry_stage("s1").unwrap();
         assert_eq!(ready, Some("s1".to_string()));
@@ -1331,7 +1337,7 @@ mod tests {
         // Fail p2-backend (which depends on p1-server)
         // First we need to mark it running to fail it. But it's blocked.
         // Mark it failed directly via dag manipulation.
-        executor.mark_stage_failed("p2-backend").unwrap();
+        let (_, _) = executor.mark_stage_failed("p2-backend").unwrap();
 
         // Retry it - should return None since p1-server is still pending
         let ready = executor.retry_stage("p2-backend").unwrap();
