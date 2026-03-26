@@ -1,0 +1,8 @@
+{
+  "uuid": "74e90251-e038-44ae-8c9c-cc5460de6f2b",
+  "issue_uuid": "fb46ddcd-d5ea-40b2-bda2-74a210bdbda1",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Wrapped refetch in useCallback with proper dependencies [fetch, statusFilter, priorityFilter]. Removed eslint-disable-next-line comment. useEffect now depends on [refetch].",
+  "created_at": "2026-03-26T19:51:00.733308097Z",
+  "kind": "result"
+}
