@@ -1,0 +1,8 @@
+{
+  "uuid": "2d7c60a4-919f-4e3d-a840-66b9f6a8aed6",
+  "issue_uuid": "69fa7513-0679-4bcb-bbe1-5edc7b4d82c4",
+  "author": "anon-ab6221f8",
+  "content": "Replace Arc<std::sync::Mutex<Database>> with Arc<tokio::sync::Mutex<Database>> in server state. Update all handlers from .lock().unwrap_or_else to .lock().await.",
+  "created_at": "2026-03-26T17:35:03.648776079Z",
+  "kind": "plan"
+}
