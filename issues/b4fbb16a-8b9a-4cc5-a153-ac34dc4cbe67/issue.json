@@ -2,11 +2,12 @@
   "uuid": "b4fbb16a-8b9a-4cc5-a153-ac34dc4cbe67",
   "display_id": 600,
   "title": "Extract per-language parsers from get_dependencies god function",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:00:56.444368600Z",
-  "updated_at": "2026-03-26T14:01:00.842646625Z",
+  "updated_at": "2026-03-26T19:43:41.798239762Z",
+  "closed_at": "2026-03-26T19:43:41.798239762Z",
   "labels": [
     "enhancement"
   ]
