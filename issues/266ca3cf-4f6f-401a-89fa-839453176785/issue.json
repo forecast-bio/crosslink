@@ -1,0 +1,10 @@
+{
+  "uuid": "266ca3cf-4f6f-401a-89fa-839453176785",
+  "display_id": 278,
+  "title": "Move default_comment_kind to associated function on Comment type",
+  "status": "open",
+  "priority": "low",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:20:58.591948096Z",
+  "updated_at": "2026-03-26T13:20:58.591948096Z"
+}
