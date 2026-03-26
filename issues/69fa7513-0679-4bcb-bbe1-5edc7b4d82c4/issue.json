@@ -1,0 +1,10 @@
+{
+  "uuid": "69fa7513-0679-4bcb-bbe1-5edc7b4d82c4",
+  "display_id": 549,
+  "title": "Replace blocking std Mutex with tokio Mutex on async runtime",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:53:37.986103392Z",
+  "updated_at": "2026-03-26T13:53:37.986103392Z"
+}
