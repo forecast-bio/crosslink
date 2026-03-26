@@ -2,11 +2,12 @@
   "uuid": "3c972708-c1f3-4644-a655-a869a65c6a3b",
   "display_id": 268,
   "title": "Fix racy env var mutation in identity tests without synchronization",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:20:07.962406852Z",
-  "updated_at": "2026-03-26T13:20:11.525352716Z",
+  "updated_at": "2026-03-26T19:58:38.006246657Z",
+  "closed_at": "2026-03-26T19:58:38.006246657Z",
   "labels": [
     "bug"
   ]
