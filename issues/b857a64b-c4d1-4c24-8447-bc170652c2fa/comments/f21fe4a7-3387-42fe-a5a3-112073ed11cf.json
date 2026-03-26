@@ -1,0 +1,8 @@
+{
+  "uuid": "f21fe4a7-3387-42fe-a5a3-112073ed11cf",
+  "issue_uuid": "b857a64b-c4d1-4c24-8447-bc170652c2fa",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Removed unused request type interfaces: CreateIssueRequest, UpdateIssueRequest, CreateSubissueRequest, CreateCommentRequest, AddLabelRequest, AddBlockerRequest, StartSessionRequest, EndSessionRequest, WorkOnIssueRequest, CreateMilestoneRequest, AssignMilestoneRequest, DecomposeRequest.",
+  "created_at": "2026-03-26T19:50:01.353896580Z",
+  "kind": "result"
+}
