@@ -2,11 +2,12 @@
   "uuid": "3a7d4df6-235d-4457-bb9b-f3fa9d4fad9a",
   "display_id": 275,
   "title": "Replace fragile string parsing with regex in parse_ssh_verify_output",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:20:46.773774152Z",
-  "updated_at": "2026-03-26T13:20:48.680574104Z",
+  "updated_at": "2026-03-26T19:58:51.450397689Z",
+  "closed_at": "2026-03-26T19:58:51.450397689Z",
   "labels": [
     "enhancement"
   ]
