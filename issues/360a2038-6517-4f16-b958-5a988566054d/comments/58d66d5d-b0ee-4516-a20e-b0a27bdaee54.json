@@ -1,0 +1,8 @@
+{
+  "uuid": "58d66d5d-b0ee-4516-a20e-b0a27bdaee54",
+  "issue_uuid": "360a2038-6517-4f16-b958-5a988566054d",
+  "author": "anon-ab6221f8",
+  "content": "tempfile is dev-dependency only. Will use a custom TempDirGuard struct with Drop impl to ensure cleanup on all paths including panics. Also set 0o700 permissions on the temp dir.",
+  "created_at": "2026-03-26T16:24:35.240979561Z",
+  "kind": "decision"
+}
