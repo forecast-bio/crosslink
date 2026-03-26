@@ -1,0 +1,8 @@
+{
+  "uuid": "49e0ee37-3976-4fe7-92e1-09d5911b7a14",
+  "issue_uuid": "1edb67d0-496e-4d3f-aa4f-31fbf8a6b73f",
+  "author": "anon-ab6221f8",
+  "content": "Replace PID-based create-delete dance with flock-style advisory locking using fs2 or holding the file handle open as the guard. If neither is available, use atomic create_new with proper error handling.",
+  "created_at": "2026-03-26T17:40:06.054945249Z",
+  "kind": "plan"
+}
