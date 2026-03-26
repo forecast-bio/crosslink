@@ -2,12 +2,11 @@
   "uuid": "6bc7b86b-f000-419a-97bf-1d3a71b138e7",
   "display_id": 286,
   "title": "Fix missing resolve_id in unarchive_issue",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:43.864618285Z",
-  "updated_at": "2026-03-26T15:26:48.920418756Z",
-  "closed_at": "2026-03-26T15:26:48.920418756Z",
+  "updated_at": "2026-03-26T15:28:14.965448292Z",
   "labels": [
     "bug"
   ]
