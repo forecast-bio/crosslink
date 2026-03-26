@@ -1,0 +1,10 @@
+{
+  "uuid": "f5bedeac-9fb3-49b7-8034-793590415ad2",
+  "display_id": 571,
+  "title": "Extract shared HIGHLIGHT_BG constant from duplicated TUI tab files",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:56:45.108517935Z",
+  "updated_at": "2026-03-26T13:56:45.108517935Z"
+}
