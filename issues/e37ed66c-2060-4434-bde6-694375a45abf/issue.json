@@ -2,11 +2,12 @@
   "uuid": "e37ed66c-2060-4434-bde6-694375a45abf",
   "display_id": 623,
   "title": "Wrap useEffect callbacks properly in dashboard Milestones Knowledge Sync",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T14:03:57.904140827Z",
-  "updated_at": "2026-03-26T14:04:03.240228089Z",
+  "updated_at": "2026-03-26T19:51:16.339628395Z",
+  "closed_at": "2026-03-26T19:51:16.339628395Z",
   "labels": [
     "enhancement"
   ]
