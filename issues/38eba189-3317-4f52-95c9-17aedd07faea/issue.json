@@ -1,0 +1,10 @@
+{
+  "uuid": "38eba189-3317-4f52-95c9-17aedd07faea",
+  "display_id": 414,
+  "title": "Fix unconditional git reset --hard destroying uncommitted knowledge edits",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-03-26T13:33:58.745574697Z",
+  "updated_at": "2026-03-26T13:33:58.745574697Z"
+}
