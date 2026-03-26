@@ -1,0 +1,8 @@
+{
+  "uuid": "c4185757-514f-49b1-afea-80332e3acecd",
+  "issue_uuid": "4eb13574-d632-4e0d-8da2-261e900ff56d",
+  "author": "anon-ab6221f8",
+  "content": "Change SocketAddr binding from 0.0.0.0 to 127.0.0.1 in server/mod.rs run function.",
+  "created_at": "2026-03-26T14:29:44.631271092Z",
+  "kind": "plan"
+}
