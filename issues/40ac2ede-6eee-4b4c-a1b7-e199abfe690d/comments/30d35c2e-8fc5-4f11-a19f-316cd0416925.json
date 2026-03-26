@@ -1,0 +1,8 @@
+{
+  "uuid": "30d35c2e-8fc5-4f11-a19f-316cd0416925",
+  "issue_uuid": "40ac2ede-6eee-4b4c-a1b7-e199abfe690d",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: applyProgress, fetchStatus, and retryStage now use functional updater set((s) => ...) instead of mutating get().events with .push(). eventCounter moved into Zustand store state.",
+  "created_at": "2026-03-26T19:48:25.817303374Z",
+  "kind": "result"
+}
