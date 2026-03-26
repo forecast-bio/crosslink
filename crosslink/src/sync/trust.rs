@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::core::SyncManager;
@@ -7,6 +7,20 @@ use super::SignatureVerification;
 use crate::identity::AgentConfig;
 use crate::locks::Keyring;
 use crate::signing;
+
+/// Resolve the user's home directory from environment variables.
+///
+/// Uses `$HOME` on Unix and `$USERPROFILE` on Windows.
+fn home_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("USERPROFILE").ok().map(PathBuf::from)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("HOME").ok().map(PathBuf::from)
+    }
+}
 
 impl SyncManager {
     /// Configure SSH signing in the hub cache worktree.
@@ -81,14 +95,24 @@ impl SyncManager {
 
         match driver_key {
             Some(key_path) => {
-                let key = std::path::Path::new(&key_path);
-                // Expand ~ to home directory
-                let expanded = if key_path.starts_with('~') {
-                    std::env::var("HOME")
-                        .map(|h| std::path::PathBuf::from(h).join(&key_path[2..]))
-                        .unwrap_or_else(|_| key.to_path_buf())
+                // Expand tilde to home directory. Handle both "~/" and bare "~".
+                // Uses $HOME (Unix) / $USERPROFILE (Windows) directly, same
+                // approach as signing::dirs_next().
+                let expanded = if let Some(rest) = key_path.strip_prefix("~/") {
+                    match home_dir() {
+                        Some(home) => home.join(rest),
+                        None => {
+                            tracing::warn!(
+                                "tilde expansion failed: cannot determine home directory for '{}'",
+                                key_path
+                            );
+                            std::path::PathBuf::from(&key_path)
+                        }
+                    }
+                } else if key_path == "~" {
+                    home_dir().unwrap_or_else(|| std::path::PathBuf::from(&key_path))
                 } else {
-                    key.to_path_buf()
+                    std::path::PathBuf::from(&key_path)
                 };
 
                 if expanded.exists() {
@@ -124,6 +148,16 @@ impl SyncManager {
     /// must be configured before the key can be published.
     ///
     /// Safe to call multiple times — no-ops if the key is already published.
+    ///
+    /// # Accepted risk: unsigned key-publication commit
+    ///
+    /// The commit that publishes the agent's public key is intentionally
+    /// unsigned (`commit.gpgsign=false`). This is a bootstrapping trade-off:
+    /// the signing key cannot be verified until it is published, so the
+    /// publication commit itself cannot be signed by the key it publishes.
+    /// Subsequent commits from this agent will be signed normally. Auditors
+    /// can verify the key-publication commit via the git history (the key
+    /// file hash is deterministic given the public key content).
     pub fn ensure_agent_key_published(&self, crosslink_dir: &Path) -> Result<bool> {
         if !self.cache_dir.exists() {
             return Ok(false);
@@ -194,6 +228,47 @@ impl SyncManager {
         signing::AllowedSigners::load(&path)
     }
 
+    /// Verify a single commit's signature, returning a `SignatureVerification`.
+    ///
+    /// Shared implementation used by both `verify_recent_commits` and
+    /// `verify_locks_signature` to avoid duplicated verification logic.
+    fn verify_commit_signature(&self, commit: &str) -> Result<SignatureVerification> {
+        let verify = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["verify-commit", "--raw", commit])
+            .output()
+            .context("Failed to run git verify-commit")?;
+
+        let stdout = String::from_utf8_lossy(&verify.stdout);
+        let stderr = String::from_utf8_lossy(&verify.stderr);
+        // Combine stdout+stderr: macOS ssh-keygen emits "Good" on stdout
+        let combined = format!("{}\n{}", stdout, stderr);
+
+        if verify.status.success() {
+            let parsed = signing::parse_verify_output(&combined);
+            let principal = parsed.as_ref().and_then(|(p, _)| p.clone());
+            let fingerprint = parsed.map(|(_, f)| f);
+            Ok(SignatureVerification::Valid {
+                commit: commit.to_string(),
+                fingerprint,
+                principal,
+            })
+        } else if stderr.contains("NODATA")
+            || stderr.contains("no signature")
+            || stderr.is_empty()
+            || stderr.contains("allowedSignersFile needs to be configured")
+        {
+            Ok(SignatureVerification::Unsigned {
+                commit: commit.to_string(),
+            })
+        } else {
+            Ok(SignatureVerification::Invalid {
+                commit: commit.to_string(),
+                reason: stderr.to_string(),
+            })
+        }
+    }
+
     /// Verify the last N commits on the hub branch.
     ///
     /// Returns a list of `(commit_hash, verification_result)`.
@@ -207,44 +282,7 @@ impl SyncManager {
 
         let mut results = Vec::new();
         for commit in commits {
-            let verify = Command::new("git")
-                .current_dir(&self.cache_dir)
-                .args(["verify-commit", "--raw", commit])
-                .output()
-                .context("Failed to run git verify-commit")?;
-
-            let stdout = String::from_utf8_lossy(&verify.stdout);
-            let stderr = String::from_utf8_lossy(&verify.stderr);
-            // Combine stdout+stderr: macOS ssh-keygen emits "Good" on stdout
-            let combined = format!("{}\n{}", stdout, stderr);
-            let verification = if verify.status.success() {
-                let parsed = signing::parse_verify_output(&combined);
-                let principal = parsed.as_ref().and_then(|(p, _)| p.clone());
-                let fingerprint = parsed.map(|(_, f)| f);
-                SignatureVerification::Valid {
-                    commit: commit.to_string(),
-                    fingerprint,
-                    principal,
-                }
-            } else if stderr.contains("NODATA")
-                || stderr.contains("no signature")
-                || stderr.is_empty()
-            {
-                SignatureVerification::Unsigned {
-                    commit: commit.to_string(),
-                }
-            } else if stderr.contains("allowedSignersFile needs to be configured") {
-                // gpg.ssh.allowedSignersFile not set — verification is not possible,
-                // but this doesn't mean the signature is invalid. Degrade gracefully.
-                SignatureVerification::Unsigned {
-                    commit: commit.to_string(),
-                }
-            } else {
-                SignatureVerification::Invalid {
-                    commit: commit.to_string(),
-                    reason: stderr.to_string(),
-                }
-            };
+            let verification = self.verify_commit_signature(commit)?;
             results.push((commit.to_string(), verification));
         }
 
@@ -335,38 +373,6 @@ impl SyncManager {
             return Ok(SignatureVerification::NoCommits);
         }
 
-        // Try to verify the commit signature
-        let verify = Command::new("git")
-            .current_dir(&self.cache_dir)
-            .args(["verify-commit", "--raw", &commit])
-            .output()
-            .context("Failed to run git verify-commit")?;
-
-        let stdout = String::from_utf8_lossy(&verify.stdout);
-        let stderr = String::from_utf8_lossy(&verify.stderr);
-        // Combine stdout+stderr: macOS ssh-keygen emits "Good" on stdout
-        let combined = format!("{}\n{}", stdout, stderr);
-
-        if verify.status.success() {
-            let parsed = signing::parse_verify_output(&combined);
-            let principal = parsed.as_ref().and_then(|(p, _)| p.clone());
-            let fingerprint = parsed.map(|(_, f)| f);
-            Ok(SignatureVerification::Valid {
-                commit,
-                fingerprint,
-                principal,
-            })
-        } else if stderr.contains("NODATA") || stderr.contains("no signature") || stderr.is_empty()
-        {
-            Ok(SignatureVerification::Unsigned { commit })
-        } else if stderr.contains("allowedSignersFile needs to be configured") {
-            // gpg.ssh.allowedSignersFile not set — cannot verify, degrade gracefully
-            Ok(SignatureVerification::Unsigned { commit })
-        } else {
-            Ok(SignatureVerification::Invalid {
-                commit,
-                reason: stderr.to_string(),
-            })
-        }
+        self.verify_commit_signature(&commit)
     }
 }

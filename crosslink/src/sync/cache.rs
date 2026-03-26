@@ -278,31 +278,7 @@ impl SyncManager {
             return Ok(0); // V1 hub — V1 files are correct
         }
 
-        // Find V1 flat files that also have a V2 directory
-        let mut stale_v1: Vec<std::path::PathBuf> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&issues_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().to_string();
-                if path.is_file() && name.ends_with(".json") {
-                    let uuid = name.trim_end_matches(".json");
-                    let v2_dir = issues_dir.join(uuid);
-                    if v2_dir.join("issue.json").exists() {
-                        // Both V1 and V2 exist — V1 is stale
-                        stale_v1.push(path);
-                    } else if !v2_dir.exists() {
-                        // V1 exists without V2 on a V2 hub — migrate it
-                        if let Ok(content) = std::fs::read(&path) {
-                            if std::fs::create_dir_all(&v2_dir).is_ok()
-                                && std::fs::write(v2_dir.join("issue.json"), &content).is_ok()
-                            {
-                                stale_v1.push(path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let stale_v1 = self.find_stale_v1_files(&issues_dir)?;
 
         if stale_v1.is_empty() {
             return Ok(0);
@@ -329,17 +305,68 @@ impl SyncManager {
         Ok(stale_v1.len())
     }
 
+    /// Find V1 flat files that should be cleaned up or migrated to V2.
+    ///
+    /// Returns paths of V1 files that are stale (have a V2 equivalent) or
+    /// that were successfully migrated to V2 format during this call.
+    fn find_stale_v1_files(
+        &self,
+        issues_dir: &std::path::Path,
+    ) -> Result<Vec<std::path::PathBuf>> {
+        let mut stale_v1: Vec<std::path::PathBuf> = Vec::new();
+        let entries = match std::fs::read_dir(issues_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(stale_v1),
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !path.is_file() || !name.ends_with(".json") {
+                continue;
+            }
+            let uuid = name.trim_end_matches(".json");
+            let v2_dir = issues_dir.join(uuid);
+            if v2_dir.join("issue.json").exists() {
+                // Both V1 and V2 exist — V1 is stale
+                stale_v1.push(path);
+            } else if !v2_dir.exists() {
+                // V1 exists without V2 on a V2 hub — migrate it
+                if let Some(migrated) = self.migrate_v1_to_v2(&path, &v2_dir) {
+                    stale_v1.push(migrated);
+                }
+            }
+        }
+        Ok(stale_v1)
+    }
+
+    /// Migrate a single V1 flat issue file to V2 directory layout.
+    ///
+    /// Returns `Some(v1_path)` if the migration succeeded (so the V1 file
+    /// can be removed), or `None` if it failed.
+    fn migrate_v1_to_v2(
+        &self,
+        v1_path: &std::path::Path,
+        v2_dir: &std::path::Path,
+    ) -> Option<std::path::PathBuf> {
+        let content = std::fs::read(v1_path).ok()?;
+        std::fs::create_dir_all(v2_dir).ok()?;
+        std::fs::write(v2_dir.join("issue.json"), &content).ok()?;
+        Some(v1_path.to_path_buf())
+    }
+
     /// Detect and recover from broken git states in the hub cache worktree.
     ///
     /// Checks for three failure modes that can leave the cache unusable:
+    /// 0. **Stale index.lock** — removed unconditionally before other
+    ///    recovery steps, since `rebase --abort` and `checkout` both need
+    ///    the index. Safe because callers hold the hub write lock, so no
+    ///    legitimate git process is running.
     /// 1. **Mid-rebase state** — `.git/rebase-merge/` or `.git/rebase-apply/`
     ///    directories left behind by an interrupted rebase. Cleared with
     ///    `git rebase --abort`.
     /// 2. **Detached HEAD** — HEAD is not attached to the hub branch.
     ///    Re-attached with `git checkout crosslink/hub`.
-    /// 3. **Stale index.lock** — a leftover `index.lock` file older than 30
-    ///    seconds, indicating a crashed git process. Removed to unblock
-    ///    subsequent git operations.
     ///
     /// All recovery operations are best-effort: if any individual check or
     /// fix fails, we log a warning and continue rather than failing the
@@ -447,8 +474,11 @@ impl SyncManager {
                 // working directory with the last commit.
                 if self.git_in_cache(&["add", "-A"]).is_err() {
                     tracing::warn!(
-                        "git add -A failed in dirty state cleanup, \
-                         escalating to reset --hard HEAD"
+                        "git add -A failed in dirty state cleanup — escalating to \
+                         `git reset --hard HEAD`. This discards uncommitted changes \
+                         in the hub cache worktree (not the user's working tree). \
+                         Dirty files were: {}",
+                        stdout.trim()
                     );
                     self.git_in_cache(&["reset", "--hard", "HEAD"])?;
                     return Ok(true);
@@ -638,6 +668,9 @@ impl SyncManager {
                 }
             }
         }
-        Ok(())
+        // All 3 iterations returned early or continued — if we get here,
+        // the loop completed without a definitive outcome, which shouldn't
+        // happen. Treat as an error rather than silently returning Ok.
+        bail!("Push loop completed without returning — this is a bug")
     }
 }

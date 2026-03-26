@@ -152,7 +152,7 @@ fn auto_steal_if_configured(
             Some(a) => a,
             None => return Ok(false),
         };
-        sync.claim_lock(&agent, issue_id, None, true)?;
+        sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
         let comment = format!(
             "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
             stale_agent_id, stale_minutes, auto_steal_threshold
@@ -232,7 +232,7 @@ pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
                             );
                         }
                     }
-                } else if let Err(e) = sync.release_lock(&agent, issue_id, false) {
+                } else if let Err(e) = sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal) {
                     tracing::warn!(
                         "Could not release lock on {}: {}",
                         crate::utils::format_issue_id(issue_id),

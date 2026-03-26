@@ -311,7 +311,7 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
         }
     } else {
         for (id, _) in &stale {
-            if sync.release_lock(&agent, *id, true)? {
+            if sync.release_lock(&agent, *id, crate::sync::LockMode::Steal)? {
                 released += 1;
             }
         }

@@ -8,7 +8,13 @@ use crate::locks::Heartbeat;
 
 impl SyncManager {
     /// Write and optionally push a heartbeat file for this agent.
+    ///
+    /// Acquires the hub write lock to prevent races with concurrent git
+    /// operations (fetch, write_commit_push) in the same cache worktree.
     pub fn push_heartbeat(&self, agent: &AgentConfig, active_issue_id: Option<i64>) -> Result<()> {
+        // Acquire the hub write lock to serialize with other cache mutations (#352)
+        let _lock_guard = self.acquire_lock()?;
+
         let heartbeat = Heartbeat {
             agent_id: agent.agent_id.clone(),
             last_heartbeat: Utc::now(),
@@ -127,12 +133,21 @@ impl SyncManager {
             if let Ok(hb) = serde_json::from_str::<Heartbeat>(&content) {
                 heartbeats.push(hb);
             } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                let timestamp = val
+                let timestamp = match val
                     .get("timestamp")
                     .and_then(|t| t.as_str())
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                     .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(Utc::now);
+                {
+                    Some(ts) => ts,
+                    None => {
+                        tracing::warn!(
+                            "corrupt or missing timestamp in heartbeat for agent '{}', skipping",
+                            agent_id
+                        );
+                        continue;
+                    }
+                };
                 let active_issue_id = val.get("active_issue_id").and_then(|v| v.as_i64());
                 let machine_id = val
                     .get("machine_id")

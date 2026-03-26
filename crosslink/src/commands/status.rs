@@ -84,7 +84,7 @@ fn close_inner(
                         }
                     }
                 } else {
-                    match sync.release_lock(&agent, id, false) {
+                    match sync.release_lock(&agent, id, crate::sync::LockMode::Normal) {
                         Ok(true) if !quiet => {
                             println!("Released lock on issue {}", format_issue_id(id))
                         }

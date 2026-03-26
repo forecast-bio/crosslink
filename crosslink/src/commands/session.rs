@@ -92,7 +92,7 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
                             }
                         }
                     } else {
-                        match sync.release_lock(&agent, issue_id, false) {
+                        match sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal) {
                             Ok(true) => {
                                 println!("Released lock on issue {}", format_issue_id(issue_id))
                             }
@@ -286,7 +286,7 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
                         }
                     }
                 } else {
-                    match sync.claim_lock(&agent, issue_id, None, false) {
+                    match sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Normal) {
                         Ok(true) => {
                             freshly_claimed = true;
                             println!("Claimed lock on issue {}", format_issue_id(issue_id));

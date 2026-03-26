@@ -121,7 +121,7 @@ fn auto_claim_and_set_work(
                             }
                         }
                     } else {
-                        match sync.claim_lock(&agent, id, None, false) {
+                        match sync.claim_lock(&agent, id, None, crate::sync::LockMode::Normal) {
                             Ok(true) => {
                                 freshly_claimed = true;
                                 if !quiet {

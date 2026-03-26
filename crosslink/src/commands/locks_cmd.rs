@@ -188,7 +188,7 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
         return Ok(());
     }
 
-    match sync.claim_lock(&agent, issue_id, branch, false)? {
+    match sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
         true => {
             println!("Claimed lock on issue {}", format_issue_id(issue_id));
             if let Some(b) = branch {
@@ -225,7 +225,7 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
         return Ok(());
     }
 
-    match sync.release_lock(&_agent, issue_id, false)? {
+    match sync.release_lock(&_agent, issue_id, crate::sync::LockMode::Normal)? {
         true => println!("Released lock on issue {}", format_issue_id(issue_id)),
         false => println!("Issue {} was not locked.", format_issue_id(issue_id)),
     }
@@ -274,7 +274,7 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
                 existing.agent_id
             );
         } else {
-            sync.claim_lock(&agent, issue_id, None, true)?;
+            sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
             println!(
                 "Stole lock on issue {} from '{}'",
                 format_issue_id(issue_id),
@@ -294,7 +294,7 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
                 }
             }
         } else {
-            sync.claim_lock(&agent, issue_id, None, false)?;
+            sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Normal)?;
         }
         println!(
             "Claimed lock on issue {} (was not locked)",

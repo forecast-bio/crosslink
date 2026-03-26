@@ -55,6 +55,7 @@ impl SyncManager {
     }
 
     /// Check if the cache directory is initialized.
+    #[must_use]
     pub fn is_initialized(&self) -> bool {
         self.cache_dir.exists()
     }
@@ -68,6 +69,7 @@ impl SyncManager {
     ///
     /// Returns `false` when the remote (e.g. "origin") is not configured,
     /// which means hub sync operations cannot work.
+    #[must_use]
     pub fn remote_exists(&self) -> bool {
         Command::new("git")
             .current_dir(&self.repo_root)
@@ -80,6 +82,7 @@ impl SyncManager {
     }
 
     /// Check if the hub uses V2 layout (per-entity lock files in `locks/`).
+    #[must_use]
     pub fn is_v2_layout(&self) -> bool {
         let meta_dir = self.cache_dir.join("meta");
         crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1) >= 2
@@ -87,8 +90,23 @@ impl SyncManager {
 
     // --- Private/crate helpers ---
 
+    /// Return the cache directory path as a UTF-8 string, or bail with a
+    /// clear error when the path contains non-UTF-8 bytes.
     pub(super) fn cache_path_str(&self) -> String {
-        self.cache_dir.to_string_lossy().to_string()
+        match self.cache_dir.to_str() {
+            Some(s) => s.to_string(),
+            None => {
+                // Log and fall back to lossy conversion. A non-UTF-8 cache
+                // path will cause git commands to target the wrong directory,
+                // so this is loud on purpose.
+                tracing::error!(
+                    "hub cache path contains non-UTF-8 characters: {:?}; \
+                     git operations may fail",
+                    self.cache_dir
+                );
+                self.cache_dir.to_string_lossy().to_string()
+            }
+        }
     }
 
     pub(super) fn git_in_repo(&self, args: &[&str]) -> Result<std::process::Output> {
@@ -124,6 +142,12 @@ impl SyncManager {
     /// root instead of the main repo, so the hooks must exist there too.
     /// This is a best-effort operation — if `.claude/hooks/` doesn't exist in
     /// the repo root, we silently skip.
+    ///
+    /// **Note**: This performs a shallow copy — only regular files in the
+    /// top-level `hooks/` directory are copied. Subdirectories and symlinks
+    /// are ignored. The copy runs once (skips if `dst` already exists),
+    /// so hook updates in the source require deleting the cache copy to
+    /// re-trigger propagation.
     pub(super) fn propagate_claude_hooks(&self) -> Result<()> {
         let src = self.repo_root.join(".claude").join("hooks");
         if !src.is_dir() {
@@ -166,14 +190,32 @@ impl SyncManager {
             } else {
                 "--local"
             };
-            let email_result = Command::new("git")
+            let email_output = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.email", "crosslink@localhost"])
-                .output();
-            let name_result = Command::new("git")
+                .output()
+                .context("Failed to run git config for user.email")?;
+            if !email_output.status.success() {
+                bail!(
+                    "git config {} user.email failed: {}",
+                    scope_flag,
+                    String::from_utf8_lossy(&email_output.stderr)
+                );
+            }
+
+            let name_output = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.name", "crosslink"])
-                .output();
+                .output()
+                .context("Failed to run git config for user.name")?;
+            if !name_output.status.success() {
+                bail!(
+                    "git config {} user.name failed: {}",
+                    scope_flag,
+                    String::from_utf8_lossy(&name_output.stderr)
+                );
+            }
+
             // Verify identity is actually set — don't let commits fail later
             // with "Author identity unknown" (#469)
             let verified = Command::new("git")
@@ -184,9 +226,8 @@ impl SyncManager {
                 .unwrap_or(false);
             if !verified {
                 bail!(
-                    "Failed to set git identity in hub cache (email: {:?}, name: {:?})",
-                    email_result.map(|o| o.status.success()),
-                    name_result.map(|o| o.status.success()),
+                    "Failed to verify git identity in hub cache: \
+                     git config set succeeded but user.email is not readable"
                 );
             }
         }
