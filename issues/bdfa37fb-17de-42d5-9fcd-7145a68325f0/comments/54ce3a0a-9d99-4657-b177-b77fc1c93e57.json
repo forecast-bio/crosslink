@@ -1,0 +1,8 @@
+{
+  "uuid": "54ce3a0a-9d99-4657-b177-b77fc1c93e57",
+  "issue_uuid": "bdfa37fb-17de-42d5-9fcd-7145a68325f0",
+  "author": "anon-ab6221f8",
+  "content": "Structure plan: (1) init/python.rs — detect_python_prefix, read_pyproject, cpitd functions ~200 LOC. (2) init/signing.rs — setup_driver_signing ~80 LOC. (3) init/merge.rs — write_mcp_json_merged, write_settings_json_merged, write_root_gitignore ~200 LOC. (4) init/walkthrough.rs — InitWalkthroughApp, TuiChoices, all draw_ functions, run_tui_walkthrough, apply_tui_choices ~700 LOC. (5) init/mod.rs — embedded constants, InitUI, InitOpts, run, shell alias, repo compact ID ~800 LOC. Total: same code, 5 files.",
+  "created_at": "2026-03-26T18:18:58.869038796Z",
+  "kind": "decision"
+}
