@@ -1,0 +1,8 @@
+{
+  "uuid": "410db7fe-53b8-4408-8973-1b7ae5b4a049",
+  "issue_uuid": "8c67755b-ca49-4a64-ac2e-d3a7cb22ca95",
+  "author": "anon-ab6221f8",
+  "content": "Swapped hashlib.md5 to hashlib.sha256 in get_lock_file_hash at prompt-guard.py:305. Same truncation to 12 hex chars. Python compiles clean.",
+  "created_at": "2026-03-26T15:09:03.276714368Z",
+  "kind": "result"
+}
