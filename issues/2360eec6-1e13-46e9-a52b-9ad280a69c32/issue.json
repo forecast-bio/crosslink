@@ -2,11 +2,12 @@
   "uuid": "2360eec6-1e13-46e9-a52b-9ad280a69c32",
   "display_id": 593,
   "title": "Fix command injection via shell=True in prompt-guard run_command",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:59:44.426706997Z",
-  "updated_at": "2026-03-26T13:59:47.038389311Z",
+  "updated_at": "2026-03-26T15:27:00.634931171Z",
+  "closed_at": "2026-03-26T15:27:00.634931171Z",
   "labels": [
     "security"
   ]
