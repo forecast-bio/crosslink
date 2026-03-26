@@ -1,0 +1,8 @@
+{
+  "uuid": "a5676aeb-576a-45a9-832e-363cd778a374",
+  "issue_uuid": "dfebabfa-a1b9-4368-8305-9a7d8bdc51c9",
+  "author": "anon-ab6221f8",
+  "content": "Applied yaml_escape to all user-controlled fields in serialize_frontmatter: tags (each item), contributors (each item), source URLs, and accessed_at. Parser already handles quoted values via unquote() so roundtrip is preserved. Updated 4 test assertions. All 1665 tests pass.",
+  "created_at": "2026-03-26T16:47:05.924481356Z",
+  "kind": "result"
+}
