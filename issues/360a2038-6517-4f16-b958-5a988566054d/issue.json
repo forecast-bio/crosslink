@@ -2,11 +2,12 @@
   "uuid": "360a2038-6517-4f16-b958-5a988566054d",
   "display_id": 263,
   "title": "Fix temp file leak and world-readable permissions in SSH signing",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:19:34.307649657Z",
-  "updated_at": "2026-03-26T13:19:37.597946035Z",
+  "updated_at": "2026-03-26T16:27:23.839788583Z",
+  "closed_at": "2026-03-26T16:27:23.839788583Z",
   "labels": [
     "security"
   ]
