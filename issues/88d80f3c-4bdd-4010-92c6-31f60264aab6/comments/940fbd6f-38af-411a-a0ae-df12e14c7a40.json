@@ -1,0 +1,8 @@
+{
+  "uuid": "940fbd6f-38af-411a-a0ae-df12e14c7a40",
+  "issue_uuid": "88d80f3c-4bdd-4010-92c6-31f60264aab6",
+  "author": "anon-ab6221f8",
+  "content": "Fixed: Replaced browser prompt() with a Dialog component containing a textarea for theme JSON import in Appearance.tsx. Includes error display for invalid JSON.",
+  "created_at": "2026-03-26T19:51:24.359120150Z",
+  "kind": "result"
+}
