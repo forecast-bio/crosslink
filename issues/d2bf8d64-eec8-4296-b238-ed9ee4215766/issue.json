@@ -2,11 +2,12 @@
   "uuid": "d2bf8d64-eec8-4296-b238-ed9ee4215766",
   "display_id": 287,
   "title": "Fix stop_timer updating all active timers with single row duration",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:47.993717730Z",
-  "updated_at": "2026-03-26T15:28:25.825498711Z",
+  "updated_at": "2026-03-26T15:29:03.610730238Z",
+  "closed_at": "2026-03-26T15:29:03.610730238Z",
   "labels": [
     "bug"
   ]
