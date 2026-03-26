@@ -1,0 +1,8 @@
+{
+  "uuid": "d792b34f-4a74-418c-b306-1512cd5078c0",
+  "issue_uuid": "33ca8e7a-94c4-48b3-b548-bbb2eda1c78a",
+  "author": "anon-ab6221f8",
+  "content": "Decided to still improve: while the guard exists, the code is fragile. Will add early return for the per_agent==0 case before the division to make the protection self-documenting.",
+  "created_at": "2026-03-26T16:19:37.258349479Z",
+  "kind": "decision"
+}
