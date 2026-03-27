@@ -13,13 +13,19 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::checkpoint::{
-    read_checkpoint, read_watermark, write_checkpoint, write_watermark, CheckpointState,
-    CompactIssue, LockEntry, SkewWarning, UnsignedEventWarning,
+    read_checkpoint, read_watermark, write_checkpoint, CheckpointState, CompactIssue, LockEntry,
+    SkewWarning, UnsignedEventWarning,
 };
 use crate::events::{Event, EventEnvelope, OrderingKey};
 use crate::issue_file::{IssueFile, LockFileV2};
 
 /// Compaction lease duration in seconds.
+///
+/// Used by `CompactionLockGuard` to determine when a lock file is stale
+/// (age > 2 × this value). Also used by the test-only lease helper for
+/// in-memory lease expiry. The value must exceed the longest expected
+/// compaction run to avoid premature expiry; 30 seconds is sufficient for
+/// typical repos with <10k events.
 const LEASE_DURATION_SECS: i64 = 30;
 
 /// Lock file name inside the checkpoint directory.
@@ -34,9 +40,13 @@ struct CompactionLockGuard {
     path: PathBuf,
 }
 
-/// Information read from a stale lock file.
+/// Information parsed from an existing compaction lock file to determine
+/// whether the lock is stale (held by a dead or timed-out process) or
+/// whether the current agent already owns it and can safely reclaim.
 struct StaleLockInfo {
+    /// The agent ID that created the lock.
     agent_id: String,
+    /// When the lock was originally acquired.
     acquired_at: chrono::DateTime<Utc>,
 }
 
@@ -50,12 +60,16 @@ impl CompactionLockGuard {
 
         match Self::try_create(&path, agent_id) {
             Ok(guard) => return Ok(Some(guard)),
-            Err(_) if !path.exists() => {
-                if let Ok(guard) = Self::try_create(&path, agent_id) {
-                    return Ok(Some(guard));
+            Err(e) => {
+                // If the file doesn't exist, the error is not AlreadyExists —
+                // it's a real filesystem error (permissions, disk full, etc.).
+                // Propagate it instead of falling through to stale-lock logic.
+                if !path.exists() {
+                    return Err(e);
                 }
+                // File exists → another process holds the lock. Fall through
+                // to stale-lock detection below.
             }
-            Err(_) => {}
         }
 
         if let Some(info) = Self::read_lock_info(&path) {
@@ -112,7 +126,15 @@ impl CompactionLockGuard {
 
 impl Drop for CompactionLockGuard {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        if let Err(e) = fs::remove_file(&self.path) {
+            // Log but don't panic — the lock file will be detected as stale
+            // on the next compaction run and cleaned up then.
+            tracing::warn!(
+                "failed to remove compaction lock file {}: {}",
+                self.path.display(),
+                e
+            );
+        }
     }
 }
 
@@ -180,12 +202,12 @@ pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<C
     }
 
     // If we fell back to a legacy file-based watermark, migrate it into the
-    // checkpoint state so future compactions use the embedded watermark path.
+    // in-memory checkpoint state so future compactions use the embedded path.
+    // No need to write + re-read from disk — the checkpoint is written at the
+    // end of compaction with the watermark already embedded (#332).
     if state.watermark.is_none() {
         if let Some(ref wm) = watermark {
-            write_watermark(cache_dir, wm)?;
-            // Re-read so our in-memory state reflects the migration.
-            state = read_checkpoint(cache_dir)?;
+            state.watermark = Some(wm.clone());
         }
     }
 
@@ -217,16 +239,22 @@ pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<C
         state = CheckpointState::default();
     }
 
-    // Sort by ordering key for deterministic reduction
-    all_events.sort_by(|a, b| OrderingKey::from_envelope(a).cmp(&OrderingKey::from_envelope(b)));
+    // Sort by ordering key for deterministic reduction.
+    // Uses sort_by_cached_key to compute the OrderingKey once per envelope
+    // rather than on every comparison (#340).
+    all_events.sort_by_cached_key(OrderingKey::from_envelope);
 
     let events_processed = all_events.len();
     let mut changed_issues: HashSet<Uuid> = HashSet::new();
     let mut changed_locks: HashSet<i64> = HashSet::new();
 
-    // Clear warnings for fresh compaction
-    state.skew_warnings.clear();
-    state.unsigned_event_warnings.clear();
+    // For full compaction (no watermark), clear warnings since we reprocess
+    // everything. For incremental compaction, keep existing warnings and
+    // accumulate new ones from the incremental events (#339).
+    if watermark.is_none() {
+        state.skew_warnings.clear();
+        state.unsigned_event_warnings.clear();
+    }
 
     let allowed_signers_path = cache_dir.join("trust").join("allowed_signers");
 
@@ -306,7 +334,7 @@ pub fn prune_events(cache_dir: &Path, agent_id: &str) -> Result<usize> {
         let bytes = <crate::events::NdjsonCodec as crate::events::EventCodec>::encode_batch(
             &codec, &remaining,
         )?;
-        std::fs::write(&log_path, bytes)
+        crate::utils::atomic_write(&log_path, &bytes)
             .with_context(|| format!("Failed to write pruned log: {}", log_path.display()))?;
     }
 
@@ -346,8 +374,8 @@ fn apply(
                     display_id: Some(display_id),
                     title: title.clone(),
                     description: description.clone(),
-                    status: "open".to_string(),
-                    priority: priority.clone(),
+                    status: crate::models::IssueStatus::Open,
+                    priority: priority.parse().unwrap_or(crate::models::Priority::Medium),
                     parent_uuid: *parent_uuid,
                     created_by: created_by.clone(),
                     created_at: envelope.timestamp,
@@ -366,7 +394,10 @@ fn apply(
             issue_display_id,
             branch,
         } => {
-            // First-claim-wins: reject if different agent holds it
+            // First-claim-wins: reject if a *different* agent holds it.
+            // When the *same* agent re-claims, the lock is refreshed with the
+            // new branch and timestamp — this is the intended "reclaim"
+            // behavior for agents that restart or switch branches.
             if let Some(existing) = state.locks.get(issue_display_id) {
                 if existing.agent_id != envelope.agent_id {
                     return;
@@ -408,7 +439,9 @@ fn apply(
                     issue.description = Some(d.clone());
                 }
                 if let Some(p) = priority {
-                    issue.priority = p.clone();
+                    if let Ok(parsed) = p.parse() {
+                        issue.priority = parsed;
+                    }
                 }
                 issue.updated_at = envelope.timestamp;
                 changed_issues.insert(*uuid);
@@ -422,7 +455,7 @@ fn apply(
         } => {
             if let Some(issue) = state.issues.get_mut(uuid) {
                 // Last-writer-wins (latest timestamp)
-                issue.status = new_status.clone();
+                issue.status = new_status.parse().unwrap_or(issue.status);
                 issue.closed_at = *closed_at;
                 issue.updated_at = envelope.timestamp;
                 changed_issues.insert(*uuid);
@@ -594,36 +627,26 @@ fn materialize(
 }
 
 /// Convert a CompactIssue to an IssueFile for materialization.
+///
+/// Delegates to the `From<&CompactIssue>` impl on `IssueFile`.
 fn compact_to_issue_file(compact: &CompactIssue) -> IssueFile {
-    IssueFile {
-        uuid: compact.uuid,
-        display_id: compact.display_id,
-        title: compact.title.clone(),
-        description: compact.description.clone(),
-        status: compact.status.clone(),
-        priority: compact.priority.clone(),
-        parent_uuid: compact.parent_uuid,
-        created_by: compact.created_by.clone(),
-        created_at: compact.created_at,
-        updated_at: compact.updated_at,
-        closed_at: compact.closed_at,
-        labels: compact.labels.iter().cloned().collect(),
-        comments: vec![],
-        blockers: compact.blockers.iter().cloned().collect(),
-        related: compact.related.iter().cloned().collect(),
-        milestone_uuid: compact.milestone_uuid,
-        time_entries: vec![],
-    }
+    IssueFile::from(compact)
 }
 
-/// Detect clock skew: flag events where |event_timestamp - now()| > threshold.
+/// Detect clock skew: flag events whose timestamp is in the future relative
+/// to the current wall-clock time by more than the threshold.
+///
+/// Only future-dated events indicate a skewed clock. Past events are expected
+/// during incremental compaction (events may have been written hours or days
+/// ago). Comparing against `now()` for past events produced false positives
+/// (#330).
 fn detect_clock_skew(state: &mut CheckpointState, envelope: &EventEnvelope) {
     let now = Utc::now();
-    let diff = (envelope.timestamp - now).num_seconds().abs();
-    if diff > SKEW_THRESHOLD_SECS {
+    let future_skew = (envelope.timestamp - now).num_seconds();
+    if future_skew > SKEW_THRESHOLD_SECS {
         state.skew_warnings.push(SkewWarning {
             agent_id: envelope.agent_id.clone(),
-            skew_seconds: diff,
+            skew_seconds: future_skew,
             event_timestamp: envelope.timestamp,
         });
     }
@@ -792,7 +815,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&issue_path).unwrap()).unwrap();
         assert_eq!(issue.title, "Test issue");
         assert_eq!(issue.display_id, Some(1));
-        assert_eq!(issue.priority, "high");
+        assert_eq!(issue.priority, crate::models::Priority::High);
         assert_eq!(issue.labels, vec!["bug".to_string()]);
     }
 
@@ -1503,7 +1526,10 @@ mod tests {
         compact(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
-        assert_eq!(state.issues[&uuid].status, "closed");
+        assert_eq!(
+            state.issues[&uuid].status,
+            crate::models::IssueStatus::Closed
+        );
         assert!(state.issues[&uuid].closed_at.is_some());
     }
 
@@ -1671,8 +1697,8 @@ mod tests {
         assert_eq!(issue.display_id, Some(1));
         assert_eq!(issue.title, "Materialized");
         assert_eq!(issue.description.as_deref(), Some("desc"));
-        assert_eq!(issue.status, "open");
-        assert_eq!(issue.priority, "critical");
+        assert_eq!(issue.status, crate::models::IssueStatus::Open);
+        assert_eq!(issue.priority, crate::models::Priority::Critical);
         assert!(issue.comments.is_empty());
         assert!(issue.time_entries.is_empty());
     }
@@ -2774,7 +2800,11 @@ mod tests {
             Some("New description"),
             "Description should be updated"
         );
-        assert_eq!(issue.priority, "critical", "Priority should be updated");
+        assert_eq!(
+            issue.priority,
+            crate::models::Priority::Critical,
+            "Priority should be updated"
+        );
     }
 
     #[test]
@@ -2955,8 +2985,8 @@ mod tests {
             display_id: Some(42),
             title: "Full issue".to_string(),
             description: Some("With all fields".to_string()),
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::High,
             parent_uuid: Some(Uuid::new_v4()),
             created_by: "agent-1".to_string(),
             created_at: Utc::now(),
@@ -2986,7 +3016,7 @@ mod tests {
         assert_eq!(issue_file.display_id, Some(42));
         assert_eq!(issue_file.title, "Full issue");
         assert_eq!(issue_file.description.as_deref(), Some("With all fields"));
-        assert_eq!(issue_file.priority, "high");
+        assert_eq!(issue_file.priority, crate::models::Priority::High);
         assert!(issue_file.closed_at.is_some());
         assert_eq!(issue_file.blockers, vec![blocker]);
         assert_eq!(issue_file.related, vec![related]);
@@ -3198,8 +3228,10 @@ mod tests {
     }
 
     #[test]
-    fn test_clock_skew_past_timestamp() {
-        // Events with timestamps far in the past should also trigger skew
+    fn test_clock_skew_past_timestamp_no_warning() {
+        // Events with timestamps in the past should NOT trigger skew warnings.
+        // Past events are expected during incremental compaction; only
+        // future-dated events indicate a skewed clock (#330).
         let mut state = CheckpointState::default();
         let mut env = make_envelope(
             "agent-1",
@@ -3216,6 +3248,30 @@ mod tests {
         );
         // Set timestamp far in the past (well beyond 60s threshold)
         env.timestamp = Utc::now() - Duration::seconds(300);
+
+        detect_clock_skew(&mut state, &env);
+        assert_eq!(state.skew_warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_clock_skew_future_timestamp() {
+        // Events with timestamps far in the future indicate a skewed clock.
+        let mut state = CheckpointState::default();
+        let mut env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid: Uuid::new_v4(),
+                title: "Future".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+            },
+        );
+        // Set timestamp far in the future (well beyond 60s threshold)
+        env.timestamp = Utc::now() + Duration::seconds(300);
 
         detect_clock_skew(&mut state, &env);
         assert_eq!(state.skew_warnings.len(), 1);

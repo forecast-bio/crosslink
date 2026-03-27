@@ -6,11 +6,12 @@ use crate::db::Database;
 use crate::models::Issue;
 use crate::utils::format_issue_id;
 
-fn status_icon(status: &str) -> &'static str {
+fn status_icon(status: &crate::models::IssueStatus) -> &'static str {
+    use crate::models::IssueStatus;
     match status {
-        "open" => " ",
-        "closed" => "x",
-        _ => "?",
+        IssueStatus::Open => " ",
+        IssueStatus::Closed => "x",
+        IssueStatus::Archived => "?",
     }
 }
 
@@ -37,7 +38,7 @@ fn print_tree_recursive(
     for sub in subissues {
         let dominated_by_filter = match status_filter {
             Some("all") | None => false,
-            Some(filter) => sub.status != filter,
+            Some(filter) => sub.status.as_str() != filter,
         };
         if dominated_by_filter {
             continue;
@@ -65,7 +66,7 @@ fn build_tree_node(db: &Database, issue: &Issue, status_filter: Option<&str>) ->
         .iter()
         .filter(|sub| match status_filter {
             Some("all") | None => true,
-            Some(filter) => sub.status == filter,
+            Some(filter) => sub.status.as_str() == filter,
         })
         .map(|sub| build_tree_node(db, sub, status_filter))
         .collect::<Result<Vec<_>>>()?;
@@ -74,8 +75,8 @@ fn build_tree_node(db: &Database, issue: &Issue, status_filter: Option<&str>) ->
         id: issue.id,
         display_id: format_issue_id(issue.id),
         title: issue.title.clone(),
-        status: issue.status.clone(),
-        priority: issue.priority.clone(),
+        status: issue.status.to_string(),
+        priority: issue.priority.to_string(),
         children,
     })
 }
@@ -129,17 +130,17 @@ mod tests {
 
     #[test]
     fn test_status_icon_open() {
-        assert_eq!(status_icon("open"), " ");
+        assert_eq!(status_icon(&crate::models::IssueStatus::Open), " ");
     }
 
     #[test]
     fn test_status_icon_closed() {
-        assert_eq!(status_icon("closed"), "x");
+        assert_eq!(status_icon(&crate::models::IssueStatus::Closed), "x");
     }
 
     #[test]
     fn test_status_icon_unknown() {
-        assert_eq!(status_icon("archived"), "?");
+        assert_eq!(status_icon(&crate::models::IssueStatus::Archived), "?");
     }
 
     #[test]

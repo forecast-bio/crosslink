@@ -21,6 +21,11 @@ use crate::sync::SyncManager;
 
 // Hub cache write lock is in sync/cache.rs — acquired via self.sync.acquire_lock()
 
+/// Comment kind for intervention comments.
+pub(super) const KIND_INTERVENTION: &str = "intervention";
+/// SSH signing namespace for crosslink comments.
+pub(super) const SIGNING_NAMESPACE: &str = "crosslink-comment";
+
 /// Content to write in a single atomic commit-push operation.
 pub(super) struct WriteSet {
     /// Files to write: (relative path in cache, serialized content).
@@ -273,6 +278,9 @@ impl SharedWriter {
         event: crate::events::Event,
         message: &str,
     ) -> Result<PushOutcome> {
+        // Serialize access to the hub cache via SyncManager's lock (#372)
+        let _lock_guard = self.sync.acquire_lock()?;
+
         let envelope = self.create_envelope(event);
         let log_path = self.event_log_path();
         crate::events::append_event(&log_path, &envelope)?;
@@ -378,38 +386,34 @@ impl SharedWriter {
             ("content", content),
         ]);
 
-        match crate::signing::sign_content(&key_path, &canonical, "crosslink-comment") {
+        match crate::signing::sign_content(&key_path, &canonical, SIGNING_NAMESPACE) {
             Ok(sig) => (Some(fingerprint), Some(sig)),
             Err(_) => (None, None),
         }
     }
 
-    /// Find all issue files in the cache with `display_id: null` created by this agent.
+    /// Scan all issue files from the cache, applying a filter predicate.
     ///
-    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
-    /// Skips issues whose UUIDs appear in the promoted-UUIDs tracking file to
-    /// prevent re-promotion loops (gh#313).
-    pub(super) fn find_offline_issues(&self) -> Result<Vec<IssueFile>> {
+    /// Supports both V1 (`issues/{uuid}.json`) and V2 (`issues/{uuid}/issue.json`)
+    /// layouts. Shared implementation used by `find_offline_issues` and
+    /// `load_issue_by_display_id`.
+    pub(super) fn scan_issues<F>(&self, mut filter: F) -> Result<Vec<IssueFile>>
+    where
+        F: FnMut(&IssueFile) -> bool,
+    {
         let issues_dir = self.cache_dir.join("issues");
-        let mut offline = Vec::new();
+        let mut results = Vec::new();
         if !issues_dir.exists() {
-            return Ok(offline);
+            return Ok(results);
         }
-
-        // Load the set of already-promoted UUIDs so we never re-promote them.
-        let promoted = self.read_promoted_uuids();
-
         for entry in std::fs::read_dir(&issues_dir)? {
             let entry = entry?;
             let path = entry.path();
             // V1: issues/{uuid}.json (flat file)
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Ok(issue) = read_issue_file(&path) {
-                    if issue.display_id.is_none()
-                        && issue.created_by == self.agent.agent_id
-                        && !promoted.contains(&issue.uuid)
-                    {
-                        offline.push(issue);
+                    if filter(&issue) {
+                        results.push(issue);
                     }
                 }
             }
@@ -418,16 +422,31 @@ impl SharedWriter {
                 let issue_file = path.join("issue.json");
                 if issue_file.exists() {
                     if let Ok(issue) = read_issue_file(&issue_file) {
-                        if issue.display_id.is_none()
-                            && issue.created_by == self.agent.agent_id
-                            && !promoted.contains(&issue.uuid)
-                        {
-                            offline.push(issue);
+                        if filter(&issue) {
+                            results.push(issue);
                         }
                     }
                 }
             }
         }
+        Ok(results)
+    }
+
+    /// Find all issue files in the cache with `display_id: null` created by this agent.
+    ///
+    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
+    /// Skips issues whose UUIDs appear in the promoted-UUIDs tracking file to
+    /// prevent re-promotion loops (gh#313).
+    pub(super) fn find_offline_issues(&self) -> Result<Vec<IssueFile>> {
+        // Load the set of already-promoted UUIDs so we never re-promote them.
+        let promoted = self.read_promoted_uuids();
+        let agent_id = self.agent.agent_id.clone();
+
+        let mut offline = self.scan_issues(|issue| {
+            issue.display_id.is_none()
+                && issue.created_by == agent_id
+                && !promoted.contains(&issue.uuid)
+        })?;
         // Sort by created_at for deterministic ID assignment
         offline.sort_by_key(|i| i.created_at);
         Ok(offline)
@@ -524,36 +543,13 @@ impl SharedWriter {
     /// Scans the issues directory for a file matching the display ID.
     /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
     pub(super) fn load_issue_by_display_id(&self, display_id: i64) -> Result<IssueFile> {
-        let issues_dir = self.cache_dir.join("issues");
-        for entry in std::fs::read_dir(&issues_dir)
-            .with_context(|| format!("Cannot read issues dir: {}", issues_dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            // V1: issues/{uuid}.json (flat file)
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(issue) = read_issue_file(&path) {
-                    if issue.display_id == Some(display_id) {
-                        return Ok(issue);
-                    }
-                }
-            }
-            // V2: issues/{uuid}/issue.json (directory per issue)
-            if path.is_dir() {
-                let issue_file = path.join("issue.json");
-                if issue_file.exists() {
-                    if let Ok(issue) = read_issue_file(&issue_file) {
-                        if issue.display_id == Some(display_id) {
-                            return Ok(issue);
-                        }
-                    }
-                }
-            }
-        }
-        bail!(
-            "Issue {} not found in shared cache",
-            crate::utils::format_issue_id(display_id)
-        )
+        let mut matches = self.scan_issues(|issue| issue.display_id == Some(display_id))?;
+        matches.pop().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Issue {} not found in shared cache",
+                crate::utils::format_issue_id(display_id)
+            )
+        })
     }
 
     /// Load an issue by ID, supporting both positive (real) and negative (offline) IDs.

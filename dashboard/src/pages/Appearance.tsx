@@ -1,8 +1,16 @@
+import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { useThemeStore, THEME_DEFAULTS, OPACITY_DEFAULTS } from "@/stores/theme";
 import { hslToHex, hexToHsl } from "@/lib/color";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // ---------------------------------------------------------------------------
 // Color groups — organized for the settings UI
@@ -319,15 +327,18 @@ function ThemeExport() {
 
   const exportData = JSON.stringify({ colors, opacity }, null, 2);
 
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+
   const handleCopy = () => {
     navigator.clipboard.writeText(exportData).catch(() => {});
   };
 
   const handleImport = () => {
-    const input = prompt("Paste theme JSON:");
-    if (!input) return;
+    setImportError(null);
     try {
-      const data = JSON.parse(input) as { colors?: Record<string, string>; opacity?: Record<string, number> };
+      const data = JSON.parse(importText) as { colors?: Record<string, string>; opacity?: Record<string, number> };
       if (data.colors) {
         for (const [k, v] of Object.entries(data.colors)) {
           if (k in THEME_DEFAULTS) useThemeStore.getState().setColor(k, v);
@@ -338,8 +349,10 @@ function ThemeExport() {
           if (k in OPACITY_DEFAULTS) useThemeStore.getState().setOpacity(k, v);
         }
       }
+      setImportText("");
+      setImportDialogOpen(false);
     } catch {
-      alert("Invalid theme JSON");
+      setImportError("Invalid theme JSON");
     }
   };
 
@@ -358,10 +371,39 @@ function ThemeExport() {
         <Button size="sm" variant="outline" onClick={handleCopy} disabled={!hasOverrides}>
           Copy JSON
         </Button>
-        <Button size="sm" variant="outline" onClick={handleImport}>
+        <Button size="sm" variant="outline" onClick={() => { setImportText(""); setImportError(null); setImportDialogOpen(true); }}>
           Import JSON
         </Button>
       </div>
+
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Theme JSON</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder='Paste theme JSON here...'
+              rows={8}
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
+              autoFocus
+            />
+            {importError && (
+              <p className="text-destructive text-xs">{importError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setImportDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleImport} disabled={!importText.trim()}>
+              Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

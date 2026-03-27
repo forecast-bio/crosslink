@@ -18,7 +18,7 @@ use crate::sync::SyncManager;
 
 /// Which sub-view is active.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ViewMode {
+enum ConfigViewMode {
     /// Main diagnostics overview with inline config editing.
     Main,
     /// Full event log browser.
@@ -72,7 +72,7 @@ struct PendingChange {
 pub struct ConfigTab {
     crosslink_dir: PathBuf,
     db_path: PathBuf,
-    view_mode: ViewMode,
+    view_mode: ConfigViewMode,
     main_scroll: usize,
 
     // Agent identity
@@ -101,7 +101,6 @@ pub struct ConfigTab {
     alias_file: String,
 
     // Inline editing state
-    _edit_text: String,
     pending_change: Option<PendingChange>,
 
     // Array editing
@@ -127,7 +126,7 @@ impl ConfigTab {
         let mut tab = ConfigTab {
             crosslink_dir: crosslink_dir.to_path_buf(),
             db_path: db_path.to_path_buf(),
-            view_mode: ViewMode::Main,
+            view_mode: ConfigViewMode::Main,
             main_scroll: 0,
             agent_id: String::new(),
             machine_id: String::new(),
@@ -144,7 +143,6 @@ impl ConfigTab {
             config_cursor: 0,
             alias_installed: false,
             alias_file: String::new(),
-            _edit_text: String::new(),
             pending_change: None,
             array_items: Vec::new(),
             array_cursor: 0,
@@ -319,7 +317,7 @@ impl ConfigTab {
                 new_value,
                 scope: WriteScope::Team,
             });
-            self.view_mode = ViewMode::ConfirmWrite;
+            self.view_mode = ConfigViewMode::ConfirmWrite;
         }
     }
 
@@ -342,7 +340,7 @@ impl ConfigTab {
                 }
             }
             self.array_cursor = 0;
-            self.view_mode = ViewMode::EditArray;
+            self.view_mode = ConfigViewMode::EditArray;
         }
     }
 
@@ -384,7 +382,7 @@ impl ConfigTab {
             }
         }
         self.pending_change = None;
-        self.view_mode = ViewMode::Main;
+        self.view_mode = ConfigViewMode::Main;
         self.load_config();
     }
 
@@ -402,7 +400,7 @@ impl ConfigTab {
                     new_value: format_json_value(default_val),
                     scope: WriteScope::Team,
                 });
-                self.view_mode = ViewMode::ConfirmWrite;
+                self.view_mode = ConfigViewMode::ConfirmWrite;
             }
         }
     }
@@ -580,7 +578,7 @@ impl ConfigTab {
 
         let para = Paragraph::new(lines)
             .block(Block::default().borders(Borders::ALL))
-            .scroll((self.main_scroll as u16, 0))
+            .scroll((u16::try_from(self.main_scroll).unwrap_or(u16::MAX), 0))
             .wrap(Wrap { trim: false });
 
         frame.render_widget(para, chunks[0]);
@@ -868,14 +866,21 @@ impl ConfigTab {
                     && self.config_cursor < self.config_entries.len() - 1
                 {
                     self.config_cursor += 1;
+                    // Keep scroll synchronized: scroll down if cursor moves past visible area
+                    self.main_scroll = self.main_scroll.max(
+                        self.config_cursor.saturating_sub(8), // keep cursor ~8 lines from bottom
+                    );
                 }
-                // Also scroll the view
-                self.main_scroll = self.main_scroll.saturating_add(1);
                 TabAction::Consumed
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                self.config_cursor = self.config_cursor.saturating_sub(1);
-                self.main_scroll = self.main_scroll.saturating_sub(1);
+                if self.config_cursor > 0 {
+                    self.config_cursor -= 1;
+                    // Keep scroll synchronized: scroll up if cursor moves above visible area
+                    if self.config_cursor < self.main_scroll.saturating_add(2) {
+                        self.main_scroll = self.config_cursor.saturating_sub(2);
+                    }
+                }
                 TabAction::Consumed
             }
             KeyCode::PageDown => {
@@ -886,13 +891,13 @@ impl ConfigTab {
                         .saturating_sub(self.config_cursor),
                 );
                 self.config_cursor += jump;
-                self.main_scroll = self.main_scroll.saturating_add(10);
+                self.main_scroll = self.main_scroll.saturating_add(jump);
                 TabAction::Consumed
             }
             KeyCode::PageUp => {
                 let jump = 10.min(self.config_cursor);
                 self.config_cursor -= jump;
-                self.main_scroll = self.main_scroll.saturating_sub(10);
+                self.main_scroll = self.main_scroll.saturating_sub(jump);
                 TabAction::Consumed
             }
             KeyCode::Home | KeyCode::Char('g') => {
@@ -917,7 +922,7 @@ impl ConfigTab {
                 TabAction::Consumed
             }
             KeyCode::Char('e') => {
-                self.view_mode = ViewMode::EventLog;
+                self.view_mode = ConfigViewMode::EventLog;
                 self.event_scroll = 0;
                 TabAction::Consumed
             }
@@ -928,7 +933,7 @@ impl ConfigTab {
     fn handle_event_log_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Esc => {
-                self.view_mode = ViewMode::Main;
+                self.view_mode = ConfigViewMode::Main;
                 TabAction::Consumed
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -974,7 +979,7 @@ impl ConfigTab {
     fn handle_edit_array_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Esc => {
-                self.view_mode = ViewMode::Main;
+                self.view_mode = ConfigViewMode::Main;
                 TabAction::Consumed
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -1009,12 +1014,26 @@ impl ConfigTab {
             .iter()
             .map(|s| serde_json::Value::String(s.clone()))
             .collect();
-        let path = self.crosslink_dir.join("hook-config.json");
-        if let Ok(content) = std::fs::read_to_string(&path) {
+
+        // Determine the correct scope: write to local config if the key is locally overridden,
+        // otherwise write to the team config.
+        let source = self
+            .config_entries
+            .iter()
+            .find(|e| e.key == self.array_key)
+            .map(|e| e.source)
+            .unwrap_or(Source::Team);
+
+        let config_file = match source {
+            Source::Local => self.crosslink_dir.join("hook-config.local.json"),
+            _ => self.crosslink_dir.join("hook-config.json"),
+        };
+
+        if let Ok(content) = std::fs::read_to_string(&config_file) {
             if let Ok(mut cfg) = serde_json::from_str::<serde_json::Value>(&content) {
                 cfg[&self.array_key] = serde_json::Value::Array(items);
                 if let Ok(pretty) = serde_json::to_string_pretty(&cfg) {
-                    let _ = std::fs::write(&path, format!("{pretty}\n"));
+                    let _ = std::fs::write(&config_file, format!("{pretty}\n"));
                 }
             }
         }
@@ -1025,7 +1044,7 @@ impl ConfigTab {
         match key.code {
             KeyCode::Esc => {
                 self.pending_change = None;
-                self.view_mode = ViewMode::Main;
+                self.view_mode = ConfigViewMode::Main;
                 TabAction::Consumed
             }
             KeyCode::Enter => {
@@ -1056,19 +1075,19 @@ impl Tab for ConfigTab {
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         match self.view_mode {
-            ViewMode::Main => self.render_main(frame, area),
-            ViewMode::EventLog => self.render_event_log(frame, area),
-            ViewMode::EditArray => self.render_edit_array(frame, area),
-            ViewMode::ConfirmWrite => self.render_confirm_write(frame, area),
+            ConfigViewMode::Main => self.render_main(frame, area),
+            ConfigViewMode::EventLog => self.render_event_log(frame, area),
+            ConfigViewMode::EditArray => self.render_edit_array(frame, area),
+            ConfigViewMode::ConfirmWrite => self.render_confirm_write(frame, area),
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> TabAction {
         match self.view_mode {
-            ViewMode::Main => self.handle_main_key(key),
-            ViewMode::EventLog => self.handle_event_log_key(key),
-            ViewMode::EditArray => self.handle_edit_array_key(key),
-            ViewMode::ConfirmWrite => self.handle_confirm_key(key),
+            ConfigViewMode::Main => self.handle_main_key(key),
+            ConfigViewMode::EventLog => self.handle_event_log_key(key),
+            ConfigViewMode::EditArray => self.handle_edit_array_key(key),
+            ConfigViewMode::ConfirmWrite => self.handle_confirm_key(key),
         }
     }
 
@@ -1199,54 +1218,21 @@ fn format_json_value(v: &serde_json::Value) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let end = max.saturating_sub(3);
-        let truncated: String = s.chars().take(end).collect();
-        format!("{truncated}...")
-    }
+    super::truncate_str(s, max)
 }
 
 fn describe_event(event: &events::Event) -> String {
-    match event {
-        events::Event::IssueCreated { title, .. } => {
-            format!("IssueCreated: {}", truncate(title, 40))
-        }
-        events::Event::LockClaimed {
-            issue_display_id, ..
-        } => format!("LockClaimed #{issue_display_id}"),
-        events::Event::LockReleased {
-            issue_display_id, ..
-        } => format!("LockReleased #{issue_display_id}"),
-        events::Event::IssueUpdated { .. } => "IssueUpdated".to_string(),
-        events::Event::StatusChanged { new_status, .. } => {
-            format!("StatusChanged \u{2192} {new_status}")
-        }
-        events::Event::DependencyAdded { .. } => "DependencyAdded".to_string(),
-        events::Event::DependencyRemoved { .. } => "DependencyRemoved".to_string(),
-        events::Event::RelationAdded { .. } => "RelationAdded".to_string(),
-        events::Event::RelationRemoved { .. } => "RelationRemoved".to_string(),
-        events::Event::MilestoneAssigned { .. } => "MilestoneAssigned".to_string(),
-        events::Event::LabelAdded { label, .. } => format!("LabelAdded: {label}"),
-        events::Event::LabelRemoved { label, .. } => format!("LabelRemoved: {label}"),
-        events::Event::ParentChanged { .. } => "ParentChanged".to_string(),
-    }
+    super::format_event_description(event)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::KeyCode;
     use tempfile::tempdir;
 
-    fn make_key(code: KeyCode) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers: KeyModifiers::empty(),
-            kind: KeyEventKind::Press,
-            state: KeyEventState::empty(),
-        }
+    fn make_key(code: KeyCode) -> crossterm::event::KeyEvent {
+        super::super::make_test_key(code)
     }
 
     fn setup_tab() -> (ConfigTab, tempfile::TempDir) {
@@ -1276,7 +1262,7 @@ mod tests {
     #[test]
     fn test_initial_state() {
         let (tab, _dir) = setup_tab();
-        assert_eq!(tab.view_mode, ViewMode::Main);
+        assert_eq!(tab.view_mode, ConfigViewMode::Main);
         assert_eq!(tab.main_scroll, 0);
         assert_eq!(tab.issue_count, 1);
         assert_eq!(tab.milestone_count, 1);
@@ -1319,9 +1305,9 @@ mod tests {
     #[test]
     fn test_switch_to_event_log() {
         let (mut tab, _dir) = setup_tab();
-        assert_eq!(tab.view_mode, ViewMode::Main);
+        assert_eq!(tab.view_mode, ConfigViewMode::Main);
         tab.handle_key(make_key(KeyCode::Char('e')));
-        assert_eq!(tab.view_mode, ViewMode::EventLog);
+        assert_eq!(tab.view_mode, ConfigViewMode::EventLog);
         assert_eq!(tab.event_scroll, 0);
     }
 
@@ -1329,9 +1315,9 @@ mod tests {
     fn test_event_log_back() {
         let (mut tab, _dir) = setup_tab();
         tab.handle_key(make_key(KeyCode::Char('e')));
-        assert_eq!(tab.view_mode, ViewMode::EventLog);
+        assert_eq!(tab.view_mode, ConfigViewMode::EventLog);
         tab.handle_key(make_key(KeyCode::Esc));
-        assert_eq!(tab.view_mode, ViewMode::Main);
+        assert_eq!(tab.view_mode, ConfigViewMode::Main);
     }
 
     #[test]
@@ -1341,7 +1327,7 @@ mod tests {
         tab.config_cursor = 0;
         tab.handle_key(make_key(KeyCode::Enter));
         // Should enter ConfirmWrite mode
-        assert_eq!(tab.view_mode, ViewMode::ConfirmWrite);
+        assert_eq!(tab.view_mode, ConfigViewMode::ConfirmWrite);
         assert!(tab.pending_change.is_some());
     }
 
@@ -1350,7 +1336,7 @@ mod tests {
         let (mut tab, _dir) = setup_tab();
         tab.config_cursor = 0;
         tab.handle_key(make_key(KeyCode::Enter));
-        assert_eq!(tab.view_mode, ViewMode::ConfirmWrite);
+        assert_eq!(tab.view_mode, ConfigViewMode::ConfirmWrite);
         // Toggle to local
         tab.handle_key(make_key(KeyCode::Char('l')));
         assert!(matches!(
@@ -1370,9 +1356,9 @@ mod tests {
         let (mut tab, _dir) = setup_tab();
         tab.config_cursor = 0;
         tab.handle_key(make_key(KeyCode::Enter));
-        assert_eq!(tab.view_mode, ViewMode::ConfirmWrite);
+        assert_eq!(tab.view_mode, ConfigViewMode::ConfirmWrite);
         tab.handle_key(make_key(KeyCode::Esc));
-        assert_eq!(tab.view_mode, ViewMode::Main);
+        assert_eq!(tab.view_mode, ConfigViewMode::Main);
         assert!(tab.pending_change.is_none());
     }
 
@@ -1396,7 +1382,7 @@ mod tests {
     #[test]
     fn test_render_event_log_no_panic() {
         let (mut tab, _dir) = setup_tab();
-        tab.view_mode = ViewMode::EventLog;
+        tab.view_mode = ConfigViewMode::EventLog;
         let backend = ratatui::backend::TestBackend::new(100, 40);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1413,7 +1399,7 @@ mod tests {
             new_value: "normal".to_string(),
             scope: WriteScope::Team,
         });
-        tab.view_mode = ViewMode::ConfirmWrite;
+        tab.view_mode = ConfigViewMode::ConfirmWrite;
         let backend = ratatui::backend::TestBackend::new(100, 40);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1540,7 +1526,7 @@ mod tests {
     #[test]
     fn test_event_log_scroll() {
         let (mut tab, _dir) = setup_tab();
-        tab.view_mode = ViewMode::EventLog;
+        tab.view_mode = ConfigViewMode::EventLog;
         tab.handle_key(make_key(KeyCode::Down));
         assert_eq!(tab.event_scroll, 0);
         tab.handle_key(make_key(KeyCode::PageDown));

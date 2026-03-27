@@ -145,8 +145,8 @@ fn build_issue_file(
         display_id: Some(issue.id),
         title: issue.title.clone(),
         description: issue.description.clone(),
-        status: issue.status.clone(),
-        priority: issue.priority.clone(),
+        status: issue.status,
+        priority: issue.priority,
         parent_uuid,
         created_by: created_by.unwrap_or_else(|| "unknown".to_string()),
         created_at: issue.created_at,
@@ -196,9 +196,18 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
     ));
 
     // Group by status
-    let open: Vec<_> = issues.iter().filter(|i| i.status == "open").collect();
-    let closed: Vec<_> = issues.iter().filter(|i| i.status == "closed").collect();
-    let archived: Vec<_> = issues.iter().filter(|i| i.status == "archived").collect();
+    let open: Vec<_> = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Open)
+        .collect();
+    let closed: Vec<_> = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Closed)
+        .collect();
+    let archived: Vec<_> = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Archived)
+        .collect();
 
     if !open.is_empty() {
         md.push_str("## Open Issues\n\n");
@@ -235,7 +244,7 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
 }
 
 fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
-    let checkbox = if issue.status == "closed" {
+    let checkbox = if issue.status == crate::models::IssueStatus::Closed {
         "[x]"
     } else {
         "[ ]"
@@ -291,10 +300,9 @@ mod tests {
     use super::*;
     use crate::issue_file::IssueFile;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

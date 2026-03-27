@@ -11,22 +11,37 @@ use crate::issue_file::{CommentEntry, CommentFile, IssueFile};
 
 use super::core::{PushOutcome, SharedWriter, WriteSet};
 
+/// Internal parameters for creating a comment (shared by `add_comment`
+/// and `add_intervention_comment` to avoid duplicating V1/V2 dispatch).
+#[derive(Clone)]
+struct CommentParams {
+    content: String,
+    kind: String,
+    trigger_type: Option<String>,
+    intervention_context: Option<String>,
+    driver_key_fingerprint: Option<String>,
+}
+
 impl SharedWriter {
-    /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
+    /// Internal helper: create an issue (optionally as a subissue).
     ///
-    /// Returns the assigned display ID.
-    pub fn create_issue(
+    /// Shared by `create_issue` and `create_subissue` to avoid duplicating
+    /// the UUID generation, ID claiming, V2 directory setup, offline
+    /// rewrite, and hydration logic.
+    fn create_issue_inner(
         &self,
         db: &Database,
         title: &str,
         description: Option<&str>,
         priority: &str,
+        parent_uuid: Option<Uuid>,
+        commit_msg: &str,
     ) -> Result<i64> {
         let uuid = Uuid::new_v4();
         let now = Utc::now();
         let title_owned = title.to_string();
         let desc_owned = description.map(|s| s.to_string());
-        let priority_owned = priority.to_string();
+        let priority_parsed: crate::models::Priority = priority.parse()?;
         let agent_id = self.agent.agent_id.clone();
         let display_id = Cell::new(0i64);
 
@@ -40,9 +55,9 @@ impl SharedWriter {
                     display_id: Some(id),
                     title: title_owned.clone(),
                     description: desc_owned.clone(),
-                    status: "open".to_string(),
-                    priority: priority_owned.clone(),
-                    parent_uuid: None,
+                    status: crate::models::IssueStatus::Open,
+                    priority: priority_parsed,
+                    parent_uuid,
                     created_by: agent_id.clone(),
                     created_at: now,
                     updated_at: now,
@@ -57,7 +72,6 @@ impl SharedWriter {
                 let json = serde_json::to_vec_pretty(&issue)?;
                 let rel_path = writer.issue_rel_path(&uuid);
                 if is_v2 {
-                    // Ensure the comments subdirectory exists for v2 layout
                     let comments_dir = writer
                         .cache_dir
                         .join("issues")
@@ -72,7 +86,7 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("create issue: {}", title),
+            commit_msg,
         )?;
 
         if outcome == PushOutcome::LocalOnly {
@@ -83,6 +97,26 @@ impl SharedWriter {
 
         self.hydrate_with_retry(db)?;
         Ok(display_id.get())
+    }
+
+    /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
+    ///
+    /// Returns the assigned display ID.
+    pub fn create_issue(
+        &self,
+        db: &Database,
+        title: &str,
+        description: Option<&str>,
+        priority: &str,
+    ) -> Result<i64> {
+        self.create_issue_inner(
+            db,
+            title,
+            description,
+            priority,
+            None,
+            &format!("create issue: {}", title),
+        )
     }
 
     /// Create a subissue under a parent.
@@ -97,66 +131,14 @@ impl SharedWriter {
         priority: &str,
     ) -> Result<i64> {
         let parent_uuid = self.resolve_uuid(parent_id, db)?;
-        let uuid = Uuid::new_v4();
-        let now = Utc::now();
-        let title_owned = title.to_string();
-        let desc_owned = description.map(|s| s.to_string());
-        let priority_owned = priority.to_string();
-        let agent_id = self.agent.agent_id.clone();
-        let display_id = Cell::new(0i64);
-
-        let outcome = self.write_commit_push(
-            |writer| {
-                let (id, counters) = writer.claim_display_id(1)?;
-                display_id.set(id);
-                let is_v2 = writer.layout_version() >= 2;
-                let issue = IssueFile {
-                    uuid,
-                    display_id: Some(id),
-                    title: title_owned.clone(),
-                    description: desc_owned.clone(),
-                    status: "open".to_string(),
-                    priority: priority_owned.clone(),
-                    parent_uuid: Some(parent_uuid),
-                    created_by: agent_id.clone(),
-                    created_at: now,
-                    updated_at: now,
-                    closed_at: None,
-                    labels: vec![],
-                    comments: vec![],
-                    blockers: vec![],
-                    related: vec![],
-                    milestone_uuid: None,
-                    time_entries: vec![],
-                };
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&uuid);
-                if is_v2 {
-                    let comments_dir = writer
-                        .cache_dir
-                        .join("issues")
-                        .join(uuid.to_string())
-                        .join("comments");
-                    std::fs::create_dir_all(&comments_dir)
-                        .context("Failed to create v2 comments directory")?;
-                }
-                Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: Some(counters),
-                    use_git_rm: false,
-                })
-            },
+        self.create_issue_inner(
+            db,
+            title,
+            description,
+            priority,
+            Some(parent_uuid),
             &format!("create subissue under #{}: {}", parent_id, title),
-        )?;
-
-        if outcome == PushOutcome::LocalOnly {
-            self.rewrite_as_offline(uuid)?;
-            self.hydrate_with_retry(db)?;
-            return db.get_issue_id_by_uuid(&uuid.to_string());
-        }
-
-        self.hydrate_with_retry(db)?;
-        Ok(display_id.get())
+        )
     }
 
     /// Update an issue's title, description, status, or priority.
@@ -171,8 +153,12 @@ impl SharedWriter {
     ) -> Result<()> {
         let title_owned = title.map(|s| s.to_string());
         let desc_owned = description.map(|d| d.map(|s| s.to_string()));
-        let status_owned = status.map(|s| s.to_string());
-        let priority_owned = priority.map(|s| s.to_string());
+        let status_parsed = status
+            .map(|s| s.parse::<crate::models::IssueStatus>())
+            .transpose()?;
+        let priority_parsed = priority
+            .map(|s| s.parse::<crate::models::Priority>())
+            .transpose()?;
 
         let _ = self.write_commit_push(
             |writer| {
@@ -183,11 +169,11 @@ impl SharedWriter {
                 if let Some(ref d) = desc_owned {
                     issue.description = d.clone();
                 }
-                if let Some(ref s) = status_owned {
-                    issue.status = s.clone();
+                if let Some(s) = status_parsed {
+                    issue.status = s;
                 }
-                if let Some(ref p) = priority_owned {
-                    issue.priority = p.clone();
+                if let Some(p) = priority_parsed {
+                    issue.priority = p;
                 }
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
@@ -211,7 +197,7 @@ impl SharedWriter {
             |writer| {
                 let mut issue = writer.load_issue_by_id(display_id, db)?;
                 let now = Utc::now();
-                issue.status = "closed".to_string();
+                issue.status = crate::models::IssueStatus::Closed;
                 issue.closed_at = Some(now);
                 issue.updated_at = now;
                 let json = serde_json::to_vec_pretty(&issue)?;
@@ -234,7 +220,7 @@ impl SharedWriter {
         let _ = self.write_commit_push(
             |writer| {
                 let mut issue = writer.load_issue_by_id(display_id, db)?;
-                issue.status = "open".to_string();
+                issue.status = crate::models::IssueStatus::Open;
                 issue.closed_at = None;
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
@@ -306,18 +292,16 @@ impl SharedWriter {
         Ok(())
     }
 
-    /// Add a comment to an issue.
+    /// Internal helper: add a comment to an issue with the given parameters.
     ///
-    /// Returns the comment ID.
-    pub fn add_comment(
+    /// Handles counter claiming, signing, and V1/V2 layout dispatch.
+    fn add_comment_inner(
         &self,
         db: &Database,
         display_id: i64,
-        content: &str,
-        kind: &str,
+        params: CommentParams,
+        commit_msg: &str,
     ) -> Result<i64> {
-        let content_owned = content.to_string();
-        let kind_owned = kind.to_string();
         let agent_id = self.agent.agent_id.clone();
         let comment_id = Cell::new(0i64);
 
@@ -328,22 +312,21 @@ impl SharedWriter {
                 counters.next_comment_id += 1;
                 comment_id.set(id);
 
-                let (signed_by, signature) = writer.sign_comment(&content_owned, &agent_id, id);
+                let (signed_by, signature) = writer.sign_comment(&params.content, &agent_id, id);
 
                 if writer.layout_version() >= 2 {
-                    // V2: write a standalone comment file, don't modify the issue file
                     let issue = writer.load_issue_by_id(display_id, db)?;
                     let comment_uuid = Uuid::new_v4();
                     let comment_file = CommentFile {
                         uuid: comment_uuid,
                         issue_uuid: issue.uuid,
                         author: agent_id.clone(),
-                        content: content_owned.clone(),
+                        content: params.content.clone(),
                         created_at: Utc::now(),
-                        kind: kind_owned.clone(),
-                        trigger_type: None,
-                        intervention_context: None,
-                        driver_key_fingerprint: None,
+                        kind: params.kind.clone(),
+                        trigger_type: params.trigger_type.clone(),
+                        intervention_context: params.intervention_context.clone(),
+                        driver_key_fingerprint: params.driver_key_fingerprint.clone(),
                         signed_by,
                         signature,
                     };
@@ -355,17 +338,16 @@ impl SharedWriter {
                         use_git_rm: false,
                     })
                 } else {
-                    // V1: append comment inline to the issue file
                     let mut issue = writer.load_issue_by_id(display_id, db)?;
                     issue.comments.push(CommentEntry {
                         id,
                         author: agent_id.clone(),
-                        content: content_owned.clone(),
+                        content: params.content.clone(),
                         created_at: Utc::now(),
-                        kind: kind_owned.clone(),
-                        trigger_type: None,
-                        intervention_context: None,
-                        driver_key_fingerprint: None,
+                        kind: params.kind.clone(),
+                        trigger_type: params.trigger_type.clone(),
+                        intervention_context: params.intervention_context.clone(),
+                        driver_key_fingerprint: params.driver_key_fingerprint.clone(),
                         signed_by,
                         signature,
                     });
@@ -380,11 +362,35 @@ impl SharedWriter {
                     })
                 }
             },
-            &format!("comment on issue #{}", display_id),
+            commit_msg,
         )?;
 
         self.hydrate_with_retry(db)?;
         Ok(comment_id.get())
+    }
+
+    /// Add a comment to an issue.
+    ///
+    /// Returns the comment ID.
+    pub fn add_comment(
+        &self,
+        db: &Database,
+        display_id: i64,
+        content: &str,
+        kind: &str,
+    ) -> Result<i64> {
+        self.add_comment_inner(
+            db,
+            display_id,
+            CommentParams {
+                content: content.to_string(),
+                kind: kind.to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+            },
+            &format!("comment on issue #{}", display_id),
+        )
     }
 
     /// Add a driver intervention comment to an issue (kind = "intervention").
@@ -397,77 +403,18 @@ impl SharedWriter {
         intervention_context: Option<&str>,
         driver_key_fingerprint: Option<&str>,
     ) -> Result<i64> {
-        let content_owned = content.to_string();
-        let trigger_owned = trigger_type.to_string();
-        let context_owned = intervention_context.map(|s| s.to_string());
-        let driver_fp_owned = driver_key_fingerprint.map(|s| s.to_string());
-        let agent_id = self.agent.agent_id.clone();
-        let comment_id = Cell::new(0i64);
-
-        let _ = self.write_commit_push(
-            |writer| {
-                let mut counters = writer.read_counters()?;
-                let id = counters.next_comment_id;
-                counters.next_comment_id += 1;
-                comment_id.set(id);
-
-                let (signed_by, signature) = writer.sign_comment(&content_owned, &agent_id, id);
-
-                if writer.layout_version() >= 2 {
-                    // V2: write a standalone comment file
-                    let issue = writer.load_issue_by_id(display_id, db)?;
-                    let comment_uuid = Uuid::new_v4();
-                    let comment_file = CommentFile {
-                        uuid: comment_uuid,
-                        issue_uuid: issue.uuid,
-                        author: agent_id.clone(),
-                        content: content_owned.clone(),
-                        created_at: Utc::now(),
-                        kind: "intervention".to_string(),
-                        trigger_type: Some(trigger_owned.clone()),
-                        intervention_context: context_owned.clone(),
-                        driver_key_fingerprint: driver_fp_owned.clone(),
-                        signed_by,
-                        signature,
-                    };
-                    let json = serde_json::to_vec_pretty(&comment_file)?;
-                    let rel_path = writer.comment_rel_path(&issue.uuid, &comment_uuid);
-                    Ok(WriteSet {
-                        files: vec![(rel_path, json)],
-                        counters: Some(counters),
-                        use_git_rm: false,
-                    })
-                } else {
-                    // V1: append comment inline to the issue file
-                    let mut issue = writer.load_issue_by_id(display_id, db)?;
-                    issue.comments.push(CommentEntry {
-                        id,
-                        author: agent_id.clone(),
-                        content: content_owned.clone(),
-                        created_at: Utc::now(),
-                        kind: "intervention".to_string(),
-                        trigger_type: Some(trigger_owned.clone()),
-                        intervention_context: context_owned.clone(),
-                        driver_key_fingerprint: driver_fp_owned.clone(),
-                        signed_by,
-                        signature,
-                    });
-                    issue.updated_at = Utc::now();
-
-                    let json = serde_json::to_vec_pretty(&issue)?;
-                    let rel_path = writer.issue_rel_path(&issue.uuid);
-                    Ok(WriteSet {
-                        files: vec![(rel_path, json)],
-                        counters: Some(counters),
-                        use_git_rm: false,
-                    })
-                }
+        self.add_comment_inner(
+            db,
+            display_id,
+            CommentParams {
+                content: content.to_string(),
+                kind: super::core::KIND_INTERVENTION.to_string(),
+                trigger_type: Some(trigger_type.to_string()),
+                intervention_context: intervention_context.map(|s| s.to_string()),
+                driver_key_fingerprint: driver_key_fingerprint.map(|s| s.to_string()),
             },
             &format!("intervention on issue #{}", display_id),
-        )?;
-
-        self.hydrate_with_retry(db)?;
-        Ok(comment_id.get())
+        )
     }
 
     /// Add a label to an issue.
@@ -632,6 +579,9 @@ impl SharedWriter {
     /// counter bump. Used when a push failed (offline/exhausted retries) so the
     /// locally-claimed display ID doesn't collide with remote state.
     pub(super) fn rewrite_as_offline(&self, uuid: Uuid) -> Result<()> {
+        // Serialize access to the hub cache (#373)
+        let _lock_guard = self.sync.acquire_lock()?;
+
         let path = self.issue_path(&uuid);
         let mut issue = crate::issue_file::read_issue_file(&path)?;
         issue.display_id = None;

@@ -17,43 +17,10 @@ use axum::{
 
 use crate::orchestrator::{decompose, executor::OrchestratorExecutor};
 use crate::server::{
+    errors::{bad_request, internal_error, not_found},
     state::AppState,
     types::{ApiError, DecomposeRequest, ExecutionStatus, OrchestratorPlan},
 };
-
-// ---------------------------------------------------------------------------
-// Error helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
-
-fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ApiError {
-            error: "bad request".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
-
-fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiError {
-            error: "not found".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
 
 fn conflict(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
     (
@@ -170,7 +137,7 @@ pub async fn execute(
         let plan = OrchestratorExecutor::load_plan(&state.crosslink_dir)
             .map_err(|e| not_found(format!("No plan found: {e}")))?;
 
-        let db = state.db();
+        let db = state.db().await;
 
         let mut executor = OrchestratorExecutor::init(&state.crosslink_dir, &db, &plan)
             .map_err(|e| internal_error("Failed to initialize execution", e))?;
@@ -394,7 +361,7 @@ pub async fn mark_stage_done_handler(
     let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
-    let db = state.db();
+    let db = state.db().await;
     let (newly_ready, event, complete) = executor
         .mark_stage_done(&stage_id, &db)
         .map_err(|e| bad_request(format!("Cannot mark stage done: {e}")))?;
@@ -425,7 +392,7 @@ pub async fn mark_stage_failed_handler(
     let mut executor = OrchestratorExecutor::load(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
-    let event = executor
+    let (event, execution_complete) = executor
         .mark_stage_failed(&stage_id)
         .map_err(|e| bad_request(format!("Cannot mark stage failed: {e}")))?;
 
@@ -434,6 +401,7 @@ pub async fn mark_stage_failed_handler(
     Ok(Json(serde_json::json!({
         "ok": true,
         "stage_id": stage_id,
+        "execution_complete": execution_complete,
     })))
 }
 
@@ -531,13 +499,12 @@ mod tests {
     use crate::orchestrator::{
         dag::{Dag, DagNode},
         executor::ExecutionSnapshot,
+        models::{OrchestratorPhase, OrchestratorStage},
     };
     use crate::server::{
         routes::build_router,
         state::AppState,
-        types::{
-            ExecutionState, OrchestratorPhase, OrchestratorPlan, OrchestratorStage, StageStatus,
-        },
+        types::{ExecutionState, OrchestratorPlan, StageStatus},
     };
     use axum::{
         body::Body,

@@ -1,7 +1,6 @@
 import type {
   Agent,
   AgentDetailResponse,
-  AgentUsageSummary,
   BudgetConfig,
   Comment,
   Config,
@@ -14,21 +13,32 @@ import type {
   KnowledgeSearchMatch,
   Lock,
   MilestoneDetail,
-  ModelUsageSummary,
   OrchestratorPlan,
+  RawUsageSummary,
   Session,
   SyncStatus,
   TokenUsageRecord,
-  UsageSummary,
 } from "@/lib/types";
 
-const BASE = "/api/v1";
+export interface ApiClientConfig {
+  baseUrl?: string;
+  fetchFn?: typeof globalThis.fetch;
+}
+
+let _baseUrl = "/api/v1";
+let _fetchFn: typeof globalThis.fetch = globalThis.fetch.bind(globalThis);
+
+/** Configure the API client. Call before any API calls to inject dependencies. */
+export function configureApiClient(config: ApiClientConfig): void {
+  if (config.baseUrl !== undefined) _baseUrl = config.baseUrl;
+  if (config.fetchFn !== undefined) _fetchFn = config.fetchFn;
+}
 
 async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await _fetchFn(`${_baseUrl}${path}`, {
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   });
@@ -64,13 +74,14 @@ export interface IssueListParams {
   parent_id?: number;
 }
 
+function isDefined(entry: [string, unknown]): entry is [string, string] {
+  return entry[1] !== undefined;
+}
+
 export const issues = {
   list: (params?: IssueListParams) => {
     const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v !== undefined) as [
-        string,
-        string,
-      ][],
+      Object.entries(params ?? {}).filter(isDefined),
     ).toString();
     return requestList<Issue>(`/issues${q ? `?${q}` : ""}`);
   },
@@ -143,6 +154,8 @@ export const sessions = {
     }),
   work: (issueId: number) =>
     request<void>(`/sessions/work/${issueId}`, { method: "POST" }),
+  clearWork: () =>
+    request<void>("/sessions/work", { method: "DELETE" }),
 };
 
 // ── Milestones ────────────────────────────────────────────────────────────────
@@ -168,6 +181,11 @@ export const knowledge = {
   get: (slug: string) => request<KnowledgePage>(`/knowledge/${encodeURIComponent(slug)}`),
   create: (data: CreateKnowledgePageRequest) =>
     request<KnowledgePage>("/knowledge", { method: "POST", body: JSON.stringify(data) }),
+  update: (slug: string, data: Partial<Pick<CreateKnowledgePageRequest, "title" | "content" | "tags">>) =>
+    request<KnowledgePage>(`/knowledge/${encodeURIComponent(slug)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
   search: (q: string) =>
     requestList<KnowledgeSearchMatch>(`/knowledge/search?q=${encodeURIComponent(q)}`),
 };
@@ -215,81 +233,16 @@ export interface UsageListParams {
 export const usage = {
   list: (params?: UsageListParams) => {
     const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v !== undefined) as [
-        string,
-        string,
-      ][],
+      Object.entries(params ?? {}).filter(isDefined),
     ).toString();
     return requestList<TokenUsageRecord>(`/usage${q ? `?${q}` : ""}`);
   },
 
-  summary: async (params?: UsageListParams): Promise<UsageSummary> => {
+  summary: (params?: UsageListParams) => {
     const q = new URLSearchParams(
-      Object.entries(params ?? {}).filter(([, v]) => v !== undefined) as [
-        string,
-        string,
-      ][],
+      Object.entries(params ?? {}).filter(isDefined),
     ).toString();
-    const raw = await request<{
-      items: Array<{
-        agent_id: string;
-        model: string;
-        request_count: number;
-        total_input_tokens: number;
-        total_output_tokens: number;
-        total_cost: number;
-      }>;
-      total_input_tokens: number;
-      total_output_tokens: number;
-      total_cost: number;
-    }>(`/usage/summary${q ? `?${q}` : ""}`);
-
-    // Aggregate items by agent
-    const agentMap = new Map<string, AgentUsageSummary>();
-    for (const r of raw.items) {
-      const existing = agentMap.get(r.agent_id);
-      if (existing) {
-        existing.input_tokens += r.total_input_tokens;
-        existing.output_tokens += r.total_output_tokens;
-        existing.cost_estimate += r.total_cost;
-        existing.interaction_count += r.request_count;
-      } else {
-        agentMap.set(r.agent_id, {
-          agent_id: r.agent_id,
-          input_tokens: r.total_input_tokens,
-          output_tokens: r.total_output_tokens,
-          cost_estimate: r.total_cost,
-          interaction_count: r.request_count,
-        });
-      }
-    }
-
-    // Aggregate items by model
-    const modelMap = new Map<string, ModelUsageSummary>();
-    for (const r of raw.items) {
-      const existing = modelMap.get(r.model);
-      if (existing) {
-        existing.input_tokens += r.total_input_tokens;
-        existing.output_tokens += r.total_output_tokens;
-        existing.cost_estimate += r.total_cost;
-      } else {
-        modelMap.set(r.model, {
-          model: r.model,
-          input_tokens: r.total_input_tokens,
-          output_tokens: r.total_output_tokens,
-          cost_estimate: r.total_cost,
-        });
-      }
-    }
-
-    return {
-      total_input_tokens: raw.total_input_tokens,
-      total_output_tokens: raw.total_output_tokens,
-      total_cost: raw.total_cost,
-      by_agent: [...agentMap.values()],
-      by_model: [...modelMap.values()],
-      daily: [],
-    };
+    return request<RawUsageSummary>(`/usage/summary${q ? `?${q}` : ""}`);
   },
 
   budget: () => request<BudgetConfig>("/usage/budget"),

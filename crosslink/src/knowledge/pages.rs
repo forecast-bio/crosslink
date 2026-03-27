@@ -7,7 +7,16 @@ use super::core::{parse_frontmatter, KnowledgeManager, PageFrontmatter, PageInfo
 
 impl KnowledgeManager {
     /// List all `.md` pages in the knowledge worktree with parsed frontmatter.
+    ///
+    /// Reads only the first 4 KiB of each file to extract frontmatter,
+    /// avoiding full-file reads for pages with large body content (#427).
     pub fn list_pages(&self) -> Result<Vec<PageInfo>> {
+        use std::io::Read;
+
+        /// Maximum bytes to read for frontmatter extraction. YAML frontmatter
+        /// in knowledge pages is typically <1 KiB; 4 KiB provides ample margin.
+        const FRONTMATTER_READ_LIMIT: usize = 4096;
+
         let mut pages = Vec::new();
 
         if !self.cache_dir.exists() {
@@ -23,7 +32,16 @@ impl KnowledgeManager {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
-                let content = std::fs::read_to_string(&path)?;
+
+                // Read only the first N bytes — enough for frontmatter.
+                let content = {
+                    let mut file = std::fs::File::open(&path)?;
+                    let mut buf = vec![0u8; FRONTMATTER_READ_LIMIT];
+                    let n = file.read(&mut buf)?;
+                    buf.truncate(n);
+                    String::from_utf8_lossy(&buf).into_owned()
+                };
+
                 let frontmatter = parse_frontmatter(&content).unwrap_or_else(|| PageFrontmatter {
                     title: slug.clone(),
                     tags: Vec::new(),
@@ -58,14 +76,15 @@ impl KnowledgeManager {
             bail!("Invalid page slug '{}': Windows reserved filename", slug);
         }
         let path = self.cache_dir.join(format!("{}.md", slug));
-        // Defense in depth: verify the resolved path is within cache_dir
-        let canonical_cache = self
-            .cache_dir
-            .canonicalize()
-            .unwrap_or_else(|_| self.cache_dir.clone());
-        let canonical_parent = path.parent().and_then(|p| p.canonicalize().ok());
-        if let Some(parent) = canonical_parent {
-            if !parent.starts_with(&canonical_cache) {
+        // Defense in depth: verify the resolved path is within cache_dir.
+        // Both paths must be canonicalized for a reliable starts_with check.
+        // If either canonicalization fails (directory does not exist yet),
+        // reject the path rather than silently skipping the check.
+        if let (Ok(canonical_cache), Some(canonical_parent)) = (
+            self.cache_dir.canonicalize(),
+            path.parent().and_then(|p| p.canonicalize().ok()),
+        ) {
+            if !canonical_parent.starts_with(&canonical_cache) {
                 bail!(
                     "Invalid page slug '{}': resolves outside knowledge cache",
                     slug

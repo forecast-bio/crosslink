@@ -9,18 +9,18 @@ export class WsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs = 1000;
   private maxReconnectDelayMs = 30_000;
-  private closed = false;
+  private isClosed = false;
 
   constructor(private readonly url: string = "/ws") {}
 
   connect(channels: WsChannel[] = ["agents", "issues", "execution"]) {
     this.subscriptions = channels;
-    this.closed = false;
+    this.isClosed = false;
     this.open();
   }
 
   disconnect() {
-    this.closed = true;
+    this.isClosed = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -62,7 +62,7 @@ export class WsClient {
     };
 
     this.ws.onclose = () => {
-      if (!this.closed) this.scheduleReconnect();
+      if (!this.isClosed) this.scheduleReconnect();
     };
 
     this.ws.onerror = () => {

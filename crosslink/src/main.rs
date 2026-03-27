@@ -2026,7 +2026,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
             if quiet {
-                commands::status::close_quiet(
+                commands::lifecycle::close_quiet(
                     &db,
                     writer.as_ref(),
                     id,
@@ -2034,7 +2034,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                     &crosslink_dir,
                 )
             } else {
-                commands::status::close(&db, writer.as_ref(), id, !no_changelog, &crosslink_dir)
+                commands::lifecycle::close(&db, writer.as_ref(), id, !no_changelog, &crosslink_dir)
             }
         }
 
@@ -2046,7 +2046,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
-            commands::status::close_all(
+            commands::lifecycle::close_all(
                 &db,
                 writer.as_ref(),
                 label.as_deref(),
@@ -2060,7 +2060,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
-            commands::status::reopen(&db, writer.as_ref(), id)
+            commands::lifecycle::reopen(&db, writer.as_ref(), id)
         }
 
         IssueCommands::Delete { id, force } => {

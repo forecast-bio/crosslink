@@ -7,7 +7,7 @@
 // session boundaries and can be resumed after human checkpoints.
 
 use anyhow::{bail, Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use uuid::Uuid;
@@ -20,7 +20,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
-    pub created_at: String,
+    /// When the pipeline was created (#490: DateTime instead of String).
+    pub created_at: DateTime<Utc>,
     pub current_stage: PipelineStage,
     pub config: PipelineConfig,
     pub history: Vec<StageTransition>,
@@ -56,18 +57,19 @@ pub enum PipelineStage {
 }
 
 impl std::fmt::Display for PipelineStage {
+    /// Display uses snake_case to match the serde serialization format (#489).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Partition => write!(f, "partition"),
             Self::Review => write!(f, "review"),
-            Self::AwaitReview => write!(f, "await-review"),
+            Self::AwaitReview => write!(f, "await_review"),
             Self::Consolidate => write!(f, "consolidate"),
-            Self::HumanCheckpoint => write!(f, "human-checkpoint"),
-            Self::FileIssues => write!(f, "file-issues"),
+            Self::HumanCheckpoint => write!(f, "human_checkpoint"),
+            Self::FileIssues => write!(f, "file_issues"),
             Self::Fix => write!(f, "fix"),
-            Self::AwaitFix => write!(f, "await-fix"),
+            Self::AwaitFix => write!(f, "await_fix"),
             Self::Merge => write!(f, "merge"),
-            Self::PullRequest => write!(f, "pull-request"),
+            Self::PullRequest => write!(f, "pull_request"),
             Self::Done => write!(f, "done"),
             Self::Failed => write!(f, "failed"),
         }
@@ -87,7 +89,8 @@ pub struct PipelineConfig {
 pub struct StageTransition {
     pub from: PipelineStage,
     pub to: PipelineStage,
-    pub timestamp: String,
+    /// When this transition occurred (#490: DateTime instead of String).
+    pub timestamp: DateTime<Utc>,
     pub notes: Option<String>,
 }
 
@@ -98,14 +101,15 @@ pub struct StageTransition {
 impl Pipeline {
     /// Create a new pipeline starting at the Partition stage.
     pub fn new(config: PipelineConfig) -> Self {
+        let now = Utc::now();
         let id = format!(
             "pipeline-{}-{}",
-            Utc::now().format("%Y%m%d-%H%M%S"),
+            now.format("%Y%m%d-%H%M%S"),
             &Uuid::new_v4().to_string()[..8],
         );
         Self {
             id,
-            created_at: Utc::now().to_rfc3339(),
+            created_at: now,
             current_stage: PipelineStage::Partition,
             config,
             history: Vec::new(),
@@ -190,7 +194,7 @@ impl Pipeline {
     pub fn summary(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("Pipeline: {}", self.id));
-        lines.push(format!("Created:  {}", self.created_at));
+        lines.push(format!("Created:  {}", self.created_at.to_rfc3339()));
         lines.push(format!("Stage:    {}", self.current_stage));
         lines.push(format!("Agents:   {}", self.config.agent_count));
         lines.push(format!("Mandate:  {}", self.config.mandate));
@@ -212,7 +216,10 @@ impl Pipeline {
                     .unwrap_or_default();
                 lines.push(format!(
                     "  {} -> {} at {}{}",
-                    t.from, t.to, t.timestamp, notes
+                    t.from,
+                    t.to,
+                    t.timestamp.to_rfc3339(),
+                    notes
                 ));
             }
         }
@@ -229,7 +236,7 @@ impl Pipeline {
         self.history.push(StageTransition {
             from,
             to,
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Utc::now(),
             notes: notes.map(|s| s.to_string()),
         });
         self.current_stage = to;
@@ -277,6 +284,20 @@ pub fn load_pipeline(crosslink_dir: &Path) -> Result<Option<Pipeline>> {
 pub fn run_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> {
     let mut pipeline = match load_pipeline(crosslink_dir)? {
         Some(p) => {
+            // Warn if the caller-supplied config differs from the persisted one (#487).
+            if p.config.agent_count != config.agent_count
+                || p.config.mandate != config.mandate
+                || p.config.auto_fix != config.auto_fix
+                || p.config.auto_file_issues != config.auto_file_issues
+                || p.config.target_branch != config.target_branch
+            {
+                tracing::warn!(
+                    "Resuming existing pipeline — config parameter ignored. \
+                     Using persisted config (agents={}, mandate='{}').",
+                    p.config.agent_count,
+                    p.config.mandate,
+                );
+            }
             println!("Resuming pipeline {} at stage: {}", p.id, p.current_stage);
             p
         }
@@ -523,7 +544,7 @@ mod tests {
         p.advance().unwrap(); // Review
         let summary = p.summary();
         assert!(summary.contains("Pipeline:"));
-        assert!(summary.contains("Stage:    review"));
+        assert!(summary.contains("Stage:    review"), "Summary: {}", summary);
         assert!(summary.contains("Agents:   4"));
         assert!(summary.contains("Mandate:  security review"));
         assert!(summary.contains("History:"));
@@ -531,22 +552,42 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_stage_display() {
+    fn test_pipeline_stage_display_matches_serde() {
+        // Display must match serde rename_all = "snake_case" (#489)
         assert_eq!(PipelineStage::Partition.to_string(), "partition");
         assert_eq!(PipelineStage::Review.to_string(), "review");
-        assert_eq!(PipelineStage::AwaitReview.to_string(), "await-review");
+        assert_eq!(PipelineStage::AwaitReview.to_string(), "await_review");
         assert_eq!(PipelineStage::Consolidate.to_string(), "consolidate");
         assert_eq!(
             PipelineStage::HumanCheckpoint.to_string(),
-            "human-checkpoint"
+            "human_checkpoint"
         );
-        assert_eq!(PipelineStage::FileIssues.to_string(), "file-issues");
+        assert_eq!(PipelineStage::FileIssues.to_string(), "file_issues");
         assert_eq!(PipelineStage::Fix.to_string(), "fix");
-        assert_eq!(PipelineStage::AwaitFix.to_string(), "await-fix");
+        assert_eq!(PipelineStage::AwaitFix.to_string(), "await_fix");
         assert_eq!(PipelineStage::Merge.to_string(), "merge");
-        assert_eq!(PipelineStage::PullRequest.to_string(), "pull-request");
+        assert_eq!(PipelineStage::PullRequest.to_string(), "pull_request");
         assert_eq!(PipelineStage::Done.to_string(), "done");
         assert_eq!(PipelineStage::Failed.to_string(), "failed");
+
+        // Verify Display matches serde roundtrip
+        for stage in [
+            PipelineStage::Partition,
+            PipelineStage::AwaitReview,
+            PipelineStage::HumanCheckpoint,
+            PipelineStage::FileIssues,
+            PipelineStage::AwaitFix,
+            PipelineStage::PullRequest,
+        ] {
+            let json = serde_json::to_string(&stage).unwrap();
+            let serde_name = json.trim_matches('"');
+            assert_eq!(
+                stage.to_string(),
+                serde_name,
+                "Display and serde mismatch for {:?}",
+                stage
+            );
+        }
     }
 
     #[test]
@@ -583,7 +624,7 @@ mod tests {
         let t = StageTransition {
             from: PipelineStage::Review,
             to: PipelineStage::AwaitReview,
-            timestamp: "2026-03-12T00:00:00Z".to_string(),
+            timestamp: Utc::now(),
             notes: Some("test note".to_string()),
         };
         let json = serde_json::to_string(&t).unwrap();
@@ -874,13 +915,15 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_created_at_is_rfc3339() {
+    fn test_pipeline_created_at_is_datetime() {
         let p = Pipeline::new(test_config());
-        let parsed = chrono::DateTime::parse_from_rfc3339(&p.created_at);
+        // created_at is now DateTime<Utc>; verify it serializes to valid RFC3339
+        let json = serde_json::to_string(&p.created_at).unwrap();
+        let parsed = chrono::DateTime::parse_from_rfc3339(json.trim_matches('"'));
         assert!(
             parsed.is_ok(),
-            "created_at should be valid RFC3339: {}",
-            p.created_at
+            "created_at should serialize to valid RFC3339: {}",
+            json
         );
     }
 
@@ -1147,19 +1190,21 @@ mod tests {
     }
 
     #[test]
-    fn test_history_timestamps_are_rfc3339() {
+    fn test_history_timestamps_are_datetime() {
         let mut p = Pipeline::new(test_config());
         p.advance().unwrap();
         p.advance().unwrap();
         p.fail("done");
 
         for (i, t) in p.history.iter().enumerate() {
-            let parsed = chrono::DateTime::parse_from_rfc3339(&t.timestamp);
+            // timestamp is now DateTime<Utc>; verify it serializes to valid RFC3339
+            let json = serde_json::to_string(&t.timestamp).unwrap();
+            let parsed = chrono::DateTime::parse_from_rfc3339(json.trim_matches('"'));
             assert!(
                 parsed.is_ok(),
-                "history[{}] timestamp should be valid RFC3339: {}",
+                "history[{}] timestamp should serialize to valid RFC3339: {}",
                 i,
-                t.timestamp
+                json
             );
         }
     }
@@ -1181,7 +1226,7 @@ mod tests {
         let t = StageTransition {
             from: PipelineStage::Partition,
             to: PipelineStage::Review,
-            timestamp: "2026-03-13T12:00:00Z".to_string(),
+            timestamp: Utc::now(),
             notes: None,
         };
         let json = serde_json::to_string(&t).unwrap();
@@ -1249,9 +1294,12 @@ mod tests {
             summary.contains("Created:"),
             "Summary should include Created: field"
         );
+        // DateTime<Utc> Display produces RFC3339 format
+        let created_str = p.created_at.to_rfc3339();
         assert!(
-            summary.contains(&p.created_at),
-            "Summary should include the actual created_at value"
+            summary.contains(&created_str),
+            "Summary should include the actual created_at value: {}",
+            summary
         );
     }
 

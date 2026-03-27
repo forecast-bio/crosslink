@@ -124,8 +124,14 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
     loop {
         tokio::select! {
             // Filesystem change notification.
-            Some(()) = notify_rx.recv() => {
-                diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+            result = notify_rx.recv() => {
+                match result {
+                    Some(()) => {
+                        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+                    }
+                    // Channel closed — all senders dropped, stop the loop.
+                    None => break,
+                }
             }
 
             // Fallback poll every 30 seconds.
@@ -176,7 +182,7 @@ fn diff_and_broadcast(
         if is_new_or_updated {
             // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
             let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
-                event_type: "heartbeat",
+                event_type: crate::server::types::WsEventType::Heartbeat,
                 agent_id: agent_id.clone(),
                 timestamp: hb.last_heartbeat,
                 active_issue_id: hb.active_issue_id,
@@ -192,7 +198,7 @@ fn diff_and_broadcast(
             if status_changed {
                 // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
                 let _ = tx.send(WsEvent::AgentStatus(WsAgentStatusEvent {
-                    event_type: "agent_status",
+                    event_type: crate::server::types::WsEventType::AgentStatus,
                     agent_id: agent_id.clone(),
                     status: new_status.clone(),
                 }));
@@ -503,14 +509,14 @@ mod tests {
             let is_new = !last_state.contains_key(agent_id);
             if is_new {
                 let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
-                    event_type: "heartbeat",
+                    event_type: crate::server::types::WsEventType::Heartbeat,
                     agent_id: agent_id.clone(),
                     timestamp: hb.last_heartbeat,
                     active_issue_id: hb.active_issue_id,
                 }));
                 let new_status = status_from_heartbeat(hb);
                 let _ = tx.send(WsEvent::AgentStatus(WsAgentStatusEvent {
-                    event_type: "agent_status",
+                    event_type: crate::server::types::WsEventType::AgentStatus,
                     agent_id: agent_id.clone(),
                     status: new_status.clone(),
                 }));
@@ -551,7 +557,7 @@ mod tests {
                 .unwrap_or(true);
             if is_new_or_updated {
                 let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
-                    event_type: "heartbeat",
+                    event_type: crate::server::types::WsEventType::Heartbeat,
                     agent_id: agent_id.clone(),
                     timestamp: hb.last_heartbeat,
                     active_issue_id: hb.active_issue_id,

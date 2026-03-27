@@ -2,13 +2,12 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use std::path::Path;
 
-use crate::knowledge::edit::{
-    append_to_section_content, extract_body, replace_section_content, truncate,
-};
+use crate::knowledge::edit::{append_to_section_content, extract_body, replace_section_content};
 use crate::knowledge::{
     parse_frontmatter, serialize_frontmatter, KnowledgeManager, PageFrontmatter, Source,
     SyncOutcome,
 };
+use crate::utils::truncate;
 
 /// Get the current agent ID, falling back to "unknown".
 fn current_agent_id(crosslink_dir: &Path) -> String {

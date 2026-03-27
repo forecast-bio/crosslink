@@ -101,12 +101,13 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         created_by: Option<String>,
         created_at: String,
         updated_at: String,
+        closed_at: Option<String>,
     }
-    let sqlite_only_rows: Vec<SavedIssue> = db
+    let all_rows: Vec<SavedIssue> = db
         .conn
         .prepare(
             "SELECT id, uuid, title, description, status, priority, parent_id, \
-             created_by, created_at, updated_at FROM issues WHERE uuid IS NOT NULL",
+             created_by, created_at, updated_at, closed_at FROM issues WHERE uuid IS NOT NULL",
         )?
         .query_map([], |row| {
             Ok(SavedIssue {
@@ -120,9 +121,12 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 created_by: row.get(7)?,
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
+                closed_at: row.get(10)?,
             })
         })?
-        .filter_map(|r| r.ok())
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let sqlite_only_rows: Vec<SavedIssue> = all_rows
+        .into_iter()
         .filter(|row| {
             if json_uuids.contains(&row.uuid) {
                 return false; // Already in JSON — will be hydrated normally
@@ -140,6 +144,110 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
             sqlite_only_rows.len()
         );
     }
+
+    // Snapshot child table data for SQLite-only issues before clear_shared_data
+    // destroys it. Without this, labels/comments/deps/relations/time entries
+    // are permanently lost during re-hydration (#310).
+    let preserved_ids: Vec<i64> = sqlite_only_rows.iter().map(|r| r.id).collect();
+    type SavedComment = (
+        i64,
+        i64,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    type SavedTimeEntry = (i64, i64, String, Option<String>, Option<i64>);
+    struct SavedChildren {
+        labels: Vec<(i64, String)>,
+        comments: Vec<SavedComment>,
+        deps: Vec<(i64, i64)>,
+        relations: Vec<(i64, i64)>,
+        time_entries: Vec<SavedTimeEntry>,
+        milestone_issues: Vec<(i64, i64)>,
+    }
+    let saved_children = if preserved_ids.is_empty() {
+        SavedChildren {
+            labels: vec![],
+            comments: vec![],
+            deps: vec![],
+            relations: vec![],
+            time_entries: vec![],
+            milestone_issues: vec![],
+        }
+    } else {
+        let id_placeholders: String = preserved_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let labels = db
+            .conn
+            .prepare(&format!(
+                "SELECT issue_id, label FROM labels WHERE issue_id IN ({})",
+                id_placeholders
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let comments = db.conn
+            .prepare(&format!(
+                "SELECT id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint \
+                 FROM comments WHERE issue_id IN ({})", id_placeholders
+            ))?
+            .query_map([], |row| Ok((
+                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?,
+            )))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let deps = db.conn
+            .prepare(&format!(
+                "SELECT blocker_id, blocked_id FROM dependencies WHERE blocker_id IN ({0}) OR blocked_id IN ({0})",
+                id_placeholders
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let relations = db.conn
+            .prepare(&format!(
+                "SELECT issue_id_1, issue_id_2 FROM relations WHERE issue_id_1 IN ({0}) OR issue_id_2 IN ({0})",
+                id_placeholders
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let time_entries = db.conn
+            .prepare(&format!(
+                "SELECT id, issue_id, started_at, ended_at, duration_seconds FROM time_entries WHERE issue_id IN ({})",
+                id_placeholders
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let milestone_issues = db
+            .conn
+            .prepare(&format!(
+                "SELECT milestone_id, issue_id FROM milestone_issues WHERE issue_id IN ({})",
+                id_placeholders
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        SavedChildren {
+            labels,
+            comments,
+            deps,
+            relations,
+            time_entries,
+            milestone_issues,
+        }
+    };
 
     // Deduplicate: multiple JSON files may claim the same display_id (e.g. from
     // a sync loop that created duplicates). Keep the most recently updated file
@@ -201,7 +309,7 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 uuid: &entry.uuid.to_string(),
                 name: &entry.name,
                 description: entry.description.as_deref(),
-                status: &entry.status,
+                status: entry.status.as_str(),
                 created_at: &created_at,
                 closed_at: closed_at.as_deref(),
             })?;
@@ -242,8 +350,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 uuid: &issue.uuid.to_string(),
                 title: &issue.title,
                 description: issue.description.as_deref(),
-                status: &issue.status,
-                priority: &issue.priority,
+                status: issue.status.as_str(),
+                priority: issue.priority.as_str(),
                 parent_id,
                 created_by: Some(&issue.created_by),
                 created_at: &created_at,
@@ -341,9 +449,61 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 created_by: row.created_by.as_deref(),
                 created_at: &row.created_at,
                 updated_at: &row.updated_at,
-                closed_at: None,
+                closed_at: row.closed_at.as_deref(),
             })?;
             stats.issues += 1;
+        }
+
+        // Re-insert child data for SQLite-only issues (#310).
+        for (issue_id, label) in &saved_children.labels {
+            db.insert_hydrated_label(*issue_id, label)?;
+        }
+        for (
+            id,
+            issue_id,
+            uuid,
+            author,
+            content,
+            created_at,
+            kind,
+            trigger_type,
+            intervention_context,
+            driver_key_fingerprint,
+        ) in &saved_children.comments
+        {
+            db.insert_hydrated_comment(
+                *id,
+                *issue_id,
+                uuid.as_deref(),
+                author.as_deref(),
+                content,
+                created_at,
+                kind,
+                trigger_type.as_deref(),
+                intervention_context.as_deref(),
+                driver_key_fingerprint.as_deref(),
+            )?;
+            stats.comments += 1;
+        }
+        for (blocker_id, blocked_id) in &saved_children.deps {
+            db.insert_dependency_raw(*blocker_id, *blocked_id)?;
+            stats.dependencies += 1;
+        }
+        for (id1, id2) in &saved_children.relations {
+            db.insert_relation_raw(*id1, *id2)?;
+            stats.relations += 1;
+        }
+        for (id, issue_id, started_at, ended_at, duration_seconds) in &saved_children.time_entries {
+            db.insert_hydrated_time_entry(
+                *id,
+                *issue_id,
+                started_at,
+                ended_at.as_deref(),
+                *duration_seconds,
+            )?;
+        }
+        for (milestone_id, issue_id) in &saved_children.milestone_issues {
+            db.insert_hydrated_milestone_issue(*milestone_id, *issue_id)?;
         }
 
         Ok(stats)
@@ -592,8 +752,8 @@ mod tests {
             display_id: Some(display_id),
             title: title.to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
             parent_uuid: None,
             created_by: "test-agent".to_string(),
             created_at: Utc::now(),
@@ -838,7 +998,7 @@ mod tests {
             display_id: 1,
             name: "v1.0".to_string(),
             description: None,
-            status: "open".to_string(),
+            status: crate::models::IssueStatus::Open,
             created_at: Utc::now(),
             closed_at: None,
         };
@@ -873,7 +1033,7 @@ mod tests {
                 display_id: 1,
                 name: "legacy-ms".to_string(),
                 description: None,
-                status: "open".to_string(),
+                status: crate::models::IssueStatus::Open,
                 created_at: Utc::now(),
                 closed_at: None,
             },
@@ -1078,7 +1238,7 @@ mod tests {
 
         let mut issue = make_issue(1, "Closed issue");
         issue.description = Some("A detailed description".to_string());
-        issue.status = "closed".to_string();
+        issue.status = crate::models::IssueStatus::Closed;
         issue.closed_at = Some(Utc::now());
 
         write_issues_to_cache(cache.path(), &[issue]);
@@ -1090,7 +1250,7 @@ mod tests {
             loaded.description.as_deref(),
             Some("A detailed description")
         );
-        assert_eq!(loaded.status, "closed");
+        assert_eq!(loaded.status, crate::models::IssueStatus::Closed);
         assert!(loaded.closed_at.is_some());
     }
 
@@ -1115,7 +1275,7 @@ mod tests {
             display_id: 10,
             name: "Sprint 1".to_string(),
             description: None,
-            status: "open".to_string(),
+            status: crate::models::IssueStatus::Open,
             created_at: Utc::now(),
             closed_at: None,
         };
@@ -1165,7 +1325,7 @@ mod tests {
             display_id: 1,
             name: "Closed sprint".to_string(),
             description: Some("A completed sprint".to_string()),
-            status: "closed".to_string(),
+            status: crate::models::IssueStatus::Closed,
             created_at: Utc::now(),
             closed_at: Some(Utc::now()),
         };
@@ -1175,7 +1335,7 @@ mod tests {
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.milestones, 1);
         let ms = db.get_milestone(1).unwrap().unwrap();
-        assert_eq!(ms.status, "closed");
+        assert_eq!(ms.status, crate::models::IssueStatus::Closed);
     }
 
     // ---- v2 layout: standalone comment files ----

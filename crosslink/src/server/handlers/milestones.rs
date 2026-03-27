@@ -14,36 +14,13 @@ use axum::{
 };
 
 use crate::server::{
+    errors::{internal_error, not_found},
     state::AppState,
     types::{
         ApiError, AssignMilestoneRequest, CreateMilestoneRequest, MilestoneDetail,
         MilestoneListQuery, MilestoneListResponse, OkResponse,
     },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
-
-fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiError {
-            error: "not found".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
 
 /// Build a `MilestoneDetail` from a `Milestone` by looking up assigned issues.
 fn build_detail(
@@ -52,7 +29,10 @@ fn build_detail(
 ) -> anyhow::Result<MilestoneDetail> {
     let issues = db.get_milestone_issues(milestone.id)?;
     let issue_count = issues.len();
-    let completed_count = issues.iter().filter(|i| i.status == "closed").count();
+    let completed_count = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Closed)
+        .count();
     let progress_percent = if issue_count == 0 {
         0.0
     } else {
@@ -78,7 +58,7 @@ pub async fn list_milestones(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<MilestoneListQuery>,
 ) -> Result<Json<MilestoneListResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let milestones = db
         .list_milestones(query.status.as_deref())
@@ -103,7 +83,7 @@ pub async fn create_milestone(
     State(state): State<AppState>,
     Json(body): Json<CreateMilestoneRequest>,
 ) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let milestone_id = db
         .create_milestone(&body.name, body.description.as_deref())
@@ -130,7 +110,7 @@ pub async fn get_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<MilestoneDetail>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let milestone = db
         .get_milestone(id)
@@ -151,7 +131,7 @@ pub async fn assign_milestone(
     Path(milestone_id): Path<i64>,
     Json(body): Json<AssignMilestoneRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify the milestone exists.
     db.get_milestone(milestone_id)
@@ -174,7 +154,7 @@ pub async fn close_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify the milestone exists first.
     db.get_milestone(id)
@@ -597,12 +577,12 @@ mod tests {
 
     #[test]
     fn test_helper_functions_directly() {
-        let (status, json) = super::internal_error("ctx", "err detail");
+        let (status, json) = crate::server::errors::internal_error("ctx", "err detail");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
         assert_eq!(json.detail.as_deref(), Some("err detail"));
 
-        let (status, json) = super::not_found("not there");
+        let (status, json) = crate::server::errors::not_found("not there");
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json.error, "not found");
         assert_eq!(json.detail.as_deref(), Some("not there"));

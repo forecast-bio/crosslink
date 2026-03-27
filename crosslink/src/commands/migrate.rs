@@ -136,8 +136,8 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
             display_id: Some(issue.id),
             title: issue.title.clone(),
             description: issue.description.clone(),
-            status: issue.status.clone(),
-            priority: issue.priority.clone(),
+            status: issue.status,
+            priority: issue.priority,
             parent_uuid,
             created_by: agent.agent_id.clone(),
             created_at: issue.created_at,
@@ -177,7 +177,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 display_id: ms.id,
                 name: ms.name.clone(),
                 description: ms.description.clone(),
-                status: ms.status.clone(),
+                status: ms.status,
                 created_at: ms.created_at,
                 closed_at: ms.closed_at,
             };
@@ -311,7 +311,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)
@@ -386,8 +386,8 @@ mod tests {
             display_id: Some(id1),
             title: issue.title.clone(),
             description: issue.description.clone(),
-            status: issue.status.clone(),
-            priority: issue.priority.clone(),
+            status: issue.status,
+            priority: issue.priority,
             parent_uuid: None,
             created_by: "test-agent".to_string(),
             created_at: issue.created_at,
@@ -444,8 +444,8 @@ mod tests {
             display_id: Some(1),
             title: "Test issue".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
             parent_uuid: None,
             created_by: "agent".to_string(),
             created_at: now,
@@ -528,7 +528,7 @@ mod tests {
             display_id: ms.id,
             name: ms.name.clone(),
             description: ms.description.clone(),
-            status: ms.status.clone(),
+            status: ms.status,
             created_at: ms.created_at,
             closed_at: ms.closed_at,
         };

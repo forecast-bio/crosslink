@@ -67,8 +67,39 @@ pub struct SyncOutcome {
 }
 
 /// Check if content contains git merge conflict markers.
+///
+/// Only triggers when the three marker types appear in the correct sequence
+/// (opening `<<<<<<<`, separator `=======`, closing `>>>>>>>`) with each
+/// marker at the start of a line. This avoids false positives on content
+/// that happens to contain those character sequences mid-line or out of order.
 pub fn has_conflict_markers(content: &str) -> bool {
-    content.contains("<<<<<<<") && content.contains("=======") && content.contains(">>>>>>>")
+    #[derive(PartialEq)]
+    enum ConflictScan {
+        Ours,
+        Separator,
+        Theirs,
+    }
+    let mut state = ConflictScan::Ours;
+    for line in content.lines() {
+        match state {
+            ConflictScan::Ours => {
+                if line.starts_with("<<<<<<<") {
+                    state = ConflictScan::Separator;
+                }
+            }
+            ConflictScan::Separator => {
+                if line.starts_with("=======") {
+                    state = ConflictScan::Theirs;
+                }
+            }
+            ConflictScan::Theirs => {
+                if line.starts_with(">>>>>>>") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Resolve merge conflicts in content by keeping both versions.
@@ -77,43 +108,62 @@ pub fn has_conflict_markers(content: &str) -> bool {
 /// followed by both versions separated by horizontal rules. Content outside
 /// conflict blocks is preserved unchanged.
 pub fn resolve_accept_both(content: &str) -> String {
+    /// Tracks which section of a conflict block we are currently inside.
+    enum ConflictState {
+        /// Outside any conflict block — normal content.
+        Outside,
+        /// Inside the "ours" section (between `<<<<<<<` and `=======`).
+        InOurs,
+        /// Inside the "theirs" section (between `=======` and `>>>>>>>`).
+        InTheirs,
+    }
+
     let mut result = String::new();
-    let mut in_ours = false;
-    let mut in_theirs = false;
+    let mut state = ConflictState::Outside;
     let mut ours = String::new();
     let mut theirs = String::new();
 
     for line in content.lines() {
-        if line.starts_with("<<<<<<<") {
-            in_ours = true;
-            in_theirs = false;
-            ours.clear();
-            theirs.clear();
-        } else if line.starts_with("=======") && in_ours {
-            in_ours = false;
-            in_theirs = true;
-        } else if line.starts_with(">>>>>>>") && in_theirs {
-            in_theirs = false;
-            // Emit the resolved version
-            result.push_str("<!-- MERGE CONFLICT: Both versions kept. Cleanup recommended. -->\n");
-            result.push_str("---\n");
-            result.push_str(&ours);
-            result.push_str("---\n");
-            result.push_str(&theirs);
-        } else if in_ours {
-            ours.push_str(line);
-            ours.push('\n');
-        } else if in_theirs {
-            theirs.push_str(line);
-            theirs.push('\n');
-        } else {
-            result.push_str(line);
-            result.push('\n');
+        match state {
+            ConflictState::Outside => {
+                if line.starts_with("<<<<<<<") {
+                    state = ConflictState::InOurs;
+                    ours.clear();
+                    theirs.clear();
+                } else {
+                    result.push_str(line);
+                    result.push('\n');
+                }
+            }
+            ConflictState::InOurs => {
+                if line.starts_with("=======") {
+                    state = ConflictState::InTheirs;
+                } else {
+                    ours.push_str(line);
+                    ours.push('\n');
+                }
+            }
+            ConflictState::InTheirs => {
+                if line.starts_with(">>>>>>>") {
+                    state = ConflictState::Outside;
+                    // Emit the resolved version
+                    result.push_str(
+                        "<!-- MERGE CONFLICT: Both versions kept. Cleanup recommended. -->\n",
+                    );
+                    result.push_str("---\n");
+                    result.push_str(&ours);
+                    result.push_str("---\n");
+                    result.push_str(&theirs);
+                } else {
+                    theirs.push_str(line);
+                    theirs.push('\n');
+                }
+            }
         }
     }
 
     // Handle unterminated conflict block (shouldn't happen, but be defensive)
-    if in_ours || in_theirs {
+    if !matches!(state, ConflictState::Outside) {
         if !ours.is_empty() {
             result.push_str(&ours);
         }
@@ -132,6 +182,15 @@ impl KnowledgeManager {
     /// repository root and uses its `.crosslink/.knowledge-cache/` so that the
     /// shared knowledge branch worktree is never duplicated.
     pub fn new(crosslink_dir: &Path) -> Result<Self> {
+        let remote = crate::sync::read_tracker_remote(crosslink_dir);
+        Self::with_remote(crosslink_dir, remote)
+    }
+
+    /// Create a KnowledgeManager with an explicit remote name.
+    ///
+    /// Useful for testing (avoids reading config from disk) and for callers
+    /// that already know the remote.
+    pub fn with_remote(crosslink_dir: &Path, remote: String) -> Result<Self> {
         let local_repo_root = crosslink_dir
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root from .crosslink dir"))?
@@ -143,7 +202,6 @@ impl KnowledgeManager {
             resolve_main_repo_root(&local_repo_root).unwrap_or_else(|| local_repo_root.clone());
 
         let cache_dir = repo_root.join(".crosslink").join(KNOWLEDGE_CACHE_DIR);
-        let remote = crate::sync::read_tracker_remote(crosslink_dir);
 
         Ok(KnowledgeManager {
             crosslink_dir: crosslink_dir.to_path_buf(),
@@ -168,6 +226,12 @@ impl KnowledgeManager {
         &self.cache_dir
     }
 
+    /// Return the cache directory path as a `String` for use in git CLI args.
+    ///
+    /// Uses lossy conversion: non-UTF-8 bytes are replaced with U+FFFD. This
+    /// is acceptable because git worktree paths must be valid filesystem paths
+    /// and all supported platforms (Linux, macOS, Windows) use UTF-8-compatible
+    /// encodings for paths created by crosslink.
     pub(super) fn cache_path_str(&self) -> String {
         self.cache_dir.to_string_lossy().to_string()
     }
@@ -416,11 +480,12 @@ pub fn serialize_frontmatter(fm: &PageFrontmatter) -> String {
 
     out.push_str(&format!("title: {}\n", yaml_escape(&fm.title)));
 
-    // Tags as inline array
+    // Tags as inline array (each value escaped to prevent YAML injection)
     if fm.tags.is_empty() {
         out.push_str("tags: []\n");
     } else {
-        out.push_str(&format!("tags: [{}]\n", fm.tags.join(", ")));
+        let escaped_tags: Vec<String> = fm.tags.iter().map(|t| yaml_escape(t)).collect();
+        out.push_str(&format!("tags: [{}]\n", escaped_tags.join(", ")));
     }
 
     // Sources as multi-line array
@@ -429,19 +494,24 @@ pub fn serialize_frontmatter(fm: &PageFrontmatter) -> String {
     } else {
         out.push_str("sources:\n");
         for src in &fm.sources {
-            out.push_str(&format!("  - url: {}\n", &src.url));
+            out.push_str(&format!("  - url: {}\n", yaml_escape(&src.url)));
             out.push_str(&format!("    title: {}\n", yaml_escape(&src.title)));
             if let Some(ref accessed) = src.accessed_at {
-                out.push_str(&format!("    accessed_at: {}\n", accessed));
+                out.push_str(&format!("    accessed_at: {}\n", yaml_escape(accessed)));
             }
         }
     }
 
-    // Contributors as inline array
+    // Contributors as inline array (each value escaped to prevent YAML injection)
     if fm.contributors.is_empty() {
         out.push_str("contributors: []\n");
     } else {
-        out.push_str(&format!("contributors: [{}]\n", fm.contributors.join(", ")));
+        let escaped_contribs: Vec<String> =
+            fm.contributors.iter().map(|c| yaml_escape(c)).collect();
+        out.push_str(&format!(
+            "contributors: [{}]\n",
+            escaped_contribs.join(", ")
+        ));
     }
 
     out.push_str(&format!("created: {}\n", &fm.created));
@@ -468,6 +538,9 @@ pub(super) fn split_kv_or_bare(line: &str) -> Option<(&str, &str)> {
 }
 
 /// Parse an inline YAML array like `[foo, bar, baz]`.
+///
+/// Handles quoted values that may contain commas (e.g., `["foo,bar", baz]`)
+/// by tracking quote state rather than naively splitting on commas.
 pub(super) fn parse_inline_array(value: &str) -> Option<Vec<String>> {
     let trimmed = value.trim();
     if trimmed.starts_with('[') && trimmed.ends_with(']') {
@@ -475,11 +548,44 @@ pub(super) fn parse_inline_array(value: &str) -> Option<Vec<String>> {
         if inner.trim().is_empty() {
             return Some(Vec::new());
         }
-        let items: Vec<String> = inner.split(',').map(|s| unquote(s.trim())).collect();
+        let items: Vec<String> = split_yaml_array_items(inner)
+            .iter()
+            .map(|s| unquote(s.trim()))
+            .collect();
         Some(items)
     } else {
         None
     }
+}
+
+/// Split a YAML inline array body on commas, respecting double-quoted strings.
+///
+/// Commas inside double quotes are treated as literal characters rather than
+/// separators, preventing corruption when tag or contributor values contain
+/// commas (e.g., `"last, first"`).
+fn split_yaml_array_items(s: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut start = 0;
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (i, ch) in s.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_quotes => escaped = true,
+            '"' => in_quotes = !in_quotes,
+            ',' if !in_quotes => {
+                items.push(&s[start..i]);
+                start = i + 1; // skip the comma
+            }
+            _ => {}
+        }
+    }
+    items.push(&s[start..]);
+    items
 }
 
 /// Remove surrounding quotes from a string value.

@@ -29,6 +29,114 @@ use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::sync::SyncManager;
 
+/// Background color for highlighted/selected rows. Uses a dark gray from the
+/// 256-color palette that is distinct enough to show selection without
+/// overriding cell-level foreground colors.
+pub const HIGHLIGHT_BG: Color = Color::Indexed(236);
+
+/// Format a UTC datetime as a human-readable relative time string.
+/// Used across multiple TUI tabs (agents, issues, config).
+pub fn format_relative_time(dt: &chrono::DateTime<chrono::Utc>) -> String {
+    let now = chrono::Utc::now();
+    let diff = now.signed_duration_since(*dt);
+
+    if diff.num_seconds() < 0 {
+        "just now".to_string()
+    } else if diff.num_seconds() < 60 {
+        format!("{}s ago", diff.num_seconds())
+    } else if diff.num_minutes() < 60 {
+        format!("{}m ago", diff.num_minutes())
+    } else if diff.num_hours() < 24 {
+        format!("{}h ago", diff.num_hours())
+    } else if diff.num_days() < 30 {
+        format!("{}d ago", diff.num_days())
+    } else {
+        dt.format("%Y-%m-%d").to_string()
+    }
+}
+
+/// Status filter options shared by Issues and Milestones tabs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StatusFilter {
+    Open,
+    Closed,
+    All,
+}
+
+impl StatusFilter {
+    pub fn next(self) -> Self {
+        match self {
+            StatusFilter::Open => StatusFilter::Closed,
+            StatusFilter::Closed => StatusFilter::All,
+            StatusFilter::All => StatusFilter::Open,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StatusFilter::Open => "Open",
+            StatusFilter::Closed => "Closed",
+            StatusFilter::All => "All",
+        }
+    }
+}
+
+/// Create a `KeyEvent` for testing purposes. Shared across TUI tab test modules.
+#[cfg(test)]
+pub fn make_test_key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+    use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    KeyEvent {
+        code,
+        modifiers: KeyModifiers::empty(),
+        kind: KeyEventKind::Press,
+        state: KeyEventState::empty(),
+    }
+}
+
+/// Truncate a string to a maximum character length, appending "..." if truncated.
+/// Used across multiple TUI tabs (agents, config, issues).
+pub fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else {
+        let end = max_len.saturating_sub(3);
+        let truncated: String = s.chars().take(end).collect();
+        format!("{truncated}...")
+    }
+}
+
+/// Format an event into a human-readable summary string.
+/// Shared between agents_tab and config_tab for event display.
+pub fn format_event_description(event: &crate::events::Event) -> String {
+    use crate::events::Event;
+    match event {
+        Event::IssueCreated { title, .. } => {
+            format!("IssueCreated: {}", truncate_str(title, 40))
+        }
+        Event::LockClaimed {
+            issue_display_id, ..
+        } => format!("LockClaimed #{issue_display_id}"),
+        Event::LockReleased {
+            issue_display_id, ..
+        } => format!("LockReleased #{issue_display_id}"),
+        Event::IssueUpdated { title, .. } => {
+            let t = title.as_deref().unwrap_or("(untitled)");
+            format!("IssueUpdated: {}", truncate_str(t, 40))
+        }
+        Event::StatusChanged { new_status, .. } => {
+            format!("StatusChanged \u{2192} {new_status}")
+        }
+        Event::DependencyAdded { .. } => "DependencyAdded".to_string(),
+        Event::DependencyRemoved { .. } => "DependencyRemoved".to_string(),
+        Event::RelationAdded { .. } => "RelationAdded".to_string(),
+        Event::RelationRemoved { .. } => "RelationRemoved".to_string(),
+        Event::MilestoneAssigned { .. } => "MilestoneAssigned".to_string(),
+        Event::LabelAdded { label, .. } => format!("LabelAdded: {label}"),
+        Event::LabelRemoved { label, .. } => format!("LabelRemoved: {label}"),
+        Event::ParentChanged { .. } => "ParentChanged".to_string(),
+    }
+}
+
 /// Action returned by a tab's key handler to communicate with the App.
 pub enum TabAction {
     /// Key was consumed by the tab.
@@ -73,17 +181,53 @@ pub fn copy_to_clipboard(text: &str) -> bool {
             child.wait()
         });
     #[cfg(target_os = "linux")]
-    let result = std::process::Command::new("xclip")
-        .args(["-selection", "clipboard"])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            if let Some(ref mut stdin) = child.stdin {
-                stdin.write_all(text.as_bytes())?;
+    let result = {
+        // Try clipboard tools in order of preference:
+        // 1. wl-copy (Wayland)
+        // 2. xclip (X11)
+        // 3. xsel (X11 fallback)
+        // 4. clip.exe (WSL2)
+        let tools: &[(&str, &[&str])] = &[
+            ("wl-copy", &[]),
+            ("xclip", &["-selection", "clipboard"]),
+            ("xsel", &["--clipboard", "--input"]),
+            ("clip.exe", &[]),
+        ];
+
+        let mut last_result: Result<std::process::ExitStatus, std::io::Error> = Err(
+            std::io::Error::new(std::io::ErrorKind::NotFound, "no clipboard tool found"),
+        );
+
+        for &(cmd, args) in tools {
+            let attempt = std::process::Command::new(cmd)
+                .args(args)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .and_then(|mut child| {
+                    use std::io::Write;
+                    if let Some(ref mut stdin) = child.stdin {
+                        stdin.write_all(text.as_bytes())?;
+                    }
+                    child.wait()
+                });
+
+            match &attempt {
+                Ok(status) if status.success() => {
+                    last_result = attempt;
+                    break;
+                }
+                Ok(_) => continue,
+                Err(_) => {
+                    last_result = attempt;
+                    continue;
+                }
             }
-            child.wait()
-        });
+        }
+
+        last_result
+    };
     #[cfg(target_os = "windows")]
     let result = std::process::Command::new("clip.exe")
         .stdin(std::process::Stdio::piped())
@@ -291,7 +435,7 @@ impl App {
                         self.tabs[self.active_tab].on_enter();
                     }
                 } else {
-                    self.flash_message = Some("Usage: :tab <1-6>".to_string());
+                    self.flash_message = Some(format!("Usage: :tab <1-{}>", self.tabs.len()));
                 }
             }
             Some(other) => {
@@ -639,26 +783,20 @@ impl App {
 }
 
 /// RAII guard that restores the terminal on drop — ensures cleanup even on `?` errors.
-type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync>;
-
-struct TerminalGuard {
-    original_hook: Option<PanicHook>,
-}
+struct TerminalGuard;
 
 impl TerminalGuard {
     fn new() -> Self {
         let original_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|panic_info| {
+        std::panic::set_hook(Box::new(move |panic_info| {
             // INTENTIONAL: terminal cleanup in panic hook must not itself panic — best-effort restore
             let _ = io::stdout().execute(DisableMouseCapture);
             let _ = disable_raw_mode();
             let _ = io::stdout().execute(LeaveAlternateScreen);
-            // Print the panic info manually since we can't call the original hook here
-            eprintln!("{panic_info}");
+            // Invoke the original panic hook to preserve existing behavior (e.g. backtrace printing)
+            original_hook(panic_info);
         }));
-        TerminalGuard {
-            original_hook: Some(original_hook),
-        }
+        TerminalGuard
     }
 }
 
@@ -668,10 +806,8 @@ impl Drop for TerminalGuard {
         let _ = io::stdout().execute(DisableMouseCapture);
         let _ = disable_raw_mode();
         let _ = io::stdout().execute(LeaveAlternateScreen);
-        // Restore the original panic hook (fixes H4: hook chaining)
-        if let Some(hook) = self.original_hook.take() {
-            std::panic::set_hook(hook);
-        }
+        // Restore the default panic hook (the TUI-specific hook is no longer needed)
+        let _ = std::panic::take_hook();
     }
 }
 
@@ -705,10 +841,8 @@ pub fn run(db: &Database, crosslink_dir: &Path) -> anyhow::Result<()> {
     loop {
         terminal.draw(|frame| app.render(frame))?;
 
-        // Poll all tabs for async data that may have arrived
-        for tab in &mut app.tabs {
-            tab.poll_updates();
-        }
+        // Poll only the active tab for async data that may have arrived
+        app.tabs[app.active_tab].poll_updates();
 
         // Poll for background sync completion
         app.poll_sync();
@@ -772,12 +906,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn make_key(code: KeyCode) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers: KeyModifiers::empty(),
-            kind: KeyEventKind::Press,
-            state: KeyEventState::empty(),
-        }
+        super::make_test_key(code)
     }
 
     fn make_key_with_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {

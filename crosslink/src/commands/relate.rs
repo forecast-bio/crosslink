@@ -79,7 +79,11 @@ pub fn list(db: &Database, issue_id: i64) -> Result<()> {
 
     println!("Related to {}:", format_issue_id(issue_id));
     for r in related {
-        let status_marker = if r.status == "closed" { "✓" } else { " " };
+        let status_marker = if r.status == crate::models::IssueStatus::Closed {
+            "✓"
+        } else {
+            " "
+        };
         println!(
             "  {:<5} [{}] {:8} {}",
             format_issue_id(r.id),

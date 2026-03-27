@@ -1,38 +1,11 @@
 use anyhow::{bail, Result};
 
 use crate::db::Database;
+use crate::lock_check::{release_lock_best_effort, try_claim_lock, ClaimResult};
 use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
 
 const VALID_PRIORITIES: [&str; 4] = ["low", "medium", "high", "critical"];
-
-/// Best-effort lock release: tries v2 first, then falls back to v1.
-/// Mirrors the helper in `session.rs`.
-fn release_lock_best_effort(crosslink_dir: &std::path::Path, issue_id: i64) {
-    if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
-        if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
-            if sync.is_initialized() {
-                if sync.is_v2_layout() {
-                    if let Ok(Some(writer)) = SharedWriter::new(crosslink_dir) {
-                        if let Err(e) = writer.release_lock_v2(issue_id) {
-                            tracing::warn!(
-                                "Could not release lock on {}: {}",
-                                format_issue_id(issue_id),
-                                e
-                            );
-                        }
-                    }
-                } else if let Err(e) = sync.release_lock(&agent, issue_id, false) {
-                    tracing::warn!(
-                        "Could not release lock on {}: {}",
-                        format_issue_id(issue_id),
-                        e
-                    );
-                }
-            }
-        }
-    }
-}
 
 /// Built-in issue templates
 pub struct Template {
@@ -102,6 +75,65 @@ pub fn validate_priority(priority: &str) -> bool {
 }
 
 /// Options shared by create and subissue commands.
+/// Auto-claim lock in multi-agent mode and set the session work item.
+/// Returns Ok(()) on success or propagates errors from lock enforcement.
+/// Releases the lock if session update fails (avoids orphaned locks).
+fn auto_claim_and_set_work(
+    db: &Database,
+    id: i64,
+    title: &str,
+    crosslink_dir: Option<&std::path::Path>,
+    quiet: bool,
+) -> Result<()> {
+    let mut freshly_claimed = false;
+
+    if let Some(dir) = crosslink_dir {
+        crate::lock_check::enforce_lock(dir, id, db)?;
+
+        match try_claim_lock(dir, id, None) {
+            Ok(ClaimResult::Claimed) => {
+                freshly_claimed = true;
+                if !quiet {
+                    println!("Auto-claimed lock on issue {}", format_issue_id(id));
+                }
+            }
+            Ok(ClaimResult::AlreadyHeld | ClaimResult::NotConfigured) => {}
+            Ok(ClaimResult::Contended { winner_agent_id }) => {
+                tracing::warn!(
+                    "Lock on {} won by '{}'",
+                    format_issue_id(id),
+                    winner_agent_id
+                );
+            }
+            Err(e) => tracing::warn!("Could not auto-claim lock: {}", e),
+        }
+    }
+
+    let agent_id = crosslink_dir.and_then(|dir| {
+        crate::identity::AgentConfig::load(dir)
+            .ok()
+            .flatten()
+            .map(|a| a.agent_id)
+    });
+    if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
+        if let Err(e) = db.set_session_issue(session.id, id) {
+            if freshly_claimed {
+                if let Some(dir) = crosslink_dir {
+                    release_lock_best_effort(dir, id);
+                }
+            }
+            return Err(e);
+        }
+        if !quiet {
+            println!("Now working on: {} {}", format_issue_id(id), title);
+        }
+    } else if !quiet {
+        tracing::warn!("--work specified but no active session");
+    }
+
+    Ok(())
+}
+
 pub struct CreateOpts<'a> {
     pub labels: &'a [String],
     pub work: bool,
@@ -131,7 +163,11 @@ pub fn run(
             )
         })?;
 
-        // Template priority is default, user can override
+        // Template priority is the default; user can override with any non-default value.
+        // NOTE: This uses the CLI default ("medium") as a sentinel to detect "user didn't
+        // specify priority". An explicit `--priority medium` is indistinguishable from the
+        // default and will be overridden by the template's priority. To fix this fully,
+        // the CLI would need `Option<String>` for priority (#449).
         let priority = if priority != "medium" {
             priority
         } else {
@@ -212,85 +248,7 @@ pub fn run(
 
     // Set as active session work item
     if opts.work {
-        let mut freshly_claimed = false;
-
-        // Check lock status before allowing work on this issue
-        if let Some(dir) = opts.crosslink_dir {
-            crate::lock_check::enforce_lock(dir, id, db)?;
-
-            // Auto-claim lock in multi-agent mode (same as session work)
-            if let Ok(Some(agent)) = crate::identity::AgentConfig::load(dir) {
-                if let Ok(sync) = crate::sync::SyncManager::new(dir) {
-                    if sync.is_initialized() {
-                        if sync.is_v2_layout() {
-                            if let Ok(Some(writer)) = SharedWriter::new(dir) {
-                                match writer.claim_lock_v2(id, None) {
-                                    Ok(crate::shared_writer::LockClaimResult::Claimed) => {
-                                        freshly_claimed = true;
-                                        if !opts.quiet {
-                                            println!(
-                                                "Auto-claimed lock on issue {}",
-                                                format_issue_id(id)
-                                            );
-                                        }
-                                    }
-                                    Ok(crate::shared_writer::LockClaimResult::AlreadyHeld) => {}
-                                    Ok(crate::shared_writer::LockClaimResult::Contended {
-                                        winner_agent_id,
-                                    }) => {
-                                        tracing::warn!(
-                                            "Lock on {} won by '{}'",
-                                            format_issue_id(id),
-                                            winner_agent_id
-                                        );
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!("Could not auto-claim lock: {}", e)
-                                    }
-                                }
-                            }
-                        } else {
-                            match sync.claim_lock(&agent, id, None, false) {
-                                Ok(true) => {
-                                    freshly_claimed = true;
-                                    if !opts.quiet {
-                                        println!(
-                                            "Auto-claimed lock on issue {}",
-                                            format_issue_id(id)
-                                        );
-                                    }
-                                }
-                                Ok(false) => {}
-                                Err(e) => tracing::warn!("Could not auto-claim lock: {}", e),
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let agent_id = opts.crosslink_dir.and_then(|dir| {
-            crate::identity::AgentConfig::load(dir)
-                .ok()
-                .flatten()
-                .map(|a| a.agent_id)
-        });
-        if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
-            // If set_session_issue fails after we claimed a lock, release the lock
-            // to avoid orphaned locks.
-            if let Err(e) = db.set_session_issue(session.id, id) {
-                if freshly_claimed {
-                    if let Some(dir) = opts.crosslink_dir {
-                        release_lock_best_effort(dir, id);
-                    }
-                }
-                return Err(e);
-            }
-            if !opts.quiet {
-                println!("Now working on: {} {}", format_issue_id(id), title);
-            }
-        } else if !opts.quiet {
-            tracing::warn!("--work specified but no active session");
-        }
+        auto_claim_and_set_work(db, id, title, opts.crosslink_dir, opts.quiet)?;
     }
 
     Ok(())
@@ -355,85 +313,7 @@ pub fn run_subissue(
 
     // Set as active session work item
     if opts.work {
-        let mut freshly_claimed = false;
-
-        // Check lock status before allowing work on this issue
-        if let Some(dir) = opts.crosslink_dir {
-            crate::lock_check::enforce_lock(dir, id, db)?;
-
-            // Auto-claim lock in multi-agent mode (same as session work)
-            if let Ok(Some(agent)) = crate::identity::AgentConfig::load(dir) {
-                if let Ok(sync) = crate::sync::SyncManager::new(dir) {
-                    if sync.is_initialized() {
-                        if sync.is_v2_layout() {
-                            if let Ok(Some(writer)) = SharedWriter::new(dir) {
-                                match writer.claim_lock_v2(id, None) {
-                                    Ok(crate::shared_writer::LockClaimResult::Claimed) => {
-                                        freshly_claimed = true;
-                                        if !opts.quiet {
-                                            println!(
-                                                "Auto-claimed lock on issue {}",
-                                                format_issue_id(id)
-                                            );
-                                        }
-                                    }
-                                    Ok(crate::shared_writer::LockClaimResult::AlreadyHeld) => {}
-                                    Ok(crate::shared_writer::LockClaimResult::Contended {
-                                        winner_agent_id,
-                                    }) => {
-                                        tracing::warn!(
-                                            "Lock on {} won by '{}'",
-                                            format_issue_id(id),
-                                            winner_agent_id
-                                        );
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!("Could not auto-claim lock: {}", e)
-                                    }
-                                }
-                            }
-                        } else {
-                            match sync.claim_lock(&agent, id, None, false) {
-                                Ok(true) => {
-                                    freshly_claimed = true;
-                                    if !opts.quiet {
-                                        println!(
-                                            "Auto-claimed lock on issue {}",
-                                            format_issue_id(id)
-                                        );
-                                    }
-                                }
-                                Ok(false) => {}
-                                Err(e) => tracing::warn!("Could not auto-claim lock: {}", e),
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let agent_id = opts.crosslink_dir.and_then(|dir| {
-            crate::identity::AgentConfig::load(dir)
-                .ok()
-                .flatten()
-                .map(|a| a.agent_id)
-        });
-        if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
-            // If set_session_issue fails after we claimed a lock, release the lock
-            // to avoid orphaned locks.
-            if let Err(e) = db.set_session_issue(session.id, id) {
-                if freshly_claimed {
-                    if let Some(dir) = opts.crosslink_dir {
-                        release_lock_best_effort(dir, id);
-                    }
-                }
-                return Err(e);
-            }
-            if !opts.quiet {
-                println!("Now working on: {} {}", format_issue_id(id), title);
-            }
-        } else if !opts.quiet {
-            tracing::warn!("--work specified but no active session");
-        }
+        auto_claim_and_set_work(db, id, title, opts.crosslink_dir, opts.quiet)?;
     }
 
     Ok(())
@@ -556,5 +436,98 @@ mod tests {
         ) {
             prop_assert!(get_template(&name).is_none());
         }
+    }
+
+    // ==================== Integration Tests (#450) ====================
+
+    fn setup_test_db() -> (crate::db::Database, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = crate::db::Database::open(&db_path).unwrap();
+        (db, dir)
+    }
+
+    #[test]
+    fn test_run_creates_issue() {
+        let (db, _dir) = setup_test_db();
+        let opts = CreateOpts {
+            labels: &[],
+            work: false,
+            quiet: false,
+            crosslink_dir: None,
+            defer_id: false,
+        };
+        run(&db, None, "Test issue", None, "medium", None, &opts).unwrap();
+        let issues = db.list_issues(Some("all"), None, None).unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].title, "Test issue");
+    }
+
+    #[test]
+    fn test_run_with_template_applies_label() {
+        let (db, _dir) = setup_test_db();
+        let opts = CreateOpts {
+            labels: &[],
+            work: false,
+            quiet: false,
+            crosslink_dir: None,
+            defer_id: false,
+        };
+        run(&db, None, "A bug", None, "medium", Some("bug"), &opts).unwrap();
+        let issues = db.list_issues(Some("all"), None, None).unwrap();
+        assert_eq!(issues.len(), 1);
+        let labels = db.get_labels(issues[0].id).unwrap();
+        assert!(labels.contains(&"bug".to_string()));
+    }
+
+    #[test]
+    fn test_run_with_user_labels() {
+        let (db, _dir) = setup_test_db();
+        let labels = vec!["urgent".to_string(), "backend".to_string()];
+        let opts = CreateOpts {
+            labels: &labels,
+            work: false,
+            quiet: false,
+            crosslink_dir: None,
+            defer_id: false,
+        };
+        run(&db, None, "Labeled issue", None, "high", None, &opts).unwrap();
+        let issues = db.list_issues(Some("all"), None, None).unwrap();
+        let issue_labels = db.get_labels(issues[0].id).unwrap();
+        assert_eq!(issue_labels.len(), 2);
+        assert!(issue_labels.contains(&"urgent".to_string()));
+        assert!(issue_labels.contains(&"backend".to_string()));
+    }
+
+    #[test]
+    fn test_run_subissue_creates_child() {
+        let (db, _dir) = setup_test_db();
+        let parent_id = db.create_issue("Parent", None, "high").unwrap();
+        let opts = CreateOpts {
+            labels: &[],
+            work: false,
+            quiet: false,
+            crosslink_dir: None,
+            defer_id: false,
+        };
+        run_subissue(&db, None, parent_id, "Child task", None, "medium", &opts).unwrap();
+        let subs = db.get_subissues(parent_id).unwrap();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].title, "Child task");
+    }
+
+    #[test]
+    fn test_run_invalid_priority_fails() {
+        let (db, _dir) = setup_test_db();
+        let opts = CreateOpts {
+            labels: &[],
+            work: false,
+            quiet: false,
+            crosslink_dir: None,
+            defer_id: false,
+        };
+        let result = run(&db, None, "Bad priority", None, "urgent", None, &opts);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid priority"));
     }
 }

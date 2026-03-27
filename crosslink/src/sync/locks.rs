@@ -1,10 +1,40 @@
 use anyhow::{bail, Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use super::core::SyncManager;
 use super::HUB_BRANCH;
 use crate::identity::AgentConfig;
 use crate::locks::LocksFile;
+
+/// Parse a V2 agent heartbeat file and return the heartbeat timestamp.
+///
+/// Reads `agents/{agent_id}/heartbeat.json` and extracts the `timestamp`
+/// field (RFC 3339). Returns `None` if the file doesn't exist, is
+/// unreadable, contains invalid JSON, or has no parseable timestamp.
+fn parse_v2_heartbeat_timestamp(
+    cache_dir: &std::path::Path,
+    agent_id: &str,
+) -> Option<DateTime<Utc>> {
+    let heartbeat_path = cache_dir
+        .join("agents")
+        .join(agent_id)
+        .join("heartbeat.json");
+    let content = std::fs::read_to_string(&heartbeat_path).ok()?;
+    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let ts = val.get("timestamp")?.as_str()?;
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+/// Whether a lock operation should acquire normally or steal from another agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockMode {
+    /// Normal acquisition — fail if another agent holds the lock.
+    Normal,
+    /// Steal the lock from the current holder.
+    Steal,
+}
 
 impl SyncManager {
     /// Read the current locks file from the cache.
@@ -48,7 +78,7 @@ impl SyncManager {
                 claimed_at: lock_v2.claimed_at,
                 signed_by: lock_v2.signed_by.unwrap_or_default(),
             };
-            locks.insert(lock_v2.issue_id.to_string(), lock);
+            locks.insert(lock_v2.issue_id, lock);
         }
 
         Ok(LocksFile {
@@ -78,14 +108,17 @@ impl SyncManager {
     /// After a push conflict, re-reads locks to verify another agent didn't
     /// claim the same lock during the race window.
     /// Returns `Ok(true)` if newly claimed, `Ok(false)` if already held by self.
-    /// Fails if locked by another agent (unless `force` is true for steal).
+    /// Fails if locked by another agent (unless `mode` is `LockMode::Steal`).
     pub fn claim_lock(
         &self,
         agent: &AgentConfig,
         issue_id: i64,
         branch: Option<&str>,
-        force: bool,
+        mode: LockMode,
     ) -> Result<bool> {
+        if self.is_v2_layout() {
+            tracing::warn!("claim_lock called on V2 hub — prefer SharedWriter::claim_lock_v2");
+        }
         // Retry loop: re-check lock ownership after push conflicts
         for attempt in 0..3 {
             let mut locks = self.read_locks()?;
@@ -95,7 +128,7 @@ impl SyncManager {
                 if existing.agent_id == agent.agent_id {
                     return Ok(false); // Already held by self
                 }
-                if !force {
+                if mode == LockMode::Normal {
                     bail!(
                         "Issue {} is locked by '{}' (claimed {}). \
                          Use 'crosslink locks steal {}' if the lock is stale.",
@@ -105,7 +138,7 @@ impl SyncManager {
                         issue_id
                     );
                 }
-                // force=true: steal the lock
+                // LockMode::Steal: take the lock from the current holder
             }
 
             let lock = crate::locks::Lock {
@@ -118,7 +151,7 @@ impl SyncManager {
                     .unwrap_or_else(|| agent.agent_id.clone()),
             };
 
-            locks.locks.insert(issue_id.to_string(), lock);
+            locks.locks.insert(issue_id, lock);
             locks.save(&self.cache_dir.join("locks.json"))?;
 
             match self
@@ -178,14 +211,17 @@ impl SyncManager {
     /// Release a lock on an issue.
     ///
     /// Returns `Ok(true)` if released, `Ok(false)` if not locked.
-    /// Fails if locked by a different agent (unless `force` is true).
-    pub fn release_lock(&self, agent: &AgentConfig, issue_id: i64, force: bool) -> Result<bool> {
+    /// Fails if locked by a different agent (unless `mode` is `LockMode::Steal`).
+    pub fn release_lock(&self, agent: &AgentConfig, issue_id: i64, mode: LockMode) -> Result<bool> {
+        if self.is_v2_layout() {
+            tracing::warn!("release_lock called on V2 hub — prefer SharedWriter::release_lock_v2");
+        }
         let locks = self.read_locks()?;
 
         match locks.get_lock(issue_id) {
             None => return Ok(false),
             Some(existing) => {
-                if existing.agent_id != agent.agent_id && !force {
+                if existing.agent_id != agent.agent_id && mode == LockMode::Normal {
                     bail!(
                         "Issue {} is locked by '{}', not by you ('{}').",
                         crate::utils::format_issue_id(issue_id),
@@ -197,9 +233,10 @@ impl SyncManager {
         }
 
         // Retry release if push conflict re-introduces the lock (#458)
+        let mut released = false;
         for release_attempt in 0..3 {
             let mut current_locks = self.read_locks()?;
-            current_locks.locks.remove(&issue_id.to_string());
+            current_locks.locks.remove(&issue_id);
             current_locks.save(&self.cache_dir.join("locks.json"))?;
 
             self.commit_and_push_locks(&format!(
@@ -210,6 +247,7 @@ impl SyncManager {
             // Verify the release survived any rebase during push
             let verified = LocksFile::load(&self.cache_dir.join("locks.json"))?;
             if verified.get_lock(issue_id).is_none() {
+                released = true;
                 break; // Release confirmed
             }
             if release_attempt < 2 {
@@ -225,17 +263,22 @@ impl SyncManager {
             }
         }
 
-        Ok(true)
+        Ok(released)
     }
 
     /// Find locks that have gone stale (no heartbeat within the timeout).
     ///
     /// Auto-dispatches based on hub layout version:
     /// - V2: uses per-agent heartbeat timestamps at `agents/{id}/heartbeat.json`
+    ///   with the same configurable `stale_lock_timeout_minutes` as V1.
     /// - V1: uses the legacy `heartbeats/` directory with `stale_lock_timeout_minutes`
     pub fn find_stale_locks(&self) -> Result<Vec<(i64, String)>> {
         if self.is_v2_layout() {
-            return self.find_stale_locks_v2(chrono::Duration::minutes(30));
+            // Use the configurable timeout from locks settings, consistent with V1
+            let locks = self.read_locks_auto()?;
+            let timeout =
+                chrono::Duration::minutes(locks.settings.stale_lock_timeout_minutes as i64);
+            return self.find_stale_locks_v2(timeout);
         }
 
         let locks = self.read_locks_auto()?;
@@ -244,7 +287,7 @@ impl SyncManager {
         let now = Utc::now();
 
         let mut stale = Vec::new();
-        for (issue_id_str, lock) in &locks.locks {
+        for (issue_id, lock) in &locks.locks {
             let has_fresh_heartbeat = heartbeats.iter().any(|hb| {
                 hb.agent_id == lock.agent_id
                     && now
@@ -253,9 +296,7 @@ impl SyncManager {
                         < timeout
             });
             if !has_fresh_heartbeat {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone()));
-                }
+                stale.push((*issue_id, lock.agent_id.clone()));
             }
         }
         Ok(stale)
@@ -264,51 +305,25 @@ impl SyncManager {
     /// Find stale locks using agent heartbeat timestamps (V2 layout).
     ///
     /// A lock is considered stale if the holding agent's heartbeat is older than
-    /// `threshold`, or if no heartbeat file exists. Falls back to claim_at based
-    /// detection for V1.
+    /// `threshold`, or if no heartbeat file exists.
     pub fn find_stale_locks_v2(&self, threshold: chrono::Duration) -> Result<Vec<(i64, String)>> {
         let locks = self.read_locks_v2()?;
         let now = Utc::now();
         let mut stale = Vec::new();
 
-        for (issue_id_str, lock) in &locks.locks {
-            let heartbeat_path = self
-                .cache_dir
-                .join("agents")
-                .join(&lock.agent_id)
-                .join("heartbeat.json");
-
-            let is_stale = if heartbeat_path.exists() {
-                match std::fs::read_to_string(&heartbeat_path) {
-                    Ok(content) => {
-                        match serde_json::from_str::<serde_json::Value>(&content) {
-                            Ok(val) => {
-                                match val.get("timestamp").and_then(|t| t.as_str()) {
-                                    Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
-                                        Ok(heartbeat_time) => {
-                                            let age = now
-                                                .signed_duration_since(heartbeat_time)
-                                                .max(chrono::Duration::zero());
-                                            age > threshold
-                                        }
-                                        Err(_) => true, // Unparseable timestamp -> stale
-                                    },
-                                    None => true, // No timestamp field -> stale
-                                }
-                            }
-                            Err(_) => true, // Invalid JSON -> stale
-                        }
-                    }
-                    Err(_) => true, // Unreadable file -> stale
+        for (issue_id, lock) in &locks.locks {
+            let is_stale = match parse_v2_heartbeat_timestamp(&self.cache_dir, &lock.agent_id) {
+                Some(heartbeat_time) => {
+                    let age = now
+                        .signed_duration_since(heartbeat_time)
+                        .max(chrono::Duration::zero());
+                    age > threshold
                 }
-            } else {
-                true // No heartbeat file -> stale
+                None => true, // Missing, unreadable, or corrupt heartbeat -> stale
             };
 
             if is_stale {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone()));
-                }
+                stale.push((*issue_id, lock.agent_id.clone()));
             }
         }
 
@@ -330,7 +345,7 @@ impl SyncManager {
         let now = Utc::now();
 
         let mut stale = Vec::new();
-        for (issue_id_str, lock) in &locks.locks {
+        for (issue_id, lock) in &locks.locks {
             let latest_heartbeat = heartbeats
                 .iter()
                 .filter(|hb| hb.agent_id == lock.agent_id)
@@ -347,9 +362,7 @@ impl SyncManager {
             };
 
             if age >= timeout {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone(), age.num_minutes() as u64));
-                }
+                stale.push((*issue_id, lock.agent_id.clone(), age.num_minutes() as u64));
             }
         }
         Ok(stale)
@@ -358,47 +371,29 @@ impl SyncManager {
     fn find_stale_locks_with_age_v2(&self) -> Result<Vec<(i64, String, u64)>> {
         let locks = self.read_locks_v2()?;
         let now = Utc::now();
-        let threshold = chrono::Duration::minutes(30);
+        // Use configurable timeout from locks settings, consistent with V1
+        let all_locks = self.read_locks_auto()?;
+        let threshold =
+            chrono::Duration::minutes(all_locks.settings.stale_lock_timeout_minutes as i64);
         let mut stale = Vec::new();
 
-        for (issue_id_str, lock) in &locks.locks {
-            let heartbeat_path = self
-                .cache_dir
-                .join("agents")
-                .join(&lock.agent_id)
-                .join("heartbeat.json");
-
-            let age_minutes = if heartbeat_path.exists() {
-                match std::fs::read_to_string(&heartbeat_path) {
-                    Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
-                        Ok(val) => match val.get("timestamp").and_then(|t| t.as_str()) {
-                            Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
-                                Ok(hb_time) => {
-                                    let age = now
-                                        .signed_duration_since(hb_time)
-                                        .max(chrono::Duration::zero());
-                                    if age > threshold {
-                                        Some(age.num_minutes() as u64)
-                                    } else {
-                                        None
-                                    }
-                                }
-                                Err(_) => Some(u64::MAX),
-                            },
-                            None => Some(u64::MAX),
-                        },
-                        Err(_) => Some(u64::MAX),
-                    },
-                    Err(_) => Some(u64::MAX),
+        for (issue_id, lock) in &locks.locks {
+            let age_minutes = match parse_v2_heartbeat_timestamp(&self.cache_dir, &lock.agent_id) {
+                Some(hb_time) => {
+                    let age = now
+                        .signed_duration_since(hb_time)
+                        .max(chrono::Duration::zero());
+                    if age > threshold {
+                        Some(age.num_minutes() as u64)
+                    } else {
+                        None
+                    }
                 }
-            } else {
-                Some(u64::MAX)
+                None => Some(u64::MAX), // Missing or corrupt heartbeat
             };
 
             if let Some(mins) = age_minutes {
-                if let Ok(id) = issue_id_str.parse::<i64>() {
-                    stale.push((id, lock.agent_id.clone(), mins));
-                }
+                stale.push((*issue_id, lock.agent_id.clone(), mins));
             }
         }
         Ok(stale)

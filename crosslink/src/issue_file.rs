@@ -18,8 +18,8 @@ pub struct IssueFile {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub status: String,
-    pub priority: String,
+    pub status: crate::models::IssueStatus,
+    pub priority: crate::models::Priority,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_uuid: Option<Uuid>,
     pub created_by: String,
@@ -150,10 +150,34 @@ pub struct MilestoneEntry {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub status: String,
+    pub status: crate::models::IssueStatus,
     pub created_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
+}
+
+impl From<&crate::checkpoint::CompactIssue> for IssueFile {
+    fn from(compact: &crate::checkpoint::CompactIssue) -> Self {
+        IssueFile {
+            uuid: compact.uuid,
+            display_id: compact.display_id,
+            title: compact.title.clone(),
+            description: compact.description.clone(),
+            status: compact.status,
+            priority: compact.priority,
+            parent_uuid: compact.parent_uuid,
+            created_by: compact.created_by.clone(),
+            created_at: compact.created_at,
+            updated_at: compact.updated_at,
+            closed_at: compact.closed_at,
+            labels: compact.labels.iter().cloned().collect(),
+            comments: vec![],
+            blockers: compact.blockers.iter().cloned().collect(),
+            related: compact.related.iter().cloned().collect(),
+            milestone_uuid: compact.milestone_uuid,
+            time_entries: vec![],
+        }
+    }
 }
 
 /// Read an issue file from disk.
@@ -449,8 +473,8 @@ mod tests {
             display_id: Some(42),
             title: "Fix auth timeout".to_string(),
             description: Some("Users see 504 errors".to_string()),
-            status: "open".to_string(),
-            priority: "critical".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Critical,
             parent_uuid: None,
             created_by: "worker-1".to_string(),
             created_at: Utc::now(),
@@ -554,7 +578,7 @@ mod tests {
                 display_id: 1,
                 name: "v1.0".to_string(),
                 description: Some("First release".to_string()),
-                status: "open".to_string(),
+                status: crate::models::IssueStatus::Open,
                 created_at: Utc::now(),
                 closed_at: None,
             },
@@ -575,8 +599,8 @@ mod tests {
             display_id: Some(1),
             title: "Test".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
             parent_uuid: None,
             created_by: "test".to_string(),
             created_at: Utc::now(),
@@ -608,8 +632,8 @@ mod tests {
                 display_id: Some(i + 1),
                 title: format!("Issue {}", i + 1),
                 description: None,
-                status: "open".to_string(),
-                priority: "medium".to_string(),
+                status: crate::models::IssueStatus::Open,
+                priority: crate::models::Priority::Medium,
                 parent_uuid: None,
                 created_by: "test".to_string(),
                 created_at: Utc::now(),
@@ -642,8 +666,8 @@ mod tests {
             display_id: Some(1),
             title: "Valid".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
             parent_uuid: None,
             created_by: "test".to_string(),
             created_at: Utc::now(),
@@ -705,7 +729,7 @@ mod tests {
             display_id: 1,
             name: "v1.0".to_string(),
             description: Some("First release".to_string()),
-            status: "open".to_string(),
+            status: crate::models::IssueStatus::Open,
             created_at: Utc::now(),
             closed_at: None,
         };
@@ -729,7 +753,7 @@ mod tests {
                 display_id: i + 1,
                 name: format!("v{}.0", i + 1),
                 description: None,
-                status: "open".to_string(),
+                status: crate::models::IssueStatus::Open,
                 created_at: Utc::now(),
                 closed_at: None,
             };
@@ -1077,8 +1101,8 @@ mod tests {
                 display_id: Some(i + 1),
                 title: format!("V2 Issue {}", i + 1),
                 description: None,
-                status: "open".to_string(),
-                priority: "medium".to_string(),
+                status: crate::models::IssueStatus::Open,
+                priority: crate::models::Priority::Medium,
                 parent_uuid: None,
                 created_by: "test".to_string(),
                 created_at: Utc::now(),
@@ -1116,8 +1140,8 @@ mod tests {
             display_id: Some(1),
             title: "Valid V2".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
             parent_uuid: None,
             created_by: "test".to_string(),
             created_at: Utc::now(),
@@ -1156,7 +1180,7 @@ mod tests {
             display_id: 1,
             name: "v1.0".to_string(),
             description: None,
-            status: "open".to_string(),
+            status: crate::models::IssueStatus::Open,
             created_at: Utc::now(),
             closed_at: None,
         };

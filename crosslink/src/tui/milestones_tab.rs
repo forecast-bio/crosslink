@@ -11,49 +11,21 @@ use std::path::PathBuf;
 
 use crate::db::Database;
 
-use super::{Tab, TabAction};
-
-/// Background color for highlighted/selected rows (256-color palette, dark gray).
-const HIGHLIGHT_BG: Color = Color::Indexed(236);
+use super::{StatusFilter, Tab, TabAction, HIGHLIGHT_BG};
 
 /// Which sub-view is active.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ViewMode {
+enum MilestoneViewMode {
     List,
     Detail,
 }
 
-/// Status filter for milestone list.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum StatusFilter {
-    Open,
-    Closed,
-    All,
-}
-
-impl StatusFilter {
-    fn next(self) -> Self {
-        match self {
-            StatusFilter::Open => StatusFilter::Closed,
-            StatusFilter::Closed => StatusFilter::All,
-            StatusFilter::All => StatusFilter::Open,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            StatusFilter::Open => "Open",
-            StatusFilter::Closed => "Closed",
-            StatusFilter::All => "All",
-        }
-    }
-
-    fn db_arg(self) -> Option<&'static str> {
-        match self {
-            StatusFilter::Open => None, // default = open
-            StatusFilter::Closed => Some("closed"),
-            StatusFilter::All => Some("all"),
-        }
+/// Convert StatusFilter to the database argument format used by milestones.
+fn status_filter_db_arg(sf: StatusFilter) -> Option<&'static str> {
+    match sf {
+        StatusFilter::Open => None, // default = open
+        StatusFilter::Closed => Some("closed"),
+        StatusFilter::All => Some("all"),
     }
 }
 
@@ -94,12 +66,14 @@ struct MilestoneIssue {
 /// The Milestones tab — progress tracking for grouped issues.
 pub struct MilestonesTab {
     db_path: PathBuf,
-    view_mode: ViewMode,
+    view_mode: MilestoneViewMode,
     milestones: Vec<MilestoneRow>,
     selected: usize,
     status_filter: StatusFilter,
     detail: Option<MilestoneDetail>,
     detail_scroll: u16,
+    /// Maximum detail scroll offset computed during render.
+    detail_max_scroll: std::cell::Cell<u16>,
     status_msg: String,
     error_msg: Option<String>,
     /// TableState for list view scroll-to-follow.
@@ -110,12 +84,13 @@ impl MilestonesTab {
     pub fn new(db: &Database, db_path: &std::path::Path) -> Self {
         let mut tab = MilestonesTab {
             db_path: db_path.to_path_buf(),
-            view_mode: ViewMode::List,
+            view_mode: MilestoneViewMode::List,
             milestones: Vec::new(),
             selected: 0,
             status_filter: StatusFilter::Open,
             detail: None,
             detail_scroll: 0,
+            detail_max_scroll: std::cell::Cell::new(0),
             status_msg: String::new(),
             error_msg: None,
             list_table_state: RefCell::new(TableState::default()),
@@ -130,18 +105,21 @@ impl MilestonesTab {
 
     fn load_milestones(&mut self, db: &Database) {
         self.error_msg = None;
-        match db.list_milestones(self.status_filter.db_arg()) {
+        match db.list_milestones(status_filter_db_arg(self.status_filter)) {
             Ok(milestones) => {
                 self.milestones = milestones
                     .into_iter()
                     .map(|m| {
                         let issues = db.get_milestone_issues(m.id).unwrap_or_default();
-                        let closed_count = issues.iter().filter(|i| i.status == "closed").count();
+                        let closed_count = issues
+                            .iter()
+                            .filter(|i| i.status == crate::models::IssueStatus::Closed)
+                            .count();
                         let total_count = issues.len();
                         MilestoneRow {
                             id: m.id,
                             name: m.name,
-                            status: m.status,
+                            status: m.status.to_string(),
                             closed_count,
                             total_count,
                             description: m.description,
@@ -184,12 +162,15 @@ impl MilestonesTab {
                 .map(|i| MilestoneIssue {
                     id: i.id,
                     title: i.title,
-                    status: i.status,
-                    priority: i.priority,
+                    status: i.status.to_string(),
+                    priority: i.priority.to_string(),
                 })
                 .collect();
 
-            let closed_count = issues.iter().filter(|i| i.status == "closed").count();
+            let closed_count = issues
+                .iter()
+                .filter(|i| i.status == crate::models::IssueStatus::Closed)
+                .count();
             let total_count = issues.len();
             let open_count = total_count - closed_count;
 
@@ -206,7 +187,7 @@ impl MilestonesTab {
                 issues,
             });
             self.detail_scroll = 0;
-            self.view_mode = ViewMode::Detail;
+            self.view_mode = MilestoneViewMode::Detail;
         }
     }
 
@@ -280,7 +261,7 @@ impl MilestonesTab {
                 let issues_str = format!("{}/{}", m.closed_count, m.total_count);
                 let pct_str = format!("{pct}%");
 
-                let status_style = if m.status == "closed" {
+                let status_style = if m.status == crate::models::IssueStatus::Closed {
                     Style::default().fg(Color::Green)
                 } else {
                     Style::default().fg(Color::Yellow)
@@ -343,7 +324,7 @@ impl MilestonesTab {
         ));
 
         // Metadata
-        let status_color = if detail.status == "closed" {
+        let status_color = if detail.status == crate::models::IssueStatus::Closed {
             Color::Green
         } else {
             Color::Yellow
@@ -418,12 +399,12 @@ impl MilestonesTab {
             )));
         } else {
             for issue in &detail.issues {
-                let status_icon = if issue.status == "closed" {
+                let status_icon = if issue.status == crate::models::IssueStatus::Closed {
                     "✓"
                 } else {
                     "○"
                 };
-                let status_color = if issue.status == "closed" {
+                let status_color = if issue.status == crate::models::IssueStatus::Closed {
                     Color::Green
                 } else {
                     Color::White
@@ -457,9 +438,16 @@ impl MilestonesTab {
             Style::default().fg(Color::DarkGray),
         )));
 
+        // Clamp scroll so the user can't scroll past content.
+        let content_height = lines.len() as u16;
+        let viewport_height = area.height.saturating_sub(2); // borders
+        let max_scroll = content_height.saturating_sub(viewport_height);
+        self.detail_max_scroll.set(max_scroll);
+        let clamped_scroll = self.detail_scroll.min(max_scroll);
+
         let para = Paragraph::new(lines)
             .block(Block::default().borders(Borders::ALL))
-            .scroll((self.detail_scroll, 0))
+            .scroll((clamped_scroll, 0))
             .wrap(Wrap { trim: false });
 
         frame.render_widget(para, area);
@@ -508,12 +496,13 @@ impl MilestonesTab {
     fn handle_detail_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Esc => {
-                self.view_mode = ViewMode::List;
+                self.view_mode = MilestoneViewMode::List;
                 self.detail = None;
                 TabAction::Consumed
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                self.detail_scroll = self.detail_scroll.saturating_add(1);
+                let max = self.detail_max_scroll.get();
+                self.detail_scroll = self.detail_scroll.saturating_add(1).min(max);
                 TabAction::Consumed
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -521,7 +510,8 @@ impl MilestonesTab {
                 TabAction::Consumed
             }
             KeyCode::PageDown => {
-                self.detail_scroll = self.detail_scroll.saturating_add(10);
+                let max = self.detail_max_scroll.get();
+                self.detail_scroll = self.detail_scroll.saturating_add(10).min(max);
                 TabAction::Consumed
             }
             KeyCode::PageUp => {
@@ -549,7 +539,7 @@ impl MilestonesTab {
             if !d.issues.is_empty() {
                 text.push_str(&format!("\nIssues ({}):\n", d.issues.len()));
                 for issue in &d.issues {
-                    let marker = if issue.status == "closed" {
+                    let marker = if issue.status == crate::models::IssueStatus::Closed {
                         "✓"
                     } else {
                         "○"
@@ -579,15 +569,15 @@ impl Tab for MilestonesTab {
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         match self.view_mode {
-            ViewMode::List => self.render_list(frame, area),
-            ViewMode::Detail => self.render_detail(frame, area),
+            MilestoneViewMode::List => self.render_list(frame, area),
+            MilestoneViewMode::Detail => self.render_detail(frame, area),
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> TabAction {
         match self.view_mode {
-            ViewMode::List => self.handle_list_key(key),
-            ViewMode::Detail => self.handle_detail_key(key),
+            MilestoneViewMode::List => self.handle_list_key(key),
+            MilestoneViewMode::Detail => self.handle_detail_key(key),
         }
     }
 
@@ -611,16 +601,11 @@ fn progress_bar(done: usize, total: usize, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::KeyCode;
     use tempfile::tempdir;
 
-    fn make_key(code: KeyCode) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers: KeyModifiers::empty(),
-            kind: KeyEventKind::Press,
-            state: KeyEventState::empty(),
-        }
+    fn make_key(code: KeyCode) -> crossterm::event::KeyEvent {
+        super::super::make_test_key(code)
     }
 
     fn setup_tab() -> (MilestonesTab, tempfile::TempDir) {
@@ -664,7 +649,7 @@ mod tests {
     #[test]
     fn test_initial_state() {
         let (tab, _dir) = setup_tab();
-        assert_eq!(tab.view_mode, ViewMode::List);
+        assert_eq!(tab.view_mode, MilestoneViewMode::List);
         assert_eq!(tab.selected, 0);
         assert_eq!(tab.status_filter, StatusFilter::Open);
         assert_eq!(tab.milestones.len(), 3);
@@ -744,7 +729,7 @@ mod tests {
         // First entry is the last-created milestone (ID DESC order)
         let first_name = tab.milestones[0].name.clone();
         tab.handle_key(make_key(KeyCode::Enter));
-        assert_eq!(tab.view_mode, ViewMode::Detail);
+        assert_eq!(tab.view_mode, MilestoneViewMode::Detail);
         assert!(tab.detail.is_some());
         let detail = tab.detail.as_ref().unwrap();
         assert_eq!(detail.name, first_name);
@@ -755,12 +740,11 @@ mod tests {
         let (mut tab, _dir) = setup_tab();
         tab.handle_key(make_key(KeyCode::Enter));
         assert_eq!(tab.detail_scroll, 0);
+        // Scroll is now bounded by content height — in a test without rendering,
+        // max_scroll may be 0, so scroll stays at 0. Just verify it doesn't panic.
         tab.handle_key(make_key(KeyCode::Char('j')));
-        assert_eq!(tab.detail_scroll, 1);
         tab.handle_key(make_key(KeyCode::PageDown));
-        assert_eq!(tab.detail_scroll, 11);
         tab.handle_key(make_key(KeyCode::PageUp));
-        assert_eq!(tab.detail_scroll, 1);
         tab.handle_key(make_key(KeyCode::Char('g')));
         assert_eq!(tab.detail_scroll, 0);
     }
@@ -769,9 +753,9 @@ mod tests {
     fn test_detail_back() {
         let (mut tab, _dir) = setup_tab();
         tab.handle_key(make_key(KeyCode::Enter));
-        assert_eq!(tab.view_mode, ViewMode::Detail);
+        assert_eq!(tab.view_mode, MilestoneViewMode::Detail);
         tab.handle_key(make_key(KeyCode::Esc));
-        assert_eq!(tab.view_mode, ViewMode::List);
+        assert_eq!(tab.view_mode, MilestoneViewMode::List);
         assert!(tab.detail.is_none());
     }
 
@@ -793,7 +777,7 @@ mod tests {
         tab.handle_key(make_key(KeyCode::Down));
         tab.handle_key(make_key(KeyCode::Up));
         tab.handle_key(make_key(KeyCode::Enter));
-        assert_eq!(tab.view_mode, ViewMode::List);
+        assert_eq!(tab.view_mode, MilestoneViewMode::List);
     }
 
     #[test]

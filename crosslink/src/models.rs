@@ -1,13 +1,214 @@
 use chrono::{DateTime, Utc};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
+
+/// Issue lifecycle status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IssueStatus {
+    Open,
+    Closed,
+    Archived,
+}
+
+impl fmt::Display for IssueStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Open => write!(f, "open"),
+            Self::Closed => write!(f, "closed"),
+            Self::Archived => write!(f, "archived"),
+        }
+    }
+}
+
+impl FromStr for IssueStatus {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "open" => Ok(Self::Open),
+            "closed" => Ok(Self::Closed),
+            "archived" => Ok(Self::Archived),
+            other => anyhow::bail!(
+                "Invalid status '{}'. Valid values: open, closed, archived",
+                other
+            ),
+        }
+    }
+}
+
+impl IssueStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Archived => "archived",
+        }
+    }
+}
+
+/// Issue priority level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Priority {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl fmt::Display for Priority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+            Self::Critical => write!(f, "critical"),
+        }
+    }
+}
+
+impl FromStr for Priority {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "critical" => Ok(Self::Critical),
+            other => anyhow::bail!(
+                "Invalid priority '{}'. Valid values: low, medium, high, critical",
+                other
+            ),
+        }
+    }
+}
+
+impl Priority {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Critical => "critical",
+        }
+    }
+}
+
+// Enable comparison with string types for ergonomic use in display code.
+
+impl PartialEq<str> for IssueStatus {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for IssueStatus {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl PartialEq<IssueStatus> for str {
+    fn eq(&self, other: &IssueStatus) -> bool {
+        self == other.as_str()
+    }
+}
+
+impl PartialEq<IssueStatus> for &str {
+    fn eq(&self, other: &IssueStatus) -> bool {
+        *self == other.as_str()
+    }
+}
+
+impl PartialEq<String> for IssueStatus {
+    fn eq(&self, other: &String) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<IssueStatus> for String {
+    fn eq(&self, other: &IssueStatus) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<str> for Priority {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for Priority {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl PartialEq<Priority> for str {
+    fn eq(&self, other: &Priority) -> bool {
+        self == other.as_str()
+    }
+}
+
+impl PartialEq<Priority> for &str {
+    fn eq(&self, other: &Priority) -> bool {
+        *self == other.as_str()
+    }
+}
+
+impl PartialEq<String> for Priority {
+    fn eq(&self, other: &String) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<Priority> for String {
+    fn eq(&self, other: &Priority) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+// rusqlite integration — store as text in SQLite, parse on read.
+
+impl ToSql for IssueStatus {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for IssueStatus {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|e: anyhow::Error| FromSqlError::Other(e.into()))
+    }
+}
+
+impl ToSql for Priority {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for Priority {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|e: anyhow::Error| FromSqlError::Other(e.into()))
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Issue {
     pub id: i64,
     pub title: String,
     pub description: Option<String>,
-    pub status: String,
-    pub priority: String,
+    pub status: IssueStatus,
+    pub priority: Priority,
     pub parent_id: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -50,7 +251,7 @@ pub struct Milestone {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
-    pub status: String,
+    pub status: IssueStatus,
     pub created_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
 }
@@ -86,8 +287,8 @@ mod tests {
             id: 1,
             title: "Test issue".to_string(),
             description: Some("A description".to_string()),
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: IssueStatus::Open,
+            priority: Priority::High,
             parent_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -111,8 +312,8 @@ mod tests {
             id: 2,
             title: "Child issue".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: IssueStatus::Open,
+            priority: Priority::Medium,
             parent_id: Some(1),
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -132,8 +333,8 @@ mod tests {
             id: 1,
             title: "Closed issue".to_string(),
             description: None,
-            status: "closed".to_string(),
-            priority: "low".to_string(),
+            status: IssueStatus::Closed,
+            priority: Priority::Low,
             parent_id: None,
             created_at: now,
             updated_at: now,
@@ -152,8 +353,8 @@ mod tests {
             id: 1,
             title: "测试 🐛 αβγ".to_string(),
             description: Some("Description with émojis 🎉".to_string()),
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: IssueStatus::Open,
+            priority: Priority::High,
             parent_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -275,7 +476,7 @@ mod tests {
             id: 1,
             name: "v1.0".to_string(),
             description: Some("First release".to_string()),
-            status: "open".to_string(),
+            status: IssueStatus::Open,
             created_at: Utc::now(),
             closed_at: None,
         };
@@ -296,7 +497,7 @@ mod tests {
             id: 1,
             name: "v1.0".to_string(),
             description: None,
-            status: "closed".to_string(),
+            status: IssueStatus::Closed,
             created_at: now,
             closed_at: Some(now),
         };
@@ -305,7 +506,7 @@ mod tests {
         let deserialized: Milestone = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.closed_at, Some(now));
-        assert_eq!(deserialized.status, "closed");
+        assert_eq!(deserialized.status, IssueStatus::Closed);
     }
 
     // ==================== Property-Based Tests ====================
@@ -315,15 +516,17 @@ mod tests {
         fn prop_issue_json_roundtrip(
             id in 1i64..10000,
             title in "[a-zA-Z0-9 ]{1,100}",
-            status in "open|closed",
-            priority in "low|medium|high|critical"
+            is_closed in proptest::bool::ANY,
+            prio_idx in 0usize..4,
         ) {
+            let status = if is_closed { IssueStatus::Closed } else { IssueStatus::Open };
+            let priority = [Priority::Low, Priority::Medium, Priority::High, Priority::Critical][prio_idx];
             let issue = Issue {
                 id,
                 title: title.clone(),
                 description: None,
-                status: status.clone(),
-                priority: priority.clone(),
+                status,
+                priority,
                 parent_id: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
@@ -392,13 +595,14 @@ mod tests {
         fn prop_milestone_json_roundtrip(
             id in 1i64..10000,
             name in "[a-zA-Z0-9.]{1,50}",
-            status in "open|closed"
+            is_closed in proptest::bool::ANY,
         ) {
+            let status = if is_closed { IssueStatus::Closed } else { IssueStatus::Open };
             let milestone = Milestone {
                 id,
                 name: name.clone(),
                 description: None,
-                status: status.clone(),
+                status,
                 created_at: Utc::now(),
                 closed_at: None,
             };
@@ -422,8 +626,8 @@ mod tests {
                 id: 1,
                 title: "Test".to_string(),
                 description: if has_desc { Some("Desc".to_string()) } else { None },
-                status: if is_closed { "closed".to_string() } else { "open".to_string() },
-                priority: "medium".to_string(),
+                status: if is_closed { IssueStatus::Closed } else { IssueStatus::Open },
+                priority: Priority::Medium,
                 parent_id: if has_parent { Some(99) } else { None },
                 created_at: now,
                 updated_at: now,

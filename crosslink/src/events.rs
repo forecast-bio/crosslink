@@ -263,6 +263,12 @@ pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
 }
 
 /// Read only events with ordering key > watermark.
+///
+/// Currently deserializes all events and filters in-memory. For very large
+/// logs this could be optimized by seeking to an approximate offset based on
+/// the watermark timestamp, but the NDJSON format requires scanning for
+/// newline boundaries regardless. The current approach is correct and
+/// performant for typical log sizes (<100k events). (#333)
 pub fn read_events_after(log_path: &Path, watermark: &OrderingKey) -> Result<Vec<EventEnvelope>> {
     let all = read_events(log_path)?;
     Ok(all
@@ -277,14 +283,14 @@ pub fn read_events_after(log_path: &Path, watermark: &OrderingKey) -> Result<Vec
 ///
 /// Uses the event's JSON representation (without signature fields) as the
 /// content to sign, ensuring deterministic canonical form.
-fn canonicalize_event(envelope: &EventEnvelope) -> Vec<u8> {
-    let event_json = serde_json::to_string(&envelope.event).unwrap_or_default();
-    signing::canonicalize_for_signing(&[
+fn canonicalize_event(envelope: &EventEnvelope) -> Result<Vec<u8>> {
+    let event_json = serde_json::to_string(&envelope.event)?;
+    Ok(signing::canonicalize_for_signing(&[
         ("agent_id", &envelope.agent_id),
         ("agent_seq", &envelope.agent_seq.to_string()),
         ("timestamp", &envelope.timestamp.to_rfc3339()),
         ("event", &event_json),
-    ])
+    ]))
 }
 
 /// Sign an event envelope using the agent's SSH key.
@@ -293,7 +299,7 @@ pub fn sign_event(
     private_key_path: &Path,
     fingerprint: &str,
 ) -> Result<()> {
-    let content = canonicalize_event(envelope);
+    let content = canonicalize_event(envelope)?;
     let sig = signing::sign_content(private_key_path, &content, "crosslink-event")?;
     envelope.signed_by = Some(fingerprint.to_string());
     envelope.signature = Some(sig);
@@ -309,7 +315,7 @@ pub fn verify_event_signature(
         (Some(s), Some(sig)) => (s, sig),
         _ => return Ok(false),
     };
-    let content = canonicalize_event(envelope);
+    let content = canonicalize_event(envelope)?;
     let principal = format!("{}@crosslink", envelope.agent_id);
     signing::verify_content(
         allowed_signers_path,
@@ -552,8 +558,8 @@ mod tests {
     #[test]
     fn test_canonicalize_event_deterministic() {
         let envelope = make_envelope("agent-1", 1);
-        let c1 = canonicalize_event(&envelope);
-        let c2 = canonicalize_event(&envelope);
+        let c1 = canonicalize_event(&envelope).unwrap();
+        let c2 = canonicalize_event(&envelope).unwrap();
         assert_eq!(c1, c2);
     }
 
@@ -714,8 +720,8 @@ mod tests {
         let mut e2 = make_envelope("agent-1", 2);
         e2.timestamp = e1.timestamp;
 
-        let c1 = canonicalize_event(&e1);
-        let c2 = canonicalize_event(&e2);
+        let c1 = canonicalize_event(&e1).unwrap();
+        let c2 = canonicalize_event(&e2).unwrap();
         assert_ne!(
             c1, c2,
             "Different agent_seq should produce different canonical forms"
@@ -725,11 +731,11 @@ mod tests {
     #[test]
     fn test_canonicalize_event_ignores_signature_fields() {
         let mut e1 = make_envelope("agent-1", 1);
-        let c_before = canonicalize_event(&e1);
+        let c_before = canonicalize_event(&e1).unwrap();
 
         e1.signed_by = Some("SHA256:abc".to_string());
         e1.signature = Some("sig123".to_string());
-        let c_after = canonicalize_event(&e1);
+        let c_after = canonicalize_event(&e1).unwrap();
         assert_eq!(c_before, c_after);
     }
 

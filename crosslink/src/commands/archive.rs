@@ -19,7 +19,7 @@ pub fn archive(db: &Database, id: i64) -> Result<()> {
         None => bail!("Issue {} not found", format_issue_id(id)),
     };
 
-    if issue.status != "closed" {
+    if issue.status != crate::models::IssueStatus::Closed {
         bail!(
             "Can only archive closed issues. Issue {} is '{}'",
             format_issue_id(id),
@@ -93,10 +93,9 @@ pub fn archive_older(db: &Database, days: i64) -> Result<()> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

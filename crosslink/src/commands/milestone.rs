@@ -49,14 +49,21 @@ pub fn list(db: &Database, status: Option<&str>) -> Result<()> {
     for m in milestones {
         let issues = db.get_milestone_issues(m.id)?;
         let total = issues.len();
-        let closed = issues.iter().filter(|i| i.status == "closed").count();
+        let closed = issues
+            .iter()
+            .filter(|i| i.status == crate::models::IssueStatus::Closed)
+            .count();
         let progress = if total > 0 {
             format!("{}/{}", closed, total)
         } else {
             "0/0".to_string()
         };
 
-        let status_marker = if m.status == "closed" { "✓" } else { " " };
+        let status_marker = if m.status == crate::models::IssueStatus::Closed {
+            "✓"
+        } else {
+            " "
+        };
         println!("#{:<3} [{}] {} ({})", m.id, status_marker, m.name, progress);
     }
 
@@ -87,14 +94,21 @@ pub fn show(db: &Database, id: i64) -> Result<()> {
 
     let issues = db.get_milestone_issues(id)?;
     let total = issues.len();
-    let closed = issues.iter().filter(|i| i.status == "closed").count();
+    let closed = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Closed)
+        .count();
 
     println!("\nProgress: {}/{} issues closed", closed, total);
 
     if !issues.is_empty() {
         println!("\nIssues:");
         for issue in issues {
-            let status_marker = if issue.status == "closed" { "✓" } else { " " };
+            let status_marker = if issue.status == crate::models::IssueStatus::Closed {
+                "✓"
+            } else {
+                " "
+            };
             println!(
                 "  {:<5} [{}] {:8} {}",
                 format_issue_id(issue.id),
@@ -225,10 +239,9 @@ pub fn delete(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)
@@ -348,7 +361,10 @@ mod tests {
         show(&db, milestone_id).unwrap();
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert_eq!(issues.len(), 2);
-        let closed_count = issues.iter().filter(|i| i.status == "closed").count();
+        let closed_count = issues
+            .iter()
+            .filter(|i| i.status == crate::models::IssueStatus::Closed)
+            .count();
         assert_eq!(closed_count, 1, "1 of 2 issues should be closed");
     }
 

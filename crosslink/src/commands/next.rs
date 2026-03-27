@@ -6,14 +6,23 @@ use crate::locks::LocksFile;
 use crate::models::Issue;
 use crate::utils::format_issue_id;
 
-/// Progress tuple: (completed subissues, total subissues)
-type Progress = Option<(i32, i32)>;
+/// Progress of an issue's subissues.
+struct SubissueProgress {
+    completed: i32,
+    total: i32,
+}
 
-/// Scored issue with priority score and progress
-type ScoredIssue = (Issue, i32, Progress);
+/// An issue annotated with its priority score and subissue progress.
+struct ScoredIssue {
+    issue: Issue,
+    score: i32,
+    progress: Option<SubissueProgress>,
+}
 
-/// Best-effort load of lock state for filtering. Returns (LocksFile, my_agent_id) or None.
-fn load_locks_filter(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
+/// Init cache, fetch remote, and load lock state for filtering.
+/// Side effects: initializes the hub cache and fetches from remote (best-effort).
+/// Returns (LocksFile, my_agent_id) or None if agent/sync not configured.
+fn fetch_and_load_locks(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
     let agent = crate::identity::AgentConfig::load(crosslink_dir).ok()??;
     let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
     // INTENTIONAL: init and fetch are best-effort — lock filtering works with stale data
@@ -23,33 +32,35 @@ fn load_locks_filter(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
     Some((locks, agent.agent_id))
 }
 
-/// Priority order for sorting (higher = more important)
-fn priority_weight(priority: &str) -> i32 {
+/// Priority order for sorting (higher = more important).
+fn priority_weight(priority: &crate::models::Priority) -> i32 {
     match priority {
-        "critical" => 4,
-        "high" => 3,
-        "medium" => 2,
-        "low" => 1,
-        _ => 0,
+        crate::models::Priority::Critical => 4,
+        crate::models::Priority::High => 3,
+        crate::models::Priority::Medium => 2,
+        crate::models::Priority::Low => 1,
     }
 }
 
 /// Calculate progress for issues with subissues
-fn calculate_progress(db: &Database, issue: &Issue) -> Result<Progress> {
+fn calculate_progress(db: &Database, issue: &Issue) -> Result<Option<SubissueProgress>> {
     let subissues = db.get_subissues(issue.id)?;
     if subissues.is_empty() {
         return Ok(None);
     }
 
     let total = subissues.len() as i32;
-    let closed = subissues.iter().filter(|s| s.status == "closed").count() as i32;
-    Ok(Some((closed, total)))
+    let completed = subissues
+        .iter()
+        .filter(|s| s.status == crate::models::IssueStatus::Closed)
+        .count() as i32;
+    Ok(Some(SubissueProgress { completed, total }))
 }
 
 pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
-    let ready = db.list_ready_issues()?;
+    let all_ready = db.list_ready_issues()?;
 
-    if ready.is_empty() {
+    if all_ready.is_empty() {
         println!("No issues ready to work on.");
         println!(
             "Use 'crosslink list' to see all issues or 'crosslink blocked' to see blocked issues."
@@ -58,12 +69,12 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     }
 
     // Load lock state for filtering (best-effort, non-blocking)
-    let locks_filter = load_locks_filter(crosslink_dir);
+    let locks_filter = fetch_and_load_locks(crosslink_dir);
 
     // Score and sort issues
     let mut scored: Vec<ScoredIssue> = Vec::new();
 
-    for issue in ready {
+    for issue in &all_ready {
         // Skip subissues - we want to recommend parent issues or standalone issues
         if issue.parent_id.is_some() {
             continue;
@@ -77,25 +88,28 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         }
 
         let priority_score = priority_weight(&issue.priority) * 100;
-        let progress = calculate_progress(db, &issue)?;
+        let progress = calculate_progress(db, issue)?;
 
         // Boost score for issues that are partially complete (finish what you started)
         let progress_bonus = match &progress {
-            Some((closed, total)) if *closed > 0 && *closed < *total => 50,
+            Some(p) if p.completed > 0 && p.completed < p.total => 50,
             _ => 0,
         };
 
         let score = priority_score + progress_bonus;
-        scored.push((issue, score, progress));
+        scored.push(ScoredIssue {
+            issue: issue.clone(),
+            score,
+            progress,
+        });
     }
 
     // Sort by score descending
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by(|a, b| b.score.cmp(&a.score));
 
     if scored.is_empty() {
-        // All ready issues are subissues, show them instead
-        let ready = db.list_ready_issues()?;
-        if let Some(issue) = ready.first() {
+        // All ready issues are subissues or locked, show first available instead
+        if let Some(issue) = all_ready.first() {
             println!(
                 "Next: {} [{}] {}",
                 format_issue_id(issue.id),
@@ -112,19 +126,22 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     }
 
     // Recommend the top issue
-    let (top, _score, progress) = &scored[0];
+    let top = &scored[0];
     println!(
         "Next: {} [{}] {}",
-        format_issue_id(top.id),
-        top.priority,
-        top.title
+        format_issue_id(top.issue.id),
+        top.issue.priority,
+        top.issue.title
     );
 
-    if let Some((closed, total)) = progress {
-        println!("       Progress: {}/{} subissues complete", closed, total);
+    if let Some(ref p) = top.progress {
+        println!(
+            "       Progress: {}/{} subissues complete",
+            p.completed, p.total
+        );
     }
 
-    if let Some(desc) = &top.description {
+    if let Some(desc) = &top.issue.description {
         if !desc.is_empty() {
             let preview: String = desc.chars().take(80).collect();
             let suffix = if desc.chars().count() > 80 { "..." } else { "" };
@@ -133,22 +150,22 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     }
 
     println!();
-    println!("Run: crosslink session work {}", top.id);
+    println!("Run: crosslink session work {}", top.issue.id);
 
     // Show runners-up if any
     if scored.len() > 1 {
         println!();
         println!("Also ready:");
-        for (issue, _score, progress) in scored.iter().skip(1).take(3) {
-            let progress_str = match progress {
-                Some((c, t)) => format!(" ({}/{})", c, t),
+        for entry in scored.iter().skip(1).take(3) {
+            let progress_str = match &entry.progress {
+                Some(p) => format!(" ({}/{})", p.completed, p.total),
                 None => String::new(),
             };
             println!(
                 "  {} [{}] {}{}",
-                format_issue_id(issue.id),
-                issue.priority,
-                issue.title,
+                format_issue_id(entry.issue.id),
+                entry.issue.priority,
+                entry.issue.title,
                 progress_str
             );
         }
@@ -161,10 +178,9 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)
@@ -172,27 +188,22 @@ mod tests {
 
     #[test]
     fn test_priority_weight_critical() {
-        assert_eq!(priority_weight("critical"), 4);
+        assert_eq!(priority_weight(&crate::models::Priority::Critical), 4);
     }
 
     #[test]
     fn test_priority_weight_high() {
-        assert_eq!(priority_weight("high"), 3);
+        assert_eq!(priority_weight(&crate::models::Priority::High), 3);
     }
 
     #[test]
     fn test_priority_weight_medium() {
-        assert_eq!(priority_weight("medium"), 2);
+        assert_eq!(priority_weight(&crate::models::Priority::Medium), 2);
     }
 
     #[test]
     fn test_priority_weight_low() {
-        assert_eq!(priority_weight("low"), 1);
-    }
-
-    #[test]
-    fn test_priority_weight_unknown() {
-        assert_eq!(priority_weight("unknown"), 0);
+        assert_eq!(priority_weight(&crate::models::Priority::Low), 1);
     }
 
     #[test]
@@ -230,9 +241,10 @@ mod tests {
         let critical = ready.iter().find(|i| i.id == critical_id).unwrap();
         assert_eq!(critical.priority, "critical");
         // Critical should have highest weight
-        assert_eq!(priority_weight("critical"), 4);
-        assert!(priority_weight("critical") > priority_weight("low"));
-        assert!(priority_weight("critical") > priority_weight("medium"));
+        use crate::models::Priority;
+        assert_eq!(priority_weight(&Priority::Critical), 4);
+        assert!(priority_weight(&Priority::Critical) > priority_weight(&Priority::Low));
+        assert!(priority_weight(&Priority::Critical) > priority_weight(&Priority::Medium));
     }
 
     #[test]
@@ -260,9 +272,9 @@ mod tests {
         let progress = calculate_progress(&db, &issue).unwrap();
 
         assert!(progress.is_some());
-        let (closed, total) = progress.unwrap();
-        assert_eq!(closed, 1);
-        assert_eq!(total, 2);
+        let p = progress.unwrap();
+        assert_eq!(p.completed, 1);
+        assert_eq!(p.total, 2);
     }
 
     #[test]
@@ -301,7 +313,8 @@ mod tests {
     proptest! {
         #[test]
         fn prop_priority_weight_valid(priority in "low|medium|high|critical") {
-            let weight = priority_weight(&priority);
+            let p: crate::models::Priority = priority.parse().unwrap();
+            let weight = priority_weight(&p);
             prop_assert!((1..=4).contains(&weight));
         }
 

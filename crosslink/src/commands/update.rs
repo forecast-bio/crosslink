@@ -27,6 +27,11 @@ pub fn run(
     }
 
     if let Some(w) = writer {
+        // description.map(Some) wraps Option<&str> -> Option<Option<&str>>.
+        // The outer Option distinguishes "not updating description" (None) from
+        // "updating description" (Some), and the inner Option allows setting
+        // the description to either a value (Some("text")) or clearing it (None).
+        // Here we never clear, so the inner is always Some when the outer is Some.
         w.update_issue(db, id, title, description.map(Some), None, priority)?;
         println!("Updated issue {}", format_issue_id(id));
     } else if db.update_issue(id, title, description, priority)? {
@@ -42,10 +47,9 @@ pub fn run(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

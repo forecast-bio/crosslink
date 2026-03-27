@@ -150,7 +150,7 @@ export class DaemonManager {
                 if (process.platform === 'win32' && pid !== undefined) {
                     // On Windows, SIGKILL is unreliable; use taskkill /F instead
                     try {
-                        cp.execSync(`taskkill /PID ${pid} /F`);
+                        cp.execFileSync('taskkill', ['/PID', String(pid), '/F']);
                     } catch {
                         // Process may have already exited
                     }
@@ -168,7 +168,7 @@ export class DaemonManager {
         if (process.platform === 'win32' && pid !== undefined) {
             // On Windows, SIGTERM is a no-op for child processes; use taskkill instead
             try {
-                cp.execSync(`taskkill /PID ${pid}`);
+                cp.execFileSync('taskkill', ['/PID', String(pid)]);
             } catch {
                 // Process may have already exited
             }

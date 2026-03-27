@@ -1,3 +1,4 @@
+pub mod errors;
 pub mod handlers;
 pub mod routes;
 pub mod state;
@@ -10,7 +11,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use axum::extract::DefaultBodyLimit;
-use tower_http::cors::{Any, CorsLayer};
+use axum::http::{Request, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::Response;
+use tower_http::cors::CorsLayer;
 
 use crate::db::Database;
 use state::AppState;
@@ -18,9 +22,41 @@ use state::AppState;
 /// Maximum allowed request body size (10 MB).
 const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 
+/// Bearer token authentication middleware.
+///
+/// Exempts `/api/v1/health` (read-only status) and `/ws` (WebSocket, uses
+/// its own protocol-level auth if needed). All other `/api/` routes require
+/// a valid `Authorization: Bearer <token>` header.
+async fn auth_middleware(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let path = request.uri().path();
+
+    // Exempt health check and WebSocket from auth
+    if path == "/api/v1/health" || path == "/ws" || !path.starts_with("/api/") {
+        return Ok(next.run(request).await);
+    }
+
+    let authorized = request
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|token| token == state.auth_token)
+        .unwrap_or(false);
+
+    if authorized {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
 /// Start the crosslink web server.
 ///
-/// Binds to `0.0.0.0:<port>`, configures CORS for the Vite dev server on
+/// Binds to `127.0.0.1:<port>`, configures CORS for the Vite dev server on
 /// `:5173`, serves the React dashboard from `dashboard_dir` (if provided),
 /// exposes the REST API under `/api/v1/`, and opens a WebSocket hub at `/ws`.
 ///
@@ -46,16 +82,25 @@ pub async fn run(
     let cors = CorsLayer::new()
         .allow_origin([localhost, loopback])
         .allow_methods(tower_http::cors::Any)
-        .allow_headers(Any);
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::ACCEPT,
+        ]);
 
-    let app = routes::build_router(state, dashboard_dir)
+    let app = routes::build_router(state.clone(), dashboard_dir)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
         .layer(cors);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("crosslink serve: listening on http://{}", addr);
     println!("  API:       http://{}/api/v1/health", addr);
     println!("  WebSocket: ws://{}/ws", addr);
+    println!("  Auth:      Bearer {}", state.auth_token);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

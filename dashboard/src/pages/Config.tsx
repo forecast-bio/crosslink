@@ -11,6 +11,7 @@ import type { Config as ConfigType, TrackingMode, SigningEnforcement } from "@/l
 export function Config() {
   const [cfg, setCfg] = useState<ConfigType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<"ok" | "error" | null>(null);
 
@@ -35,11 +36,11 @@ export function Config() {
         setInterventionTracking(c.intervention_tracking);
         setAutoStealStaleLocks(c.auto_steal_stale_locks);
       })
-      .catch(() => {})
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   };
 
-  useEffect(loadConfig, []);
+  useEffect(() => { loadConfig(); }, []);
 
   const isDirty =
     cfg !== null &&
@@ -92,11 +93,13 @@ export function Config() {
     );
   }
 
-  if (!cfg) {
+  if (error || !cfg) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold mb-4">Config</h1>
-        <p className="text-muted-foreground text-sm">Server unavailable.</p>
+        <p className={error ? "text-destructive text-sm" : "text-muted-foreground text-sm"}>
+          {error ?? "Server unavailable."}
+        </p>
       </div>
     );
   }

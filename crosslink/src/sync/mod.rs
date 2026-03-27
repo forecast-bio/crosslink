@@ -9,7 +9,7 @@ mod trust;
 mod tests;
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 
 /// Directory name under .crosslink for the hub cache worktree.
 pub(crate) const HUB_CACHE_DIR: &str = ".hub-cache";
@@ -31,13 +31,14 @@ const OLD_BRANCH: &str = "crosslink/locks";
 pub use crate::signing::SignatureVerification;
 
 /// Deprecated alias — use `SignatureVerification` instead.
-pub type GpgVerification = SignatureVerification;
-
 pub use self::core::SyncManager;
+pub use self::locks::LockMode;
 
 /// Read the configured tracker remote name from `.crosslink/hook-config.json`.
 ///
 /// Returns the value of `tracker_remote` if set, otherwise `"origin"`.
+/// This is a pure config read — no subprocess calls. Use
+/// `SyncManager::remote_exists()` to validate the remote.
 pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
     let config_path = crosslink_dir.join("hook-config.json");
     let configured = std::fs::read_to_string(&config_path)
@@ -53,26 +54,30 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
     }
 
     // Warn once when falling back to "origin".
-    static WARNED: AtomicBool = AtomicBool::new(false);
-    if !WARNED.swap(true, Ordering::Relaxed) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
         tracing::warn!(
             "no tracker_remote configured in {}, defaulting to \"origin\"",
             config_path.display()
         );
-
-        // Check whether the "origin" remote actually exists.
-        let origin_exists = std::process::Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-
-        if !origin_exists {
-            tracing::warn!("remote \"origin\" does not exist; sync operations will fail");
-        }
-    }
+    });
 
     "origin".to_string()
+}
+
+/// Check whether a named git remote exists in the given repo directory.
+///
+/// Separated from `read_tracker_remote` so the config-read path stays
+/// free of subprocess calls (#356). Available for callers that need to
+/// validate the remote without constructing a full `SyncManager`.
+#[allow(dead_code)]
+pub fn validate_remote_exists(repo_root: &Path, remote: &str) -> bool {
+    std::process::Command::new("git")
+        .current_dir(repo_root)
+        .args(["remote", "get-url", remote])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }

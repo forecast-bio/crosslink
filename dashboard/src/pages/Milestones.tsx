@@ -18,6 +18,7 @@ import type { MilestoneDetail } from "@/lib/types";
 export function Milestones() {
   const [items, setItems] = useState<MilestoneDetail[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"open" | "closed" | "all">("open");
   const [showCreate, setShowCreate] = useState(false);
 
@@ -25,12 +26,12 @@ export function Milestones() {
     milestonesApi
       .list()
       .then(setItems)
-      .catch(() => {})
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
-    refetch();
+    void refetch();
   }, []);
 
   const filtered =
@@ -69,6 +70,10 @@ export function Milestones() {
           {filtered.length} milestone{filtered.length !== 1 ? "s" : ""}
         </span>
       </div>
+
+      {error && (
+        <p className="text-destructive text-sm">{error}</p>
+      )}
 
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading…</p>

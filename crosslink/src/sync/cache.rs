@@ -14,8 +14,12 @@ use crate::locks::LocksFile;
 // ---------------------------------------------------------------------------
 
 /// RAII guard for the hub cache write lock.
+///
+/// Holds the lock file handle open so the OS releases it on crash.
+/// On normal drop, removes the lock file.
 pub(crate) struct HubWriteLock {
     path: PathBuf,
+    _file: std::fs::File,
 }
 
 impl Drop for HubWriteLock {
@@ -32,6 +36,21 @@ impl Drop for HubWriteLock {
     }
 }
 
+/// Try to atomically create the lock file and write our PID.
+/// Returns the guard on success, or the IO error on failure.
+fn try_create_lock(lock_path: &Path) -> std::io::Result<HubWriteLock> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(lock_path)?;
+    use std::io::Write;
+    writeln!(f, "{}", std::process::id())?;
+    Ok(HubWriteLock {
+        path: lock_path.to_path_buf(),
+        _file: f,
+    })
+}
+
 /// Acquire the hub cache write lock at the given path.
 ///
 /// Blocks up to 30 seconds, checking for stale locks via PID liveness.
@@ -42,55 +61,43 @@ pub(crate) fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
     let start = std::time::Instant::now();
 
     loop {
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_path)
-        {
-            Ok(mut f) => {
-                use std::io::Write;
-                if let Err(e) = writeln!(f, "{}", std::process::id()) {
-                    let _ = std::fs::remove_file(lock_path);
-                    bail!("Failed to write PID to hub lock file: {}", e);
-                }
-                return Ok(HubWriteLock {
-                    path: lock_path.to_path_buf(),
-                });
-            }
+        match try_create_lock(lock_path) {
+            Ok(guard) => return Ok(guard),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                if let Ok(content) = std::fs::read_to_string(lock_path) {
-                    if let Ok(pid) = content.trim().parse::<u32>() {
-                        let alive = std::process::Command::new("kill")
+                // Lock file exists — check if the holder is still alive.
+                let holder_alive = std::fs::read_to_string(lock_path)
+                    .ok()
+                    .and_then(|content| content.trim().parse::<u32>().ok())
+                    .map(|pid| {
+                        std::process::Command::new("kill")
                             .args(["-0", &pid.to_string()])
                             .output()
                             .map(|o| o.status.success())
-                            .unwrap_or(false);
-                        if !alive {
-                            if let Err(rm_err) = std::fs::remove_file(lock_path) {
-                                if rm_err.kind() == std::io::ErrorKind::NotFound {
-                                    continue;
-                                }
-                                bail!(
-                                    "Cannot remove stale hub lock (PID {} is dead): {}",
-                                    pid,
-                                    rm_err
-                                );
-                            }
-                            continue;
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+
+                if !holder_alive {
+                    // Stale lock — remove and immediately re-attempt in the same
+                    // iteration to minimize the TOCTOU window (#347).
+                    let _ = std::fs::remove_file(lock_path);
+                    match try_create_lock(lock_path) {
+                        Ok(guard) => return Ok(guard),
+                        Err(_) => {
+                            // Another process won the race — fall through to retry loop
                         }
                     }
                 }
 
                 if start.elapsed() > max_wait {
-                    if let Err(rm_err) = std::fs::remove_file(lock_path) {
-                        if rm_err.kind() != std::io::ErrorKind::NotFound {
-                            bail!(
-                                "Hub lock held for >30s and cannot be force-removed: {}",
-                                rm_err
-                            );
-                        }
+                    // Force-remove after timeout
+                    let _ = std::fs::remove_file(lock_path);
+                    match try_create_lock(lock_path) {
+                        Ok(guard) => return Ok(guard),
+                        Err(_) => bail!(
+                            "Hub lock held for >30s and could not be acquired after force-removal"
+                        ),
                     }
-                    continue;
                 }
                 std::thread::sleep(poll_interval);
             }
@@ -271,31 +278,7 @@ impl SyncManager {
             return Ok(0); // V1 hub — V1 files are correct
         }
 
-        // Find V1 flat files that also have a V2 directory
-        let mut stale_v1: Vec<std::path::PathBuf> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&issues_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().to_string();
-                if path.is_file() && name.ends_with(".json") {
-                    let uuid = name.trim_end_matches(".json");
-                    let v2_dir = issues_dir.join(uuid);
-                    if v2_dir.join("issue.json").exists() {
-                        // Both V1 and V2 exist — V1 is stale
-                        stale_v1.push(path);
-                    } else if !v2_dir.exists() {
-                        // V1 exists without V2 on a V2 hub — migrate it
-                        if let Ok(content) = std::fs::read(&path) {
-                            if std::fs::create_dir_all(&v2_dir).is_ok()
-                                && std::fs::write(v2_dir.join("issue.json"), &content).is_ok()
-                            {
-                                stale_v1.push(path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let stale_v1 = self.find_stale_v1_files(&issues_dir)?;
 
         if stale_v1.is_empty() {
             return Ok(0);
@@ -322,17 +305,65 @@ impl SyncManager {
         Ok(stale_v1.len())
     }
 
+    /// Find V1 flat files that should be cleaned up or migrated to V2.
+    ///
+    /// Returns paths of V1 files that are stale (have a V2 equivalent) or
+    /// that were successfully migrated to V2 format during this call.
+    fn find_stale_v1_files(&self, issues_dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
+        let mut stale_v1: Vec<std::path::PathBuf> = Vec::new();
+        let entries = match std::fs::read_dir(issues_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(stale_v1),
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !path.is_file() || !name.ends_with(".json") {
+                continue;
+            }
+            let uuid = name.trim_end_matches(".json");
+            let v2_dir = issues_dir.join(uuid);
+            if v2_dir.join("issue.json").exists() {
+                // Both V1 and V2 exist — V1 is stale
+                stale_v1.push(path);
+            } else if !v2_dir.exists() {
+                // V1 exists without V2 on a V2 hub — migrate it
+                if let Some(migrated) = self.migrate_v1_to_v2(&path, &v2_dir) {
+                    stale_v1.push(migrated);
+                }
+            }
+        }
+        Ok(stale_v1)
+    }
+
+    /// Migrate a single V1 flat issue file to V2 directory layout.
+    ///
+    /// Returns `Some(v1_path)` if the migration succeeded (so the V1 file
+    /// can be removed), or `None` if it failed.
+    fn migrate_v1_to_v2(
+        &self,
+        v1_path: &std::path::Path,
+        v2_dir: &std::path::Path,
+    ) -> Option<std::path::PathBuf> {
+        let content = std::fs::read(v1_path).ok()?;
+        std::fs::create_dir_all(v2_dir).ok()?;
+        std::fs::write(v2_dir.join("issue.json"), &content).ok()?;
+        Some(v1_path.to_path_buf())
+    }
+
     /// Detect and recover from broken git states in the hub cache worktree.
     ///
     /// Checks for three failure modes that can leave the cache unusable:
+    /// 0. **Stale index.lock** — removed unconditionally before other
+    ///    recovery steps, since `rebase --abort` and `checkout` both need
+    ///    the index. Safe because callers hold the hub write lock, so no
+    ///    legitimate git process is running.
     /// 1. **Mid-rebase state** — `.git/rebase-merge/` or `.git/rebase-apply/`
     ///    directories left behind by an interrupted rebase. Cleared with
     ///    `git rebase --abort`.
     /// 2. **Detached HEAD** — HEAD is not attached to the hub branch.
     ///    Re-attached with `git checkout crosslink/hub`.
-    /// 3. **Stale index.lock** — a leftover `index.lock` file older than 30
-    ///    seconds, indicating a crashed git process. Removed to unblock
-    ///    subsequent git operations.
     ///
     /// All recovery operations are best-effort: if any individual check or
     /// fix fails, we log a warning and continue rather than failing the
@@ -440,8 +471,11 @@ impl SyncManager {
                 // working directory with the last commit.
                 if self.git_in_cache(&["add", "-A"]).is_err() {
                     tracing::warn!(
-                        "git add -A failed in dirty state cleanup, \
-                         escalating to reset --hard HEAD"
+                        "git add -A failed in dirty state cleanup — escalating to \
+                         `git reset --hard HEAD`. This discards uncommitted changes \
+                         in the hub cache worktree (not the user's working tree). \
+                         Dirty files were: {}",
+                        stdout.trim()
                     );
                     self.git_in_cache(&["reset", "--hard", "HEAD"])?;
                     return Ok(true);
@@ -631,6 +665,9 @@ impl SyncManager {
                 }
             }
         }
-        Ok(())
+        // All 3 iterations returned early or continued — if we get here,
+        // the loop completed without a definitive outcome, which shouldn't
+        // happen. Treat as an error rather than silently returning Ok.
+        bail!("Push loop completed without returning — this is a bug")
     }
 }

@@ -7,35 +7,26 @@
 use axum::{extract::State, http::StatusCode, response::Json};
 
 use crate::server::{
+    errors::{bad_request, internal_error},
     state::AppState,
     types::{ApiError, ConfigResponse, UpdateConfigRequest},
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
-
-fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ApiError {
-            error: "bad request".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
-
 /// Extract a ConfigResponse from a raw JSON Value.
+///
+/// Field name mapping between `hook-config.json` and the API response:
+///
+/// | hook-config.json key         | API response field           |
+/// |------------------------------|------------------------------|
+/// | `tracking_mode`              | `tracking_mode`              |
+/// | `stale_lock_timeout_minutes` | `stale_lock_timeout_minutes` |
+/// | `tracker_remote`             | `remote`                     |
+/// | `signing_enforcement`        | `signing_enforcement`        |
+/// | `intervention_tracking`      | `intervention_tracking`      |
+/// | `auto_steal_stale_locks`     | `auto_steal_stale_locks`     |
+///
+/// Note: the file uses `tracker_remote` while the API exposes `remote`.
+/// The `PATCH /api/v1/config` request body also uses `remote`.
 fn config_from_value(v: &serde_json::Value) -> ConfigResponse {
     ConfigResponse {
         tracking_mode: v
@@ -78,24 +69,32 @@ pub async fn get_config(
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ApiError>)> {
     let config_path = state.crosslink_dir.join("hook-config.json");
 
-    // If no config file exists, return sensible defaults
-    if !config_path.exists() {
-        return Ok(Json(ConfigResponse {
-            tracking_mode: "normal".to_string(),
-            stale_lock_timeout_minutes: 30,
-            remote: "origin".to_string(),
-            signing_enforcement: "off".to_string(),
-            intervention_tracking: false,
-            auto_steal_stale_locks: false,
-        }));
-    }
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<ConfigResponse, (StatusCode, Json<ApiError>)> {
+            // If no config file exists, return sensible defaults
+            if !config_path.exists() {
+                return Ok(ConfigResponse {
+                    tracking_mode: "normal".to_string(),
+                    stale_lock_timeout_minutes: 30,
+                    remote: "origin".to_string(),
+                    signing_enforcement: "off".to_string(),
+                    intervention_tracking: false,
+                    auto_steal_stale_locks: false,
+                });
+            }
 
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| internal_error("Failed to read config file", e))?;
-    let value: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| internal_error("Failed to parse config file", e))?;
+            let content = std::fs::read_to_string(&config_path)
+                .map_err(|e| internal_error("Failed to read config file", e))?;
+            let value: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| internal_error("Failed to parse config file", e))?;
 
-    Ok(Json(config_from_value(&value)))
+            Ok(config_from_value(&value))
+        },
+    )
+    .await
+    .map_err(|e| internal_error("Task join error", e))?;
+
+    result.map(Json)
 }
 
 /// `PATCH /api/v1/config` — merge-update configuration fields.
@@ -106,23 +105,7 @@ pub async fn update_config(
     State(state): State<AppState>,
     Json(body): Json<UpdateConfigRequest>,
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ApiError>)> {
-    let config_path = state.crosslink_dir.join("hook-config.json");
-
-    // Read existing config (or start from empty object)
-    let mut value: serde_json::Value = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| internal_error("Failed to read config file", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| internal_error("Failed to parse config file", e))?
-    } else {
-        serde_json::json!({})
-    };
-
-    let obj = value
-        .as_object_mut()
-        .ok_or_else(|| internal_error("Config file is not a JSON object", "expected {}"))?;
-
-    // Validate tracking_mode if provided
+    // Validate before entering spawn_blocking (these are pure checks).
     if let Some(ref mode) = body.tracking_mode {
         let valid_modes = ["strict", "normal", "relaxed"];
         if !valid_modes.contains(&mode.as_str()) {
@@ -132,20 +115,7 @@ pub async fn update_config(
                 valid_modes.join(", ")
             )));
         }
-        obj.insert(
-            "tracking_mode".to_string(),
-            serde_json::Value::String(mode.clone()),
-        );
     }
-
-    if let Some(timeout) = body.stale_lock_timeout_minutes {
-        obj.insert(
-            "stale_lock_timeout_minutes".to_string(),
-            serde_json::json!(timeout),
-        );
-    }
-
-    // Validate signing_enforcement if provided
     if let Some(ref enforcement) = body.signing_enforcement {
         let valid = ["off", "audit", "warn", "enforce"];
         if !valid.contains(&enforcement.as_str()) {
@@ -155,47 +125,88 @@ pub async fn update_config(
                 valid.join(", ")
             )));
         }
-        obj.insert(
-            "signing_enforcement".to_string(),
-            serde_json::Value::String(enforcement.clone()),
-        );
     }
 
-    if let Some(ref remote) = body.remote {
-        obj.insert(
-            "tracker_remote".to_string(),
-            serde_json::Value::String(remote.clone()),
-        );
-    }
+    let config_path = state.crosslink_dir.join("hook-config.json");
 
-    if let Some(intervention) = body.intervention_tracking {
-        obj.insert(
-            "intervention_tracking".to_string(),
-            serde_json::Value::Bool(intervention),
-        );
-    }
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<ConfigResponse, (StatusCode, Json<ApiError>)> {
+            // Read existing config (or start from empty object)
+            let mut value: serde_json::Value = if config_path.exists() {
+                let content = std::fs::read_to_string(&config_path)
+                    .map_err(|e| internal_error("Failed to read config file", e))?;
+                serde_json::from_str(&content)
+                    .map_err(|e| internal_error("Failed to parse config file", e))?
+            } else {
+                serde_json::json!({})
+            };
 
-    if let Some(auto_steal) = body.auto_steal_stale_locks {
-        obj.insert(
-            "auto_steal_stale_locks".to_string(),
-            serde_json::Value::Bool(auto_steal),
-        );
-    }
+            let obj = value
+                .as_object_mut()
+                .ok_or_else(|| internal_error("Config file is not a JSON object", "expected {}"))?;
 
-    // Write updated config back to disk
-    let pretty = serde_json::to_string_pretty(&value)
-        .map_err(|e| internal_error("Serialization failed", e))?;
+            if let Some(ref mode) = body.tracking_mode {
+                obj.insert(
+                    "tracking_mode".to_string(),
+                    serde_json::Value::String(mode.clone()),
+                );
+            }
 
-    // Ensure .crosslink directory exists
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| internal_error("Failed to create config directory", e))?;
-    }
+            if let Some(timeout) = body.stale_lock_timeout_minutes {
+                obj.insert(
+                    "stale_lock_timeout_minutes".to_string(),
+                    serde_json::json!(timeout),
+                );
+            }
 
-    std::fs::write(&config_path, format!("{}\n", pretty))
-        .map_err(|e| internal_error("Failed to write config file", e))?;
+            if let Some(ref enforcement) = body.signing_enforcement {
+                obj.insert(
+                    "signing_enforcement".to_string(),
+                    serde_json::Value::String(enforcement.clone()),
+                );
+            }
 
-    Ok(Json(config_from_value(&value)))
+            if let Some(ref remote) = body.remote {
+                obj.insert(
+                    "tracker_remote".to_string(),
+                    serde_json::Value::String(remote.clone()),
+                );
+            }
+
+            if let Some(intervention) = body.intervention_tracking {
+                obj.insert(
+                    "intervention_tracking".to_string(),
+                    serde_json::Value::Bool(intervention),
+                );
+            }
+
+            if let Some(auto_steal) = body.auto_steal_stale_locks {
+                obj.insert(
+                    "auto_steal_stale_locks".to_string(),
+                    serde_json::Value::Bool(auto_steal),
+                );
+            }
+
+            // Write updated config back to disk
+            let pretty = serde_json::to_string_pretty(&value)
+                .map_err(|e| internal_error("Serialization failed", e))?;
+
+            // Ensure .crosslink directory exists
+            if let Some(parent) = config_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| internal_error("Failed to create config directory", e))?;
+            }
+
+            std::fs::write(&config_path, format!("{}\n", pretty))
+                .map_err(|e| internal_error("Failed to write config file", e))?;
+
+            Ok(config_from_value(&value))
+        },
+    )
+    .await
+    .map_err(|e| internal_error("Task join error", e))?;
+
+    result.map(Json)
 }
 
 // ---------------------------------------------------------------------------
@@ -474,11 +485,11 @@ mod tests {
 
     #[test]
     fn test_helper_functions() {
-        let (status, json) = super::internal_error("ctx", "err");
+        let (status, json) = crate::server::errors::internal_error("ctx", "err");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
 
-        let (status, json) = super::bad_request("invalid");
+        let (status, json) = crate::server::errors::bad_request("invalid");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(json.detail.as_deref(), Some("invalid"));
     }

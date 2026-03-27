@@ -12,26 +12,13 @@ use axum::{
 };
 
 use crate::server::{
+    errors::internal_error,
     state::AppState,
     types::{
         ApiError, CreateTokenUsageRequest, TokenUsageListQuery, TokenUsageListResponse,
         TokenUsageSummaryQuery, TokenUsageSummaryResponse,
     },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -45,7 +32,7 @@ pub async fn list_usage(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageListQuery>,
 ) -> Result<Json<TokenUsageListResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let items = db
         .list_token_usage(
@@ -70,7 +57,7 @@ pub async fn create_usage(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenUsageRequest>,
 ) -> Result<(StatusCode, Json<crate::models::TokenUsage>), (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let id = db
         .create_token_usage(
@@ -100,7 +87,7 @@ pub async fn usage_summary(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageSummaryQuery>,
 ) -> Result<Json<TokenUsageSummaryResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let items = db
         .get_usage_summary(
@@ -528,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_internal_error_helper() {
-        let (status, json) = super::internal_error("ctx", "detail msg");
+        let (status, json) = crate::server::errors::internal_error("ctx", "detail msg");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
         assert_eq!(json.detail.as_deref(), Some("detail msg"));

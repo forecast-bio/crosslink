@@ -3,6 +3,7 @@ pub mod archive;
 pub mod comment;
 pub mod compact;
 pub mod config;
+pub mod config_registry;
 pub mod container;
 pub mod context;
 pub mod cpitd;
@@ -21,6 +22,9 @@ pub mod intervene;
 pub mod kickoff;
 pub mod knowledge;
 pub mod label;
+/// Issue lifecycle management (close, reopen, close-all).
+/// Renamed from status.rs to better reflect contents (#448).
+pub mod lifecycle;
 pub mod list;
 pub mod locks_cmd;
 pub mod migrate;
@@ -32,7 +36,6 @@ pub mod relate;
 pub mod search;
 pub mod session;
 pub mod show;
-pub mod status;
 pub mod style;
 pub mod swarm;
 pub mod tested;

@@ -27,6 +27,7 @@ use axum::{
 use serde_json::{json, Value};
 
 use crate::server::{
+    errors::{bad_request, internal_error, not_found},
     state::AppState,
     types::{
         AddBlockerRequest, AddLabelRequest, ApiError, CreateCommentRequest, CreateIssueRequest,
@@ -35,40 +36,6 @@ use crate::server::{
     },
     ws::WsEvent,
 };
-
-// ---------------------------------------------------------------------------
-// Error helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
-
-fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiError {
-            error: "not found".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
-
-fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ApiError {
-            error: "bad request".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Broadcast helper
@@ -80,7 +47,7 @@ fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
 fn broadcast_issue_updated(state: &AppState, issue_id: i64, field: &str) {
     // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
     let _ = state.ws_tx.send(WsEvent::IssueUpdated(WsIssueUpdatedEvent {
-        event_type: "issue_updated",
+        event_type: crate::server::types::WsEventType::IssueUpdated,
         issue_id,
         field: field.to_string(),
     }));
@@ -102,7 +69,7 @@ pub async fn list_issues(
     State(state): State<AppState>,
     Query(params): Query<IssueListQuery>,
 ) -> Result<Json<IssueListResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let issues = if let Some(ref search) = params.search {
         // Full-text search; apply remaining filters in-memory afterwards.
@@ -112,7 +79,9 @@ pub async fn list_issues(
 
         if let Some(ref status) = params.status {
             if status != "all" {
-                results.retain(|i| &i.status == status);
+                if let Ok(s) = status.parse::<crate::models::IssueStatus>() {
+                    results.retain(|i| i.status == s);
+                }
             }
         }
         if let Some(ref label) = params.label {
@@ -129,7 +98,9 @@ pub async fn list_issues(
             results.retain(|i| ids_with_label.contains(&i.id));
         }
         if let Some(ref priority) = params.priority {
-            results.retain(|i| &i.priority == priority);
+            if let Ok(p) = priority.parse::<crate::models::Priority>() {
+                results.retain(|i| i.priority == p);
+            }
         }
         if let Some(parent_id) = params.parent_id {
             results.retain(|i| i.parent_id == Some(parent_id));
@@ -151,13 +122,17 @@ pub async fn list_issues(
         results
     };
 
-    // Build lightweight summaries (fetch labels + blocker count per issue).
+    // Build lightweight summaries using batch queries to avoid N+1.
+    let issue_ids: Vec<i64> = issues.iter().map(|i| i.id).collect();
+    let labels_map = db.get_labels_batch(&issue_ids).unwrap_or_default();
+    let blocker_counts = db.get_blocker_counts_batch(&issue_ids).unwrap_or_default();
+
     let mut items: Vec<IssueSummary> = Vec::with_capacity(issues.len());
     for issue in issues {
-        let labels = db.get_labels(issue.id).unwrap_or_default();
-        let blockers = db.get_blockers(issue.id).unwrap_or_default();
+        let labels = labels_map.get(&issue.id).cloned().unwrap_or_default();
+        let blocker_count = blocker_counts.get(&issue.id).copied().unwrap_or(0);
         items.push(IssueSummary {
-            blocker_count: blockers.len(),
+            blocker_count,
             issue,
             labels,
         });
@@ -176,18 +151,19 @@ pub async fn create_issue(
     State(state): State<AppState>,
     Json(body): Json<CreateIssueRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
+    let priority_str = body.priority.to_string();
     let id = if let Some(parent_id) = body.parent_id {
         db.create_subissue(
             parent_id,
             &body.title,
             body.description.as_deref(),
-            &body.priority,
+            &priority_str,
         )
         .map_err(|e| bad_request(e.to_string()))?
     } else {
-        db.create_issue(&body.title, body.description.as_deref(), &body.priority)
+        db.create_issue(&body.title, body.description.as_deref(), &priority_str)
             .map_err(|e| bad_request(e.to_string()))?
     };
 
@@ -209,7 +185,7 @@ pub async fn create_issue(
 pub async fn list_blocked(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let issues = db
         .list_blocked_issues()
@@ -228,7 +204,7 @@ pub async fn list_blocked(
 pub async fn list_ready(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let issues = db
         .list_ready_issues()
@@ -247,18 +223,28 @@ pub async fn get_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<IssueDetail>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let issue = db
         .get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let labels = db.get_labels(id).unwrap_or_default();
-    let comments = db.get_comments(id).unwrap_or_default();
-    let blockers = db.get_blockers(id).unwrap_or_default();
-    let blocking = db.get_blocking(id).unwrap_or_default();
-    let subissues = db.get_subissues(id).unwrap_or_default();
+    let labels = db
+        .get_labels(id)
+        .map_err(|e| internal_error("Failed to fetch labels", e))?;
+    let comments = db
+        .get_comments(id)
+        .map_err(|e| internal_error("Failed to fetch comments", e))?;
+    let blockers = db
+        .get_blockers(id)
+        .map_err(|e| internal_error("Failed to fetch blockers", e))?;
+    let blocking = db
+        .get_blocking(id)
+        .map_err(|e| internal_error("Failed to fetch blocking", e))?;
+    let subissues = db
+        .get_subissues(id)
+        .map_err(|e| internal_error("Failed to fetch subissues", e))?;
 
     // Attach milestone if one is assigned.
     let milestone =
@@ -292,19 +278,20 @@ pub async fn update_issue(
     Path(id): Path<i64>,
     Json(body): Json<UpdateIssueRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify the issue exists first.
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
+    let priority_str = body.priority.as_ref().map(|p| p.to_string());
     let updated = db
         .update_issue(
             id,
             body.title.as_deref(),
             body.description.as_deref(),
-            body.priority.as_deref(),
+            priority_str.as_deref(),
         )
         .map_err(|e| bad_request(e.to_string()))?;
 
@@ -330,7 +317,7 @@ pub async fn delete_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let deleted = db
         .delete_issue(id)
@@ -353,7 +340,7 @@ pub async fn close_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let closed = db
         .close_issue(id)
@@ -381,7 +368,7 @@ pub async fn reopen_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let reopened = db
         .reopen_issue(id)
@@ -410,19 +397,20 @@ pub async fn create_subissue(
     Path(parent_id): Path<i64>,
     Json(body): Json<CreateSubissueRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify parent exists.
     db.get_issue(parent_id)
         .map_err(|e| internal_error("Failed to fetch parent issue", e))?
         .ok_or_else(|| not_found(format!("Parent issue #{parent_id} not found")))?;
 
+    let priority_str = body.priority.to_string();
     let child_id = db
         .create_subissue(
             parent_id,
             &body.title,
             body.description.as_deref(),
-            &body.priority,
+            &priority_str,
         )
         .map_err(|e| bad_request(e.to_string()))?;
 
@@ -445,7 +433,7 @@ pub async fn list_comments(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Return 404 when the issue itself doesn't exist.
     db.get_issue(id)
@@ -474,15 +462,23 @@ pub async fn add_comment(
     Path(id): Path<i64>,
     Json(body): Json<CreateCommentRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     // Verify issue exists.
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let comment_id = if body.kind == "intervention" {
-        let trigger = body.trigger_type.as_deref().unwrap_or("unknown");
+    let comment_id = if body.kind == crate::server::types::CommentKind::Intervention {
+        // #573: Require trigger_type when kind is intervention.
+        let trigger = match body.trigger_type.as_deref() {
+            Some(t) if !t.is_empty() => t,
+            _ => {
+                return Err(bad_request(
+                    "trigger_type is required when comment kind is 'intervention'",
+                ));
+            }
+        };
         db.add_intervention_comment(
             id,
             &body.content,
@@ -492,7 +488,8 @@ pub async fn add_comment(
         )
         .map_err(|e| bad_request(e.to_string()))?
     } else {
-        db.add_comment(id, &body.content, &body.kind)
+        let kind_str = body.kind.to_string();
+        db.add_comment(id, &body.content, &kind_str)
             .map_err(|e| bad_request(e.to_string()))?
     };
 
@@ -519,7 +516,7 @@ pub async fn add_label(
     Path(id): Path<i64>,
     Json(body): Json<AddLabelRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
@@ -541,7 +538,7 @@ pub async fn remove_label(
     State(state): State<AppState>,
     Path((id, label)): Path<(i64, String)>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
@@ -571,7 +568,7 @@ pub async fn add_blocker(
     Path(id): Path<i64>,
     Json(body): Json<AddBlockerRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
@@ -597,7 +594,7 @@ pub async fn remove_blocker(
     State(state): State<AppState>,
     Path((id, blocker_id)): Path<(i64, i64)>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     db.get_issue(id)
         .map_err(|e| internal_error("Failed to fetch issue", e))?
@@ -778,7 +775,7 @@ mod tests {
     async fn test_update_issue() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Original", None, "medium").unwrap()
         };
 
@@ -808,7 +805,7 @@ mod tests {
     async fn test_close_and_reopen_issue() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Close me", None, "medium").unwrap()
         };
 
@@ -856,7 +853,7 @@ mod tests {
     async fn test_delete_issue() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Delete me", None, "low").unwrap()
         };
 
@@ -891,7 +888,7 @@ mod tests {
     async fn test_subissue() {
         let (state, _dir) = test_state();
         let parent_id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Parent", None, "high").unwrap()
         };
 
@@ -945,7 +942,7 @@ mod tests {
     async fn test_comments() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Comment test", None, "medium").unwrap()
         };
 
@@ -995,7 +992,7 @@ mod tests {
     async fn test_labels() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Label test", None, "medium").unwrap()
         };
 
@@ -1073,7 +1070,7 @@ mod tests {
     async fn test_blockers() {
         let (state, _dir) = test_state();
         let (blocked_id, blocker_id) = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let b1 = db.create_issue("Blocked", None, "medium").unwrap();
             let b2 = db.create_issue("Blocker", None, "high").unwrap();
             (b1, b2)
@@ -1154,7 +1151,7 @@ mod tests {
     async fn test_list_issues_filter_by_status() {
         let (state, _dir) = test_state();
         let (id1, id2) = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let a = db.create_issue("Open issue", None, "medium").unwrap();
             let b = db.create_issue("Closed issue", None, "medium").unwrap();
             db.close_issue(b).unwrap();
@@ -1189,7 +1186,7 @@ mod tests {
     async fn test_list_ready_issues() {
         let (state, _dir) = test_state();
         let (ready_id, blocked_id, blocker_id) = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let r = db.create_issue("Ready", None, "medium").unwrap();
             let bd = db.create_issue("Blocked", None, "medium").unwrap();
             let bl = db.create_issue("Blocker", None, "high").unwrap();
@@ -1226,7 +1223,7 @@ mod tests {
     async fn test_create_issue_with_parent_id() {
         let (state, _dir) = test_state();
         let parent_id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Parent via create", None, "medium")
                 .unwrap()
         };
@@ -1260,7 +1257,7 @@ mod tests {
     async fn test_list_issues_filter_by_label() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let id1 = db.create_issue("Has bug label", None, "medium").unwrap();
             let _id2 = db.create_issue("No label", None, "medium").unwrap();
             db.add_label(id1, "bug").unwrap();
@@ -1289,7 +1286,7 @@ mod tests {
     async fn test_list_issues_filter_by_priority() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("High prio", None, "high").unwrap();
             db.create_issue("Low prio", None, "low").unwrap();
         };
@@ -1317,7 +1314,7 @@ mod tests {
     async fn test_list_issues_search() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Fix authentication bug", None, "high")
                 .unwrap();
             db.create_issue("Add new feature", None, "medium").unwrap();
@@ -1467,7 +1464,7 @@ mod tests {
     async fn test_remove_label_not_found() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("No labels", None, "medium").unwrap()
         };
         let app = build_router(state);
@@ -1506,7 +1503,7 @@ mod tests {
     async fn test_add_blocker_blocker_not_found() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Exists", None, "medium").unwrap()
         };
         let app = build_router(state);
@@ -1528,7 +1525,7 @@ mod tests {
     async fn test_remove_blocker_not_a_blocker() {
         let (state, _dir) = test_state();
         let (id, other_id) = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let a = db.create_issue("Issue A", None, "medium").unwrap();
             let b = db.create_issue("Issue B", None, "medium").unwrap();
             (a, b)
@@ -1603,7 +1600,7 @@ mod tests {
     async fn test_list_issues_filter_by_parent_id() {
         let (state, _dir) = test_state();
         let (parent_id, child_id) = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let p = db.create_issue("Parent issue", None, "high").unwrap();
             let c = db
                 .create_subissue(p, "Child issue", None, "medium")
@@ -1634,7 +1631,7 @@ mod tests {
     async fn test_list_issues_search_with_priority_filter() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Widget high", None, "high").unwrap();
             db.create_issue("Widget low", None, "low").unwrap();
         };
@@ -1662,7 +1659,7 @@ mod tests {
     async fn test_list_issues_search_with_label_filter() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let id1 = db.create_issue("Gadget with bug", None, "medium").unwrap();
             db.create_issue("Gadget no label", None, "medium").unwrap();
             db.add_label(id1, "bug").unwrap();
@@ -1691,7 +1688,7 @@ mod tests {
     async fn test_list_issues_search_with_parent_id_filter() {
         let (state, _dir) = test_state();
         let parent_id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let p = db.create_issue("Parent task", None, "high").unwrap();
             db.create_subissue(p, "Gizmo sub-task", None, "medium")
                 .unwrap();
@@ -1723,7 +1720,7 @@ mod tests {
     async fn test_list_issues_search_status_all() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let id1 = db.create_issue("Sprocket open", None, "medium").unwrap();
             let id2 = db.create_issue("Sprocket closed", None, "medium").unwrap();
             db.close_issue(id2).unwrap();
@@ -1753,7 +1750,7 @@ mod tests {
     async fn test_add_intervention_comment() {
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Intervention test", None, "medium")
                 .unwrap()
         };
@@ -1789,7 +1786,7 @@ mod tests {
     async fn test_list_issues_search_with_status_filter() {
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let id1 = db.create_issue("Auth bug open", None, "high").unwrap();
             let id2 = db.create_issue("Auth bug closed", None, "high").unwrap();
             db.close_issue(id2).unwrap();
@@ -1818,17 +1815,17 @@ mod tests {
     #[test]
     fn test_helper_functions_directly() {
         // Directly cover the helper functions to ensure they produce correct responses.
-        let (status, json) = super::internal_error("ctx", "detail");
+        let (status, json) = crate::server::errors::internal_error("ctx", "detail");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
         assert_eq!(json.detail.as_deref(), Some("detail"));
 
-        let (status, json) = super::not_found("gone");
+        let (status, json) = crate::server::errors::not_found("gone");
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json.error, "not found");
         assert_eq!(json.detail.as_deref(), Some("gone"));
 
-        let (status, json) = super::bad_request("invalid input");
+        let (status, json) = crate::server::errors::bad_request("invalid input");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(json.error, "bad request");
         assert_eq!(json.detail.as_deref(), Some("invalid input"));
@@ -1840,7 +1837,7 @@ mod tests {
         // includes the milestone object (exercises lines 268-270).
         let (state, _dir) = test_state();
         let (issue_id, milestone_id) = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             let iid = db.create_issue("Has milestone", None, "medium").unwrap();
             let mid = db.create_milestone("Sprint 1", None).unwrap();
             db.add_issue_to_milestone(mid, iid).unwrap();
@@ -1873,7 +1870,7 @@ mod tests {
         // Updating priority alone should succeed and broadcast the change.
         let (state, _dir) = test_state();
         let id = {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             db.create_issue("Priority update", None, "low").unwrap()
         };
 
@@ -1903,7 +1900,7 @@ mod tests {
         // Search path where label filter removes all results.
         let (state, _dir) = test_state();
         {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().await;
             // Create issue with search term but wrong label.
             let id = db.create_issue("Widget thing", None, "medium").unwrap();
             db.add_label(id, "enhancement").unwrap();

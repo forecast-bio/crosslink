@@ -90,10 +90,13 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
         let _ = std::fs::remove_dir_all(sync.cache_path().join(ctx.base));
     }
 
+    // Stage all swarm/ changes (additions, modifications, and deletions) on the
+    // hub branch cache. This is safe because the cache is a dedicated worktree
+    // for crosslink/hub, not the user's working tree.
     let cache = sync.cache_path();
     if let Ok(o) = std::process::Command::new("git")
         .current_dir(cache)
-        .args(["add", "-A", "swarm/"])
+        .args(["add", "--all", "--", "swarm/"])
         .output()
     {
         if !o.status.success() {
@@ -165,10 +168,11 @@ pub fn reset(crosslink_dir: &Path, no_archive: bool) -> Result<()> {
         let _ = std::fs::remove_dir_all(sync.cache_path().join(ctx.base));
     }
 
+    // Stage all swarm/ changes on the hub branch cache (see archive() comment).
     let cache = sync.cache_path();
     if let Ok(o) = std::process::Command::new("git")
         .current_dir(cache)
-        .args(["add", "-A", "swarm/"])
+        .args(["add", "--all", "--", "swarm/"])
         .output()
     {
         if !o.status.success() {
@@ -750,7 +754,7 @@ pub fn launch(
             container: ContainerMode::None,
             verify: VerifyLevel::Local,
             model: "opus",
-            image: "ghcr.io/forecast-bio/crosslink-agent:latest",
+            image: kickoff::DEFAULT_AGENT_IMAGE,
             timeout: std::time::Duration::from_secs(3600),
             dry_run: false,
             branch: branch.as_deref(),
@@ -863,8 +867,12 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     println!("Running gate: {}", test_cmd);
     println!();
 
-    let output = std::process::Command::new("sh")
-        .args(["-c", test_cmd])
+    let cmd_parts: Vec<&str> = test_cmd.split_whitespace().collect();
+    let (program, args) = cmd_parts
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("Empty gate test command"))?;
+    let output = std::process::Command::new(program)
+        .args(args)
         .current_dir(root)
         .output()
         .with_context(|| format!("Failed to run gate command: {}", test_cmd))?;

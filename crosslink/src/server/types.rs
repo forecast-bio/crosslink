@@ -13,10 +13,6 @@
 //! - Optional fields use `#[serde(skip_serializing_if = "Option::is_none")]`.
 //! - Enums are serialized as lowercase strings.
 
-// These types are pre-declared as the API contract for later phase agents.
-// Many are unused in the current phase; suppress dead-code noise until then.
-#![allow(dead_code, unused_imports)]
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +20,6 @@ use serde::{Deserialize, Serialize};
 // Re-exports — core domain types already have Serialize + Deserialize
 // ---------------------------------------------------------------------------
 
-pub use crate::locks::{Heartbeat, Lock};
 pub use crate::models::{Comment, Issue, Milestone, Session};
 
 // ---------------------------------------------------------------------------
@@ -42,20 +37,36 @@ pub struct HealthResponse {
 // Issues — request types
 // ---------------------------------------------------------------------------
 
+/// Valid priority values for issue creation/update.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiPriority {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
+impl std::fmt::Display for ApiPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+        }
+    }
+}
+
 /// Request body for `POST /api/v1/issues`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateIssueRequest {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default = "default_priority")]
-    pub priority: String,
+    #[serde(default)]
+    pub priority: ApiPriority,
     #[serde(default)]
     pub parent_id: Option<i64>,
-}
-
-fn default_priority() -> String {
-    "medium".to_string()
 }
 
 /// Request body for `PATCH /api/v1/issues/:id`.
@@ -66,7 +77,7 @@ pub struct UpdateIssueRequest {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub priority: Option<String>,
+    pub priority: Option<ApiPriority>,
 }
 
 /// Request body for `POST /api/v1/issues/:id/subissue`.
@@ -75,8 +86,8 @@ pub struct CreateSubissueRequest {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default = "default_priority")]
-    pub priority: String,
+    #[serde(default)]
+    pub priority: ApiPriority,
 }
 
 // ---------------------------------------------------------------------------
@@ -134,21 +145,47 @@ pub struct IssueListQuery {
 // Comments — request types
 // ---------------------------------------------------------------------------
 
+/// Valid comment kind values.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CommentKind {
+    #[default]
+    Note,
+    Plan,
+    Decision,
+    Observation,
+    Blocker,
+    Resolution,
+    Result,
+    Intervention,
+}
+
+impl std::fmt::Display for CommentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Note => write!(f, "note"),
+            Self::Plan => write!(f, "plan"),
+            Self::Decision => write!(f, "decision"),
+            Self::Observation => write!(f, "observation"),
+            Self::Blocker => write!(f, "blocker"),
+            Self::Resolution => write!(f, "resolution"),
+            Self::Result => write!(f, "result"),
+            Self::Intervention => write!(f, "intervention"),
+        }
+    }
+}
+
 /// Request body for `POST /api/v1/issues/:id/comments`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateCommentRequest {
     pub content: String,
-    #[serde(default = "default_comment_kind")]
-    pub kind: String,
+    #[serde(default)]
+    pub kind: CommentKind,
     /// For `kind = "intervention"` comments.
     #[serde(default)]
     pub trigger_type: Option<String>,
     #[serde(default)]
     pub intervention_context: Option<String>,
-}
-
-fn default_comment_kind() -> String {
-    "note".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +253,7 @@ pub struct SessionResponse {
 pub struct MilestoneSummary {
     pub id: i64,
     pub name: String,
-    pub status: String,
+    pub status: crate::models::IssueStatus,
 }
 
 /// Request body for `POST /api/v1/milestones`.
@@ -519,54 +556,10 @@ pub struct TokenUsageSummaryResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Orchestrator
+// Orchestrator — re-exported from canonical definitions in orchestrator::models (#480)
 // ---------------------------------------------------------------------------
 
-/// An atomic work item within an orchestration stage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorTask {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    /// Estimated complexity in agent-hours.
-    pub complexity_hours: f64,
-}
-
-/// A work unit within a phase — may have parallel agents.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorStage {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub tasks: Vec<OrchestratorTask>,
-    /// IDs of stages that must complete before this one starts.
-    pub depends_on: Vec<String>,
-    /// Suggested number of parallel agents for this stage.
-    pub agent_count: usize,
-    pub complexity_hours: f64,
-}
-
-/// A major sequential milestone in the execution plan.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorPhase {
-    pub id: String,
-    pub title: String,
-    pub description: String,
-    pub stages: Vec<OrchestratorStage>,
-    /// Criteria for declaring this phase complete (e.g. test pass, merge gate).
-    pub gate_criteria: Vec<String>,
-}
-
-/// The full LLM-decomposed execution plan.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrchestratorPlan {
-    pub id: String,
-    pub document_slug: String,
-    pub phases: Vec<OrchestratorPhase>,
-    pub created_at: DateTime<Utc>,
-    pub total_stages: usize,
-    pub estimated_hours: f64,
-}
+pub use crate::orchestrator::models::OrchestratorPlan;
 
 /// Request body for `POST /api/v1/orchestrator/decompose`.
 #[derive(Debug, Clone, Deserialize)]
@@ -587,6 +580,9 @@ pub enum StageStatus {
     Done,
     Failed,
     Skipped,
+    /// Reserved for dashboard display. The orchestrator engine uses `Pending`
+    /// combined with DAG dependency checking instead of an explicit Blocked
+    /// state, but the frontend uses this variant for visualization (#488).
     Blocked,
 }
 
@@ -624,11 +620,26 @@ pub struct ExecutionStatus {
 ///
 /// The `type` field determines which variant is present. Matching TypeScript
 /// discriminated union: `WsMessage` in `dashboard/src/lib/types.ts`.
+/// Discriminant for WebSocket event types.
+///
+/// Used as the `type` field in all WsEvent structs so the event type is
+/// derived from the enum variant rather than a hand-written string literal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WsEventType {
+    Heartbeat,
+    AgentStatus,
+    IssueUpdated,
+    LockChanged,
+    ExecutionProgress,
+}
+
 /// Server → Client: a new agent heartbeat was received.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsHeartbeatEvent {
+    /// Always serializes as `"heartbeat"`.
     #[serde(rename = "type")]
-    pub event_type: &'static str, // always "heartbeat"
+    pub event_type: WsEventType,
     pub agent_id: String,
     pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -638,8 +649,9 @@ pub struct WsHeartbeatEvent {
 /// Server → Client: an agent's derived status changed.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsAgentStatusEvent {
+    /// Always serializes as `"agent_status"`.
     #[serde(rename = "type")]
-    pub event_type: &'static str, // always "agent_status"
+    pub event_type: WsEventType,
     pub agent_id: String,
     pub status: AgentStatus,
 }
@@ -647,8 +659,9 @@ pub struct WsAgentStatusEvent {
 /// Server → Client: an issue was created, updated, or closed.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsIssueUpdatedEvent {
+    /// Always serializes as `"issue_updated"`.
     #[serde(rename = "type")]
-    pub event_type: &'static str, // always "issue_updated"
+    pub event_type: WsEventType,
     pub issue_id: i64,
     /// Which field changed, e.g. "status", "title", "labels".
     pub field: String,
@@ -657,8 +670,9 @@ pub struct WsIssueUpdatedEvent {
 /// Server → Client: a lock was claimed or released.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsLockChangedEvent {
+    /// Always serializes as `"lock_changed"`.
     #[serde(rename = "type")]
-    pub event_type: &'static str, // always "lock_changed"
+    pub event_type: WsEventType,
     pub issue_id: i64,
     pub action: LockAction,
     pub agent_id: String,
@@ -674,8 +688,9 @@ pub enum LockAction {
 /// Server → Client: orchestration stage progress changed.
 #[derive(Debug, Clone, Serialize)]
 pub struct WsExecutionProgressEvent {
+    /// Always serializes as `"execution_progress"`.
     #[serde(rename = "type")]
-    pub event_type: &'static str, // always "execution_progress"
+    pub event_type: WsEventType,
     pub plan_id: String,
     pub phase_id: String,
     pub stage_id: String,
@@ -735,7 +750,7 @@ mod tests {
         let json = r#"{"title": "Fix bug", "priority": "high"}"#;
         let req: CreateIssueRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.title, "Fix bug");
-        assert_eq!(req.priority, "high");
+        assert_eq!(req.priority, ApiPriority::High);
         assert!(req.description.is_none());
         assert!(req.parent_id.is_none());
     }
@@ -744,7 +759,7 @@ mod tests {
     fn test_create_issue_request_default_priority() {
         let json = r#"{"title": "Fix bug"}"#;
         let req: CreateIssueRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.priority, "medium");
+        assert_eq!(req.priority, ApiPriority::Medium);
     }
 
     #[test]
@@ -782,7 +797,7 @@ mod tests {
     #[test]
     fn test_ws_heartbeat_event_serializes() {
         let event = WsHeartbeatEvent {
-            event_type: "heartbeat",
+            event_type: WsEventType::Heartbeat,
             agent_id: "worker-1".to_string(),
             timestamp: Utc::now(),
             active_issue_id: Some(42),
@@ -796,7 +811,7 @@ mod tests {
     #[test]
     fn test_ws_heartbeat_event_skips_null_issue() {
         let event = WsHeartbeatEvent {
-            event_type: "heartbeat",
+            event_type: WsEventType::Heartbeat,
             agent_id: "worker-1".to_string(),
             timestamp: Utc::now(),
             active_issue_id: None,
@@ -874,7 +889,7 @@ mod tests {
     fn test_create_comment_request_default_kind() {
         let json = r#"{"content": "A comment"}"#;
         let req: CreateCommentRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.kind, "note");
+        assert_eq!(req.kind, CommentKind::Note);
     }
 
     #[test]

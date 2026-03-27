@@ -104,16 +104,12 @@ impl SharedWriter {
         }
     }
 
-    /// Steal a lock from a stale agent using the V2 event-based protocol.
+    /// Clear a stale agent's lock state: prune events, clear checkpoint,
+    /// and remove the materialized lock file.
     ///
-    /// Prunes the stale agent's events, clears checkpoint lock state,
-    /// then claims normally.
-    pub fn steal_lock_v2(
-        &self,
-        issue_display_id: i64,
-        stale_agent_id: &str,
-        branch: Option<&str>,
-    ) -> Result<LockClaimResult> {
+    /// Shared implementation used by both `steal_lock_v2` and
+    /// `force_release_lock_v2` to avoid duplicating the cleanup sequence.
+    fn clear_stale_lock_state(&self, issue_display_id: i64, stale_agent_id: &str) -> Result<()> {
         // Prune stale agent's compacted events so they don't replay
         crate::compaction::prune_events(&self.cache_dir, stale_agent_id)?;
 
@@ -131,7 +127,20 @@ impl SharedWriter {
             std::fs::remove_file(&lock_path)?;
         }
 
-        // Now claim normally
+        Ok(())
+    }
+
+    /// Steal a lock from a stale agent using the V2 event-based protocol.
+    ///
+    /// Prunes the stale agent's events, clears checkpoint lock state,
+    /// then claims normally.
+    pub fn steal_lock_v2(
+        &self,
+        issue_display_id: i64,
+        stale_agent_id: &str,
+        branch: Option<&str>,
+    ) -> Result<LockClaimResult> {
+        self.clear_stale_lock_state(issue_display_id, stale_agent_id)?;
         self.claim_lock_v2(issue_display_id, branch)
     }
 
@@ -144,22 +153,7 @@ impl SharedWriter {
         issue_display_id: i64,
         stale_agent_id: &str,
     ) -> Result<bool> {
-        // Prune stale agent's compacted events so they don't replay
-        crate::compaction::prune_events(&self.cache_dir, stale_agent_id)?;
-
-        // Clear lock from checkpoint state
-        let mut state = crate::checkpoint::read_checkpoint(&self.cache_dir)?;
-        state.locks.remove(&issue_display_id);
-        crate::checkpoint::write_checkpoint(&self.cache_dir, &state)?;
-
-        // Remove materialized lock file
-        let lock_path = self
-            .cache_dir
-            .join("locks")
-            .join(format!("{}.json", issue_display_id));
-        if lock_path.exists() {
-            std::fs::remove_file(&lock_path)?;
-        }
+        self.clear_stale_lock_state(issue_display_id, stale_agent_id)?;
 
         // Emit a release event and push
         let event = crate::events::Event::LockReleased { issue_display_id };

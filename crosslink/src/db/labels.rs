@@ -39,4 +39,36 @@ impl Database {
             .collect::<std::result::Result<Vec<String>, _>>()?;
         Ok(labels)
     }
+
+    /// Fetch labels for all given issue IDs in a single query.
+    ///
+    /// Returns a map from issue_id to its labels. Issues with no labels
+    /// are included with an empty Vec.
+    pub fn get_labels_batch(
+        &self,
+        issue_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, Vec<String>>> {
+        use std::collections::HashMap;
+
+        let mut result: HashMap<i64, Vec<String>> =
+            issue_ids.iter().map(|&id| (id, Vec::new())).collect();
+        if issue_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let placeholders: String = issue_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT issue_id, label FROM labels WHERE issue_id IN ({}) ORDER BY issue_id, label",
+            placeholders
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(issue_ids.iter()), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (issue_id, label) = row?;
+            result.entry(issue_id).or_default().push(label);
+        }
+        Ok(result)
+    }
 }

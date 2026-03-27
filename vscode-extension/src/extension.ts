@@ -9,6 +9,7 @@ import { validateBinaries, resolveBinaryPath, verifyBinaryChecksum } from './pla
 let daemonManager: DaemonManager | null = null;
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
+let storedExtensionPath: string = '';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel('Crosslink');
@@ -18,6 +19,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'crosslink.daemonStatus';
     context.subscriptions.push(statusBarItem);
+
+    // Store the extension path for later use (e.g. config change handler)
+    storedExtensionPath = context.extensionPath;
 
     // Validate binaries are present
     const validation = validateBinaries(context.extensionPath);
@@ -121,12 +125,25 @@ function registerCommands(context: vscode.ExtensionContext): void {
         context.subscriptions.push(vscode.commands.registerCommand(id, handler));
     };
 
-    // ── Init ──
+    registerInitCommands(reg);
+    registerSessionCommands(reg);
+    registerDaemonCommands(reg);
+    registerIssueListingCommands(reg);
+    registerIssueCreationCommands(reg);
+    registerIssueModificationCommands(reg);
+    registerCommentAndLabelCommands(reg);
+    registerDependencyCommands(reg);
+}
+
+type RegFn = (id: string, handler: () => Promise<void>) => void;
+
+function registerInitCommands(reg: RegFn): void {
     reg('crosslink.init', async () => {
         await executeCrosslinkCommand(['init'], 'Initializing crosslink project...');
     });
+}
 
-    // ── Session commands ──
+function registerSessionCommands(reg: RegFn): void {
     reg('crosslink.sessionStart', async () => {
         await executeCrosslinkCommand(['session', 'start'], 'Starting session...');
     });
@@ -168,7 +185,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
     reg('crosslink.sessionLastHandoff', async () => {
         await executeCrosslinkCommand(['session', 'last-handoff'], 'Getting last handoff notes...');
     });
+}
 
+function registerDaemonCommands(reg: RegFn): void {
     // ── Daemon commands ──
     reg('crosslink.daemonStart', async () => {
         if (!daemonManager) {
@@ -208,8 +227,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
             vscode.window.showInformationMessage('Crosslink daemon not running');
         }
     });
+}
 
-    // ── Issue listing & navigation ──
+function registerIssueListingCommands(reg: RegFn): void {
     reg('crosslink.listIssues', async () => {
         await executeCrosslinkCommand(['list'], 'Listing issues...');
     });
@@ -238,8 +258,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         if (!query) { return; }
         await executeCrosslinkCommand(['search', query], `Searching for "${query}"...`);
     });
+}
 
-    // ── Issue creation ──
+function registerIssueCreationCommands(reg: RegFn): void {
     reg('crosslink.createIssue', async () => {
         const title = await vscode.window.showInputBox({
             prompt: 'Issue title',
@@ -319,8 +340,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
         await executeCrosslinkCommand(['subissue', parentId, title], 'Creating subissue...');
     });
+}
 
-    // ── Issue details & modification ──
+function registerIssueModificationCommands(reg: RegFn): void {
     reg('crosslink.showIssue', async () => {
         const id = await vscode.window.showInputBox({
             prompt: 'Issue ID',
@@ -408,8 +430,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
         await executeCrosslinkCommand(['delete', id, '-f'], `Deleting issue #${id}...`);
     });
+}
 
-    // ── Comments & labels ──
+function registerCommentAndLabelCommands(reg: RegFn): void {
     reg('crosslink.addComment', async () => {
         const id = await vscode.window.showInputBox({
             prompt: 'Issue ID',
@@ -457,8 +480,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
         await executeCrosslinkCommand(['unlabel', id, label], `Removing label from #${id}...`);
     });
+}
 
-    // ── Dependencies & relations ──
+function registerDependencyCommands(reg: RegFn): void {
     reg('crosslink.blockIssue', async () => {
         const id = await vscode.window.showInputBox({
             prompt: 'Issue ID that is blocked',
@@ -538,7 +562,10 @@ async function executeCrosslinkCommand(args: string[], statusMessage: string): P
                 cancellable: false,
             },
             async () => {
-                const output = await daemonManager!.executeCommand(args);
+                if (!daemonManager) {
+                    throw new Error('Daemon manager was disposed during command execution');
+                }
+                const output = await daemonManager.executeCommand(args);
                 if (output) {
                     outputChannel.appendLine(`$ crosslink ${args.join(' ')}`);
                     outputChannel.appendLine(output);
@@ -592,8 +619,9 @@ function handleConfigChange(): void {
 
         const workspaceFolder = getWorkspaceFolder();
         if (workspaceFolder) {
+            // Use the stored extension path rather than looking up by hardcoded extension ID
             daemonManager = new DaemonManager({
-                extensionPath: vscode.extensions.getExtension('crosslink.crosslink-issue-tracker')?.extensionPath || '',
+                extensionPath: storedExtensionPath,
                 workspaceFolder,
                 outputChannel,
                 overrideBinaryPath: newOverridePath,
@@ -673,8 +701,24 @@ async function installToUserBin(extensionPath: string, output: vscode.OutputChan
 
         const targetPath = path.join(binDir, targetName);
 
-        // Always overwrite to ensure latest version
+        // Check if existing binary is already the same version (by comparing file sizes and checksums)
         if (fs.existsSync(targetPath)) {
+            try {
+                const sourceStats = fs.statSync(sourceBinary);
+                const targetStats = fs.statSync(targetPath);
+                // Quick check: if file sizes match, compare checksums to avoid unnecessary writes
+                if (sourceStats.size === targetStats.size) {
+                    const crypto = await import('crypto');
+                    const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(sourceBinary)).digest('hex');
+                    const targetHash = crypto.createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
+                    if (sourceHash === targetHash) {
+                        output.appendLine(`Crosslink binary at ${targetPath} is already up to date`);
+                        return true;
+                    }
+                }
+            } catch {
+                // If comparison fails, fall through to overwrite
+            }
             output.appendLine(`Updating crosslink at ${targetPath}`);
         }
 

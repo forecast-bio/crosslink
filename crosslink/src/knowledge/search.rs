@@ -39,12 +39,16 @@ impl KnowledgeManager {
                 .to_string();
             let content = std::fs::read_to_string(&path)?;
             let lines: Vec<&str> = content.lines().collect();
-            let content_lower = content.to_lowercase();
+
+            // Lowercase each line once and reuse for both term-hit counting
+            // and per-line matching (avoids redundant lowercasing of the
+            // entire content separately).
+            let lines_lower: Vec<String> = lines.iter().map(|l| l.to_lowercase()).collect();
 
             // Count how many distinct query terms appear anywhere in this page
             let term_hits = terms
                 .iter()
-                .filter(|term| content_lower.contains(**term))
+                .filter(|term| lines_lower.iter().any(|ll| ll.contains(**term)))
                 .count();
 
             if term_hits == 0 {
@@ -52,13 +56,10 @@ impl KnowledgeManager {
             }
 
             // Find lines matching any query term
-            let matching_indices: Vec<usize> = lines
+            let matching_indices: Vec<usize> = lines_lower
                 .iter()
                 .enumerate()
-                .filter(|(_, line)| {
-                    let line_lower = line.to_lowercase();
-                    terms.iter().any(|term| line_lower.contains(term))
-                })
+                .filter(|(_, line_lower)| terms.iter().any(|term| line_lower.contains(term)))
                 .map(|(i, _)| i)
                 .collect();
 
@@ -125,21 +126,16 @@ pub(super) fn group_matches(indices: &[usize], context: usize) -> Vec<Vec<usize>
     let mut groups: Vec<Vec<usize>> = Vec::new();
 
     for &idx in indices {
-        let merged = if let Some(last_group) = groups.last_mut() {
-            if let Some(&last_idx) = last_group.last() {
-                if idx <= last_idx + 2 * context + 1 {
-                    last_group.push(idx);
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
+        let should_merge = groups
+            .last()
+            .and_then(|g| g.last())
+            .is_some_and(|&last_idx| idx <= last_idx + 2 * context + 1);
+
+        if should_merge {
+            if let Some(last_group) = groups.last_mut() {
+                last_group.push(idx);
             }
         } else {
-            false
-        };
-        if !merged {
             groups.push(vec![idx]);
         }
     }

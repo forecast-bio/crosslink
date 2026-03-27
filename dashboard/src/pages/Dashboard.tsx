@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { health } from "@/api/client";
+import { health, agents as agentsApi, issues as issuesApi, knowledge as knowledgeApi, sessions as sessionsApi } from "@/api/client";
 import { Bot, CircleDot, BookOpen, Activity } from "lucide-react";
 
-interface StatCard {
+interface StatCardData {
   label: string;
   value: string | number;
   icon: React.ComponentType<{ className?: string }>;
@@ -13,19 +13,39 @@ interface StatCard {
 
 export function Dashboard() {
   const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [agentCount, setAgentCount] = useState<number | null>(null);
+  const [issueCount, setIssueCount] = useState<number | null>(null);
+  const [knowledgeCount, setKnowledgeCount] = useState<number | null>(null);
+  const [sessionActive, setSessionActive] = useState<boolean | null>(null);
 
   useEffect(() => {
     health
       .get()
       .then((r) => setServerVersion(r.version))
       .catch(() => setServerVersion(null));
+
+    agentsApi.list()
+      .then((agents) => setAgentCount(agents.filter((a) => a.status === "running" || a.status === "active").length))
+      .catch(() => setAgentCount(null));
+
+    issuesApi.list({ status: "open" })
+      .then((issues) => setIssueCount(issues.length))
+      .catch(() => setIssueCount(null));
+
+    knowledgeApi.list()
+      .then((pages) => setKnowledgeCount(pages.length))
+      .catch(() => setKnowledgeCount(null));
+
+    sessionsApi.current()
+      .then((session) => setSessionActive(session !== null))
+      .catch(() => setSessionActive(null));
   }, []);
 
-  const stats: StatCard[] = [
-    { label: "Active Agents", value: "—", icon: Bot, description: "agents with recent heartbeats" },
-    { label: "Open Issues", value: "—", icon: CircleDot, description: "unresolved issues" },
-    { label: "Knowledge Pages", value: "—", icon: BookOpen, description: "in knowledge repo" },
-    { label: "Active Sessions", value: "—", icon: Activity, description: "running sessions" },
+  const stats: StatCardData[] = [
+    { label: "Active Agents", value: agentCount ?? "...", icon: Bot, description: "agents with recent heartbeats" },
+    { label: "Open Issues", value: issueCount ?? "...", icon: CircleDot, description: "unresolved issues" },
+    { label: "Knowledge Pages", value: knowledgeCount ?? "...", icon: BookOpen, description: "in knowledge repo" },
+    { label: "Active Sessions", value: sessionActive === null ? "..." : sessionActive ? "1" : "0", icon: Activity, description: "running sessions" },
   ];
 
   return (

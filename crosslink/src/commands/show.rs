@@ -45,6 +45,19 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
         None => bail!("Issue {} not found", format_issue_id(id)),
     };
 
+    print_header(&issue);
+    print_labels(db, id)?;
+    print_milestone(db, id)?;
+    print_description(&issue);
+    print_comments(db, id)?;
+    print_dependencies(db, id)?;
+    print_subissues(db, id)?;
+    print_related(db, id)?;
+
+    Ok(())
+}
+
+fn print_header(issue: &crate::models::Issue) {
     println!("Issue {}: {}", format_issue_id(issue.id), issue.title);
     println!("Status: {}", issue.status);
     println!("Priority: {}", issue.priority);
@@ -53,23 +66,27 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
     }
     println!("Created: {}", issue.created_at.format("%Y-%m-%d %H:%M:%S"));
     println!("Updated: {}", issue.updated_at.format("%Y-%m-%d %H:%M:%S"));
-
     if let Some(closed) = issue.closed_at {
         println!("Closed: {}", closed.format("%Y-%m-%d %H:%M:%S"));
     }
+}
 
-    // Labels
+fn print_labels(db: &Database, id: i64) -> Result<()> {
     let labels = db.get_labels(id)?;
     if !labels.is_empty() {
         println!("Labels: {}", labels.join(", "));
     }
+    Ok(())
+}
 
-    // Milestone
+fn print_milestone(db: &Database, id: i64) -> Result<()> {
     if let Some(milestone) = db.get_issue_milestone(id)? {
         println!("Milestone: #{} {}", milestone.id, milestone.name);
     }
+    Ok(())
+}
 
-    // Description
+fn print_description(issue: &crate::models::Issue) {
     if let Some(desc) = &issue.description {
         if !desc.is_empty() {
             println!("\nDescription:");
@@ -78,8 +95,9 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
             }
         }
     }
+}
 
-    // Comments
+fn print_comments(db: &Database, id: i64) -> Result<()> {
     let comments = db.get_comments(id)?;
     if !comments.is_empty() {
         println!("\nComments:");
@@ -103,8 +121,10 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
 
-    // Dependencies
+fn print_dependencies(db: &Database, id: i64) -> Result<()> {
     let blockers = db.get_blockers(id)?;
     let blocking = db.get_blocking(id)?;
 
@@ -122,8 +142,10 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
         let blocking_strs: Vec<String> = blocking.iter().map(|b| format_issue_id(*b)).collect();
         println!("Blocking: {}", blocking_strs.join(", "));
     }
+    Ok(())
+}
 
-    // Subissues
+fn print_subissues(db: &Database, id: i64) -> Result<()> {
     let subissues = db.get_subissues(id)?;
     if !subissues.is_empty() {
         println!("\nSubissues:");
@@ -137,13 +159,19 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
 
-    // Related issues
+fn print_related(db: &Database, id: i64) -> Result<()> {
     let related = db.get_related_issues(id)?;
     if !related.is_empty() {
         println!("\nRelated:");
         for rel in related {
-            let status_marker = if rel.status == "closed" { "✓" } else { " " };
+            let status_marker = if rel.status == crate::models::IssueStatus::Closed {
+                "✓"
+            } else {
+                " "
+            };
             println!(
                 "  {} [{}] {} - {}",
                 format_issue_id(rel.id),
@@ -153,7 +181,6 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
             );
         }
     }
-
     Ok(())
 }
 
@@ -161,10 +188,9 @@ pub fn run(db: &Database, id: i64) -> Result<()> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

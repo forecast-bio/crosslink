@@ -10,10 +10,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
-use super::{Tab, TabAction};
-
-/// Background color for highlighted/selected rows (256-color palette, dark gray).
-const HIGHLIGHT_BG: Color = Color::Indexed(236);
+use super::{format_relative_time, truncate_str, Tab, TabAction, HIGHLIGHT_BG};
 
 use crate::events;
 use crate::locks::{Heartbeat, Lock, LocksFile};
@@ -22,7 +19,7 @@ use crate::sync::SyncManager;
 
 /// Which sub-view is active within the Agents tab.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ViewMode {
+enum AgentViewMode {
     /// Main view: merged agent activity table.
     Agents,
     /// Lock-focused view: all locks + stale detection.
@@ -75,7 +72,7 @@ struct AgentsLoadResult {
 /// The Agents tab — live coordination dashboard.
 pub struct AgentsTab {
     crosslink_dir: PathBuf,
-    view_mode: ViewMode,
+    view_mode: AgentViewMode,
     /// Merged agent rows (agents view).
     agents: Vec<AgentRow>,
     selected: usize,
@@ -88,6 +85,8 @@ pub struct AgentsTab {
     /// Detail for a specific agent.
     detail: Option<AgentDetail>,
     detail_scroll: usize,
+    /// Maximum detail scroll offset computed during render.
+    detail_max_scroll: std::cell::Cell<usize>,
     /// Status message (e.g. "Last sync: 12s ago").
     status_msg: String,
     /// Error message if data load failed.
@@ -108,7 +107,7 @@ impl AgentsTab {
     pub fn new(crosslink_dir: &Path) -> Self {
         let mut tab = AgentsTab {
             crosslink_dir: crosslink_dir.to_path_buf(),
-            view_mode: ViewMode::Agents,
+            view_mode: AgentViewMode::Agents,
             agents: Vec::new(),
             selected: 0,
             lock_rows: Vec::new(),
@@ -117,6 +116,7 @@ impl AgentsTab {
             trust_selected: 0,
             detail: None,
             detail_scroll: 0,
+            detail_max_scroll: std::cell::Cell::new(0),
             status_msg: String::new(),
             error_msg: None,
             loading: false,
@@ -167,7 +167,10 @@ impl AgentsTab {
     fn load_detail(&mut self, agent_id: &str) {
         let sync = match SyncManager::new(&self.crosslink_dir) {
             Ok(s) => s,
-            Err(_) => return,
+            Err(e) => {
+                self.error_msg = Some(format!("Failed to load agent detail: {e}"));
+                return;
+            }
         };
 
         // Find heartbeat for this agent
@@ -182,7 +185,6 @@ impl AgentsTab {
             .locks
             .into_iter()
             .filter(|(_, lock)| lock.agent_id == agent_id)
-            .map(|(id_str, lock)| (id_str.parse::<i64>().unwrap_or(0), lock))
             .collect();
 
         // Read recent events for this agent
@@ -231,12 +233,12 @@ impl AgentsTab {
                 if let Some(agent) = self.agents.get(self.selected) {
                     let agent_id = agent.agent_id.clone();
                     self.load_detail(&agent_id);
-                    self.view_mode = ViewMode::Detail;
+                    self.view_mode = AgentViewMode::Detail;
                 }
                 TabAction::Consumed
             }
             KeyCode::Char('v') => {
-                self.view_mode = ViewMode::Locks;
+                self.view_mode = AgentViewMode::Locks;
                 TabAction::Consumed
             }
             KeyCode::Char('r') => TabAction::NotHandled,
@@ -257,12 +259,12 @@ impl AgentsTab {
                 TabAction::Consumed
             }
             KeyCode::Char('v') => {
-                self.view_mode = ViewMode::Trust;
+                self.view_mode = AgentViewMode::Trust;
                 TabAction::Consumed
             }
             KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Esc => {
-                self.view_mode = ViewMode::Agents;
+                self.view_mode = AgentViewMode::Agents;
                 TabAction::Consumed
             }
             _ => TabAction::NotHandled,
@@ -283,12 +285,12 @@ impl AgentsTab {
                 TabAction::Consumed
             }
             KeyCode::Char('v') => {
-                self.view_mode = ViewMode::Agents;
+                self.view_mode = AgentViewMode::Agents;
                 TabAction::Consumed
             }
             KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Esc => {
-                self.view_mode = ViewMode::Agents;
+                self.view_mode = AgentViewMode::Agents;
                 TabAction::Consumed
             }
             _ => TabAction::NotHandled,
@@ -298,12 +300,13 @@ impl AgentsTab {
     fn handle_detail_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Esc => {
-                self.view_mode = ViewMode::Agents;
+                self.view_mode = AgentViewMode::Agents;
                 self.detail = None;
                 TabAction::Consumed
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.detail_scroll = self.detail_scroll.saturating_add(1);
+                let max = self.detail_max_scroll.get();
+                self.detail_scroll = self.detail_scroll.saturating_add(1).min(max);
                 TabAction::Consumed
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -311,7 +314,8 @@ impl AgentsTab {
                 TabAction::Consumed
             }
             KeyCode::PageDown => {
-                self.detail_scroll = self.detail_scroll.saturating_add(10);
+                let max = self.detail_max_scroll.get();
+                self.detail_scroll = self.detail_scroll.saturating_add(10).min(max);
                 TabAction::Consumed
             }
             KeyCode::PageUp => {
@@ -767,10 +771,17 @@ impl AgentsTab {
             }
         }
 
+        // Clamp scroll so the user can't scroll past content.
+        let content_height = lines.len();
+        let viewport_height = area.height.saturating_sub(1) as usize; // -1 for context keys row
+        let max_scroll = content_height.saturating_sub(viewport_height);
+        self.detail_max_scroll.set(max_scroll);
+        let clamped_scroll = self.detail_scroll.min(max_scroll);
+
         let paragraph = Paragraph::new(lines)
             .block(Block::default().borders(Borders::NONE))
             .wrap(Wrap { trim: false })
-            .scroll((self.detail_scroll as u16, 0));
+            .scroll((u16::try_from(clamped_scroll).unwrap_or(u16::MAX), 0));
 
         frame.render_widget(paragraph, area);
 
@@ -803,19 +814,19 @@ impl Tab for AgentsTab {
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         match self.view_mode {
-            ViewMode::Agents => self.render_agents(frame, area),
-            ViewMode::Locks => self.render_locks(frame, area),
-            ViewMode::Trust => self.render_trust(frame, area),
-            ViewMode::Detail => self.render_detail(frame, area),
+            AgentViewMode::Agents => self.render_agents(frame, area),
+            AgentViewMode::Locks => self.render_locks(frame, area),
+            AgentViewMode::Trust => self.render_trust(frame, area),
+            AgentViewMode::Detail => self.render_detail(frame, area),
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> TabAction {
         match self.view_mode {
-            ViewMode::Agents => self.handle_agents_key(key),
-            ViewMode::Locks => self.handle_locks_key(key),
-            ViewMode::Trust => self.handle_trust_key(key),
-            ViewMode::Detail => self.handle_detail_key(key),
+            AgentViewMode::Agents => self.handle_agents_key(key),
+            AgentViewMode::Locks => self.handle_locks_key(key),
+            AgentViewMode::Trust => self.handle_trust_key(key),
+            AgentViewMode::Detail => self.handle_detail_key(key),
         }
     }
 
@@ -937,8 +948,7 @@ fn build_agent_rows_static(
         }
     }
 
-    for (issue_str, lock) in &locks.locks {
-        let issue_id: i64 = issue_str.parse().unwrap_or(0);
+    for (&issue_id, lock) in &locks.locks {
         let row = agents
             .entry(lock.agent_id.clone())
             .or_insert_with(|| AgentRow {
@@ -975,15 +985,12 @@ fn build_lock_rows_static(
     let mut rows: Vec<LockRow> = locks
         .locks
         .iter()
-        .map(|(issue_str, lock)| {
-            let issue_id: i64 = issue_str.parse().unwrap_or(0);
-            LockRow {
-                issue_id,
-                agent_id: lock.agent_id.clone(),
-                branch: lock.branch.clone(),
-                claimed_ago: format_relative_time(&lock.claimed_at),
-                is_stale: stale_issues.contains(&issue_id),
-            }
+        .map(|(&issue_id, lock)| LockRow {
+            issue_id,
+            agent_id: lock.agent_id.clone(),
+            branch: lock.branch.clone(),
+            claimed_ago: format_relative_time(&lock.claimed_at),
+            is_stale: stale_issues.contains(&issue_id),
         })
         .collect();
 
@@ -997,67 +1004,17 @@ fn build_lock_rows_static(
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn format_relative_time(dt: &chrono::DateTime<chrono::Utc>) -> String {
-    let now = chrono::Utc::now();
-    let diff = now.signed_duration_since(*dt);
-
-    if diff.num_seconds() < 0 {
-        "just now".to_string()
-    } else if diff.num_seconds() < 60 {
-        format!("{}s ago", diff.num_seconds())
-    } else if diff.num_minutes() < 60 {
-        format!("{}m ago", diff.num_minutes())
-    } else if diff.num_hours() < 24 {
-        format!("{}h ago", diff.num_hours())
-    } else {
-        format!("{}d ago", diff.num_days())
-    }
-}
-
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        s.to_string()
-    } else {
-        let end = max_len.saturating_sub(3);
-        let truncated: String = s.chars().take(end).collect();
-        format!("{truncated}...")
-    }
-}
-
 fn format_event_summary(event: &events::Event) -> String {
-    match event {
-        events::Event::IssueCreated { title, .. } => {
-            format!("IssueCreated: {}", truncate_str(title, 40))
-        }
-        events::Event::LockClaimed {
-            issue_display_id, ..
-        } => format!("LockClaimed #{issue_display_id}"),
-        events::Event::LockReleased {
-            issue_display_id, ..
-        } => format!("LockReleased #{issue_display_id}"),
-        events::Event::IssueUpdated { title, .. } => {
-            let t = title.as_deref().unwrap_or("(untitled)");
-            format!("IssueUpdated: {}", truncate_str(t, 40))
-        }
-        events::Event::StatusChanged { new_status, .. } => {
-            format!("StatusChanged → {new_status}")
-        }
-        _ => format!("{event:?}"),
-    }
+    super::format_event_description(event)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::KeyCode;
 
-    fn make_key(code: KeyCode) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers: KeyModifiers::empty(),
-            kind: KeyEventKind::Press,
-            state: KeyEventState::empty(),
-        }
+    fn make_key(code: KeyCode) -> crossterm::event::KeyEvent {
+        super::super::make_test_key(code)
     }
 
     fn make_tab() -> AgentsTab {
@@ -1075,32 +1032,32 @@ mod tests {
     #[test]
     fn test_initial_view_mode() {
         let tab = make_tab();
-        assert_eq!(tab.view_mode, ViewMode::Agents);
+        assert_eq!(tab.view_mode, AgentViewMode::Agents);
     }
 
     #[test]
     fn test_view_cycle() {
         let mut tab = make_tab();
-        assert_eq!(tab.view_mode, ViewMode::Agents);
+        assert_eq!(tab.view_mode, AgentViewMode::Agents);
 
         tab.handle_key(make_key(KeyCode::Char('v')));
-        assert_eq!(tab.view_mode, ViewMode::Locks);
+        assert_eq!(tab.view_mode, AgentViewMode::Locks);
 
         tab.handle_key(make_key(KeyCode::Char('v')));
-        assert_eq!(tab.view_mode, ViewMode::Trust);
+        assert_eq!(tab.view_mode, AgentViewMode::Trust);
 
         tab.handle_key(make_key(KeyCode::Char('v')));
-        assert_eq!(tab.view_mode, ViewMode::Agents);
+        assert_eq!(tab.view_mode, AgentViewMode::Agents);
     }
 
     #[test]
     fn test_esc_returns_to_agents() {
         let mut tab = make_tab();
         tab.handle_key(make_key(KeyCode::Char('v'))); // → Locks
-        assert_eq!(tab.view_mode, ViewMode::Locks);
+        assert_eq!(tab.view_mode, AgentViewMode::Locks);
 
         tab.handle_key(make_key(KeyCode::Esc));
-        assert_eq!(tab.view_mode, ViewMode::Agents);
+        assert_eq!(tab.view_mode, AgentViewMode::Agents);
     }
 
     #[test]
@@ -1131,7 +1088,7 @@ mod tests {
     #[test]
     fn test_render_locks_no_panic() {
         let mut tab = make_tab();
-        tab.view_mode = ViewMode::Locks;
+        tab.view_mode = AgentViewMode::Locks;
         let backend = ratatui::backend::TestBackend::new(100, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1142,7 +1099,7 @@ mod tests {
     #[test]
     fn test_render_trust_no_panic() {
         let mut tab = make_tab();
-        tab.view_mode = ViewMode::Trust;
+        tab.view_mode = AgentViewMode::Trust;
         let backend = ratatui::backend::TestBackend::new(100, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal

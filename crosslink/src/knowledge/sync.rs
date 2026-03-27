@@ -60,18 +60,20 @@ impl KnowledgeManager {
             // Initialize with index.md
             let now = Utc::now().format("%Y-%m-%d").to_string();
             let index_content = format!(
-                "---\n\
-                 title: Knowledge Index\n\
-                 tags: [index]\n\
-                 sources: []\n\
-                 contributors: []\n\
-                 created: {now}\n\
-                 updated: {now}\n\
-                 ---\n\
-                 \n\
-                 # Knowledge Index\n\
-                 \n\
-                 This is the shared knowledge repository for the project.\n"
+                "\
+---
+title: Knowledge Index
+tags: [index]
+sources: []
+contributors: []
+created: {now}
+updated: {now}
+---
+
+# Knowledge Index
+
+This is the shared knowledge repository for the project.
+"
             );
 
             std::fs::write(self.cache_dir.join("index.md"), index_content)?;
@@ -130,7 +132,16 @@ impl KnowledgeManager {
             }
         }
 
-        // No unpushed commits — safe to reset to match remote
+        // No unpushed commits — check for uncommitted changes before resetting.
+        // A dirty worktree means write_page() was called without commit(),
+        // and reset --hard would destroy those edits.
+        if let Ok(status_output) = self.git_in_cache(&["status", "--porcelain"]) {
+            let status_str = String::from_utf8_lossy(&status_output.stdout);
+            if !status_str.trim().is_empty() {
+                tracing::warn!("knowledge sync: skipping reset — worktree has uncommitted changes");
+                return Ok(SyncOutcome::default());
+            }
+        }
         let reset_result = self.git_in_cache(&["reset", "--hard", &remote_ref]);
         if let Err(e) = &reset_result {
             let err_str = e.to_string();
@@ -165,12 +176,18 @@ impl KnowledgeManager {
                 if rebase_result.is_err() {
                     // Rebase failed — try accept-both fallback
                     let outcome = self.handle_rebase_conflict(&remote_ref)?;
-                    // INTENTIONAL: push after conflict resolution is best-effort — local state is consistent either way
-                    let _ = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]);
+                    // Push after conflict resolution is best-effort — local state is
+                    // consistent either way, but log failures so they aren't silent (#417).
+                    if let Err(e) = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]) {
+                        tracing::warn!("knowledge push after conflict resolution failed: {e}");
+                    }
                     return Ok(outcome);
                 }
-                // INTENTIONAL: push after rebase is best-effort — local state is consistent either way
-                let _ = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]);
+                // Push after rebase is best-effort — local state is consistent
+                // either way, but log failures so they aren't silent (#417).
+                if let Err(e) = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]) {
+                    tracing::warn!("knowledge push after rebase failed: {e}");
+                }
                 return Ok(SyncOutcome::default());
             }
             push_result?;

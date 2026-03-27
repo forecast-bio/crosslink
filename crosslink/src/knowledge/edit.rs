@@ -20,11 +20,6 @@ pub fn extract_body(content: &str) -> &str {
     }
 }
 
-/// Truncate a string to a max length, adding "..." if truncated.
-pub fn truncate(s: &str, max: usize) -> String {
-    crate::utils::truncate(s, max)
-}
-
 /// Parse a heading line and return its level (1-6) and text.
 /// Returns None if the line is not a markdown heading.
 pub fn parse_heading(line: &str) -> Option<(usize, &str)> {

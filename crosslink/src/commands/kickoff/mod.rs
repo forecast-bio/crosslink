@@ -15,7 +15,10 @@ mod wizard;
 mod tests;
 
 // Re-export public types used by external callers (swarm, main, etc.)
-pub use types::{ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel};
+pub use types::{
+    ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel,
+    DEFAULT_AGENT_IMAGE,
+};
 
 // Re-export parse functions (used by dispatch and swarm)
 pub use types::{parse_container_mode, parse_duration, parse_verify_level};
@@ -234,35 +237,28 @@ fn dispatch_launch(
     }
 
     if do_run {
-        let description = if let Some(ref doc_path) = doc {
-            // Use design doc title as description
-            let content = std::fs::read_to_string(doc_path)
-                .with_context(|| format!("Failed to read design doc: {}", doc_path.display()))?;
-            let design_doc = super::design_doc::parse_design_doc(&content);
-            if design_doc.title.is_empty() {
-                doc_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("feature")
-                    .to_string()
-            } else {
-                design_doc.title.clone()
-            }
-        } else {
-            bail!("--run requires a design document or description");
+        let doc_path = match doc {
+            Some(ref p) => p,
+            None => bail!("--run requires a design document or description"),
         };
 
-        let parsed_doc = if let Some(ref path) = doc {
-            let content = std::fs::read_to_string(path)
-                .with_context(|| format!("Failed to read design doc: {}", path.display()))?;
-            let d = super::design_doc::parse_design_doc(&content);
-            for warning in super::design_doc::validate_design_doc(&d) {
-                eprintln!("Warning: {}", warning);
-            }
-            Some(d)
+        let content = std::fs::read_to_string(doc_path)
+            .with_context(|| format!("Failed to read design doc: {}", doc_path.display()))?;
+        let parsed = super::design_doc::parse_design_doc(&content);
+        for warning in super::design_doc::validate_design_doc(&parsed) {
+            eprintln!("Warning: {}", warning);
+        }
+
+        let description = if parsed.title.is_empty() {
+            doc_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("feature")
+                .to_string()
         } else {
-            None
+            parsed.title.clone()
         };
+        let parsed_doc = Some(parsed);
 
         let opts = KickoffOpts {
             description: &description,
@@ -270,7 +266,7 @@ fn dispatch_launch(
             container: parse_container_mode(&container)?,
             verify: parse_verify_level(&verify)?,
             model: &model,
-            image: "ghcr.io/forecast-bio/crosslink-agent:latest",
+            image: types::DEFAULT_AGENT_IMAGE,
             timeout: parse_duration(&timeout)?,
             dry_run,
             branch: None,
@@ -353,7 +349,7 @@ fn dispatch_launch(
                 container: parse_container_mode(&config.container)?,
                 verify: parse_verify_level(&config.verify)?,
                 model: &config.model,
-                image: "ghcr.io/forecast-bio/crosslink-agent:latest",
+                image: types::DEFAULT_AGENT_IMAGE,
                 timeout: parse_duration(&config.timeout)?,
                 dry_run: false,
                 branch: None,

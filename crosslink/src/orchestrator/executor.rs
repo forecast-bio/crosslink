@@ -17,21 +17,18 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::db::Database;
+use crate::orchestrator::dag::{Dag, DagNode};
+use crate::orchestrator::models::{OrchestratorPlan, OrchestratorStage};
+use crate::server::types::{
+    ExecutionState, ExecutionStatus, StageStatus, WsExecutionProgressEvent,
+};
+use crate::server::ws::WsEvent;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
 
-use crate::db::Database;
-use crate::orchestrator::dag::{Dag, DagNode};
-use crate::server::types::{
-    ExecutionState, ExecutionStatus, OrchestratorPlan, OrchestratorStage, StageStatus,
-    WsExecutionProgressEvent,
-};
-use crate::server::ws::WsEvent;
-
-/// Directory within `.crosslink` for orchestrator state.
-const ORCHESTRATOR_DIR: &str = "orchestrator";
+use crate::orchestrator::models::ORCHESTRATOR_DIR;
 /// Filename for the persisted execution state.
 const EXECUTION_FILE: &str = "execution.json";
 /// Filename for the active plan.
@@ -340,6 +337,40 @@ impl OrchestratorExecutor {
         Ok(ready)
     }
 
+    /// Build a `WsExecutionProgressEvent` for the given stage and status (#481).
+    ///
+    /// Centralizes event construction so executor methods don't couple directly
+    /// to the WebSocket event shape.
+    fn build_progress_event(
+        &self,
+        stage_id: &str,
+        status: StageStatus,
+    ) -> WsExecutionProgressEvent {
+        let node = self.snapshot.dag.get(stage_id);
+        WsExecutionProgressEvent {
+            event_type: crate::server::types::WsEventType::ExecutionProgress,
+            plan_id: self.snapshot.plan_id.clone(),
+            phase_id: node.map(|n| n.phase_id.clone()).unwrap_or_default(),
+            stage_id: stage_id.to_string(),
+            status,
+            agent_id: node.and_then(|n| n.agent_id.clone()),
+        }
+    }
+
+    /// Verify that execution is in a state that allows stage mutations.
+    ///
+    /// Returns an error if the execution is not Running (#486).
+    fn require_running_state(&self, action: &str) -> Result<()> {
+        if self.snapshot.state != ExecutionState::Running {
+            bail!(
+                "Cannot {} — execution state is {:?}, must be Running",
+                action,
+                self.snapshot.state
+            );
+        }
+        Ok(())
+    }
+
     /// Record that a stage has been launched with the given agent ID.
     ///
     /// Returns an event to broadcast over WebSocket.
@@ -348,6 +379,7 @@ impl OrchestratorExecutor {
         stage_id: &str,
         agent_id: &str,
     ) -> Result<WsExecutionProgressEvent> {
+        self.require_running_state("mark stage running")?;
         self.snapshot.dag.mark_running(stage_id, agent_id)?;
 
         // Update current phase if needed.
@@ -357,19 +389,7 @@ impl OrchestratorExecutor {
 
         self.persist()?;
 
-        Ok(WsExecutionProgressEvent {
-            event_type: "execution_progress",
-            plan_id: self.snapshot.plan_id.clone(),
-            phase_id: self
-                .snapshot
-                .dag
-                .get(stage_id)
-                .map(|n| n.phase_id.clone())
-                .unwrap_or_default(),
-            stage_id: stage_id.to_string(),
-            status: StageStatus::Running,
-            agent_id: Some(agent_id.to_string()),
-        })
+        Ok(self.build_progress_event(stage_id, StageStatus::Running))
     }
 
     /// Record that a stage has completed successfully.
@@ -380,6 +400,7 @@ impl OrchestratorExecutor {
         stage_id: &str,
         db: &Database,
     ) -> Result<(Vec<String>, WsExecutionProgressEvent, bool)> {
+        self.require_running_state("mark stage done")?;
         let phase_id = self
             .snapshot
             .dag
@@ -424,48 +445,34 @@ impl OrchestratorExecutor {
 
         self.persist()?;
 
-        let event = WsExecutionProgressEvent {
-            event_type: "execution_progress",
-            plan_id: self.snapshot.plan_id.clone(),
-            phase_id,
-            stage_id: stage_id.to_string(),
-            status: StageStatus::Done,
-            agent_id: self
-                .snapshot
-                .dag
-                .get(stage_id)
-                .and_then(|n| n.agent_id.clone()),
-        };
+        let event = self.build_progress_event(stage_id, StageStatus::Done);
 
         Ok((newly_ready, event, execution_complete))
     }
 
     /// Record that a stage has failed.
     ///
-    /// Returns a WebSocket event.
-    pub fn mark_stage_failed(&mut self, stage_id: &str) -> Result<WsExecutionProgressEvent> {
-        let phase_id = self
-            .snapshot
-            .dag
-            .get(stage_id)
-            .map(|n| n.phase_id.clone())
-            .unwrap_or_default();
+    /// Returns a WebSocket event and whether the entire execution is now complete.
+    pub fn mark_stage_failed(
+        &mut self,
+        stage_id: &str,
+    ) -> Result<(WsExecutionProgressEvent, bool)> {
+        self.require_running_state("mark stage failed")?;
 
         self.snapshot.dag.mark_failed(stage_id)?;
+
+        // Check if the entire execution is now complete.
+        let execution_complete = self.snapshot.dag.is_complete();
+        if execution_complete {
+            self.snapshot.state = ExecutionState::Failed;
+            self.snapshot.completed_at = Some(Utc::now());
+        }
+
         self.persist()?;
 
-        Ok(WsExecutionProgressEvent {
-            event_type: "execution_progress",
-            plan_id: self.snapshot.plan_id.clone(),
-            phase_id,
-            stage_id: stage_id.to_string(),
-            status: StageStatus::Failed,
-            agent_id: self
-                .snapshot
-                .dag
-                .get(stage_id)
-                .and_then(|n| n.agent_id.clone()),
-        })
+        let event = self.build_progress_event(stage_id, StageStatus::Failed);
+
+        Ok((event, execution_complete))
     }
 
     /// Skip a stage (e.g. after a failure, to unblock downstream stages).
@@ -473,48 +480,13 @@ impl OrchestratorExecutor {
         &mut self,
         stage_id: &str,
     ) -> Result<(Vec<String>, WsExecutionProgressEvent)> {
-        let phase_id = self
-            .snapshot
-            .dag
-            .get(stage_id)
-            .map(|n| n.phase_id.clone())
-            .unwrap_or_default();
-
-        self.snapshot.dag.mark_skipped(stage_id)?;
-
-        // Treat skipped the same as done for unblocking purposes: check dependents.
-        // We manually check since mark_skipped doesn't return unblocked nodes.
-        let dependents = self.snapshot.dag.dependents(stage_id);
-        let mut newly_ready = Vec::new();
-        for dep_id in dependents {
-            if let Some(dep_node) = self.snapshot.dag.get(&dep_id) {
-                if dep_node.status != StageStatus::Pending {
-                    continue;
-                }
-                let deps = self.snapshot.dag.dependencies(&dep_id);
-                let all_done = deps.iter().all(|d| {
-                    self.snapshot
-                        .dag
-                        .get(d)
-                        .map(|n| matches!(n.status, StageStatus::Done | StageStatus::Skipped))
-                        .unwrap_or(false)
-                });
-                if all_done {
-                    newly_ready.push(dep_id);
-                }
-            }
-        }
+        // Use mark_skipped_and_unblock which shares the same unblocking logic
+        // as mark_done via find_newly_unblocked (#483).
+        let newly_ready = self.snapshot.dag.mark_skipped_and_unblock(stage_id)?;
 
         self.persist()?;
 
-        let event = WsExecutionProgressEvent {
-            event_type: "execution_progress",
-            plan_id: self.snapshot.plan_id.clone(),
-            phase_id,
-            stage_id: stage_id.to_string(),
-            status: StageStatus::Skipped,
-            agent_id: None,
-        };
+        let event = self.build_progress_event(stage_id, StageStatus::Skipped);
 
         Ok((newly_ready, event))
     }
@@ -591,8 +563,14 @@ impl OrchestratorExecutor {
         completed
     }
 
-    /// Broadcast a WebSocket event through the given sender.
-    pub fn broadcast_event(tx: &broadcast::Sender<WsEvent>, event: WsExecutionProgressEvent) {
+    /// Broadcast a WebSocket event through the given sender (#493/#494).
+    ///
+    /// Import is scoped to the method body since it is the only consumer of
+    /// `tokio::sync::broadcast` in this module.
+    pub fn broadcast_event(
+        tx: &tokio::sync::broadcast::Sender<WsEvent>,
+        event: WsExecutionProgressEvent,
+    ) {
         // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
         let _ = tx.send(WsEvent::ExecutionProgress(event));
     }
@@ -649,7 +627,7 @@ fn build_stage_description(stage: &OrchestratorStage) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::types::{OrchestratorPhase, OrchestratorStage, OrchestratorTask};
+    use crate::orchestrator::models::{OrchestratorPhase, OrchestratorStage, OrchestratorTask};
     use tempfile::TempDir;
 
     fn make_test_plan() -> OrchestratorPlan {
@@ -902,7 +880,7 @@ mod tests {
         executor.start().unwrap();
 
         executor.mark_stage_running("p1-server", "agent-1").unwrap();
-        let event = executor.mark_stage_failed("p1-server").unwrap();
+        let (event, _) = executor.mark_stage_failed("p1-server").unwrap();
         assert_eq!(event.status, StageStatus::Failed);
         assert!(executor.dag().has_failures());
 
@@ -1052,7 +1030,7 @@ mod tests {
         executor.mark_stage_running("s1", "agent-1").unwrap();
         executor.mark_stage_running("s2", "agent-2").unwrap();
 
-        executor.mark_stage_failed("s1").unwrap();
+        let (_, _) = executor.mark_stage_failed("s1").unwrap();
         let (_, _, complete) = executor.mark_stage_done("s2", &db).unwrap();
 
         assert!(complete);
@@ -1294,18 +1272,11 @@ mod tests {
         let mut executor = OrchestratorExecutor::init(&crosslink_dir, &db, &plan).unwrap();
         executor.start().unwrap();
         executor.mark_stage_running("s1", "agent-1").unwrap();
-        executor.mark_stage_failed("s1").unwrap();
+        let (_, execution_complete) = executor.mark_stage_failed("s1").unwrap();
 
-        // Complete the single stage so execution becomes Failed
-        // Actually the execution won't auto-complete to Failed from mark_stage_failed alone;
-        // it only transitions when is_complete() is true via mark_stage_done.
-        // But is_complete checks all terminal. Failed IS terminal.
-        // So we need to check if execution was set to Failed via mark_stage_done path.
-        // Let's check: the dag has one node in Failed state -> is_complete = true.
-        // But mark_stage_failed doesn't check is_complete. Only mark_stage_done does.
-        // So the state is still Running even though the only stage failed.
-        // The retry should still work from Running state.
-        assert_eq!(executor.state(), &ExecutionState::Running);
+        // The single stage failed, so the execution is now complete.
+        assert!(execution_complete);
+        assert_eq!(executor.state(), &ExecutionState::Failed);
 
         let ready = executor.retry_stage("s1").unwrap();
         assert_eq!(ready, Some("s1".to_string()));
@@ -1331,7 +1302,7 @@ mod tests {
         // Fail p2-backend (which depends on p1-server)
         // First we need to mark it running to fail it. But it's blocked.
         // Mark it failed directly via dag manipulation.
-        executor.mark_stage_failed("p2-backend").unwrap();
+        let (_, _) = executor.mark_stage_failed("p2-backend").unwrap();
 
         // Retry it - should return None since p1-server is still pending
         let ready = executor.retry_stage("p2-backend").unwrap();

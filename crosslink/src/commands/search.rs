@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json;
 
 use crate::db::Database;
-use crate::utils::format_issue_id;
+use crate::utils::{format_issue_id, truncate};
 
 pub fn run_json(db: &Database, query: &str) -> Result<()> {
     let results = db.search_issues(query)?;
@@ -21,7 +21,11 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
     println!("Found {} issue(s) matching '{}':\n", results.len(), query);
 
     for issue in results {
-        let status_marker = if issue.status == "closed" { "✓" } else { " " };
+        let status_marker = if issue.status == crate::models::IssueStatus::Closed {
+            "✓"
+        } else {
+            " "
+        };
         let parent_str = issue
             .parent_id
             .map(|p| format!(" (sub of {})", format_issue_id(p)))
@@ -34,7 +38,7 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
             issue.priority,
             issue.title,
             parent_str,
-            if issue.status == "closed" {
+            if issue.status == crate::models::IssueStatus::Closed {
                 "(closed)"
             } else {
                 ""
@@ -44,9 +48,8 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
         // Show snippet of description if it contains the query
         if let Some(ref desc) = issue.description {
             if desc.to_lowercase().contains(&query.to_lowercase()) {
-                let preview: String = desc.chars().take(60).collect();
-                let suffix = if desc.chars().count() > 60 { "..." } else { "" };
-                println!("      └─ {}{}", preview.replace('\n', " "), suffix);
+                let flat = desc.replace('\n', " ");
+                println!("      └─ {}", truncate(&flat, 60));
             }
         }
     }
@@ -58,10 +61,9 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

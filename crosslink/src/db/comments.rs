@@ -44,6 +44,7 @@ impl Database {
         intervention_context: Option<&str>,
         driver_key_fingerprint: Option<&str>,
     ) -> Result<i64> {
+        let issue_id = self.resolve_id(issue_id);
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "INSERT INTO comments (issue_id, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint)
@@ -104,6 +105,38 @@ impl Database {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(comments)
+    }
+
+    /// Search all comments for a query string (case-insensitive LIKE).
+    /// Returns matching comments with their parent issue title.
+    pub fn search_comments(&self, query: &str) -> Result<Vec<(Comment, i64, String)>> {
+        let pattern = format!("%{}%", query);
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.issue_id, c.content, c.created_at, COALESCE(c.kind, 'note'), \
+             c.trigger_type, c.intervention_context, c.driver_key_fingerprint, \
+             i.id, i.title \
+             FROM comments c JOIN issues i ON c.issue_id = i.id \
+             WHERE c.content LIKE ?1 COLLATE NOCASE \
+             ORDER BY c.created_at DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![pattern], |row| {
+                let comment = Comment {
+                    id: row.get(0)?,
+                    issue_id: row.get(1)?,
+                    content: row.get(2)?,
+                    created_at: parse_datetime(row.get::<_, String>(3)?),
+                    kind: row.get(4)?,
+                    trigger_type: row.get(5)?,
+                    intervention_context: row.get(6)?,
+                    driver_key_fingerprint: row.get(7)?,
+                };
+                let issue_id: i64 = row.get(8)?;
+                let issue_title: String = row.get(9)?;
+                Ok((comment, issue_id, issue_title))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Get the maximum comment ID in the database, or 0 if empty.

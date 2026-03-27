@@ -84,29 +84,6 @@ export interface HealthResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Issues — request types
-// ---------------------------------------------------------------------------
-
-export interface CreateIssueRequest {
-  title: string;
-  description?: string;
-  priority?: IssuePriority;
-  parent_id?: number;
-}
-
-export interface UpdateIssueRequest {
-  title?: string;
-  description?: string;
-  priority?: IssuePriority;
-}
-
-export interface CreateSubissueRequest {
-  title: string;
-  description?: string;
-  priority?: IssuePriority;
-}
-
-// ---------------------------------------------------------------------------
 // Issues — response types
 // ---------------------------------------------------------------------------
 
@@ -120,78 +97,6 @@ export interface IssueDetail extends Issue {
   milestone: MilestoneSummary | null;
 }
 
-/** Lightweight item in the issue list */
-export interface IssueSummary extends Issue {
-  labels: string[];
-  blocker_count: number;
-}
-
-export interface IssueListResponse {
-  items: IssueSummary[];
-  total: number;
-}
-
-export interface IssueListQuery {
-  status?: IssueStatus | "all";
-  label?: string;
-  priority?: IssuePriority;
-  search?: string;
-  parent_id?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Comments — request types
-// ---------------------------------------------------------------------------
-
-export interface CreateCommentRequest {
-  content: string;
-  kind?: CommentKind;
-  trigger_type?: string;
-  intervention_context?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Labels — request types
-// ---------------------------------------------------------------------------
-
-export interface AddLabelRequest {
-  label: string;
-}
-
-// ---------------------------------------------------------------------------
-// Dependencies — request types
-// ---------------------------------------------------------------------------
-
-export interface AddBlockerRequest {
-  blocker_id: number;
-}
-
-// ---------------------------------------------------------------------------
-// Sessions
-// ---------------------------------------------------------------------------
-
-export interface StartSessionRequest {
-  agent_id?: string;
-}
-
-export interface EndSessionRequest {
-  notes?: string;
-}
-
-export interface WorkOnIssueRequest {
-  agent_id?: string;
-}
-
-export interface SessionResponse {
-  id: number;
-  started_at: string;
-  ended_at: string | null;
-  active_issue_id: number | null;
-  handoff_notes: string | null;
-  last_action: string | null;
-  agent_id: string | null;
-}
-
 // ---------------------------------------------------------------------------
 // Milestones
 // ---------------------------------------------------------------------------
@@ -202,25 +107,11 @@ export interface MilestoneSummary {
   status: "open" | "closed";
 }
 
-export interface CreateMilestoneRequest {
-  name: string;
-  description?: string;
-}
-
-export interface AssignMilestoneRequest {
-  issue_id: number;
-}
-
 export interface MilestoneDetail extends Milestone {
   issue_count: number;
   completed_count: number;
   /** Percentage 0–100 */
   progress_percent: number;
-}
-
-export interface MilestoneListResponse {
-  items: MilestoneDetail[];
-  total: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,13 +133,6 @@ export interface KnowledgePage {
   created: string;
   updated: string;
   content: string;
-}
-
-export interface KnowledgePageSummary {
-  slug: string;
-  title: string;
-  tags: string[];
-  updated: string;
 }
 
 export interface CreateKnowledgePageRequest {
@@ -313,28 +197,17 @@ export interface AgentSummary {
   locks: number[];
 }
 
-/** API-contract-level agent detail (mirrors Rust AgentDetail). */
-export interface AgentDetailContract extends AgentSummary {
-  heartbeat_history: string[];
-  kickoff_status: string | null;
-}
-
 // ---------------------------------------------------------------------------
 // Sync
 // ---------------------------------------------------------------------------
 
-export interface SyncStatusResponse {
+export interface SyncStatus {
   hub_initialized: boolean;
   hub_branch: string;
   remote: string;
   last_fetch_at: string | null;
   active_lock_count: number;
   stale_lock_count: number;
-}
-
-export interface SyncActionResponse {
-  success: boolean;
-  message: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,22 +217,13 @@ export interface SyncActionResponse {
 export type TrackingMode = "strict" | "normal" | "relaxed";
 export type SigningEnforcement = "audit" | "required" | "disabled";
 
-export interface ConfigResponse {
+export interface Config {
   tracking_mode: TrackingMode;
   stale_lock_timeout_minutes: number;
   remote: string;
   signing_enforcement: SigningEnforcement;
   intervention_tracking: boolean;
   auto_steal_stale_locks: boolean;
-}
-
-export interface UpdateConfigRequest {
-  tracking_mode?: TrackingMode;
-  stale_lock_timeout_minutes?: number;
-  remote?: string;
-  signing_enforcement?: SigningEnforcement;
-  intervention_tracking?: boolean;
-  auto_steal_stale_locks?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,11 +267,6 @@ export interface OrchestratorPlan {
   created_at: string;
   total_stages: number;
   estimated_hours: number;
-}
-
-export interface DecomposeRequest {
-  document: string;
-  slug?: string;
 }
 
 export type StageStatus =
@@ -469,12 +328,8 @@ export interface AgentDetailResponse {
   kickoff_report: string | null;
 }
 
-/** Alias: ConfigResponse is the canonical config type */
-export type Config = ConfigResponse;
 /** Alias: LockEntry is the canonical lock type */
 export type Lock = LockEntry;
-/** Alias: SyncStatusResponse is the canonical sync status type */
-export type SyncStatus = SyncStatusResponse;
 
 // ---------------------------------------------------------------------------
 // WebSocket messages
@@ -587,6 +442,23 @@ export interface TokenUsageRecord {
   cost_estimate: number;
 }
 
+/** Raw usage summary as returned by the API before client-side aggregation. */
+export interface RawUsageSummaryItem {
+  agent_id: string;
+  model: string;
+  request_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost: number;
+}
+
+export interface RawUsageSummary {
+  items: RawUsageSummaryItem[];
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost: number;
+}
+
 /** Aggregated usage totals returned by GET /api/v1/usage/summary. */
 export interface UsageSummary {
   total_input_tokens: number;
@@ -629,13 +501,6 @@ export interface BudgetConfig {
   alert_threshold_percent: number; // 0–100, triggers warning at this % of limit
 }
 
-/** Query parameters for GET /api/v1/usage. */
-export interface UsageQuery {
-  agent_id?: string;
-  from?: string; // ISO 8601
-  to?: string; // ISO 8601
-}
-
 // ---------------------------------------------------------------------------
 // Generic API wrapper
 // ---------------------------------------------------------------------------
@@ -643,9 +508,5 @@ export interface UsageQuery {
 export interface ApiError {
   error: string;
   detail?: string;
-}
-
-export interface OkResponse {
-  ok: boolean;
 }
 

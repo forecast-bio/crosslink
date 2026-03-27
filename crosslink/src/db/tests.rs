@@ -1,4 +1,5 @@
 use crate::db::*;
+use crate::models::{IssueStatus, Priority};
 use chrono::Utc;
 use rusqlite::params;
 use tempfile::tempdir;
@@ -23,8 +24,8 @@ fn test_create_and_get_issue() {
     assert_eq!(issue.id, id);
     assert_eq!(issue.title, "Test issue");
     assert_eq!(issue.description, None);
-    assert_eq!(issue.status, "open");
-    assert_eq!(issue.priority, "medium");
+    assert_eq!(issue.status, IssueStatus::Open);
+    assert_eq!(issue.priority, Priority::Medium);
     assert_eq!(issue.parent_id, None);
     assert!(issue.closed_at.is_none());
 }
@@ -40,7 +41,7 @@ fn test_create_issue_with_description() {
 
     assert_eq!(issue.title, "Test issue");
     assert_eq!(issue.description, Some("Detailed description".to_string()));
-    assert_eq!(issue.priority, "high");
+    assert_eq!(issue.priority, Priority::High);
 }
 
 #[test]
@@ -108,7 +109,7 @@ fn test_list_issues_filter_by_priority() {
 
     let high_issues = db.list_issues(None, None, Some("high")).unwrap();
     assert_eq!(high_issues.len(), 1);
-    assert_eq!(high_issues[0].priority, "high");
+    assert_eq!(high_issues[0].priority, Priority::High);
 }
 
 #[test]
@@ -130,7 +131,7 @@ fn test_update_issue() {
     let issue = db.get_issue(id).unwrap().unwrap();
     assert_eq!(issue.title, "Updated title");
     assert_eq!(issue.description, Some("New description".to_string()));
-    assert_eq!(issue.priority, "critical");
+    assert_eq!(issue.priority, Priority::Critical);
 }
 
 #[test]
@@ -146,7 +147,7 @@ fn test_update_issue_partial() {
     let issue = db.get_issue(id).unwrap().unwrap();
     assert_eq!(issue.title, "New title");
     assert_eq!(issue.description, Some("Original desc".to_string()));
-    assert_eq!(issue.priority, "low");
+    assert_eq!(issue.priority, Priority::Low);
 }
 
 #[test]
@@ -159,14 +160,14 @@ fn test_close_and_reopen_issue() {
     assert!(closed);
 
     let issue = db.get_issue(id).unwrap().unwrap();
-    assert_eq!(issue.status, "closed");
+    assert_eq!(issue.status, IssueStatus::Closed);
     assert!(issue.closed_at.is_some());
 
     let reopened = db.reopen_issue(id).unwrap();
     assert!(reopened);
 
     let issue = db.get_issue(id).unwrap().unwrap();
-    assert_eq!(issue.status, "open");
+    assert_eq!(issue.status, IssueStatus::Open);
     assert!(issue.closed_at.is_none());
 }
 
@@ -657,7 +658,7 @@ fn test_create_and_get_milestone() {
     let milestone = db.get_milestone(id).unwrap().unwrap();
     assert_eq!(milestone.name, "v1.0");
     assert_eq!(milestone.description, Some("First release".to_string()));
-    assert_eq!(milestone.status, "open");
+    assert_eq!(milestone.status, IssueStatus::Open);
 }
 
 #[test]
@@ -696,7 +697,7 @@ fn test_close_milestone() {
     db.close_milestone(id).unwrap();
 
     let milestone = db.get_milestone(id).unwrap().unwrap();
-    assert_eq!(milestone.status, "closed");
+    assert_eq!(milestone.status, IssueStatus::Closed);
     assert!(milestone.closed_at.is_some());
 }
 
@@ -713,7 +714,7 @@ fn test_archive_closed_issue() {
     assert!(archived);
 
     let issue = db.get_issue(id).unwrap().unwrap();
-    assert_eq!(issue.status, "archived");
+    assert_eq!(issue.status, IssueStatus::Archived);
 }
 
 #[test]
@@ -726,7 +727,7 @@ fn test_archive_open_issue_fails() {
     assert!(!archived);
 
     let issue = db.get_issue(id).unwrap().unwrap();
-    assert_eq!(issue.status, "open");
+    assert_eq!(issue.status, IssueStatus::Open);
 }
 
 #[test]
@@ -741,7 +742,7 @@ fn test_unarchive_issue() {
     assert!(unarchived);
 
     let issue = db.get_issue(id).unwrap().unwrap();
-    assert_eq!(issue.status, "closed");
+    assert_eq!(issue.status, IssueStatus::Closed);
 }
 
 #[test]
@@ -1365,8 +1366,8 @@ fn test_insert_hydrated_issue() {
 
     let issue = db.get_issue(100).unwrap().unwrap();
     assert_eq!(issue.title, "Hydrated");
-    assert_eq!(issue.priority, "critical");
-    assert_eq!(issue.status, "open");
+    assert_eq!(issue.priority, Priority::Critical);
+    assert_eq!(issue.status, IssueStatus::Open);
 }
 
 #[test]
@@ -1537,7 +1538,7 @@ fn test_insert_hydrated_milestone() {
 
     let ms = db.get_milestone(50).unwrap().unwrap();
     assert_eq!(ms.name, "Release 2.0");
-    assert_eq!(ms.status, "open");
+    assert_eq!(ms.status, IssueStatus::Open);
 }
 
 #[test]
@@ -1811,15 +1812,15 @@ fn test_archive_older_than() {
     assert_eq!(archived, 1);
 
     let issue1 = db.get_issue(id1).unwrap().unwrap();
-    assert_eq!(issue1.status, "archived");
+    assert_eq!(issue1.status, IssueStatus::Archived);
 
     // id2 was just closed, should still be "closed"
     let issue2 = db.get_issue(id2).unwrap().unwrap();
-    assert_eq!(issue2.status, "closed");
+    assert_eq!(issue2.status, IssueStatus::Closed);
 
     // id3 is still open
     let issue3 = db.get_issue(id3).unwrap().unwrap();
-    assert_eq!(issue3.status, "open");
+    assert_eq!(issue3.status, IssueStatus::Open);
 }
 
 #[test]
@@ -1958,6 +1959,7 @@ fn test_insert_relation_raw_normalizes_order() {
 #[cfg(test)]
 mod proptest_tests {
     use crate::db::*;
+    use crate::models::IssueStatus;
     use anyhow::Result;
     use proptest::prelude::*;
 
@@ -2009,7 +2011,7 @@ mod proptest_tests {
             let (db, _dir) = setup_test_db();
             let id = db.create_issue("Test", None, &priority).unwrap();
             let issue = db.get_issue(id).unwrap().unwrap();
-            prop_assert_eq!(issue.priority, priority);
+            prop_assert_eq!(issue.priority.to_string(), priority);
         }
 
         /// Labels should be storable and retrievable
@@ -2052,11 +2054,11 @@ mod proptest_tests {
 
             db.close_issue(id).unwrap();
             let issue = db.get_issue(id).unwrap().unwrap();
-            prop_assert_eq!(issue.status, "closed");
+            prop_assert_eq!(issue.status, IssueStatus::Closed);
 
             db.reopen_issue(id).unwrap();
             let issue = db.get_issue(id).unwrap().unwrap();
-            prop_assert_eq!(issue.status, "open");
+            prop_assert_eq!(issue.status, IssueStatus::Open);
         }
 
         /// Blocking should be reflected in blocked list
@@ -2174,7 +2176,7 @@ mod proptest_tests {
                 for blocker_id in blockers {
                     if let Some(blocker) = db.get_issue(blocker_id).unwrap() {
                         prop_assert_ne!(
-                            blocker.status, "open",
+                            blocker.status, IssueStatus::Open,
                             "Ready issue {} has open blocker {}",
                             issue.id, blocker_id
                         );

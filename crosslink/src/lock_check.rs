@@ -80,8 +80,10 @@ fn read_auto_steal_config(crosslink_dir: &Path) -> Option<u64> {
     let content = std::fs::read_to_string(&config_path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
     match parsed.get("auto_steal_stale_locks")? {
+        serde_json::Value::Bool(true) => Some(1),
         serde_json::Value::Bool(false) => None,
         serde_json::Value::Number(n) => n.as_u64().filter(|&v| v > 0),
+        serde_json::Value::String(s) if s == "true" => Some(1),
         serde_json::Value::String(s) if s == "false" => None,
         serde_json::Value::String(s) => s.parse::<u64>().ok().filter(|&v| v > 0),
         _ => None,
@@ -150,7 +152,7 @@ fn auto_steal_if_configured(
             Some(a) => a,
             None => return Ok(false),
         };
-        sync.claim_lock(&agent, issue_id, None, true)?;
+        sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
         let comment = format!(
             "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
             stale_agent_id, stale_minutes, auto_steal_threshold
@@ -208,6 +210,114 @@ pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Resul
                 )
             }
         }
+    }
+}
+
+/// Best-effort lock release for an issue. Dispatches between V1 and V2 hub layouts.
+/// Logs warnings on failure but never returns an error — callers use this when
+/// lock release is a courtesy, not a hard requirement (e.g., after closing an issue).
+pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
+    if let Ok(Some(agent)) = AgentConfig::load(crosslink_dir) {
+        if let Ok(sync) = SyncManager::new(crosslink_dir) {
+            if sync.is_initialized() {
+                if sync.is_v2_layout() {
+                    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir)
+                    {
+                        if let Err(e) = writer.release_lock_v2(issue_id) {
+                            tracing::warn!(
+                                "Could not release lock on {}: {}",
+                                crate::utils::format_issue_id(issue_id),
+                                e
+                            );
+                        }
+                    }
+                } else if let Err(e) =
+                    sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal)
+                {
+                    tracing::warn!(
+                        "Could not release lock on {}: {}",
+                        crate::utils::format_issue_id(issue_id),
+                        e
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Result of attempting to claim a lock.
+#[derive(Debug, PartialEq)]
+pub enum ClaimResult {
+    /// Lock successfully claimed.
+    Claimed,
+    /// Lock already held by this agent — no action needed.
+    AlreadyHeld,
+    /// Lock contended — another agent won the claim race.
+    Contended { winner_agent_id: String },
+    /// Lock system not configured or not initialized — no claim attempted.
+    NotConfigured,
+}
+
+/// Attempt to claim a lock on an issue, dispatching between V1 and V2 hub layouts.
+///
+/// Returns `ClaimResult` indicating the outcome. Errors are returned only for
+/// unexpected failures; configuration absence yields `NotConfigured`.
+pub fn try_claim_lock(
+    crosslink_dir: &Path,
+    issue_id: i64,
+    branch: Option<&str>,
+) -> Result<ClaimResult> {
+    let agent = match AgentConfig::load(crosslink_dir)? {
+        Some(a) => a,
+        None => return Ok(ClaimResult::NotConfigured),
+    };
+    let sync = match SyncManager::new(crosslink_dir) {
+        Ok(s) if s.is_initialized() => s,
+        _ => return Ok(ClaimResult::NotConfigured),
+    };
+
+    if sync.is_v2_layout() {
+        let writer = match crate::shared_writer::SharedWriter::new(crosslink_dir)? {
+            Some(w) => w,
+            None => return Ok(ClaimResult::NotConfigured),
+        };
+        match writer.claim_lock_v2(issue_id, branch)? {
+            crate::shared_writer::LockClaimResult::Claimed => Ok(ClaimResult::Claimed),
+            crate::shared_writer::LockClaimResult::AlreadyHeld => Ok(ClaimResult::AlreadyHeld),
+            crate::shared_writer::LockClaimResult::Contended { winner_agent_id } => {
+                Ok(ClaimResult::Contended { winner_agent_id })
+            }
+        }
+    } else {
+        match sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
+            true => Ok(ClaimResult::Claimed),
+            false => Ok(ClaimResult::AlreadyHeld),
+        }
+    }
+}
+
+/// Attempt to release a lock on an issue, dispatching between V1 and V2 hub layouts.
+///
+/// Returns `Ok(true)` if the lock was released, `Ok(false)` if it wasn't held.
+/// Returns `Ok(false)` if the lock system is not configured.
+pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
+    let agent = match AgentConfig::load(crosslink_dir)? {
+        Some(a) => a,
+        None => return Ok(false),
+    };
+    let sync = match SyncManager::new(crosslink_dir) {
+        Ok(s) if s.is_initialized() => s,
+        _ => return Ok(false),
+    };
+
+    if sync.is_v2_layout() {
+        let writer = match crate::shared_writer::SharedWriter::new(crosslink_dir)? {
+            Some(w) => w,
+            None => return Ok(false),
+        };
+        writer.release_lock_v2(issue_id)
+    } else {
+        sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal)
     }
 }
 
@@ -422,17 +532,16 @@ mod tests {
         assert_eq!(read_auto_steal_config(dir.path()), None);
     }
 
-    /// Bool(true) falls through to the `_` catch-all arm and returns None.
+    /// Bool(true) enables auto-steal with default multiplier of 1.
     #[test]
-    fn test_auto_steal_config_bool_true_returns_none() {
+    fn test_auto_steal_config_bool_true_returns_default() {
         let dir = tempdir().unwrap();
         std::fs::write(
             dir.path().join("hook-config.json"),
             r#"{"auto_steal_stale_locks": true}"#,
         )
         .unwrap();
-        // Bool(true) is not explicitly handled → _ arm → None
-        assert_eq!(read_auto_steal_config(dir.path()), None);
+        assert_eq!(read_auto_steal_config(dir.path()), Some(1));
     }
 
     /// Null value falls through to the `_` catch-all arm and returns None.
@@ -1276,8 +1385,7 @@ mod tests {
             r#"{"auto_steal_stale_locks": true}"#,
         )
         .unwrap();
-        // Bool(true) has no explicit match arm → `_` catch-all → None
-        assert_eq!(read_auto_steal_config(dir.path()), None);
+        assert_eq!(read_auto_steal_config(dir.path()), Some(1));
     }
 
     /// `"auto_steal_stale_locks": 600` → Some(600).

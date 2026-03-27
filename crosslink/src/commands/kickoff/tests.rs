@@ -1520,7 +1520,7 @@ fn test_build_agent_command_without_sandbox() {
     );
     assert_eq!(
         cmd,
-        "timeout 3600s env -u CLAUDECODE claude --model opus --allowedTools 'Read,Write' -- \"$(cat KICKOFF.md)\""
+        "timeout 3600s env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
     );
 }
 
@@ -1536,7 +1536,7 @@ fn test_build_agent_command_with_sandbox() {
         Path::new("/tmp/my-worktree"),
         false,
     );
-    assert!(cmd.starts_with("timeout 3600s bwrap --bind /tmp/my-worktree /workspace --"));
+    assert!(cmd.starts_with("timeout 3600s bwrap --bind '/tmp/my-worktree' /workspace --"));
     assert!(cmd.contains("env -u CLAUDECODE claude"));
 }
 
@@ -1556,7 +1556,7 @@ fn test_build_agent_command_with_skip_permissions() {
         cmd.contains("--dangerously-skip-permissions"),
         "Should include skip permissions flag"
     );
-    assert!(cmd.contains("claude --dangerously-skip-permissions --model opus"));
+    assert!(cmd.contains("claude --dangerously-skip-permissions --model 'opus'"));
 }
 
 #[test]
@@ -1572,7 +1572,7 @@ fn test_build_agent_command_plan_kickoff() {
         false,
     );
     assert!(cmd.starts_with("gtimeout 1800s"));
-    assert!(cmd.contains("$(cat PLAN_KICKOFF.md)"));
+    assert!(cmd.contains("$(cat 'PLAN_KICKOFF.md')"));
 }
 
 #[test]

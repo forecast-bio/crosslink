@@ -64,6 +64,37 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Fetch blocker counts for all given issue IDs in a single query.
+    ///
+    /// Returns a map from issue_id to the number of blockers.
+    /// Issues with no blockers are included with count 0.
+    pub fn get_blocker_counts_batch(
+        &self,
+        issue_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, usize>> {
+        use std::collections::HashMap;
+
+        let mut result: HashMap<i64, usize> = issue_ids.iter().map(|&id| (id, 0)).collect();
+        if issue_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let placeholders: String = issue_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT blocked_id, COUNT(*) FROM dependencies WHERE blocked_id IN ({}) GROUP BY blocked_id",
+            placeholders
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(issue_ids.iter()), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (issue_id, count) = row?;
+            result.insert(issue_id, count as usize);
+        }
+        Ok(result)
+    }
+
     pub fn get_blockers(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self

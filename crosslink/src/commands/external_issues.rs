@@ -120,14 +120,18 @@ pub fn search(
                 .display_id
                 .map(format_issue_id)
                 .unwrap_or_else(|| "?".to_string());
-            let status_marker = if issue.status == "closed" { "✓" } else { " " };
+            let status_marker = if issue.status == crate::models::IssueStatus::Closed {
+                "✓"
+            } else {
+                " "
+            };
             println!(
                 "{:<5} [{}] {:8} {} {}",
                 id_str,
                 status_marker,
                 issue.priority,
                 issue.title,
-                if issue.status == "closed" {
+                if issue.status == crate::models::IssueStatus::Closed {
                     "(closed)"
                 } else {
                     ""

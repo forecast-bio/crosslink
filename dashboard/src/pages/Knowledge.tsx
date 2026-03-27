@@ -19,6 +19,7 @@ import type { KnowledgePage, KnowledgeSearchMatch } from "@/lib/types";
 export function Knowledge() {
   const [pages, setPages] = useState<KnowledgePage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<KnowledgeSearchMatch[] | null>(null);
@@ -29,7 +30,7 @@ export function Knowledge() {
     knowledgeApi
       .list()
       .then(setPages)
-      .catch(() => {})
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -61,7 +62,7 @@ export function Knowledge() {
       );
 
   const refetch = () => {
-    knowledgeApi.list().then(setPages).catch(() => {});
+    knowledgeApi.list().then(setPages).catch((e) => setError(String(e)));
   };
 
   return (
@@ -114,6 +115,10 @@ export function Knowledge() {
         <p className="text-xs text-muted-foreground">
           {searching ? "Searching…" : `${searchResults.length} result${searchResults.length !== 1 ? "s" : ""} for "${search}"`}
         </p>
+      )}
+
+      {error && (
+        <p className="text-destructive text-sm">{error}</p>
       )}
 
       {loading ? (

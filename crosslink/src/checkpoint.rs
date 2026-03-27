@@ -67,8 +67,8 @@ pub struct CompactIssue {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub status: String,
-    pub priority: String,
+    pub status: crate::models::IssueStatus,
+    pub priority: crate::models::Priority,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_uuid: Option<Uuid>,
     pub created_by: String,
@@ -172,7 +172,8 @@ pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
 /// Reads the current checkpoint, sets the watermark, and writes both
 /// in a single atomic file operation. This prevents inconsistent state
 /// if a crash occurs between writes.
-pub fn write_watermark(cache_dir: &Path, key: &OrderingKey) -> Result<()> {
+#[cfg(test)]
+pub(crate) fn write_watermark(cache_dir: &Path, key: &OrderingKey) -> Result<()> {
     let mut state = read_checkpoint(cache_dir)?;
     state.watermark = Some(key.clone());
     write_checkpoint(cache_dir, &state)
@@ -215,8 +216,8 @@ mod tests {
                 display_id: Some(1),
                 title: "Test".to_string(),
                 description: None,
-                status: "open".to_string(),
-                priority: "medium".to_string(),
+                status: crate::models::IssueStatus::Open,
+                priority: crate::models::Priority::Medium,
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
                 created_at: Utc::now(),
@@ -311,8 +312,8 @@ mod tests {
             display_id: Some(1),
             title: "Test".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::High,
             parent_uuid: None,
             created_by: "agent-1".to_string(),
             created_at: Utc::now(),

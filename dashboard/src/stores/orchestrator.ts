@@ -9,15 +9,14 @@ import type {
   StageStatus,
 } from "@/lib/types";
 
-let eventCounter = 0;
-
 function makeEvent(
   kind: ExecutionEventKind,
   message: string,
+  eventCounter: number,
   opts?: { phase_id?: string; stage_id?: string; agent_id?: string },
 ): ExecutionEvent {
   return {
-    id: `evt-${++eventCounter}-${Date.now()}`,
+    id: `evt-${eventCounter}-${Date.now()}`,
     timestamp: new Date().toISOString(),
     kind,
     phase_id: opts?.phase_id ?? null,
@@ -35,6 +34,7 @@ interface OrchestratorState {
   decomposing: boolean;
   error: string | null;
   events: ExecutionEvent[];
+  eventCounter: number;
   selectedStageId: string | null;
 
   // Fetch actions
@@ -108,6 +108,7 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
   decomposing: false,
   error: null,
   events: [],
+  eventCounter: 0,
   selectedStageId: null,
 
   fetchPlan: async () => {
@@ -128,19 +129,25 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
 
       // Generate events for execution-level state transitions
       if (prev !== next) {
-        const events = get().events;
-        if (next === "running" && prev === "paused") {
-          events.push(makeEvent("execution_resumed", "Execution resumed"));
-        } else if (next === "running" && prev === "idle") {
-          events.push(makeEvent("execution_started", "Execution started"));
-        } else if (next === "paused") {
-          events.push(makeEvent("execution_paused", "Execution paused"));
-        } else if (next === "done") {
-          events.push(makeEvent("execution_completed", "Execution completed successfully"));
-        } else if (next === "failed") {
-          events.push(makeEvent("execution_failed", "Execution failed"));
-        }
-        set({ events: [...events] });
+        set((s) => {
+          const counter = s.eventCounter + 1;
+          let newEvent: ExecutionEvent | null = null;
+          if (next === "running" && prev === "paused") {
+            newEvent = makeEvent("execution_resumed", "Execution resumed", counter);
+          } else if (next === "running" && prev === "idle") {
+            newEvent = makeEvent("execution_started", "Execution started", counter);
+          } else if (next === "paused") {
+            newEvent = makeEvent("execution_paused", "Execution paused", counter);
+          } else if (next === "done") {
+            newEvent = makeEvent("execution_completed", "Execution completed successfully", counter);
+          } else if (next === "failed") {
+            newEvent = makeEvent("execution_failed", "Execution failed", counter);
+          }
+          return {
+            events: newEvent ? [...s.events, newEvent] : s.events,
+            eventCounter: counter,
+          };
+        });
       }
 
       set({ executionStatus: next, progressPct: data.progress_pct });
@@ -250,85 +257,81 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
   },
 
   applyProgress: (phase, stage, status, agentId) => {
-    const plan = get().plan;
-    if (!plan) return;
+    set((s) => {
+      const plan = s.plan;
+      if (!plan) return s;
 
-    // Find stage title for event messages
-    let stageTitle = stage;
-    for (const p of plan.phases) {
-      const s = p.stages.find((s) => s.id === stage);
-      if (s) {
-        stageTitle = s.title;
-        break;
+      // Find stage title for event messages
+      let stageTitle = stage;
+      for (const p of plan.phases) {
+        const found = p.stages.find((st) => st.id === stage);
+        if (found) {
+          stageTitle = found.title;
+          break;
+        }
       }
-    }
 
-    // Generate event for stage status changes
-    const events = get().events;
-    const agentLabel = agentId ? ` (agent: ${agentId})` : "";
-    switch (status as StageStatus) {
-      case "running":
-        events.push(
-          makeEvent("stage_started", `Stage "${stageTitle}" started${agentLabel}`, {
+      // Generate event for stage status changes
+      const counter = s.eventCounter + 1;
+      const agentLabel = agentId ? ` (agent: ${agentId})` : "";
+      let newEvent: ExecutionEvent | null = null;
+      switch (status as StageStatus) {
+        case "running":
+          newEvent = makeEvent("stage_started", `Stage "${stageTitle}" started${agentLabel}`, counter, {
             phase_id: phase,
             stage_id: stage,
             agent_id: agentId ?? undefined,
-          }),
-        );
-        break;
-      case "done":
-        events.push(
-          makeEvent("stage_completed", `Stage "${stageTitle}" completed${agentLabel}`, {
+          });
+          break;
+        case "done":
+          newEvent = makeEvent("stage_completed", `Stage "${stageTitle}" completed${agentLabel}`, counter, {
             phase_id: phase,
             stage_id: stage,
             agent_id: agentId ?? undefined,
-          }),
-        );
-        break;
-      case "failed":
-        events.push(
-          makeEvent("stage_failed", `Stage "${stageTitle}" failed${agentLabel}`, {
+          });
+          break;
+        case "failed":
+          newEvent = makeEvent("stage_failed", `Stage "${stageTitle}" failed${agentLabel}`, counter, {
             phase_id: phase,
             stage_id: stage,
             agent_id: agentId ?? undefined,
-          }),
-        );
-        break;
-      case "skipped":
-        events.push(
-          makeEvent("stage_skipped", `Stage "${stageTitle}" skipped`, {
+          });
+          break;
+        case "skipped":
+          newEvent = makeEvent("stage_skipped", `Stage "${stageTitle}" skipped`, counter, {
             phase_id: phase,
             stage_id: stage,
-          }),
-        );
-        break;
-    }
+          });
+          break;
+      }
 
-    const updatedPhases = plan.phases.map((p) =>
-      p.id === phase
-        ? {
-            ...p,
-            stages: p.stages.map((s) =>
-              s.id === stage
-                ? { ...s, status: status as StageStatus, agent_id: agentId ?? s.agent_id }
-                : s,
-            ),
-          }
-        : p,
-    );
+      const updatedPhases = plan.phases.map((p) =>
+        p.id === phase
+          ? {
+              ...p,
+              stages: p.stages.map((st) =>
+                st.id === stage
+                  ? { ...st, status: status as StageStatus, agent_id: agentId ?? st.agent_id }
+                  : st,
+              ),
+            }
+          : p,
+      );
 
-    // Recompute progress from stage statuses
-    const allStages = updatedPhases.flatMap((p) => p.stages);
-    const doneCount = allStages.filter(
-      (s) => s.status === "done" || s.status === "skipped",
-    ).length;
-    const progressPct =
-      allStages.length > 0 ? Math.round((doneCount / allStages.length) * 100) : 0;
+      // Recompute progress from stage statuses
+      const allStages = updatedPhases.flatMap((p) => p.stages);
+      const doneCount = allStages.filter(
+        (st) => st.status === "done" || st.status === "skipped",
+      ).length;
+      const progressPct =
+        allStages.length > 0 ? Math.round((doneCount / allStages.length) * 100) : 0;
 
-    set({
-      plan: { ...plan, phases: updatedPhases },
-      events: [...events],
-      progressPct,
+      return {
+        plan: { ...plan, phases: updatedPhases },
+        events: newEvent ? [...s.events, newEvent] : s.events,
+        eventCounter: counter,
+        progressPct,
+      };
     });
   },
 
@@ -354,19 +357,21 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
 
     let stageTitle = stageId;
     for (const p of plan.phases) {
-      const s = p.stages.find((s) => s.id === stageId);
-      if (s) {
-        stageTitle = s.title;
+      const found = p.stages.find((st) => st.id === stageId);
+      if (found) {
+        stageTitle = found.title;
         break;
       }
     }
 
     await orchestratorApi.retryStage(stageId);
-    const events = get().events;
-    events.push(
-      makeEvent("stage_retried", `Stage "${stageTitle}" retried`, { stage_id: stageId }),
-    );
-    set({ events: [...events] });
+    set((s) => {
+      const counter = s.eventCounter + 1;
+      return {
+        events: [...s.events, makeEvent("stage_retried", `Stage "${stageTitle}" retried`, counter, { stage_id: stageId })],
+        eventCounter: counter,
+      };
+    });
     void get().fetchStatus();
   },
 

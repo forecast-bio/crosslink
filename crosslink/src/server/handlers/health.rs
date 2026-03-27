@@ -1,16 +1,16 @@
 use axum::{extract::State, response::Json};
-use serde_json::{json, Value};
 
 use crate::server::state::AppState;
+use crate::server::types::HealthResponse;
 
 /// `GET /api/v1/health` — liveness check.
 ///
 /// Returns `{"status": "ok", "version": "<crate version>"}`.
-pub async fn health(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({
-        "status": "ok",
-        "version": state.version,
-    }))
+pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok".to_string(),
+        version: state.version.to_string(),
+    })
 }
 
 #[cfg(test)]

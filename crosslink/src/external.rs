@@ -525,9 +525,10 @@ impl ExternalIssueReader {
                 // Status filter
                 match status_filter {
                     Some("all") | None => true,
-                    Some("open") => issue.status == "open",
-                    Some("closed") => issue.status == "closed",
-                    Some(s) => issue.status == s,
+                    Some(s) => s
+                        .parse::<crate::models::IssueStatus>()
+                        .map(|st| issue.status == st)
+                        .unwrap_or(false),
                 }
             })
             .filter(|issue| {
@@ -535,7 +536,12 @@ impl ExternalIssueReader {
                     .map(|label| issue.labels.iter().any(|l| l == label))
                     .unwrap_or(true)
             })
-            .filter(|issue| priority_filter.map(|p| issue.priority == p).unwrap_or(true))
+            .filter(|issue| {
+                priority_filter
+                    .and_then(|p| p.parse::<crate::models::Priority>().ok())
+                    .map(|p| issue.priority == p)
+                    .unwrap_or(true)
+            })
             .collect()
     }
 

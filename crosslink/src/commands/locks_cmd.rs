@@ -7,7 +7,7 @@ use crate::db::Database;
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
 use crate::shared_writer::SharedWriter;
-use crate::sync::{GpgVerification, SyncManager};
+use crate::sync::{SignatureVerification, SyncManager};
 use crate::utils::{format_issue_id, truncate};
 use crate::LocksCommands;
 
@@ -88,8 +88,7 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
     let stale_ids: Vec<i64> = stale.iter().map(|(id, _)| *id).collect();
 
     println!("Active locks:");
-    for (issue_id_str, lock) in &locks_file.locks {
-        let issue_id: i64 = issue_id_str.parse().unwrap_or(0);
+    for (&issue_id, lock) in &locks_file.locks {
         let title = db
             .get_issue(issue_id)?
             .map(|i| truncate(&i.title, 40))
@@ -189,7 +188,7 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
         return Ok(());
     }
 
-    match sync.claim_lock(&agent, issue_id, branch, false)? {
+    match sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
         true => {
             println!("Claimed lock on issue {}", format_issue_id(issue_id));
             if let Some(b) = branch {
@@ -226,7 +225,7 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
         return Ok(());
     }
 
-    match sync.release_lock(&_agent, issue_id, false)? {
+    match sync.release_lock(&_agent, issue_id, crate::sync::LockMode::Normal)? {
         true => println!("Released lock on issue {}", format_issue_id(issue_id)),
         false => println!("Issue {} was not locked.", format_issue_id(issue_id)),
     }
@@ -275,7 +274,7 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
                 existing.agent_id
             );
         } else {
-            sync.claim_lock(&agent, issue_id, None, true)?;
+            sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
             println!(
                 "Stole lock on issue {} from '{}'",
                 format_issue_id(issue_id),
@@ -295,7 +294,7 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
                 }
             }
         } else {
-            sync.claim_lock(&agent, issue_id, None, false)?;
+            sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Normal)?;
         }
         println!(
             "Claimed lock on issue {} (was not locked)",
@@ -388,7 +387,7 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
     // Verify commit signature (SSH or GPG)
     let verification = sync.verify_locks_signature()?;
     match &verification {
-        GpgVerification::Valid {
+        SignatureVerification::Valid {
             commit,
             fingerprint,
             principal,
@@ -433,20 +432,20 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 }
             }
         }
-        GpgVerification::Unsigned { commit } => {
+        SignatureVerification::Unsigned { commit } => {
             println!(
                 "Locks synced. WARNING: Latest commit ({}) is NOT signed.",
                 &commit[..7.min(commit.len())]
             );
         }
-        GpgVerification::Invalid { commit, reason } => {
+        SignatureVerification::Invalid { commit, reason } => {
             println!(
                 "Locks synced. WARNING: Signature verification failed on {}: {}",
                 &commit[..7.min(commit.len())],
                 reason
             );
         }
-        GpgVerification::NoCommits => {
+        SignatureVerification::NoCommits => {
             println!("Locks branch has no commits yet.");
         }
     }
@@ -468,11 +467,11 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         let results = sync.verify_recent_commits(5)?;
         let unsigned: Vec<_> = results
             .iter()
-            .filter(|(_, v)| matches!(v, GpgVerification::Unsigned { .. }))
+            .filter(|(_, v)| matches!(v, SignatureVerification::Unsigned { .. }))
             .collect();
         let invalid: Vec<_> = results
             .iter()
-            .filter(|(_, v)| matches!(v, GpgVerification::Invalid { .. }))
+            .filter(|(_, v)| matches!(v, SignatureVerification::Invalid { .. }))
             .collect();
 
         if !unsigned.is_empty() || !invalid.is_empty() {
