@@ -18,7 +18,8 @@ pub struct RewriteStats {
 }
 
 impl RewriteStats {
-    pub fn total(&self) -> usize {
+    #[must_use]
+    pub const fn total(&self) -> usize {
         self.comments_updated + self.descriptions_updated + self.sessions_updated
     }
 }
@@ -63,17 +64,20 @@ impl SharedWriter {
     /// Promote offline issues (`display_id: null`) to real display IDs.
     ///
     /// Called during sync when connectivity is restored. Scans the cache for
-    /// issue files created by this agent with null display_id, bulk-claims
+    /// issue files created by this agent with null `display_id`, bulk-claims
     /// N sequential IDs, rewrites the JSON files, and pushes.
     ///
     /// Returns a vec of `(old_negative_id, new_display_id, title)` for output.
+    ///
+    /// # Errors
+    /// Returns an error if scanning, claiming IDs, or pushing fails.
     pub fn promote_offline_issues(&self, db: &Database) -> Result<Vec<(i64, i64, String)>> {
         let offline = self.find_offline_issues()?;
         if offline.is_empty() {
             return Ok(vec![]);
         }
 
-        let count = offline.len() as i64;
+        let count = i64::try_from(offline.len()).unwrap_or(i64::MAX);
 
         // Build uuid -> negative_id from current SQLite state
         let mut uuid_to_neg_id = std::collections::HashMap::new();
@@ -97,7 +101,7 @@ impl SharedWriter {
                 for (i, (uuid, _)) in offline_info.iter().enumerate() {
                     let path = writer.issue_path(uuid);
                     let mut issue = read_issue_file(&path)?;
-                    issue.display_id = Some(start_id + i as i64);
+                    issue.display_id = Some(start_id + i64::try_from(i).unwrap_or(0));
                     let json = serde_json::to_vec_pretty(&issue)?;
                     files.push((writer.issue_rel_path(uuid), json));
                 }
@@ -108,7 +112,7 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("promote {} offline issue(s)", count),
+            &format!("promote {count} offline issue(s)"),
         )?;
 
         if outcome == PushOutcome::LocalOnly {
@@ -133,7 +137,7 @@ impl SharedWriter {
         }
 
         // Re-hydrate with new positive IDs
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
 
         // Record promoted UUIDs so they are never re-promoted (#451).
         // This MUST succeed — if it fails, the next sync will re-promote
@@ -146,9 +150,9 @@ impl SharedWriter {
             .iter()
             .enumerate()
             .map(|(i, (uuid, title))| {
-                let neg_id = uuid_to_neg_id.get(uuid).copied().unwrap_or(0);
-                let new_id = start_id + i as i64;
-                (neg_id, new_id, title.clone())
+                let old_neg_id = uuid_to_neg_id.get(uuid).copied().unwrap_or(0);
+                let new_id = start_id + i64::try_from(i).unwrap_or(0);
+                (old_neg_id, new_id, title.clone())
             })
             .collect();
 
@@ -159,6 +163,9 @@ impl SharedWriter {
     /// after offline issues have been promoted to real display IDs.
     ///
     /// Returns stats on how many text fields were updated.
+    ///
+    /// # Errors
+    /// Returns an error if database queries or file writes fail.
     pub fn rewrite_local_references(
         &self,
         db: &Database,
@@ -176,10 +183,7 @@ impl SharedWriter {
             .iter()
             .filter(|(neg_id, _, _)| *neg_id != 0)
             .map(|(neg_id, new_id, _)| {
-                (
-                    format!("L{}", neg_id.unsigned_abs()),
-                    format!("#{}", new_id),
-                )
+                (format!("L{}", neg_id.unsigned_abs()), format!("#{new_id}"))
             })
             .collect();
 
@@ -214,9 +218,8 @@ impl SharedWriter {
 
         // Update JSON files on coordination branch
         for (_, new_id, _) in mapping {
-            let issue_file = match self.load_issue_by_display_id(*new_id) {
-                Ok(f) => f,
-                Err(_) => continue,
+            let Ok(issue_file) = self.load_issue_by_display_id(*new_id) else {
+                continue;
             };
 
             let mut changed = false;

@@ -21,14 +21,14 @@ pub fn run(
     opts: &KickoffOpts,
 ) -> Result<String> {
     // 1. Pre-flight: validate all required external commands are present
-    let preflight = if !opts.dry_run {
+    let preflight = if opts.dry_run {
+        None
+    } else {
         Some(preflight_check(
             &opts.container,
             &opts.verify,
             crosslink_dir,
         )?)
-    } else {
-        None
     };
 
     let root = repo_root()?;
@@ -68,16 +68,15 @@ pub fn run(
                 "medium",
             )?
         };
-        let label_err = if let Some(w) = writer {
-            w.add_label(db, id, "feature").err()
-        } else {
-            db.add_label(id, "feature").err()
-        };
+        let label_err = writer.map_or_else(
+            || db.add_label(id, "feature").err(),
+            |w| w.add_label(db, id, "feature").err(),
+        );
         if let Some(e) = label_err {
             tracing::warn!("could not label issue #{id} with 'feature': {e}");
         }
         if !opts.quiet {
-            println!("Created issue #{}", id);
+            println!("Created issue #{id}");
         }
         id
     };
@@ -87,10 +86,10 @@ pub fn run(
         // Use existing branch — check if worktree exists
         let wt_slug = br.strip_prefix("feature/").unwrap_or(br);
         let worktree_dir = root.join(".worktrees").join(wt_slug);
-        if !worktree_dir.exists() {
-            create_worktree(&root, wt_slug, None)?
-        } else {
+        if worktree_dir.exists() {
             (worktree_dir, br.to_string())
+        } else {
+            create_worktree(&root, wt_slug, None)?
         }
     } else {
         create_worktree(&root, &compact_name, None)?
@@ -139,11 +138,11 @@ pub fn run(
 
     // Dry run: print prompt and exit (skip agent init — no launch needed)
     if opts.dry_run {
-        println!("{}", prompt);
+        println!("{prompt}");
         println!("---");
         println!("Worktree: {}", worktree_dir.display());
-        println!("Branch:   {}", branch_name);
-        println!("Agent:    {}", compact_name);
+        println!("Branch:   {branch_name}");
+        println!("Agent:    {compact_name}");
         return Ok(compact_name);
     }
 
@@ -182,24 +181,24 @@ pub fn run(
             let _ = std::fs::write(worktree_dir.join(".kickoff-session"), &session_name);
 
             // 10. Report
-            if !opts.quiet {
+            if opts.quiet {
+                println!("{session_name}");
+            } else {
                 println!("Feature agent launched.");
                 println!();
                 println!("  Worktree: {}", worktree_dir.display());
-                println!("  Branch:   {}", branch_name);
-                println!("  Issue:    #{}", issue_id);
-                println!("  Agent:    {}", agent_id);
-                println!("  Session:  {}", session_name);
+                println!("  Branch:   {branch_name}");
+                println!("  Issue:    #{issue_id}");
+                println!("  Agent:    {agent_id}");
+                println!("  Session:  {session_name}");
                 println!("  Verify:   {:?}", opts.verify);
                 println!();
-                println!("  Approve trust:  tmux attach -t {}", session_name);
-                println!("  Check status:   crosslink kickoff status {}", agent_id);
+                println!("  Approve trust:  tmux attach -t {session_name}");
+                println!("  Check status:   crosslink kickoff status {agent_id}");
                 if opts.verify == VerifyLevel::Ci || opts.verify == VerifyLevel::Thorough {
                     println!();
                     println!("  CI verification is enabled. The agent will push and open a draft PR after local tests pass.");
                 }
-            } else {
-                println!("{}", session_name);
             }
         }
         mode @ (ContainerMode::Docker | ContainerMode::Podman) => {
@@ -213,7 +212,9 @@ pub fn run(
                 opts.timeout,
             )?;
 
-            if !opts.quiet {
+            if opts.quiet {
+                println!("{container_id}");
+            } else {
                 let runtime = if *mode == ContainerMode::Docker {
                     "docker"
                 } else {
@@ -222,9 +223,9 @@ pub fn run(
                 println!("Feature agent launched in container.");
                 println!();
                 println!("  Worktree:    {}", worktree_dir.display());
-                println!("  Branch:      {}", branch_name);
-                println!("  Issue:       #{}", issue_id);
-                println!("  Agent:       {}", agent_id);
+                println!("  Branch:      {branch_name}");
+                println!("  Issue:       #{issue_id}");
+                println!("  Agent:       {agent_id}");
                 println!(
                     "  Container:   {}",
                     &container_id[..12.min(container_id.len())]
@@ -236,9 +237,7 @@ pub fn run(
                     runtime,
                     &container_id[..12.min(container_id.len())]
                 );
-                println!("  Check status: crosslink kickoff status {}", agent_id);
-            } else {
-                println!("{}", container_id);
+                println!("  Check status: crosslink kickoff status {agent_id}");
             }
         }
     }

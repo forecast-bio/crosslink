@@ -20,7 +20,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
-    /// When the pipeline was created (#490: DateTime instead of String).
+    /// When the pipeline was created (#490: `DateTime` instead of String).
     pub created_at: DateTime<Utc>,
     pub current_stage: PipelineStage,
     pub config: PipelineConfig,
@@ -57,7 +57,7 @@ pub enum PipelineStage {
 }
 
 impl std::fmt::Display for PipelineStage {
-    /// Display uses snake_case to match the serde serialization format (#489).
+    /// Display uses `snake_case` to match the serde serialization format (#489).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Partition => write!(f, "partition"),
@@ -89,7 +89,7 @@ pub struct PipelineConfig {
 pub struct StageTransition {
     pub from: PipelineStage,
     pub to: PipelineStage,
-    /// When this transition occurred (#490: DateTime instead of String).
+    /// When this transition occurred (#490: `DateTime` instead of String).
     pub timestamp: DateTime<Utc>,
     pub notes: Option<String>,
 }
@@ -100,6 +100,7 @@ pub struct StageTransition {
 
 impl Pipeline {
     /// Create a new pipeline starting at the Partition stage.
+    #[must_use]
     pub fn new(config: PipelineConfig) -> Self {
         let now = Utc::now();
         let id = format!(
@@ -117,6 +118,7 @@ impl Pipeline {
     }
 
     /// Return valid next stages for a given stage.
+    #[must_use]
     pub fn valid_transitions(stage: PipelineStage) -> Vec<PipelineStage> {
         match stage {
             PipelineStage::Partition => vec![PipelineStage::Review, PipelineStage::Failed],
@@ -135,8 +137,7 @@ impl Pipeline {
             PipelineStage::AwaitFix => vec![PipelineStage::Merge, PipelineStage::Failed],
             PipelineStage::Merge => vec![PipelineStage::PullRequest, PipelineStage::Failed],
             PipelineStage::PullRequest => vec![PipelineStage::Done, PipelineStage::Failed],
-            PipelineStage::Done => vec![],
-            PipelineStage::Failed => vec![],
+            PipelineStage::Done | PipelineStage::Failed => vec![],
         }
     }
 
@@ -145,6 +146,10 @@ impl Pipeline {
     /// Returns the new stage on success, or an error if the transition is
     /// invalid (e.g. pipeline is already Done/Failed, or at a checkpoint
     /// that requires explicit confirmation).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pipeline is at a human checkpoint or a terminal stage.
     pub fn advance(&mut self) -> Result<PipelineStage> {
         if self.current_stage == PipelineStage::HumanCheckpoint {
             bail!(
@@ -166,11 +171,16 @@ impl Pipeline {
     }
 
     /// Returns true if the given stage is a human checkpoint.
+    #[must_use]
     pub fn is_checkpoint(stage: PipelineStage) -> bool {
         stage == PipelineStage::HumanCheckpoint
     }
 
     /// Advance past a human checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pipeline is not currently at a human checkpoint.
     pub fn confirm_checkpoint(&mut self) -> Result<()> {
         if self.current_stage != PipelineStage::HumanCheckpoint {
             bail!(
@@ -191,6 +201,7 @@ impl Pipeline {
     }
 
     /// Human-readable pipeline status summary.
+    #[must_use]
     pub fn summary(&self) -> String {
         let mut lines = Vec::new();
         lines.push(format!("Pipeline: {}", self.id));
@@ -212,7 +223,7 @@ impl Pipeline {
                 let notes = t
                     .notes
                     .as_deref()
-                    .map(|n| format!(" ({})", n))
+                    .map(|n| format!(" ({n})"))
                     .unwrap_or_default();
                 lines.push(format!(
                     "  {} -> {} at {}{}",
@@ -237,7 +248,7 @@ impl Pipeline {
             from,
             to,
             timestamp: Utc::now(),
-            notes: notes.map(|s| s.to_string()),
+            notes: notes.map(std::string::ToString::to_string),
         });
         self.current_stage = to;
     }
@@ -250,6 +261,10 @@ impl Pipeline {
 const PIPELINE_FILE: &str = "pipeline.json";
 
 /// Persist pipeline state to `.crosslink/pipeline.json`.
+///
+/// # Errors
+///
+/// Returns an error if serialization or file I/O fails.
 pub fn save_pipeline(crosslink_dir: &Path, pipeline: &Pipeline) -> Result<()> {
     let path = crosslink_dir.join(PIPELINE_FILE);
     let json =
@@ -261,6 +276,10 @@ pub fn save_pipeline(crosslink_dir: &Path, pipeline: &Pipeline) -> Result<()> {
 /// Load pipeline state from `.crosslink/pipeline.json`.
 ///
 /// Returns `None` if the file does not exist.
+///
+/// # Errors
+///
+/// Returns an error if the file exists but cannot be read or parsed.
 pub fn load_pipeline(crosslink_dir: &Path) -> Result<Option<Pipeline>> {
     let path = crosslink_dir.join(PIPELINE_FILE);
     if !path.exists() {
@@ -281,31 +300,32 @@ pub fn load_pipeline(crosslink_dir: &Path) -> Result<Option<Pipeline>> {
 ///
 /// For now, each stage just prints what WOULD happen. Real implementations
 /// will be wired in from other modules in subsequent PRs.
+///
+/// # Errors
+///
+/// Returns an error if pipeline persistence or stage advancement fails.
 pub fn run_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<()> {
-    let mut pipeline = match load_pipeline(crosslink_dir)? {
-        Some(p) => {
-            // Warn if the caller-supplied config differs from the persisted one (#487).
-            if p.config.agent_count != config.agent_count
-                || p.config.mandate != config.mandate
-                || p.config.auto_fix != config.auto_fix
-                || p.config.auto_file_issues != config.auto_file_issues
-                || p.config.target_branch != config.target_branch
-            {
-                tracing::warn!(
-                    "Resuming existing pipeline — config parameter ignored. \
-                     Using persisted config (agents={}, mandate='{}').",
-                    p.config.agent_count,
-                    p.config.mandate,
-                );
-            }
-            println!("Resuming pipeline {} at stage: {}", p.id, p.current_stage);
-            p
+    let mut pipeline = if let Some(p) = load_pipeline(crosslink_dir)? {
+        // Warn if the caller-supplied config differs from the persisted one (#487).
+        if p.config.agent_count != config.agent_count
+            || p.config.mandate != config.mandate
+            || p.config.auto_fix != config.auto_fix
+            || p.config.auto_file_issues != config.auto_file_issues
+            || p.config.target_branch != config.target_branch
+        {
+            tracing::warn!(
+                "Resuming existing pipeline — config parameter ignored. \
+                 Using persisted config (agents={}, mandate='{}').",
+                p.config.agent_count,
+                p.config.mandate,
+            );
         }
-        None => {
-            let p = Pipeline::new(config);
-            println!("Created pipeline: {}", p.id);
-            p
-        }
+        println!("Resuming pipeline {} at stage: {}", p.id, p.current_stage);
+        p
+    } else {
+        let p = Pipeline::new(config);
+        println!("Created pipeline: {}", p.id);
+        p
     };
 
     loop {

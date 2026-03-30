@@ -34,7 +34,7 @@ pub struct KnowledgeTab {
     selected: usize,
     /// All unique tags gathered from pages, sorted. First entry is "all".
     available_tags: Vec<String>,
-    /// Current tag filter index into available_tags. 0 = "all".
+    /// Current tag filter index into `available_tags`. 0 = "all".
     tag_filter_idx: usize,
     /// Search query string (filters in list view).
     search_query: String,
@@ -54,7 +54,7 @@ pub struct KnowledgeTab {
     status_msg: String,
     /// Error message if data load failed.
     error_msg: Option<String>,
-    /// TableState for list view scroll-to-follow.
+    /// `TableState` for list view scroll-to-follow.
     list_table_state: RefCell<TableState>,
     /// Receiver for background sync results.
     sync_rx: Option<mpsc::Receiver<Option<String>>>,
@@ -180,12 +180,11 @@ impl KnowledgeTab {
             Some(self.search_query.to_lowercase())
         };
 
-        // Build index list of matching pages to avoid cloning all pages
-        let indices: Vec<usize> = self
+        // Build filtered pages list
+        self.filtered_pages = self
             .all_pages
             .iter()
-            .enumerate()
-            .filter(|(_, p)| {
+            .filter(|p| {
                 // Tag filter
                 if let Some(tag) = &active_tag {
                     if !p.frontmatter.tags.contains(tag) {
@@ -207,12 +206,7 @@ impl KnowledgeTab {
                 }
                 true
             })
-            .map(|(i, _)| i)
-            .collect();
-
-        self.filtered_pages = indices
-            .into_iter()
-            .map(|i| self.all_pages[i].clone())
+            .cloned()
             .collect();
 
         // Clamp selection
@@ -224,9 +218,8 @@ impl KnowledgeTab {
     }
 
     fn load_page(&mut self, slug: &str) {
-        let km = match KnowledgeManager::new(&self.crosslink_dir) {
-            Ok(km) => km,
-            Err(_) => return,
+        let Ok(km) = KnowledgeManager::new(&self.crosslink_dir) else {
+            return;
         };
 
         match km.read_page(slug) {
@@ -312,7 +305,6 @@ impl KnowledgeTab {
                 self.searching = true;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -386,8 +378,7 @@ impl KnowledgeTab {
         let tag_label = self
             .available_tags
             .get(self.tag_filter_idx)
-            .map(|s| s.as_str())
-            .unwrap_or("all");
+            .map_or("all", String::as_str);
 
         let search_display = if self.searching {
             format!("  Search: {}_", self.search_query)
@@ -502,9 +493,8 @@ impl KnowledgeTab {
     }
 
     fn render_reader(&self, frame: &mut Frame, area: Rect) {
-        let content = match &self.reader_content {
-            Some(c) => c,
-            None => return,
+        let Some(content) = &self.reader_content else {
+            return;
         };
 
         let slug = self.reader_slug.as_deref().unwrap_or("unknown");
@@ -514,8 +504,7 @@ impl KnowledgeTab {
         let title = self
             .reader_frontmatter
             .as_ref()
-            .map(|fm| fm.title.as_str())
-            .unwrap_or(slug);
+            .map_or(slug, |fm| fm.title.as_str());
 
         lines.push(Line::from(Span::styled(
             format!(" {slug} \u{2014} {title}"),
@@ -664,7 +653,7 @@ impl KnowledgeTab {
 }
 
 impl Tab for KnowledgeTab {
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Knowledge"
     }
 
@@ -721,12 +710,10 @@ fn strip_frontmatter(content: &str) -> &str {
     }
     let after_first = &trimmed[3..];
     let after_first = after_first.trim_start_matches(['\r', '\n']);
-    if let Some(end_idx) = after_first.find("\n---") {
+    after_first.find("\n---").map_or(content, |end_idx| {
         let remainder = &after_first[end_idx + 4..];
         remainder.trim_start_matches(['\r', '\n'])
-    } else {
-        content
-    }
+    })
 }
 
 /// Render markdown body text into styled Lines for the TUI.
@@ -1007,18 +994,17 @@ fn is_numbered_list(s: &str) -> bool {
 
 /// Split a numbered list line into the number part and content.
 fn split_numbered_list(s: &str) -> (&str, &str) {
-    if let Some(dot_pos) = s.find(". ") {
+    s.find(". ").map_or(("", s), |dot_pos| {
         (&s[..=dot_pos], s[dot_pos + 2..].trim_start())
-    } else {
-        ("", s)
-    }
+    })
 }
 
 /// Format a date string (YYYY-MM-DD) as a relative time (e.g. "3d ago").
 fn format_relative_date(date_str: &str) -> String {
     let today = chrono::Utc::now().date_naive();
-    match chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-        Ok(date) => {
+    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_or_else(
+        |_| date_str.to_string(),
+        |date| {
             let days = (today - date).num_days();
             if days < 0 {
                 date_str.to_string()
@@ -1033,9 +1019,8 @@ fn format_relative_date(date_str: &str) -> String {
             } else {
                 date_str.to_string()
             }
-        }
-        Err(_) => date_str.to_string(),
-    }
+        },
+    )
 }
 
 #[cfg(test)]

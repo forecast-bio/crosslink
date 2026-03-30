@@ -1,8 +1,8 @@
-//! Hydrate local SQLite from JSON issue files on the coordination branch.
+//! Hydrate local `SQLite` from JSON issue files on the coordination branch.
 //!
 //! On every `crosslink sync`, this module reads all `issues/*.json` files from
-//! the coordination branch worktree cache and writes them into the local SQLite
-//! database in a single transaction. This keeps SQLite as the universal read
+//! the coordination branch worktree cache and writes them into the local `SQLite`
+//! database in a single transaction. This keeps `SQLite` as the universal read
 //! path while JSON on the git branch remains the source of truth.
 
 use std::collections::HashMap;
@@ -16,9 +16,9 @@ use crate::issue_file::{
     read_milestones_file, write_comment_file, CommentFile, IssueFile,
 };
 
-/// Deduplicate issue files that share the same display_id.
+/// Deduplicate issue files that share the same `display_id`.
 ///
-/// When multiple JSON files claim the same display_id (e.g. from a sync loop
+/// When multiple JSON files claim the same `display_id` (e.g. from a sync loop
 /// that created duplicates), keep the one with the most recent `updated_at`
 /// timestamp and return the rest for cleanup.
 fn dedup_issue_files(issues: &[IssueFile]) -> (Vec<&IssueFile>, Vec<&IssueFile>) {
@@ -56,12 +56,54 @@ pub struct HydrationStats {
     pub milestones: usize,
 }
 
-/// Hydrate the local SQLite database from JSON files in the coordination branch cache.
+/// Snapshot of an issue row from `SQLite` for preservation during hydration.
+struct SavedIssue {
+    id: i64,
+    uuid: String,
+    title: String,
+    description: Option<String>,
+    status: String,
+    priority: String,
+    parent_id: Option<i64>,
+    created_by: Option<String>,
+    created_at: String,
+    updated_at: String,
+    closed_at: Option<String>,
+}
+
+/// Tuple of comment fields saved from `SQLite` before hydration clears them.
+type SavedComment = (
+    i64,
+    i64,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Tuple of time-entry fields saved from `SQLite` before hydration clears them.
+type SavedTimeEntry = (i64, i64, String, Option<String>, Option<i64>);
+
+/// Child-table data preserved for `SQLite`-only issues across hydration.
+struct SavedChildren {
+    labels: Vec<(i64, String)>,
+    comments: Vec<SavedComment>,
+    deps: Vec<(i64, i64)>,
+    relations: Vec<(i64, i64)>,
+    time_entries: Vec<SavedTimeEntry>,
+    milestone_issues: Vec<(i64, i64)>,
+}
+
+/// Hydrate the local `SQLite` database from JSON files in the coordination branch cache.
 ///
 /// This function:
 /// 1. Reads all `issues/*.json` files from `cache_dir/issues/`
 /// 2. Reads `meta/counters.json` and `meta/milestones.json`
-/// 3. Clears all shared data from SQLite (issues, comments, labels, deps, etc.)
+/// 3. Clears all shared data from `SQLite` (issues, comments, labels, deps, etc.)
 /// 4. Re-inserts everything from the JSON files in a single transaction
 ///
 /// Sessions are machine-local state and are preserved across hydration.
@@ -69,8 +111,12 @@ pub struct HydrationStats {
 /// by saving and restoring work items around the clear/reinsert cycle.
 ///
 /// **Data-loss guard (#427):** If JSON has significantly fewer issues than
-/// SQLite, hydration is skipped to avoid wiping SQLite-only issues that
+/// `SQLite`, hydration is skipped to avoid wiping SQLite-only issues that
 /// haven't been synced to JSON yet (e.g. after `init --force`).
+///
+/// # Errors
+///
+/// Returns an error if reading issue files or database operations fail.
 pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationStats> {
     let issues_dir = cache_dir.join("issues");
     let issue_files = read_all_issue_files(&issues_dir)?;
@@ -90,19 +136,6 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     // in the issues cache — if a UUID exists on disk (even as an empty dir),
     // the issue was tracked by the hub and its absence from issue_files means
     // it was intentionally deleted, not lost (#427).
-    struct SavedIssue {
-        id: i64,
-        uuid: String,
-        title: String,
-        description: Option<String>,
-        status: String,
-        priority: String,
-        parent_id: Option<i64>,
-        created_by: Option<String>,
-        created_at: String,
-        updated_at: String,
-        closed_at: Option<String>,
-    }
     let all_rows: Vec<SavedIssue> = db
         .conn
         .prepare(
@@ -149,133 +182,9 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     // destroys it. Without this, labels/comments/deps/relations/time entries
     // are permanently lost during re-hydration (#310).
     let preserved_ids: Vec<i64> = sqlite_only_rows.iter().map(|r| r.id).collect();
-    type SavedComment = (
-        i64,
-        i64,
-        Option<String>,
-        Option<String>,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    );
-    type SavedTimeEntry = (i64, i64, String, Option<String>, Option<i64>);
-    struct SavedChildren {
-        labels: Vec<(i64, String)>,
-        comments: Vec<SavedComment>,
-        deps: Vec<(i64, i64)>,
-        relations: Vec<(i64, i64)>,
-        time_entries: Vec<SavedTimeEntry>,
-        milestone_issues: Vec<(i64, i64)>,
-    }
-    let saved_children = if preserved_ids.is_empty() {
-        SavedChildren {
-            labels: vec![],
-            comments: vec![],
-            deps: vec![],
-            relations: vec![],
-            time_entries: vec![],
-            milestone_issues: vec![],
-        }
-    } else {
-        let id_placeholders: String = preserved_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+    let saved_children = snapshot_children(db, &preserved_ids)?;
 
-        let labels = db
-            .conn
-            .prepare(&format!(
-                "SELECT issue_id, label FROM labels WHERE issue_id IN ({})",
-                id_placeholders
-            ))?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        let comments = db.conn
-            .prepare(&format!(
-                "SELECT id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint \
-                 FROM comments WHERE issue_id IN ({})", id_placeholders
-            ))?
-            .query_map([], |row| Ok((
-                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
-                row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?,
-            )))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        let deps = db.conn
-            .prepare(&format!(
-                "SELECT blocker_id, blocked_id FROM dependencies WHERE blocker_id IN ({0}) OR blocked_id IN ({0})",
-                id_placeholders
-            ))?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        let relations = db.conn
-            .prepare(&format!(
-                "SELECT issue_id_1, issue_id_2 FROM relations WHERE issue_id_1 IN ({0}) OR issue_id_2 IN ({0})",
-                id_placeholders
-            ))?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        let time_entries = db.conn
-            .prepare(&format!(
-                "SELECT id, issue_id, started_at, ended_at, duration_seconds FROM time_entries WHERE issue_id IN ({})",
-                id_placeholders
-            ))?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        let milestone_issues = db
-            .conn
-            .prepare(&format!(
-                "SELECT milestone_id, issue_id FROM milestone_issues WHERE issue_id IN ({})",
-                id_placeholders
-            ))?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        SavedChildren {
-            labels,
-            comments,
-            deps,
-            relations,
-            time_entries,
-            milestone_issues,
-        }
-    };
-
-    // Deduplicate: multiple JSON files may claim the same display_id (e.g. from
-    // a sync loop that created duplicates). Keep the most recently updated file
-    // for each display_id and log warnings for the rest.
-    let (deduped, dupes) = dedup_issue_files(&issue_files);
-    if !dupes.is_empty() {
-        tracing::warn!(
-            "{} duplicate issue file(s) skipped during hydration (same display_id)",
-            dupes.len()
-        );
-        for d in &dupes {
-            tracing::warn!(
-                "  skipped: {} (display_id {:?}, uuid {})",
-                d.title,
-                d.display_id,
-                d.uuid
-            );
-        }
-    }
-
-    // Try per-file milestones first (new format), fall back to legacy single-file
-    let milestones_dir = cache_dir.join("meta").join("milestones");
-    let mut milestone_entries = read_all_milestone_files(&milestones_dir)?;
-    if milestone_entries.is_empty() {
-        let legacy_path = cache_dir.join("meta").join("milestones.json");
-        let legacy = read_milestones_file(&legacy_path)?;
-        milestone_entries = legacy.milestones.into_values().collect();
-    }
+    let (deduped, milestone_entries) = dedup_and_load_milestones(&issue_files, cache_dir)?;
 
     // Build uuid -> display_id lookup for resolving cross-references
     let mut uuid_to_id: HashMap<String, i64> = deduped
@@ -319,115 +228,16 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         // Sort issues so parents come before children (foreign key constraint)
         let sorted_issues = topo_sort_issues(&deduped);
 
-        // Insert issues (offline issues get sequential negative IDs)
-        let mut next_local_id: i64 = -1;
-        // V2 standalone comments use UUIDs, not sequential integer IDs.
-        // Assign unique negative IDs during hydration so each row satisfies
-        // the PRIMARY KEY UNIQUE constraint on the comments table.
-        let mut next_v2_comment_id: i64 = -1;
-        for issue in &sorted_issues {
-            let display_id = match issue.display_id {
-                Some(id) => id,
-                None => {
-                    let local_id = next_local_id;
-                    next_local_id -= 1;
-                    // Track in uuid_to_id so cross-references resolve
-                    uuid_to_id.insert(issue.uuid.to_string(), local_id);
-                    local_id
-                }
-            };
-
-            let parent_id = issue
-                .parent_uuid
-                .and_then(|u| uuid_to_id.get(&u.to_string()).copied());
-
-            let created_at = issue.created_at.to_rfc3339();
-            let updated_at = issue.updated_at.to_rfc3339();
-            let closed_at = issue.closed_at.map(|dt| dt.to_rfc3339());
-
-            db.insert_hydrated_issue(&HydratedIssue {
-                id: display_id,
-                uuid: &issue.uuid.to_string(),
-                title: &issue.title,
-                description: issue.description.as_deref(),
-                status: issue.status.as_str(),
-                priority: issue.priority.as_str(),
-                parent_id,
-                created_by: Some(&issue.created_by),
-                created_at: &created_at,
-                updated_at: &updated_at,
-                closed_at: closed_at.as_deref(),
-            })?;
-            stats.issues += 1;
-
-            // Labels
-            for label in &issue.labels {
-                db.insert_hydrated_label(display_id, label)?;
-            }
-
-            // Comments — inline (v1) entries on the issue file
-            for comment in &issue.comments {
-                let comment_created = comment.created_at.to_rfc3339();
-                db.insert_hydrated_comment(
-                    comment.id,
-                    display_id,
-                    None, // comment uuid not tracked yet
-                    Some(&comment.author),
-                    &comment.content,
-                    &comment_created,
-                    &comment.kind,
-                    comment.trigger_type.as_deref(),
-                    comment.intervention_context.as_deref(),
-                    comment.driver_key_fingerprint.as_deref(),
-                )?;
-                stats.comments += 1;
-            }
-
-            // Comments — standalone v2 comment files in issues/{uuid}/comments/
-            if layout_version >= 2 {
-                let comments_dir = issues_dir.join(issue.uuid.to_string()).join("comments");
-                if let Ok(v2_comments) = read_comment_files(&comments_dir) {
-                    for cf in &v2_comments {
-                        let comment_created = cf.created_at.to_rfc3339();
-                        let v2_id = next_v2_comment_id;
-                        next_v2_comment_id -= 1;
-                        db.insert_hydrated_comment(
-                            v2_id,
-                            display_id,
-                            Some(&cf.uuid.to_string()),
-                            Some(&cf.author),
-                            &cf.content,
-                            &comment_created,
-                            &cf.kind,
-                            cf.trigger_type.as_deref(),
-                            cf.intervention_context.as_deref(),
-                            cf.driver_key_fingerprint.as_deref(),
-                        )?;
-                        stats.comments += 1;
-                    }
-                }
-            }
-
-            // Time entries
-            for te in &issue.time_entries {
-                let started = te.started_at.to_rfc3339();
-                let ended = te.ended_at.map(|dt| dt.to_rfc3339());
-                db.insert_hydrated_time_entry(
-                    te.id,
-                    display_id,
-                    &started,
-                    ended.as_deref(),
-                    te.duration_seconds,
-                )?;
-            }
-
-            // Milestone association
-            if let Some(ms_uuid) = &issue.milestone_uuid {
-                if let Some(&ms_id) = milestone_uuid_to_id.get(&ms_uuid.to_string()) {
-                    db.insert_hydrated_milestone_issue(ms_id, display_id)?;
-                }
-            }
-        }
+        // Insert issues and their child data (labels, comments, time entries, milestones)
+        hydrate_issues(
+            db,
+            &sorted_issues,
+            &mut uuid_to_id,
+            &milestone_uuid_to_id,
+            &issues_dir,
+            layout_version,
+            &mut stats,
+        )?;
 
         // Hydrate dependencies (single-direction: blockers array on blocked issue)
         hydrate_dependencies(db, &deduped, &uuid_to_id, &mut stats)?;
@@ -435,76 +245,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         // Hydrate relations (single-direction: related array, insert both directions)
         hydrate_relations(db, &deduped, &uuid_to_id, &mut stats)?;
 
-        // Re-insert SQLite-only issues that had no JSON counterpart (#427).
-        // These survive the clear/reinsert cycle so no data is silently lost.
-        for row in &sqlite_only_rows {
-            db.insert_hydrated_issue(&HydratedIssue {
-                id: row.id,
-                uuid: &row.uuid,
-                title: &row.title,
-                description: row.description.as_deref(),
-                status: &row.status,
-                priority: &row.priority,
-                parent_id: row.parent_id,
-                created_by: row.created_by.as_deref(),
-                created_at: &row.created_at,
-                updated_at: &row.updated_at,
-                closed_at: row.closed_at.as_deref(),
-            })?;
-            stats.issues += 1;
-        }
-
-        // Re-insert child data for SQLite-only issues (#310).
-        for (issue_id, label) in &saved_children.labels {
-            db.insert_hydrated_label(*issue_id, label)?;
-        }
-        for (
-            id,
-            issue_id,
-            uuid,
-            author,
-            content,
-            created_at,
-            kind,
-            trigger_type,
-            intervention_context,
-            driver_key_fingerprint,
-        ) in &saved_children.comments
-        {
-            db.insert_hydrated_comment(
-                *id,
-                *issue_id,
-                uuid.as_deref(),
-                author.as_deref(),
-                content,
-                created_at,
-                kind,
-                trigger_type.as_deref(),
-                intervention_context.as_deref(),
-                driver_key_fingerprint.as_deref(),
-            )?;
-            stats.comments += 1;
-        }
-        for (blocker_id, blocked_id) in &saved_children.deps {
-            db.insert_dependency_raw(*blocker_id, *blocked_id)?;
-            stats.dependencies += 1;
-        }
-        for (id1, id2) in &saved_children.relations {
-            db.insert_relation_raw(*id1, *id2)?;
-            stats.relations += 1;
-        }
-        for (id, issue_id, started_at, ended_at, duration_seconds) in &saved_children.time_entries {
-            db.insert_hydrated_time_entry(
-                *id,
-                *issue_id,
-                started_at,
-                ended_at.as_deref(),
-                *duration_seconds,
-            )?;
-        }
-        for (milestone_id, issue_id) in &saved_children.milestone_issues {
-            db.insert_hydrated_milestone_issue(*milestone_id, *issue_id)?;
-        }
+        // Re-insert SQLite-only issues and their children (#427, #310).
+        restore_sqlite_only_issues(db, &sqlite_only_rows, &saved_children, &mut stats)?;
 
         Ok(stats)
     });
@@ -516,6 +258,38 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     }
 
     result
+}
+
+/// Deduplicate issue files and load milestone entries from cache.
+fn dedup_and_load_milestones<'a>(
+    issue_files: &'a [IssueFile],
+    cache_dir: &Path,
+) -> Result<(Vec<&'a IssueFile>, Vec<crate::issue_file::MilestoneEntry>)> {
+    let (deduped, dupes) = dedup_issue_files(issue_files);
+    if !dupes.is_empty() {
+        tracing::warn!(
+            "{} duplicate issue file(s) skipped during hydration (same display_id)",
+            dupes.len()
+        );
+        for d in &dupes {
+            tracing::warn!(
+                "  skipped: {} (display_id {:?}, uuid {})",
+                d.title,
+                d.display_id,
+                d.uuid
+            );
+        }
+    }
+
+    let milestones_dir = cache_dir.join("meta").join("milestones");
+    let mut milestone_entries = read_all_milestone_files(&milestones_dir)?;
+    if milestone_entries.is_empty() {
+        let legacy_path = cache_dir.join("meta").join("milestones.json");
+        let legacy = read_milestones_file(&legacy_path)?;
+        milestone_entries = legacy.milestones.into_values().collect();
+    }
+
+    Ok((deduped, milestone_entries))
 }
 
 /// Sort issues so parents appear before children (for foreign key constraints).
@@ -560,6 +334,282 @@ fn topo_sort_issues<'a>(issues: &[&'a IssueFile]) -> Vec<&'a IssueFile> {
     sorted
 }
 
+/// Insert issues and their child data (labels, comments, time entries, milestones).
+#[allow(clippy::too_many_arguments)]
+fn hydrate_issues(
+    db: &Database,
+    sorted_issues: &[&IssueFile],
+    uuid_to_id: &mut HashMap<String, i64>,
+    milestone_uuid_to_id: &HashMap<String, i64>,
+    issues_dir: &Path,
+    layout_version: u32,
+    stats: &mut HydrationStats,
+) -> Result<()> {
+    let mut next_local_id: i64 = -1;
+    // V2 standalone comments use UUIDs, not sequential integer IDs.
+    // Assign unique negative IDs during hydration so each row satisfies
+    // the PRIMARY KEY UNIQUE constraint on the comments table.
+    let mut next_v2_comment_id: i64 = -1;
+
+    for issue in sorted_issues {
+        let display_id = issue.display_id.unwrap_or_else(|| {
+            let local_id = next_local_id;
+            next_local_id -= 1;
+            // Track in uuid_to_id so cross-references resolve
+            uuid_to_id.insert(issue.uuid.to_string(), local_id);
+            local_id
+        });
+
+        let parent_id = issue
+            .parent_uuid
+            .and_then(|u| uuid_to_id.get(&u.to_string()).copied());
+
+        let created_at = issue.created_at.to_rfc3339();
+        let updated_at = issue.updated_at.to_rfc3339();
+        let closed_at = issue.closed_at.map(|dt| dt.to_rfc3339());
+
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: display_id,
+            uuid: &issue.uuid.to_string(),
+            title: &issue.title,
+            description: issue.description.as_deref(),
+            status: issue.status.as_str(),
+            priority: issue.priority.as_str(),
+            parent_id,
+            created_by: Some(&issue.created_by),
+            created_at: &created_at,
+            updated_at: &updated_at,
+            closed_at: closed_at.as_deref(),
+        })?;
+        stats.issues += 1;
+
+        // Labels
+        for label in &issue.labels {
+            db.insert_hydrated_label(display_id, label)?;
+        }
+
+        // Comments - inline (v1) entries on the issue file
+        for comment in &issue.comments {
+            let comment_created = comment.created_at.to_rfc3339();
+            db.insert_hydrated_comment(
+                comment.id,
+                display_id,
+                None, // comment uuid not tracked yet
+                Some(&comment.author),
+                &comment.content,
+                &comment_created,
+                &comment.kind,
+                comment.trigger_type.as_deref(),
+                comment.intervention_context.as_deref(),
+                comment.driver_key_fingerprint.as_deref(),
+            )?;
+            stats.comments += 1;
+        }
+
+        // Comments - standalone v2 comment files in issues/{uuid}/comments/
+        if layout_version >= 2 {
+            let comments_dir = issues_dir.join(issue.uuid.to_string()).join("comments");
+            if let Ok(v2_comments) = read_comment_files(&comments_dir) {
+                for cf in &v2_comments {
+                    let comment_created = cf.created_at.to_rfc3339();
+                    let v2_id = next_v2_comment_id;
+                    next_v2_comment_id -= 1;
+                    db.insert_hydrated_comment(
+                        v2_id,
+                        display_id,
+                        Some(&cf.uuid.to_string()),
+                        Some(&cf.author),
+                        &cf.content,
+                        &comment_created,
+                        &cf.kind,
+                        cf.trigger_type.as_deref(),
+                        cf.intervention_context.as_deref(),
+                        cf.driver_key_fingerprint.as_deref(),
+                    )?;
+                    stats.comments += 1;
+                }
+            }
+        }
+
+        // Time entries
+        for te in &issue.time_entries {
+            let started = te.started_at.to_rfc3339();
+            let ended = te.ended_at.map(|dt| dt.to_rfc3339());
+            db.insert_hydrated_time_entry(
+                te.id,
+                display_id,
+                &started,
+                ended.as_deref(),
+                te.duration_seconds,
+            )?;
+        }
+
+        // Milestone association
+        if let Some(ms_uuid) = &issue.milestone_uuid {
+            if let Some(&ms_id) = milestone_uuid_to_id.get(&ms_uuid.to_string()) {
+                db.insert_hydrated_milestone_issue(ms_id, display_id)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Snapshot child-table data for the given issue IDs before `clear_shared_data` removes them.
+fn snapshot_children(db: &Database, preserved_ids: &[i64]) -> Result<SavedChildren> {
+    if preserved_ids.is_empty() {
+        return Ok(SavedChildren {
+            labels: vec![],
+            comments: vec![],
+            deps: vec![],
+            relations: vec![],
+            time_entries: vec![],
+            milestone_issues: vec![],
+        });
+    }
+
+    let id_placeholders: String = preserved_ids
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let labels = db
+        .conn
+        .prepare(&format!(
+            "SELECT issue_id, label FROM labels WHERE issue_id IN ({id_placeholders})"
+        ))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let comments = db.conn
+        .prepare(&format!(
+            "SELECT id, issue_id, uuid, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint \
+             FROM comments WHERE issue_id IN ({id_placeholders})"
+        ))?
+        .query_map([], |row| Ok((
+            row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+            row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?,
+        )))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let deps = db.conn
+        .prepare(&format!(
+            "SELECT blocker_id, blocked_id FROM dependencies WHERE blocker_id IN ({id_placeholders}) OR blocked_id IN ({id_placeholders})"
+        ))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let relations = db.conn
+        .prepare(&format!(
+            "SELECT issue_id_1, issue_id_2 FROM relations WHERE issue_id_1 IN ({id_placeholders}) OR issue_id_2 IN ({id_placeholders})"
+        ))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let time_entries = db.conn
+        .prepare(&format!(
+            "SELECT id, issue_id, started_at, ended_at, duration_seconds FROM time_entries WHERE issue_id IN ({id_placeholders})"
+        ))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let milestone_issues = db
+        .conn
+        .prepare(&format!(
+            "SELECT milestone_id, issue_id FROM milestone_issues WHERE issue_id IN ({id_placeholders})"
+        ))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(SavedChildren {
+        labels,
+        comments,
+        deps,
+        relations,
+        time_entries,
+        milestone_issues,
+    })
+}
+
+/// Re-insert SQLite-only issues and their child data after hydration clears shared tables.
+fn restore_sqlite_only_issues(
+    db: &Database,
+    sqlite_only_rows: &[SavedIssue],
+    saved_children: &SavedChildren,
+    stats: &mut HydrationStats,
+) -> Result<()> {
+    for row in sqlite_only_rows {
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: row.id,
+            uuid: &row.uuid,
+            title: &row.title,
+            description: row.description.as_deref(),
+            status: &row.status,
+            priority: &row.priority,
+            parent_id: row.parent_id,
+            created_by: row.created_by.as_deref(),
+            created_at: &row.created_at,
+            updated_at: &row.updated_at,
+            closed_at: row.closed_at.as_deref(),
+        })?;
+        stats.issues += 1;
+    }
+
+    for (issue_id, label) in &saved_children.labels {
+        db.insert_hydrated_label(*issue_id, label)?;
+    }
+    for (
+        id,
+        issue_id,
+        uuid,
+        author,
+        content,
+        created_at,
+        kind,
+        trigger_type,
+        intervention_context,
+        driver_key_fingerprint,
+    ) in &saved_children.comments
+    {
+        db.insert_hydrated_comment(
+            *id,
+            *issue_id,
+            uuid.as_deref(),
+            author.as_deref(),
+            content,
+            created_at,
+            kind,
+            trigger_type.as_deref(),
+            intervention_context.as_deref(),
+            driver_key_fingerprint.as_deref(),
+        )?;
+        stats.comments += 1;
+    }
+    for (blocker_id, blocked_id) in &saved_children.deps {
+        db.insert_dependency_raw(*blocker_id, *blocked_id)?;
+        stats.dependencies += 1;
+    }
+    for (id1, id2) in &saved_children.relations {
+        db.insert_relation_raw(*id1, *id2)?;
+        stats.relations += 1;
+    }
+    for (id, issue_id, started_at, ended_at, duration_seconds) in &saved_children.time_entries {
+        db.insert_hydrated_time_entry(
+            *id,
+            *issue_id,
+            started_at,
+            ended_at.as_deref(),
+            *duration_seconds,
+        )?;
+    }
+    for (milestone_id, issue_id) in &saved_children.milestone_issues {
+        db.insert_hydrated_milestone_issue(*milestone_id, *issue_id)?;
+    }
+
+    Ok(())
+}
+
 /// Hydrate the dependencies table from `blockers` arrays in issue files.
 fn hydrate_dependencies(
     db: &Database,
@@ -568,9 +618,8 @@ fn hydrate_dependencies(
     stats: &mut HydrationStats,
 ) -> Result<()> {
     for issue in issue_files {
-        let blocked_id = match issue.display_id {
-            Some(id) => id,
-            None => continue,
+        let Some(blocked_id) = issue.display_id else {
+            continue;
         };
         for blocker_uuid in &issue.blockers {
             if let Some(&blocker_id) = uuid_to_id.get(&blocker_uuid.to_string()) {
@@ -591,9 +640,8 @@ fn hydrate_relations(
     stats: &mut HydrationStats,
 ) -> Result<()> {
     for issue in issue_files {
-        let issue_id = match issue.display_id {
-            Some(id) => id,
-            None => continue,
+        let Some(issue_id) = issue.display_id else {
+            continue;
         };
         for related_uuid in &issue.related {
             if let Some(&related_id) = uuid_to_id.get(&related_uuid.to_string()) {
@@ -609,10 +657,14 @@ fn hydrate_relations(
 ///
 /// For each issue that has inline `comments`, writes a standalone
 /// `issues/{uuid}/comments/{comment-uuid}.json` file using `write_comment_file`.
-/// This is called during a v1→v2 layout upgrade to split inline comments into
+/// This is called during a v1-to-v2 layout upgrade to split inline comments into
 /// their own files.
 ///
 /// Returns the number of comment files written.
+///
+/// # Errors
+///
+/// Returns an error if reading issue files or writing comment files fails.
 pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
     let issues_dir = cache_dir.join("issues");
     let issue_files = read_all_issue_files(&issues_dir)?;
@@ -640,7 +692,7 @@ pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
             let path = issues_dir
                 .join(issue.uuid.to_string())
                 .join("comments")
-                .join(format!("{}.json", comment_uuid));
+                .join(format!("{comment_uuid}.json"));
             write_comment_file(&path, &cf)?;
             count += 1;
         }
@@ -652,15 +704,19 @@ pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
 
 const LAST_HYDRATED_REF_FILE: &str = ".last-hydrated-ref";
 
-/// Check if the hub branch has moved since the last hydration and re-hydrate
-/// if so. This makes read operations automatically pick up changes from other
+/// Check if the hub branch has moved since the last hydration and re-hydrate if needed.
+///
+/// This makes read operations automatically pick up changes from other
 /// worktrees without requiring an explicit `crosslink sync` (#500).
 ///
 /// Returns `true` if re-hydration was performed.
+///
+/// # Errors
+///
+/// Returns an error if hydration fails.
 pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
-    let sync = match crate::sync::SyncManager::new(crosslink_dir) {
-        Ok(s) => s,
-        Err(_) => return Ok(false), // No sync manager — nothing to hydrate
+    let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) else {
+        return Ok(false); // No sync manager — nothing to hydrate
     };
 
     if !sync.is_initialized() {
@@ -669,9 +725,8 @@ pub fn maybe_auto_hydrate(crosslink_dir: &Path, db: &Database) -> Result<bool> {
 
     let cache_dir = sync.cache_path();
     let current_ref = hub_head_ref(crosslink_dir);
-    let current_ref = match current_ref {
-        Some(r) => r,
-        None => return Ok(false), // Can't determine hub ref — skip
+    let Some(current_ref) = current_ref else {
+        return Ok(false); // Can't determine hub ref — skip
     };
 
     let marker_path = crosslink_dir.join(LAST_HYDRATED_REF_FILE);

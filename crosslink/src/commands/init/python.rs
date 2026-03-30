@@ -69,7 +69,7 @@ const CPITD_REPO_URL: &str = "https://github.com/scythia-marrow/cpitd.git";
 /// Install cpitd using the detected Python toolchain.
 /// Returns Ok(true) if installed, Ok(false) if already present, Err on failure.
 ///
-/// Tries `pip install cpitd` first (PyPI). If that fails, falls back to
+/// Tries `pip install cpitd` first (`PyPI`). If that fails, falls back to
 /// cloning the git repo into a temp directory and installing from source.
 /// Result of cpitd installation attempt.
 pub(super) enum CpitdResult {
@@ -85,7 +85,7 @@ pub(super) fn install_cpitd(python_prefix: &str) -> Result<CpitdResult> {
 
     // First attempt: install from PyPI
     let pypi_result = install_cpitd_from_pypi(python_prefix);
-    if let Ok(true) = pypi_result {
+    if matches!(pypi_result, Ok(true)) {
         return Ok(CpitdResult::InstalledFromPypi);
     }
 
@@ -97,7 +97,7 @@ pub(super) fn install_cpitd(python_prefix: &str) -> Result<CpitdResult> {
     }
 }
 
-/// Try installing cpitd from PyPI via pip/uv/poetry.
+/// Try installing cpitd from `PyPI` via pip/uv/poetry.
 fn install_cpitd_from_pypi(python_prefix: &str) -> Result<bool> {
     if python_prefix.starts_with("uv ") {
         return run_install_command("uv", &["pip", "install", "cpitd"]);

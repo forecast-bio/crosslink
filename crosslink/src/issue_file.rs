@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A single issue as stored in `issues/{uuid}.json` on the coordination branch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IssueFile {
     pub uuid: Uuid,
     /// Stable display ID assigned from the shared counter on first push.
@@ -32,7 +32,7 @@ pub struct IssueFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<CommentEntry>,
     /// UUIDs of issues that block this one (single-direction storage).
-    /// The reverse direction ("blocking") is derived during SQLite hydration.
+    /// The reverse direction ("blocking") is derived during `SQLite` hydration.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blockers: Vec<Uuid>,
     /// UUIDs of related issues (single-direction; hydration inserts both directions).
@@ -45,7 +45,7 @@ pub struct IssueFile {
 }
 
 /// An inline comment within an issue file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommentEntry {
     pub id: i64,
     pub author: String,
@@ -85,6 +85,7 @@ const KNOWN_COMMENT_KINDS: &[&str] = &[
     "system",
 ];
 
+#[must_use]
 pub fn validate_comment_kind(kind: &str) -> bool {
     KNOWN_COMMENT_KINDS.contains(&kind)
 }
@@ -98,12 +99,13 @@ pub const KNOWN_TRIGGER_TYPES: &[&str] = &[
     "question_answered",
 ];
 
+#[must_use]
 pub fn validate_trigger_type(trigger: &str) -> bool {
     KNOWN_TRIGGER_TYPES.contains(&trigger)
 }
 
 /// An inline time-tracking entry within an issue file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TimeEntry {
     pub id: i64,
     pub started_at: DateTime<Utc>,
@@ -114,7 +116,7 @@ pub struct TimeEntry {
 }
 
 /// Shared counter file at `meta/counters.json`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Counters {
     pub next_display_id: i64,
     pub next_comment_id: i64,
@@ -122,13 +124,13 @@ pub struct Counters {
     pub next_milestone_id: i64,
 }
 
-fn default_one() -> i64 {
+const fn default_one() -> i64 {
     1
 }
 
 impl Default for Counters {
     fn default() -> Self {
-        Counters {
+        Self {
             next_display_id: 1,
             next_comment_id: 1,
             next_milestone_id: 1,
@@ -137,13 +139,13 @@ impl Default for Counters {
 }
 
 /// Milestone registry at `meta/milestones.json`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MilestonesFile {
     pub milestones: std::collections::HashMap<Uuid, MilestoneEntry>,
 }
 
 /// A single milestone entry in the milestones file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MilestoneEntry {
     pub uuid: Uuid,
     pub display_id: i64,
@@ -158,7 +160,7 @@ pub struct MilestoneEntry {
 
 impl From<&crate::checkpoint::CompactIssue> for IssueFile {
     fn from(compact: &crate::checkpoint::CompactIssue) -> Self {
-        IssueFile {
+        Self {
             uuid: compact.uuid,
             display_id: compact.display_id,
             title: compact.title.clone(),
@@ -172,8 +174,8 @@ impl From<&crate::checkpoint::CompactIssue> for IssueFile {
             closed_at: compact.closed_at,
             labels: compact.labels.iter().cloned().collect(),
             comments: vec![],
-            blockers: compact.blockers.iter().cloned().collect(),
-            related: compact.related.iter().cloned().collect(),
+            blockers: compact.blockers.iter().copied().collect(),
+            related: compact.related.iter().copied().collect(),
             milestone_uuid: compact.milestone_uuid,
             time_entries: vec![],
         }
@@ -181,6 +183,10 @@ impl From<&crate::checkpoint::CompactIssue> for IssueFile {
 }
 
 /// Read an issue file from disk.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or contains invalid JSON.
 pub fn read_issue_file(path: &std::path::Path) -> anyhow::Result<IssueFile> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read issue file: {}", path.display()))?;
@@ -190,6 +196,10 @@ pub fn read_issue_file(path: &std::path::Path) -> anyhow::Result<IssueFile> {
 
 /// Write an issue file to disk (pretty-printed JSON).
 /// Uses atomic write (temp file + rename) to prevent corruption from interrupted writes.
+///
+/// # Errors
+///
+/// Returns an error if serialization or the atomic write fails.
 pub fn write_issue_file(path: &std::path::Path, issue: &IssueFile) -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(issue)?;
     crate::utils::atomic_write(path, content.as_bytes())
@@ -200,6 +210,10 @@ pub fn write_issue_file(path: &std::path::Path, issue: &IssueFile) -> anyhow::Re
 /// Handles both v1 layout (`issues/{uuid}.json`) and v2 layout
 /// (`issues/{uuid}/issue.json`). When both exist for the same UUID,
 /// the V2 version takes precedence (#428).
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read.
 pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<IssueFile>> {
     use std::collections::HashMap;
 
@@ -209,8 +223,6 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
 
     // Two-pass collection: V1 first, then V2 overwrites any duplicates
     let mut by_uuid: HashMap<uuid::Uuid, IssueFile> = HashMap::new();
-    let mut v1_paths: HashMap<uuid::Uuid, std::path::PathBuf> = HashMap::new();
-
     for entry in std::fs::read_dir(issues_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -218,7 +230,6 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
             // V1 layout: issues/{uuid}.json
             match read_issue_file(&path) {
                 Ok(issue) => {
-                    v1_paths.insert(issue.uuid, path);
                     by_uuid.entry(issue.uuid).or_insert(issue);
                 }
                 Err(e) => {
@@ -249,6 +260,10 @@ pub fn read_all_issue_files(issues_dir: &std::path::Path) -> anyhow::Result<Vec<
 }
 
 /// Read counters from `meta/counters.json`, returning defaults if missing.
+///
+/// # Errors
+///
+/// Returns an error if the file exists but cannot be read or parsed.
 pub fn read_counters(path: &std::path::Path) -> anyhow::Result<Counters> {
     if !path.exists() {
         return Ok(Counters::default());
@@ -258,6 +273,10 @@ pub fn read_counters(path: &std::path::Path) -> anyhow::Result<Counters> {
 }
 
 /// Write counters to `meta/counters.json`.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created or the file cannot be written.
 pub fn write_counters(path: &std::path::Path, counters: &Counters) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -268,6 +287,10 @@ pub fn write_counters(path: &std::path::Path, counters: &Counters) -> anyhow::Re
 }
 
 /// Read milestones from `meta/milestones.json`, returning defaults if missing.
+///
+/// # Errors
+///
+/// Returns an error if the file exists but cannot be read or parsed.
 pub fn read_milestones_file(path: &std::path::Path) -> anyhow::Result<MilestonesFile> {
     if !path.exists() {
         return Ok(MilestonesFile::default());
@@ -277,6 +300,10 @@ pub fn read_milestones_file(path: &std::path::Path) -> anyhow::Result<Milestones
 }
 
 /// Read a single milestone file from disk.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or contains invalid JSON.
 pub fn read_milestone_file(path: &std::path::Path) -> anyhow::Result<MilestoneEntry> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read milestone file: {}", path.display()))?;
@@ -285,6 +312,10 @@ pub fn read_milestone_file(path: &std::path::Path) -> anyhow::Result<MilestoneEn
 }
 
 /// Write a single milestone file to disk (pretty-printed JSON).
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created or the file cannot be written.
 pub fn write_milestone_file(path: &std::path::Path, entry: &MilestoneEntry) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -295,6 +326,10 @@ pub fn write_milestone_file(path: &std::path::Path, entry: &MilestoneEntry) -> a
 }
 
 /// Read all milestone files from a directory.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read.
 pub fn read_all_milestone_files(
     milestones_dir: &std::path::Path,
 ) -> anyhow::Result<Vec<MilestoneEntry>> {
@@ -364,6 +399,10 @@ pub struct LayoutVersion {
 pub const CURRENT_LAYOUT_VERSION: u32 = 2;
 
 /// Read a single comment file from disk.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or contains invalid JSON.
 pub fn read_comment_file(path: &std::path::Path) -> anyhow::Result<CommentFile> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read comment file: {}", path.display()))?;
@@ -373,6 +412,10 @@ pub fn read_comment_file(path: &std::path::Path) -> anyhow::Result<CommentFile> 
 
 /// Write a comment file to disk (pretty-printed JSON).
 /// Uses atomic write (temp file + rename) to prevent corruption from interrupted writes.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created or the atomic write fails.
 pub fn write_comment_file(path: &std::path::Path, comment: &CommentFile) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -382,6 +425,10 @@ pub fn write_comment_file(path: &std::path::Path, comment: &CommentFile) -> anyh
 }
 
 /// Read all comment files from a directory, sorted by `(created_at, author, uuid)`.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read.
 pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<CommentFile>> {
     let mut comments = Vec::new();
     if !comments_dir.exists() {
@@ -414,6 +461,10 @@ pub fn read_comment_files(comments_dir: &std::path::Path) -> anyhow::Result<Vec<
 /// subdirectories (containing `issue.json`). If any exist, returns `2` to avoid
 /// silently reverting to V1 flat-file writes on a hub that lost its version marker
 /// during a rebase or merge conflict (#428).
+///
+/// # Errors
+///
+/// Returns an error if the version file exists but cannot be read or parsed.
 pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
     let path = meta_dir.join("version.json");
     if path.exists() {
@@ -449,6 +500,10 @@ pub fn read_layout_version(meta_dir: &std::path::Path) -> anyhow::Result<u32> {
 }
 
 /// Write the layout version to `meta/version.json`.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created or the file cannot be written.
 pub fn write_layout_version(meta_dir: &std::path::Path, version: u32) -> anyhow::Result<()> {
     std::fs::create_dir_all(meta_dir)?;
     let path = meta_dir.join("version.json");

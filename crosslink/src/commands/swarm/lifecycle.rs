@@ -36,13 +36,13 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
 
     // Create archive directory with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
-    let archive_prefix = format!("swarm/archive/{}", timestamp);
+    let archive_prefix = format!("swarm/archive/{timestamp}");
 
     // Copy plan.json to archive
     let plan_json = std::fs::read_to_string(&plan_path)?;
     let archive_plan = sync
         .cache_path()
-        .join(format!("{}/plan.json", archive_prefix));
+        .join(format!("{archive_prefix}/plan.json"));
     if let Some(parent) = archive_plan.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -51,7 +51,7 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
     // Copy phase files to archive
     let phases_dir = sync.cache_path().join(format!("{}/phases", ctx.base));
     if phases_dir.is_dir() {
-        let archive_phases = sync.cache_path().join(format!("{}/phases", archive_prefix));
+        let archive_phases = sync.cache_path().join(format!("{archive_prefix}/phases"));
         std::fs::create_dir_all(&archive_phases)?;
         if let Ok(entries) = std::fs::read_dir(&phases_dir) {
             for entry in entries.flatten() {
@@ -68,7 +68,7 @@ pub fn archive(crosslink_dir: &Path) -> Result<()> {
     if checkpoints_dir.is_dir() {
         let archive_cp = sync
             .cache_path()
-            .join(format!("{}/checkpoints", archive_prefix));
+            .join(format!("{archive_prefix}/checkpoints"));
         std::fs::create_dir_all(&archive_cp)?;
         if let Ok(entries) = std::fs::read_dir(&checkpoints_dir) {
             for entry in entries.flatten() {
@@ -246,9 +246,8 @@ pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
                     let title = std::fs::read_to_string(&plan_file)
                         .ok()
                         .and_then(|c| serde_json::from_str::<SwarmPlan>(&c).ok())
-                        .map(|p| p.title)
-                        .unwrap_or_else(|| "(unknown)".to_string());
-                    archives.push(format!("  {} — {}", name, title));
+                        .map_or_else(|| "(unknown)".to_string(), |p| p.title);
+                    archives.push(format!("  {name} — {title}"));
                 }
             }
         }
@@ -256,7 +255,7 @@ pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
         if !archives.is_empty() {
             println!("\nArchived swarms:");
             for a in &archives {
-                println!("{}", a);
+                println!("{a}");
             }
         }
     }
@@ -294,8 +293,7 @@ pub fn launch_retry_failed(
         let live = resolved
             .iter()
             .find(|r| r.slug == agent.slug)
-            .map(|r| r.live_status.as_str())
-            .unwrap_or("planned");
+            .map_or("planned", |r| r.live_status.as_str());
 
         if agent.status == AgentStatus::Failed || live == "FAILED" || live == "failed" {
             agent.status = AgentStatus::Planned;
@@ -314,13 +312,10 @@ pub fn launch_retry_failed(
     commit_hub_files(
         &sync,
         &[&phase_file],
-        &format!("swarm: reset {} failed agents for retry", retry_count),
+        &format!("swarm: reset {retry_count} failed agents for retry"),
     )?;
 
-    println!(
-        "Reset {} failed agent(s) to planned. Launching...",
-        retry_count
-    );
+    println!("Reset {retry_count} failed agent(s) to planned. Launching...");
 
     launch(crosslink_dir, db, writer, phase_slug, quiet)
 }
@@ -342,7 +337,7 @@ pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<
         for agent in &mut phase.agents {
             if agent.slug == slot_slug {
                 agent.status = AgentStatus::Running;
-                agent.branch = Some(format!("feature/{}", agent_slug));
+                agent.branch = Some(format!("feature/{agent_slug}"));
                 agent.started_at = Some(chrono::Utc::now().to_rfc3339());
                 found = true;
                 break;
@@ -369,15 +364,9 @@ pub fn adopt(crosslink_dir: &Path, agent_slug: &str, slot_slug: &str) -> Result<
         &sync,
         &plan,
         &phases,
-        &format!(
-            "swarm: adopt agent '{}' into slot '{}'",
-            agent_slug, slot_slug
-        ),
+        &format!("swarm: adopt agent '{agent_slug}' into slot '{slot_slug}'"),
     )?;
-    println!(
-        "Adopted '{}' into swarm slot '{}' (branch: feature/{})",
-        agent_slug, slot_slug, agent_slug
-    );
+    println!("Adopted '{agent_slug}' into swarm slot '{slot_slug}' (branch: feature/{agent_slug})");
     Ok(())
 }
 
@@ -472,16 +461,13 @@ pub fn sync_status(crosslink_dir: &Path) -> Result<()> {
     if paths_to_commit.is_empty() {
         println!("All phase statuses are up to date.");
     } else {
-        let refs: Vec<&str> = paths_to_commit.iter().map(|s| s.as_str()).collect();
+        let refs: Vec<&str> = paths_to_commit.iter().map(String::as_str).collect();
         commit_hub_files(
             &sync,
             &refs,
-            &format!(
-                "swarm: sync {} agent status(es) from live state",
-                updated_count
-            ),
+            &format!("swarm: sync {updated_count} agent status(es) from live state"),
         )?;
-        println!("Synced {} agent status update(s).", updated_count);
+        println!("Synced {updated_count} agent status update(s).");
     }
 
     Ok(())
@@ -513,7 +499,7 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
     if let Some(ref cp) = latest_checkpoint {
         println!("Latest checkpoint: {} ({})", cp.phase, cp.created_at);
         if let Some(ref notes) = cp.handoff_notes {
-            println!("  Notes: {}", notes);
+            println!("  Notes: {notes}");
         }
         println!();
     }
@@ -540,15 +526,12 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
         break;
     }
 
-    let (phase, phase_name) = match (active_phase, active_phase_name) {
-        (Some(p), Some(n)) => (p, n),
-        _ => {
-            println!(
-                "All {} phases completed. Swarm build is done.",
-                plan.phases.len()
-            );
-            return Ok(());
-        }
+    let (Some(phase), Some(phase_name)) = (active_phase, active_phase_name) else {
+        println!(
+            "All {} phases completed. Swarm build is done.",
+            plan.phases.len()
+        );
+        return Ok(());
     };
 
     println!(
@@ -655,37 +638,32 @@ pub fn resume(crosslink_dir: &Path) -> Result<()> {
     let phase_slug = slugify_phase(&phase_name);
     if all_agents_resolved {
         actions.push(format!(
-            "{}. All agents merged. Run gate: crosslink swarm gate {}",
-            action_num, phase_slug
+            "{action_num}. All agents merged. Run gate: crosslink swarm gate {phase_slug}"
         ));
         action_num += 1;
         actions.push(format!(
-            "{}. If gate passes: crosslink swarm checkpoint {}",
-            action_num, phase_slug
+            "{action_num}. If gate passes: crosslink swarm checkpoint {phase_slug}"
         ));
     } else if ready_to_merge.is_empty() && running.is_empty() && planned.is_empty() {
         // Only failed/unknown agents remain
         actions.push(format!(
-            "{}. After resolving failures: crosslink swarm gate {}",
-            action_num, phase_slug
+            "{action_num}. After resolving failures: crosslink swarm gate {phase_slug}"
         ));
     } else {
         actions.push(format!(
-            "{}. After merges complete: crosslink swarm gate {}",
-            action_num, phase_slug
+            "{action_num}. After merges complete: crosslink swarm gate {phase_slug}"
         ));
         action_num += 1;
         if completed_count + 1 < plan.phases.len() {
             actions.push(format!(
-                "{}. If gate passes: crosslink swarm checkpoint {}",
-                action_num, phase_slug
+                "{action_num}. If gate passes: crosslink swarm checkpoint {phase_slug}"
             ));
         }
     }
 
     println!("Next actions:");
     for action in &actions {
-        println!("  {}", action);
+        println!("  {action}");
     }
 
     Ok(())
@@ -769,7 +747,7 @@ pub fn launch(
                 phase.agents[*idx].status = AgentStatus::Running;
                 phase.agents[*idx].started_at = Some(now.clone());
                 phase.agents[*idx].agent_id = Some(compact_name.clone());
-                phase.agents[*idx].branch = Some(format!("feature/{}", compact_name));
+                phase.agents[*idx].branch = Some(format!("feature/{compact_name}"));
             }
             Err(e) => {
                 tracing::error!("Failed to launch {}: {}", slug, e);
@@ -864,7 +842,7 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     let conventions = kickoff::detect_conventions(root);
     let test_cmd = conventions.test_command.as_deref().unwrap_or("cargo test");
 
-    println!("Running gate: {}", test_cmd);
+    println!("Running gate: {test_cmd}");
     println!();
 
     let cmd_parts: Vec<&str> = test_cmd.split_whitespace().collect();
@@ -875,7 +853,7 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
         .args(args)
         .current_dir(root)
         .output()
-        .with_context(|| format!("Failed to run gate command: {}", test_cmd))?;
+        .with_context(|| format!("Failed to run gate command: {test_cmd}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -912,9 +890,9 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
 
     if gate_passed {
         let tests_info = tests_total
-            .map(|t| format!(" ({} tests)", t))
+            .map(|t| format!(" ({t} tests)"))
             .unwrap_or_default();
-        println!("Gate passed{}", tests_info);
+        println!("Gate passed{tests_info}");
         println!();
         println!(
             "Next: crosslink swarm checkpoint {}",
@@ -924,15 +902,12 @@ pub fn gate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
         println!("Gate FAILED.");
         if !stderr.is_empty() {
             let tail: Vec<&str> = stderr.lines().rev().take(20).collect();
-            for line in tail.into_iter().rev() {
-                println!("  {}", line);
+            for line in tail.iter().rev() {
+                println!("  {line}");
             }
         }
         println!();
-        println!(
-            "Fix failures and re-run: crosslink swarm gate {}",
-            phase_slug
-        );
+        println!("Fix failures and re-run: crosslink swarm gate {phase_slug}");
     }
 
     Ok(())
@@ -992,8 +967,7 @@ pub fn checkpoint(
                 g.status
             ),
             None => bail!(
-                "No gate result recorded. Run `crosslink swarm gate {}` first, or use --force.",
-                phase_slug
+                "No gate result recorded. Run `crosslink swarm gate {phase_slug}` first, or use --force."
             ),
         }
     }
@@ -1041,7 +1015,7 @@ pub fn checkpoint(
         agents_pending,
         dev_branch_sha: dev_sha,
         test_result,
-        handoff_notes: notes.map(|s| s.to_string()),
+        handoff_notes: notes.map(ToString::to_string),
     };
 
     let ctx = resolve_swarm(&sync)?;
@@ -1051,7 +1025,7 @@ pub fn checkpoint(
 
     // Mark phase completed
     phase.status = PhaseStatus::Completed;
-    phase.checkpoint = Some(cp_slug.clone());
+    phase.checkpoint = Some(cp_slug);
     for agent in &mut phase.agents {
         if agent.status == AgentStatus::Completed {
             agent.status = AgentStatus::Merged;
@@ -1068,7 +1042,7 @@ pub fn checkpoint(
 
     println!("Checkpoint recorded for {}", phase.name);
     if let Some(n) = notes {
-        println!("  Notes: {}", n);
+        println!("  Notes: {n}");
     }
 
     // Check if there's a next phase
@@ -1108,13 +1082,8 @@ pub(super) fn find_latest_checkpoint(dir: &Path) -> Option<Checkpoint> {
 
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .ok()?
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "json")
-                .unwrap_or(false)
-        })
+        .filter_map(std::result::Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
         .collect();
 
     entries.sort_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()));

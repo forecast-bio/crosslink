@@ -8,14 +8,14 @@ use crate::knowledge::{
     SyncOutcome,
 };
 use crate::utils::truncate;
+use std::fmt::Write as _;
 
 /// Get the current agent ID, falling back to "unknown".
 fn current_agent_id(crosslink_dir: &Path) -> String {
     crate::identity::AgentConfig::load(crosslink_dir)
         .ok()
         .flatten()
-        .map(|a| a.agent_id)
-        .unwrap_or_else(|| "unknown".to_string())
+        .map_or_else(|| "unknown".to_string(), |a| a.agent_id)
 }
 
 /// Ensure the knowledge cache is initialized, creating it if needed.
@@ -30,9 +30,8 @@ fn ensure_initialized(km: &KnowledgeManager) -> Result<()> {
 fn warn_resolved_conflicts(outcome: &SyncOutcome) {
     for slug in &outcome.resolved_conflicts {
         eprintln!(
-            "Warning: Merge conflict in {}.md — both versions kept. \
-             A cleanup issue should be created.",
-            slug
+            "Warning: Merge conflict in {slug}.md — both versions kept. \
+             A cleanup issue should be created."
         );
     }
 }
@@ -52,10 +51,7 @@ pub fn add(
     warn_resolved_conflicts(&sync_outcome);
 
     if km.page_exists(slug) {
-        bail!(
-            "Page '{}' already exists. Use 'crosslink knowledge edit' instead.",
-            slug
-        );
+        bail!("Page '{slug}' already exists. Use 'crosslink knowledge edit' instead.");
     }
 
     // Parse design doc if --from-doc provided
@@ -70,17 +66,21 @@ pub fn add(
     let now = Utc::now().format("%Y-%m-%d").to_string();
 
     // Title: explicit --title > design doc title > slug
-    let display_title = if let Some(t) = title {
-        t.to_string()
-    } else if let Some(ref doc) = design_doc {
-        if doc.title.is_empty() {
-            slug.to_string()
-        } else {
-            doc.title.clone()
-        }
-    } else {
-        slug.to_string()
-    };
+    let display_title = title.map_or_else(
+        || {
+            design_doc.as_ref().map_or_else(
+                || slug.to_string(),
+                |doc| {
+                    if doc.title.is_empty() {
+                        slug.to_string()
+                    } else {
+                        doc.title.clone()
+                    }
+                },
+            )
+        },
+        std::string::ToString::to_string,
+    );
 
     let agent_id = current_agent_id(crosslink_dir);
 
@@ -121,15 +121,15 @@ pub fn add(
         let section = crate::commands::design_doc::build_design_doc_section(doc);
         page_content.push_str(&section);
     } else {
-        page_content.push_str(&format!("# {}\n", display_title));
+        writeln!(page_content, "# {display_title}")?;
     }
 
     km.write_page(slug, &page_content)?;
-    km.commit(&format!("knowledge: add {}", slug))?;
+    km.commit(&format!("knowledge: add {slug}"))?;
     let push_outcome = km.push()?;
     warn_resolved_conflicts(&push_outcome);
 
-    println!("Created knowledge page: {}", slug);
+    println!("Created knowledge page: {slug}");
     Ok(())
 }
 
@@ -162,10 +162,10 @@ pub fn show(crosslink_dir: &Path, slug: &str, json: bool) -> Result<()> {
             });
             println!("{}", serde_json::to_string_pretty(&json_obj)?);
         } else {
-            bail!("Page '{}' has no valid frontmatter", slug);
+            bail!("Page '{slug}' has no valid frontmatter");
         }
     } else {
-        print!("{}", content);
+        print!("{content}");
     }
 
     Ok(())
@@ -263,10 +263,7 @@ pub fn edit(
     warn_resolved_conflicts(&sync_outcome);
 
     if !km.page_exists(slug) {
-        bail!(
-            "Page '{}' not found. Use 'crosslink knowledge add' to create it.",
-            slug
-        );
+        bail!("Page '{slug}' not found. Use 'crosslink knowledge add' to create it.");
     }
 
     let existing = km.read_page(slug)?;
@@ -283,7 +280,7 @@ pub fn edit(
     });
 
     // Update timestamp
-    fm.updated = now.clone();
+    fm.updated.clone_from(&now);
 
     // Add contributor if not already present
     if !fm.contributors.iter().any(|c| c == &agent_id) {
@@ -347,11 +344,11 @@ pub fn edit(
     page_content.push_str(&new_body);
 
     km.write_page(slug, &page_content)?;
-    km.commit(&format!("knowledge: edit {}", slug))?;
+    km.commit(&format!("knowledge: edit {slug}"))?;
     let push_outcome = km.push()?;
     warn_resolved_conflicts(&push_outcome);
 
-    println!("Updated knowledge page: {}", slug);
+    println!("Updated knowledge page: {slug}");
     Ok(())
 }
 
@@ -362,7 +359,7 @@ pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
     warn_resolved_conflicts(&sync_outcome);
 
     if !km.page_exists(slug) {
-        bail!("Page '{}' not found", slug);
+        bail!("Page '{slug}' not found");
     }
 
     // Check for pages that reference this slug
@@ -371,11 +368,8 @@ pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
         .iter()
         .filter(|p| p.slug != slug)
         .filter(|p| {
-            if let Ok(content) = km.read_page(&p.slug) {
-                content.contains(slug)
-            } else {
-                false
-            }
+            km.read_page(&p.slug)
+                .is_ok_and(|content| content.contains(slug))
         })
         .collect();
 
@@ -389,11 +383,11 @@ pub fn remove(crosslink_dir: &Path, slug: &str) -> Result<()> {
     }
 
     km.delete_page(slug)?;
-    km.commit(&format!("knowledge: remove {}", slug))?;
+    km.commit(&format!("knowledge: remove {slug}"))?;
     let push_outcome = km.push()?;
     warn_resolved_conflicts(&push_outcome);
 
-    println!("Removed knowledge page: {}", slug);
+    println!("Removed knowledge page: {slug}");
     Ok(())
 }
 
@@ -445,7 +439,7 @@ pub fn import(
 
         if km.page_exists(&slug) && !overwrite {
             if dry_run {
-                println!("[skip] {} (exists)", slug);
+                println!("[skip] {slug} (exists)");
             }
             skipped += 1;
             continue;
@@ -474,15 +468,12 @@ pub fn import(
     }
 
     if !dry_run && imported > 0 {
-        km.commit(&format!("knowledge: import {} page(s)", imported))?;
+        km.commit(&format!("knowledge: import {imported} page(s)"))?;
         let push_outcome = km.push()?;
         warn_resolved_conflicts(&push_outcome);
     }
 
-    println!(
-        "Imported: {} | Skipped: {} | Errors: {}",
-        imported, skipped, errors
-    );
+    println!("Imported: {imported} | Skipped: {skipped} | Errors: {errors}");
     Ok(())
 }
 
@@ -500,7 +491,7 @@ fn collect_md_files_recursive(dir: &Path, files: &mut Vec<std::path::PathBuf>) -
         let path = entry.path();
         if path.is_dir() {
             collect_md_files_recursive(&path, files)?;
-        } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+        } else if path.extension().is_some_and(|e| e == "md") {
             files.push(path);
         }
     }
@@ -515,7 +506,7 @@ fn infer_slug(rel_path: &Path) -> String {
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let parent = rel_path.parent().unwrap_or(Path::new(""));
+    let parent = rel_path.parent().unwrap_or_else(|| Path::new(""));
     if parent == Path::new("") || parent == Path::new(".") {
         slug_sanitize(&stem)
     } else {
@@ -524,14 +515,14 @@ fn infer_slug(rel_path: &Path) -> String {
             .map(|c| c.as_os_str().to_string_lossy().to_string())
             .collect::<Vec<_>>()
             .join("-");
-        slug_sanitize(&format!("{}-{}", prefix, stem))
+        slug_sanitize(&format!("{prefix}-{stem}"))
     }
 }
 
 /// Infer tags from directory components of a path.
 /// e.g. `arch/api/design.md` -> `["arch", "api"]`
 fn infer_tags_from_path(rel_path: &Path) -> Vec<String> {
-    let parent = rel_path.parent().unwrap_or(Path::new(""));
+    let parent = rel_path.parent().unwrap_or_else(|| Path::new(""));
     parent
         .components()
         .filter_map(|c| {
@@ -654,7 +645,7 @@ pub fn search(
         bail!("Provide a search query or --source domain");
     };
     let matches = manager.search_content(query, context)?;
-    let matches = filter_by_metadata(&manager, matches, tag, since, contributor)?;
+    let matches = filter_by_metadata(&manager, matches, tag, since, contributor);
 
     if json {
         print_content_json(&matches);
@@ -662,10 +653,7 @@ pub fn search(
     }
 
     if matches.is_empty() {
-        println!(
-            "No knowledge pages match \"{}\". Consider adding one.",
-            query
-        );
+        println!("No knowledge pages match \"{query}\". Consider adding one.");
         return Ok(());
     }
 
@@ -675,7 +663,7 @@ pub fn search(
         }
         println!("{}.md (line {}):", m.slug, m.line_number);
         for (line_num, line) in &m.context_lines {
-            println!("  {:>4} | {}", line_num, line);
+            println!("  {line_num:>4} | {line}");
         }
     }
 
@@ -689,20 +677,18 @@ fn filter_by_metadata(
     tag: Option<&str>,
     since: Option<&str>,
     contributor: Option<&str>,
-) -> Result<Vec<crate::knowledge::SearchMatch>> {
+) -> Vec<crate::knowledge::SearchMatch> {
     if tag.is_none() && since.is_none() && contributor.is_none() {
-        return Ok(matches);
+        return matches;
     }
 
     let mut filtered = Vec::new();
     for m in matches {
-        let content = match manager.read_page(&m.slug) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Ok(content) = manager.read_page(&m.slug) else {
+            continue;
         };
-        let fm = match parse_frontmatter(&content) {
-            Some(fm) => fm,
-            None => continue,
+        let Some(fm) = parse_frontmatter(&content) else {
+            continue;
         };
         if let Some(tag) = tag {
             if !fm.tags.iter().any(|t| t == tag) {
@@ -721,7 +707,7 @@ fn filter_by_metadata(
         }
         filtered.push(m);
     }
-    Ok(filtered)
+    filtered
 }
 
 fn search_sources(manager: &KnowledgeManager, domain: &str, json: bool) -> Result<()> {
@@ -733,10 +719,7 @@ fn search_sources(manager: &KnowledgeManager, domain: &str, json: bool) -> Resul
     }
 
     if matches.is_empty() {
-        println!(
-            "No knowledge pages cite \"{}\". Consider adding one.",
-            domain
-        );
+        println!("No knowledge pages cite \"{domain}\". Consider adding one.");
         return Ok(());
     }
 
@@ -752,7 +735,7 @@ fn search_sources(manager: &KnowledgeManager, domain: &str, json: bool) -> Resul
         for src in matching_sources {
             print!("  {} ({})", src.url, src.title);
             if let Some(ref accessed) = src.accessed_at {
-                print!(" [accessed: {}]", accessed);
+                print!(" [accessed: {accessed}]");
             }
             println!();
         }
@@ -792,10 +775,10 @@ fn print_sources_json(pages: &[crate::knowledge::PageInfo]) {
                 .sources
                 .iter()
                 .map(|src| {
-                    let accessed = match &src.accessed_at {
-                        Some(a) => serde_json_string(a),
-                        None => "null".to_string(),
-                    };
+                    let accessed = src
+                        .accessed_at
+                        .as_ref()
+                        .map_or_else(|| "null".to_string(), |a| serde_json_string(a));
                     format!(
                         "{{\"url\":{},\"title\":{},\"accessed_at\":{}}}",
                         serde_json_string(&src.url),
@@ -857,7 +840,7 @@ fn serde_json_string(s: &str) -> String {
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+                let _ = write!(out, "\\u{:04x}", c as u32);
             }
             c => out.push(c),
         }
@@ -1300,7 +1283,7 @@ mod tests {
         let matches = km.search_content("shared keyword", 0).unwrap();
         assert_eq!(matches.len(), 2);
 
-        let filtered = filter_by_metadata(&km, matches, Some("rust"), None, None).unwrap();
+        let filtered = filter_by_metadata(&km, matches, Some("rust"), None, None);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].slug, "alpha");
     }
@@ -1318,7 +1301,7 @@ mod tests {
         let matches = km.search_content("common text", 0).unwrap();
         assert_eq!(matches.len(), 2);
 
-        let filtered = filter_by_metadata(&km, matches, None, Some("2026-01-01"), None).unwrap();
+        let filtered = filter_by_metadata(&km, matches, None, Some("2026-01-01"), None);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].slug, "new-page");
     }
@@ -1336,7 +1319,7 @@ mod tests {
         let matches = km.search_content("findme", 0).unwrap();
         assert_eq!(matches.len(), 2);
 
-        let filtered = filter_by_metadata(&km, matches, None, None, Some("bob")).unwrap();
+        let filtered = filter_by_metadata(&km, matches, None, None, Some("bob"));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].slug, "b-page");
     }

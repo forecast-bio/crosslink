@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use anyhow::Result;
 use chrono::Utc;
 use rusqlite::params;
@@ -23,6 +25,10 @@ impl Database {
     // === Token usage tracking ===
 
     /// Record a token usage entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database insert fails.
     #[allow(clippy::too_many_arguments)]
     pub fn create_token_usage(
         &self,
@@ -55,6 +61,10 @@ impl Database {
     }
 
     /// Get a single token usage record by ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn get_token_usage(&self, id: i64) -> Result<Option<TokenUsage>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, agent_id, session_id, timestamp, input_tokens, output_tokens,
@@ -67,7 +77,7 @@ impl Database {
                     id: row.get(0)?,
                     agent_id: row.get(1)?,
                     session_id: row.get(2)?,
-                    timestamp: parse_datetime(row.get::<_, String>(3)?),
+                    timestamp: parse_datetime(&row.get::<_, String>(3)?),
                     input_tokens: row.get(4)?,
                     output_tokens: row.get(5)?,
                     cache_read_tokens: row.get(6)?,
@@ -81,6 +91,10 @@ impl Database {
     }
 
     /// List token usage records with optional filters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn list_token_usage(
         &self,
         agent_id: Option<&str>,
@@ -99,34 +113,36 @@ impl Database {
 
         if let Some(aid) = agent_id {
             param_values.push(Box::new(aid.to_string()));
-            sql.push_str(&format!(" AND agent_id = ?{}", param_values.len()));
+            let _ = write!(sql, " AND agent_id = ?{}", param_values.len());
         }
         if let Some(sid) = session_id {
             param_values.push(Box::new(sid));
-            sql.push_str(&format!(" AND session_id = ?{}", param_values.len()));
+            let _ = write!(sql, " AND session_id = ?{}", param_values.len());
         }
         if let Some(m) = model {
             param_values.push(Box::new(m.to_string()));
-            sql.push_str(&format!(" AND model = ?{}", param_values.len()));
+            let _ = write!(sql, " AND model = ?{}", param_values.len());
         }
         if let Some(f) = from {
             param_values.push(Box::new(f.to_string()));
-            sql.push_str(&format!(" AND timestamp >= ?{}", param_values.len()));
+            let _ = write!(sql, " AND timestamp >= ?{}", param_values.len());
         }
         if let Some(t) = to {
             param_values.push(Box::new(t.to_string()));
-            sql.push_str(&format!(" AND timestamp <= ?{}", param_values.len()));
+            let _ = write!(sql, " AND timestamp <= ?{}", param_values.len());
         }
 
         sql.push_str(" ORDER BY timestamp DESC");
 
         if let Some(lim) = limit {
             param_values.push(Box::new(lim));
-            sql.push_str(&format!(" LIMIT ?{}", param_values.len()));
+            let _ = write!(sql, " LIMIT ?{}", param_values.len());
         }
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            param_values.iter().map(|b| b.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(std::convert::AsRef::as_ref)
+            .collect();
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt
@@ -135,7 +151,7 @@ impl Database {
                     id: row.get(0)?,
                     agent_id: row.get(1)?,
                     session_id: row.get(2)?,
-                    timestamp: parse_datetime(row.get::<_, String>(3)?),
+                    timestamp: parse_datetime(&row.get::<_, String>(3)?),
                     input_tokens: row.get(4)?,
                     output_tokens: row.get(5)?,
                     cache_read_tokens: row.get(6)?,
@@ -149,7 +165,11 @@ impl Database {
     }
 
     /// Get aggregated usage summary, optionally filtered by agent and time range.
-    /// Groups by agent_id and model.
+    /// Groups by `agent_id` and model.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn get_usage_summary(
         &self,
         agent_id: Option<&str>,
@@ -170,21 +190,23 @@ impl Database {
 
         if let Some(aid) = agent_id {
             param_values.push(Box::new(aid.to_string()));
-            sql.push_str(&format!(" AND agent_id = ?{}", param_values.len()));
+            let _ = write!(sql, " AND agent_id = ?{}", param_values.len());
         }
         if let Some(f) = from {
             param_values.push(Box::new(f.to_string()));
-            sql.push_str(&format!(" AND timestamp >= ?{}", param_values.len()));
+            let _ = write!(sql, " AND timestamp >= ?{}", param_values.len());
         }
         if let Some(t) = to {
             param_values.push(Box::new(t.to_string()));
-            sql.push_str(&format!(" AND timestamp <= ?{}", param_values.len()));
+            let _ = write!(sql, " AND timestamp <= ?{}", param_values.len());
         }
 
         sql.push_str(" GROUP BY agent_id, model ORDER BY total_cost DESC");
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            param_values.iter().map(|b| b.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(std::convert::AsRef::as_ref)
+            .collect();
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt

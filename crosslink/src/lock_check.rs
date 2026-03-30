@@ -6,7 +6,7 @@ use crate::identity::AgentConfig;
 use crate::sync::SyncManager;
 
 /// Result of checking whether an agent can work on an issue.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum LockStatus {
     /// No lock system configured (no agent.json). Single-agent mode.
     NotConfigured,
@@ -23,17 +23,19 @@ pub enum LockStatus {
 /// Returns `LockStatus` without blocking — callers decide how to handle.
 /// Gracefully degrades: if agent config is missing, sync fails, or we're
 /// offline, returns `NotConfigured` so single-agent usage is unaffected.
+///
+/// # Errors
+///
+/// Returns an error if loading the agent config fails unexpectedly.
 pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
     // If no agent config, we're in single-agent mode — no lock checking
-    let agent = match AgentConfig::load(crosslink_dir)? {
-        Some(a) => a,
-        None => return Ok(LockStatus::NotConfigured),
+    let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+        return Ok(LockStatus::NotConfigured);
     };
 
     // Try to create sync manager. If it fails, don't block.
-    let sync = match SyncManager::new(crosslink_dir) {
-        Ok(s) => s,
-        Err(_) => return Ok(LockStatus::NotConfigured),
+    let Ok(sync) = SyncManager::new(crosslink_dir) else {
+        return Ok(LockStatus::NotConfigured);
     };
 
     // INTENTIONAL: init and fetch are best-effort — don't fail if offline
@@ -45,9 +47,8 @@ pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
         return Ok(LockStatus::NotConfigured);
     }
 
-    let locks = match sync.read_locks_auto() {
-        Ok(l) => l,
-        Err(_) => return Ok(LockStatus::NotConfigured),
+    let Ok(locks) = sync.read_locks_auto() else {
+        return Ok(LockStatus::NotConfigured);
     };
 
     // Check if locked by this agent
@@ -56,8 +57,9 @@ pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
     }
 
     // Check if locked by someone else
-    match locks.get_lock(issue_id) {
-        Some(lock) => {
+    locks
+        .get_lock(issue_id)
+        .map_or(Ok(LockStatus::Available), |lock| {
             let stale = sync
                 .find_stale_locks()
                 .unwrap_or_default()
@@ -67,9 +69,7 @@ pub fn check_lock(crosslink_dir: &Path, issue_id: i64) -> Result<LockStatus> {
                 agent_id: lock.agent_id.clone(),
                 stale,
             })
-        }
-        None => Ok(LockStatus::Available),
-    }
+        })
 }
 
 /// Read the `auto_steal_stale_locks` setting from hook-config.json.
@@ -81,11 +81,9 @@ fn read_auto_steal_config(crosslink_dir: &Path) -> Option<u64> {
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
     match parsed.get("auto_steal_stale_locks")? {
         serde_json::Value::Bool(true) => Some(1),
-        serde_json::Value::Bool(false) => None,
         serde_json::Value::Number(n) => n.as_u64().filter(|&v| v > 0),
         serde_json::Value::String(s) if s == "true" => Some(1),
-        serde_json::Value::String(s) if s == "false" => None,
-        serde_json::Value::String(s) => s.parse::<u64>().ok().filter(|&v| v > 0),
+        serde_json::Value::String(s) if s != "false" => s.parse::<u64>().ok().filter(|&v| v > 0),
         _ => None,
     }
 }
@@ -99,14 +97,12 @@ fn auto_steal_if_configured(
     stale_agent_id: &str,
     db: &Database,
 ) -> Result<bool> {
-    let multiplier = match read_auto_steal_config(crosslink_dir) {
-        Some(m) => m,
-        None => return Ok(false),
+    let Some(multiplier) = read_auto_steal_config(crosslink_dir) else {
+        return Ok(false);
     };
 
-    let sync = match SyncManager::new(crosslink_dir) {
-        Ok(s) => s,
-        Err(_) => return Ok(false),
+    let Ok(sync) = SyncManager::new(crosslink_dir) else {
+        return Ok(false);
     };
 
     if !sync.is_initialized() {
@@ -138,8 +134,7 @@ fn auto_steal_if_configured(
         if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
             writer.steal_lock_v2(issue_id, stale_agent_id, None)?;
             let comment = format!(
-                "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
-                stale_agent_id, stale_minutes, auto_steal_threshold
+                "[auto-steal] Lock auto-stolen from agent '{stale_agent_id}' (stale for {stale_minutes} min, threshold: {auto_steal_threshold} min)"
             );
             if let Err(e) = writer.add_comment(db, issue_id, &comment, "system") {
                 tracing::warn!("could not add audit comment for lock steal: {e}");
@@ -148,14 +143,12 @@ fn auto_steal_if_configured(
             return Ok(false);
         }
     } else {
-        let agent = match AgentConfig::load(crosslink_dir)? {
-            Some(a) => a,
-            None => return Ok(false),
+        let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+            return Ok(false);
         };
         sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
         let comment = format!(
-            "[auto-steal] Lock auto-stolen from agent '{}' (stale for {} min, threshold: {} min)",
-            stale_agent_id, stale_minutes, auto_steal_threshold
+            "[auto-steal] Lock auto-stolen from agent '{stale_agent_id}' (stale for {stale_minutes} min, threshold: {auto_steal_threshold} min)"
         );
         if let Err(e) = db.add_comment(issue_id, &comment, "system") {
             tracing::warn!("could not add audit comment for lock steal: {e}");
@@ -169,6 +162,10 @@ fn auto_steal_if_configured(
 ///
 /// When `auto_steal_stale_locks` is configured in hook-config.json and the lock
 /// has been stale long enough, automatically steals it and records an audit comment.
+///
+/// # Errors
+///
+/// Returns an error if the issue is locked by another agent and the lock is not stale.
 pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Result<()> {
     match check_lock(crosslink_dir, issue_id)? {
         LockStatus::NotConfigured | LockStatus::Available | LockStatus::LockedBySelf => Ok(()),
@@ -214,6 +211,7 @@ pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Resul
 }
 
 /// Best-effort lock release for an issue. Dispatches between V1 and V2 hub layouts.
+///
 /// Logs warnings on failure but never returns an error — callers use this when
 /// lock release is a courtesy, not a hard requirement (e.g., after closing an issue).
 pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
@@ -246,7 +244,7 @@ pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
 }
 
 /// Result of attempting to claim a lock.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ClaimResult {
     /// Lock successfully claimed.
     Claimed,
@@ -262,14 +260,17 @@ pub enum ClaimResult {
 ///
 /// Returns `ClaimResult` indicating the outcome. Errors are returned only for
 /// unexpected failures; configuration absence yields `NotConfigured`.
+///
+/// # Errors
+///
+/// Returns an error if the agent config or sync system fails unexpectedly.
 pub fn try_claim_lock(
     crosslink_dir: &Path,
     issue_id: i64,
     branch: Option<&str>,
 ) -> Result<ClaimResult> {
-    let agent = match AgentConfig::load(crosslink_dir)? {
-        Some(a) => a,
-        None => return Ok(ClaimResult::NotConfigured),
+    let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+        return Ok(ClaimResult::NotConfigured);
     };
     let sync = match SyncManager::new(crosslink_dir) {
         Ok(s) if s.is_initialized() => s,
@@ -277,9 +278,8 @@ pub fn try_claim_lock(
     };
 
     if sync.is_v2_layout() {
-        let writer = match crate::shared_writer::SharedWriter::new(crosslink_dir)? {
-            Some(w) => w,
-            None => return Ok(ClaimResult::NotConfigured),
+        let Some(writer) = crate::shared_writer::SharedWriter::new(crosslink_dir)? else {
+            return Ok(ClaimResult::NotConfigured);
         };
         match writer.claim_lock_v2(issue_id, branch)? {
             crate::shared_writer::LockClaimResult::Claimed => Ok(ClaimResult::Claimed),
@@ -288,11 +288,10 @@ pub fn try_claim_lock(
                 Ok(ClaimResult::Contended { winner_agent_id })
             }
         }
+    } else if sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
+        Ok(ClaimResult::Claimed)
     } else {
-        match sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
-            true => Ok(ClaimResult::Claimed),
-            false => Ok(ClaimResult::AlreadyHeld),
-        }
+        Ok(ClaimResult::AlreadyHeld)
     }
 }
 
@@ -300,10 +299,13 @@ pub fn try_claim_lock(
 ///
 /// Returns `Ok(true)` if the lock was released, `Ok(false)` if it wasn't held.
 /// Returns `Ok(false)` if the lock system is not configured.
+///
+/// # Errors
+///
+/// Returns an error if the agent config or sync system fails unexpectedly.
 pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
-    let agent = match AgentConfig::load(crosslink_dir)? {
-        Some(a) => a,
-        None => return Ok(false),
+    let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+        return Ok(false);
     };
     let sync = match SyncManager::new(crosslink_dir) {
         Ok(s) if s.is_initialized() => s,
@@ -311,9 +313,8 @@ pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
     };
 
     if sync.is_v2_layout() {
-        let writer = match crate::shared_writer::SharedWriter::new(crosslink_dir)? {
-            Some(w) => w,
-            None => return Ok(false),
+        let Some(writer) = crate::shared_writer::SharedWriter::new(crosslink_dir)? else {
+            return Ok(false);
         };
         writer.release_lock_v2(issue_id)
     } else {

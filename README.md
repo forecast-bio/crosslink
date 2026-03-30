@@ -102,6 +102,28 @@ Research done by one agent is available to all.
 - **Auto-injection** — Relevant knowledge pages injected into agent context via MCP server
 - **Conflict resolution** — Accept-both merge strategy for concurrent knowledge edits
 
+### Configuration Presets
+
+Get the right defaults for your workflow without reading docs.
+
+- **Team mode** — Strict tracking, required comments, CI verification, enforced commit signing. For shared repos with multiple contributors or agents.
+- **Solo mode** — Relaxed tracking, encouraged comments, local-only verification, signing disabled. For personal projects and solo development.
+- **Custom** — Configure each setting individually via the interactive walkthrough.
+
+```bash
+# Choose during first-time setup (interactive TUI)
+crosslink init
+
+# Or apply a preset directly
+crosslink config --preset team
+crosslink config --preset solo
+
+# Skip the TUI and use team defaults
+crosslink init --defaults
+```
+
+The presets configure tracking strictness, comment discipline, lock stealing policy, kickoff verification level, and signing enforcement. Run `crosslink config show` to see current settings, or `crosslink config --reconfigure` to re-run the walkthrough.
+
 ### Behavioral Hooks & Rules
 
 Your agents follow the rules without being told.

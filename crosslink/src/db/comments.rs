@@ -6,7 +6,7 @@ use super::core::{Database, MAX_COMMENT_LEN};
 use super::helpers::parse_datetime;
 use crate::models::Comment;
 
-/// Row from `get_comments_with_author`: (id, author, content, created_at, kind, trigger_type, intervention_context, driver_key_fingerprint).
+/// Row from `get_comments_with_author`: (id, author, content, `created_at`, kind, `trigger_type`, `intervention_context`, `driver_key_fingerprint`).
 pub type CommentAuthorRow = (
     i64,
     Option<String>,
@@ -19,14 +19,14 @@ pub type CommentAuthorRow = (
 );
 
 impl Database {
-    // Comments
+    /// Add a comment to an issue.
+    ///
+    /// # Errors
+    /// Returns an error if the comment exceeds the maximum length or the database write fails.
     pub fn add_comment(&self, issue_id: i64, content: &str, kind: &str) -> Result<i64> {
         let issue_id = self.resolve_id(issue_id);
         if content.len() > MAX_COMMENT_LEN {
-            anyhow::bail!(
-                "Comment exceeds maximum length of {} bytes",
-                MAX_COMMENT_LEN
-            );
+            anyhow::bail!("Comment exceeds maximum length of {MAX_COMMENT_LEN} bytes");
         }
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -36,6 +36,10 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Add an intervention comment to an issue.
+    ///
+    /// # Errors
+    /// Returns an error if the database write fails.
     pub fn add_intervention_comment(
         &self,
         issue_id: i64,
@@ -54,6 +58,10 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Get all comments for an issue.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_comments(&self, issue_id: i64) -> Result<Vec<Comment>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
@@ -65,7 +73,7 @@ impl Database {
                     id: row.get(0)?,
                     issue_id: row.get(1)?,
                     content: row.get(2)?,
-                    created_at: parse_datetime(row.get::<_, String>(3)?),
+                    created_at: parse_datetime(&row.get::<_, String>(3)?),
                     kind: row.get(4)?,
                     trigger_type: row.get(5)?,
                     intervention_context: row.get(6)?,
@@ -76,6 +84,10 @@ impl Database {
         Ok(comments)
     }
 
+    /// Update the content of a comment.
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
     pub fn update_comment_content(&self, comment_id: i64, content: &str) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE comments SET content = ?1 WHERE id = ?2",
@@ -85,6 +97,10 @@ impl Database {
     }
 
     /// Get comments with author field for an issue (author added in migration v10).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn get_comments_with_author(&self, issue_id: i64) -> Result<Vec<CommentAuthorRow>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
@@ -96,7 +112,7 @@ impl Database {
                     row.get::<_, i64>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
-                    parse_datetime(row.get::<_, String>(3)?),
+                    parse_datetime(&row.get::<_, String>(3)?),
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
@@ -109,8 +125,11 @@ impl Database {
 
     /// Search all comments for a query string (case-insensitive LIKE).
     /// Returns matching comments with their parent issue title.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn search_comments(&self, query: &str) -> Result<Vec<(Comment, i64, String)>> {
-        let pattern = format!("%{}%", query);
+        let pattern = format!("%{query}%");
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.issue_id, c.content, c.created_at, COALESCE(c.kind, 'note'), \
              c.trigger_type, c.intervention_context, c.driver_key_fingerprint, \
@@ -125,7 +144,7 @@ impl Database {
                     id: row.get(0)?,
                     issue_id: row.get(1)?,
                     content: row.get(2)?,
-                    created_at: parse_datetime(row.get::<_, String>(3)?),
+                    created_at: parse_datetime(&row.get::<_, String>(3)?),
                     kind: row.get(4)?,
                     trigger_type: row.get(5)?,
                     intervention_context: row.get(6)?,
@@ -140,6 +159,9 @@ impl Database {
     }
 
     /// Get the maximum comment ID in the database, or 0 if empty.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_max_comment_id(&self) -> Result<i64> {
         let max: i64 =
             self.conn

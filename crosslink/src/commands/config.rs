@@ -38,11 +38,11 @@ pub enum Source {
 }
 
 impl Source {
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
-            Source::Default => "default",
-            Source::Team => "team",
-            Source::Local => "local",
+            Self::Default => "default",
+            Self::Team => "team",
+            Self::Local => "local",
         }
     }
 }
@@ -192,7 +192,7 @@ pub fn format_value(v: &serde_json::Value) -> String {
         serde_json::Value::Array(arr) => {
             let items: Vec<String> = arr
                 .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                 .collect();
             items.join(", ")
         }
@@ -289,9 +289,7 @@ fn show(crosslink_dir: &Path) -> Result<()> {
             .get(entry.key)
             .copied()
             .unwrap_or(Source::Default);
-        let current_str = current
-            .map(format_value)
-            .unwrap_or_else(|| "(unset)".into());
+        let current_display = current.map_or_else(|| "(unset)".into(), format_value);
 
         // Check if local overrides team
         let team_val = resolved.team.get(entry.key);
@@ -328,10 +326,10 @@ fn show(crosslink_dir: &Path) -> Result<()> {
             let team_str = team_val.map(format_value).unwrap_or_default();
             println!(
                 "{} = {} (local — overrides: {})",
-                entry.key, current_str, team_str
+                entry.key, current_display, team_str
             );
         } else {
-            println!("{} = {} ({})", entry.key, current_str, source.label());
+            println!("{} = {} ({})", entry.key, current_display, source.label());
         }
     }
 
@@ -506,25 +504,21 @@ fn set(
         ConfigType::StringArray => {
             if let Some(item) = add {
                 let arr = config.get_mut(key).and_then(|v| v.as_array_mut());
-                match arr {
-                    Some(arr) => {
-                        let already = arr.iter().any(|v| v.as_str() == Some(item));
-                        if already {
-                            println!("\"{item}\" already in {key}");
-                        } else {
-                            arr.push(serde_json::Value::String(item.to_string()));
-                            write_config_scoped(crosslink_dir, &config, scope)?;
-                            println!("Added \"{item}\" to {key}");
-                        }
-                    }
-                    None => {
-                        // For local config, the array might not exist yet — create it
-                        config[key] = serde_json::Value::Array(vec![serde_json::Value::String(
-                            item.to_string(),
-                        )]);
+                if let Some(arr) = arr {
+                    let already = arr.iter().any(|v| v.as_str() == Some(item));
+                    if already {
+                        println!("\"{item}\" already in {key}");
+                    } else {
+                        arr.push(serde_json::Value::String(item.to_string()));
                         write_config_scoped(crosslink_dir, &config, scope)?;
                         println!("Added \"{item}\" to {key}");
                     }
+                } else {
+                    // For local config, the array might not exist yet — create it
+                    config[key] =
+                        serde_json::Value::Array(vec![serde_json::Value::String(item.to_string())]);
+                    write_config_scoped(crosslink_dir, &config, scope)?;
+                    println!("Added \"{item}\" to {key}");
                 }
             } else if let Some(item) = remove {
                 let arr = config[key]
@@ -568,13 +562,13 @@ fn list() -> Result<()> {
     println!("{sep}");
 
     for entry in REGISTRY {
-        let default_str = defaults
-            .get(entry.key)
-            .map(|v| match v {
+        let default_str = defaults.get(entry.key).map_or_else(
+            || "(none)".into(),
+            |v| match v {
                 serde_json::Value::Array(a) => format!("[{} items]", a.len()),
                 other => format_value(other),
-            })
-            .unwrap_or_else(|| "(none)".into());
+            },
+        );
 
         let hot = if entry.hot_swappable { " [hot]" } else { "" };
 
@@ -635,12 +629,8 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
 
         if current != default || local_val.is_some() {
             any_diff = true;
-            let def_str = default
-                .map(format_value)
-                .unwrap_or_else(|| "(unset)".into());
-            let team_str = team_val
-                .map(format_value)
-                .unwrap_or_else(|| "(unset)".into());
+            let def_str = default.map_or_else(|| "(unset)".into(), format_value);
+            let team_str = team_val.map_or_else(|| "(unset)".into(), format_value);
 
             if matches!(entry.config_type, ConfigType::StringArray) {
                 println!("{} (modified):", entry.key);
@@ -670,9 +660,7 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
                     entry.key, def_str, team_str, local_str
                 );
             } else {
-                let cur_str = current
-                    .map(format_value)
-                    .unwrap_or_else(|| "(unset)".into());
+                let cur_str = current.map_or_else(|| "(unset)".into(), format_value);
                 println!("{}: {} (default: {})", entry.key, cur_str, def_str);
             }
         }
@@ -688,7 +676,7 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
 // Interactive config walkthrough (REQ-3)
 // ---------------------------------------------------------------------------
 
-/// Config walkthrough — thin wrapper around shared WalkthroughCore (no extra screens).
+/// Config walkthrough — thin wrapper around shared `WalkthroughCore` (no extra screens).
 type WalkthroughApp = WalkthroughCore;
 
 fn new_walkthrough_app(current_config: &serde_json::Value) -> WalkthroughApp {
@@ -719,17 +707,17 @@ fn draw_config_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
     // Progress indicator
     let total = app.total_screens();
     let progress_spans: Vec<Span> = (0..total)
-        .map(|i| {
-            if i < app.screen {
+        .map(|i| match i.cmp(&app.screen) {
+            std::cmp::Ordering::Less => {
                 Span::styled(" \u{25cf} ", Style::default().fg(Color::Green))
-            } else if i == app.screen {
-                Span::styled(
-                    " \u{25cf} ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else {
+            }
+            std::cmp::Ordering::Equal => Span::styled(
+                " \u{25cf} ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            std::cmp::Ordering::Greater => {
                 Span::styled(" \u{25cb} ", Style::default().fg(Color::DarkGray))
             }
         })
@@ -884,7 +872,7 @@ fn draw_group_screen(
                 Span::styled(marker, style),
                 Span::styled(format!("{:<30}", entry.key), style),
                 Span::styled(
-                    format!("[{}]", val_str),
+                    format!("[{val_str}]"),
                     if ki == app.group_cursor {
                         Style::default().fg(Color::Yellow)
                     } else {
@@ -941,7 +929,7 @@ fn draw_confirm_screen(
     area: Rect,
     progress_spans: Vec<Span>,
 ) {
-    let total_keys: usize = app.group_keys.iter().map(|k| k.len()).sum();
+    let total_keys: usize = app.group_keys.iter().map(Vec::len).sum();
 
     let chunks = Layout::vertical([
         Constraint::Length(1), // progress
@@ -1036,10 +1024,10 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') if !app.is_confirm_screen() => app.move_up(),
                     KeyCode::Down | KeyCode::Char('j') if !app.is_confirm_screen() => {
-                        app.move_down()
+                        app.move_down();
                     }
                     KeyCode::Right if !app.is_preset_screen() && !app.is_confirm_screen() => {
-                        app.cycle_value()
+                        app.cycle_value();
                     }
                     KeyCode::Left if !app.is_preset_screen() && !app.is_confirm_screen() => {
                         // Cycle backwards

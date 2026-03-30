@@ -43,9 +43,9 @@ pub struct ExecutionSnapshot {
     pub state: ExecutionState,
     /// The full DAG with current node statuses.
     pub dag: Dag,
-    /// Phase milestones: phase_id → milestone_id.
+    /// Phase milestones: `phase_id` → `milestone_id`.
     pub phase_milestones: HashMap<String, i64>,
-    /// Phase parent issues: phase_id → issue_id (parent issue for stage subissues).
+    /// Phase parent issues: `phase_id` → `issue_id` (parent issue for stage subissues).
     pub phase_issues: HashMap<String, i64>,
     /// When execution started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,6 +89,11 @@ impl OrchestratorExecutor {
     ///
     /// This builds the DAG from the plan's phases and stages, creates crosslink
     /// issues and milestones for each, and persists the initial state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if creating issues, milestones, or the DAG fails,
+    /// or if persisting the initial state fails.
     pub fn init(crosslink_dir: &Path, db: &Database, plan: &OrchestratorPlan) -> Result<Self> {
         let state_dir = Self::state_dir(crosslink_dir);
         std::fs::create_dir_all(&state_dir)
@@ -114,7 +119,7 @@ impl OrchestratorExecutor {
             }
         }
 
-        let dag = Dag::from_nodes(dag_nodes).context("Failed to build execution DAG from plan")?;
+        let dag = Dag::from_nodes(&dag_nodes).context("Failed to build execution DAG from plan")?;
 
         // Create milestones and parent issues for each phase.
         let mut phase_milestones = HashMap::new();
@@ -148,8 +153,39 @@ impl OrchestratorExecutor {
         }
 
         // Create sub-issues for each stage and set up dependencies.
-        let mut stage_issue_map: HashMap<String, i64> = HashMap::new();
         let mut dag = dag;
+        Self::create_stage_issues_and_deps(db, plan, &phase_issues, &phase_milestones, &mut dag)?;
+
+        let snapshot = ExecutionSnapshot {
+            plan_id: plan.id.clone(),
+            state: ExecutionState::Idle,
+            dag,
+            phase_milestones,
+            phase_issues,
+            started_at: None,
+            completed_at: None,
+            current_phase_id: None,
+        };
+
+        let executor = Self {
+            crosslink_dir: crosslink_dir.to_path_buf(),
+            snapshot,
+        };
+
+        executor.persist()?;
+        Ok(executor)
+    }
+
+    /// Create sub-issues for each stage, assign them to milestones, and set
+    /// up blocking dependencies in the database.
+    fn create_stage_issues_and_deps(
+        db: &Database,
+        plan: &OrchestratorPlan,
+        phase_issues: &HashMap<String, i64>,
+        phase_milestones: &HashMap<String, i64>,
+        dag: &mut Dag,
+    ) -> Result<()> {
+        let mut stage_issue_map: HashMap<String, i64> = HashMap::new();
 
         for phase in &plan.phases {
             let phase_issue_id = phase_issues[&phase.id];
@@ -172,7 +208,6 @@ impl OrchestratorExecutor {
                     tracing::warn!("could not label stage issue #{issue_id}: {e}");
                 }
 
-                // Assign to phase milestone.
                 let milestone_id = phase_milestones[&phase.id];
                 if let Err(e) = db.add_issue_to_milestone(milestone_id, issue_id) {
                     tracing::warn!(
@@ -185,7 +220,6 @@ impl OrchestratorExecutor {
             }
         }
 
-        // Set up blocking dependencies in the database.
         for phase in &plan.phases {
             for stage in &phase.stages {
                 let blocked_id = stage_issue_map[&stage.id];
@@ -201,27 +235,14 @@ impl OrchestratorExecutor {
             }
         }
 
-        let snapshot = ExecutionSnapshot {
-            plan_id: plan.id.clone(),
-            state: ExecutionState::Idle,
-            dag,
-            phase_milestones,
-            phase_issues,
-            started_at: None,
-            completed_at: None,
-            current_phase_id: None,
-        };
-
-        let executor = Self {
-            crosslink_dir: crosslink_dir.to_path_buf(),
-            snapshot,
-        };
-
-        executor.persist()?;
-        Ok(executor)
+        Ok(())
     }
 
     /// Load a previously persisted execution state from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the execution state file cannot be read or parsed.
     pub fn load(crosslink_dir: &Path) -> Result<Self> {
         let path = Self::execution_path(crosslink_dir);
         let content = std::fs::read_to_string(&path)
@@ -236,11 +257,16 @@ impl OrchestratorExecutor {
     }
 
     /// Check whether an execution state file exists.
+    #[must_use]
     pub fn exists(crosslink_dir: &Path) -> bool {
         Self::execution_path(crosslink_dir).exists()
     }
 
     /// Load the plan from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the plan file cannot be read or parsed.
     pub fn load_plan(crosslink_dir: &Path) -> Result<OrchestratorPlan> {
         let path = Self::plan_path(crosslink_dir);
         let content = std::fs::read_to_string(&path)
@@ -259,21 +285,25 @@ impl OrchestratorExecutor {
     }
 
     /// Get the current execution state.
-    pub fn state(&self) -> &ExecutionState {
+    #[must_use]
+    pub const fn state(&self) -> &ExecutionState {
         &self.snapshot.state
     }
 
     /// Get a reference to the DAG.
-    pub fn dag(&self) -> &Dag {
+    #[must_use]
+    pub const fn dag(&self) -> &Dag {
         &self.snapshot.dag
     }
 
     /// Get the plan ID.
+    #[must_use]
     pub fn plan_id(&self) -> &str {
         &self.snapshot.plan_id
     }
 
     /// Build an [`ExecutionStatus`] response for the API.
+    #[must_use]
     pub fn status(&self) -> ExecutionStatus {
         ExecutionStatus {
             plan_id: self.snapshot.plan_id.clone(),
@@ -289,10 +319,14 @@ impl OrchestratorExecutor {
 
     /// Start execution. Changes state from Idle to Running and returns the list
     /// of stage IDs that are immediately ready to launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the current state does not allow starting, or if persisting fails.
     pub fn start(&mut self) -> Result<Vec<String>> {
         match self.snapshot.state {
             ExecutionState::Idle | ExecutionState::Paused => {}
-            ref other => bail!("Cannot start execution — current state is {:?}", other),
+            ref other => bail!("Cannot start execution — current state is {other:?}"),
         }
 
         self.snapshot.state = ExecutionState::Running;
@@ -317,6 +351,10 @@ impl OrchestratorExecutor {
     }
 
     /// Pause execution. Running stages continue but no new ones are launched.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the current state is not `Running`, or if persisting fails.
     pub fn pause(&mut self) -> Result<()> {
         if self.snapshot.state != ExecutionState::Running {
             bail!("Cannot pause — current state is {:?}", self.snapshot.state);
@@ -327,6 +365,10 @@ impl OrchestratorExecutor {
     }
 
     /// Resume a paused execution. Returns the list of stages ready to launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the current state is not `Paused`, or if persisting fails.
     pub fn resume(&mut self) -> Result<Vec<String>> {
         if self.snapshot.state != ExecutionState::Paused {
             bail!("Cannot resume — current state is {:?}", self.snapshot.state);
@@ -374,6 +416,10 @@ impl OrchestratorExecutor {
     /// Record that a stage has been launched with the given agent ID.
     ///
     /// Returns an event to broadcast over WebSocket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the execution is not running, the stage is not found, or persisting fails.
     pub fn mark_stage_running(
         &mut self,
         stage_id: &str,
@@ -394,7 +440,11 @@ impl OrchestratorExecutor {
 
     /// Record that a stage has completed successfully.
     ///
-    /// Returns: (newly_unblocked_stage_ids, ws_event, is_execution_complete)
+    /// Returns: (`newly_unblocked_stage_ids`, `ws_event`, `is_execution_complete`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the execution is not running, the stage transition is invalid, or persisting fails.
     pub fn mark_stage_done(
         &mut self,
         stage_id: &str,
@@ -453,6 +503,10 @@ impl OrchestratorExecutor {
     /// Record that a stage has failed.
     ///
     /// Returns a WebSocket event and whether the entire execution is now complete.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the execution is not running, the stage transition is invalid, or persisting fails.
     pub fn mark_stage_failed(
         &mut self,
         stage_id: &str,
@@ -476,6 +530,10 @@ impl OrchestratorExecutor {
     }
 
     /// Skip a stage (e.g. after a failure, to unblock downstream stages).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage transition is invalid or persisting fails.
     pub fn skip_stage(
         &mut self,
         stage_id: &str,
@@ -493,12 +551,16 @@ impl OrchestratorExecutor {
 
     /// Retry a failed stage by resetting it to pending.
     /// Returns the stage ID if it's immediately ready to launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found, is not in `Failed` state, or persisting fails.
     pub fn retry_stage(&mut self, stage_id: &str) -> Result<Option<String>> {
         let node = self
             .snapshot
             .dag
             .get_mut(stage_id)
-            .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", stage_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Stage '{stage_id}' not found"))?;
 
         if node.status != StageStatus::Failed {
             bail!(
@@ -531,9 +593,10 @@ impl OrchestratorExecutor {
     /// Check the status of running agents by reading `.kickoff-status` files
     /// from their worktrees.
     ///
-    /// Returns a list of (stage_id, completion_status) for stages whose agents
-    /// have written a status file. The completion_status is the content of the file
-    /// (e.g. "DONE", "CI_FAILED").
+    /// Returns a list of (`stage_id`, `completion_status`) for stages whose agents
+    /// have written a status file. The `completion_status` is the content of the file
+    /// (e.g. "DONE", "`CI_FAILED`").
+    #[must_use]
     pub fn poll_agent_status(&self, repo_root: &Path) -> Vec<(String, String)> {
         let mut completed = Vec::new();
 
@@ -578,49 +641,47 @@ impl OrchestratorExecutor {
     /// Check whether all stages in a given phase are in a terminal state.
     fn check_phase_complete(&self, phase_id: &str) -> bool {
         let by_phase = self.snapshot.dag.stages_by_phase();
-        if let Some(stage_ids) = by_phase.get(phase_id) {
+        by_phase.get(phase_id).is_none_or(|stage_ids| {
             stage_ids.iter().all(|id| {
-                self.snapshot
-                    .dag
-                    .get(id)
-                    .map(|n| {
-                        matches!(
-                            n.status,
-                            StageStatus::Done | StageStatus::Failed | StageStatus::Skipped
-                        )
-                    })
-                    .unwrap_or(true)
+                self.snapshot.dag.get(id).is_none_or(|n| {
+                    matches!(
+                        n.status,
+                        StageStatus::Done | StageStatus::Failed | StageStatus::Skipped
+                    )
+                })
             })
-        } else {
-            true
-        }
+        })
     }
 
     /// Get a snapshot of the current execution state (for serialization/API).
-    pub fn snapshot(&self) -> &ExecutionSnapshot {
+    #[must_use]
+    pub const fn snapshot(&self) -> &ExecutionSnapshot {
         &self.snapshot
     }
 }
 
 /// Build a description string for a stage issue from the orchestrator stage definition.
 fn build_stage_description(stage: &OrchestratorStage) -> String {
+    use std::fmt::Write;
     let mut desc = stage.description.clone();
     if !stage.tasks.is_empty() {
         desc.push_str("\n\n## Tasks\n");
         for task in &stage.tasks {
-            desc.push_str(&format!("- **{}**: {}\n", task.title, task.description));
+            let _ = writeln!(desc, "- **{}**: {}", task.title, task.description);
         }
     }
     if !stage.depends_on.is_empty() {
-        desc.push_str(&format!(
+        let _ = write!(
+            desc,
             "\n## Dependencies\nBlocked by: {}\n",
             stage.depends_on.join(", ")
-        ));
+        );
     }
-    desc.push_str(&format!(
+    let _ = write!(
+        desc,
         "\n## Estimates\n- Complexity: {:.1} agent-hours\n- Suggested agents: {}\n",
         stage.complexity_hours, stage.agent_count
-    ));
+    );
     desc
 }
 

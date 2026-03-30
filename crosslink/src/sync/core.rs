@@ -22,11 +22,16 @@ pub struct SyncManager {
 }
 
 impl SyncManager {
-    /// Create a new SyncManager for the given .crosslink directory.
+    /// Create a new `SyncManager` for the given .crosslink directory.
     ///
     /// When running inside a git worktree, automatically detects the main
     /// repository root and uses its `.crosslink/.hub-cache/` so that the
     /// shared coordination branch worktree is never duplicated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the repo root cannot be determined from the
+    /// crosslink directory path.
     pub fn new(crosslink_dir: &Path) -> Result<Self> {
         let local_repo_root = crosslink_dir
             .parent()
@@ -41,7 +46,7 @@ impl SyncManager {
         let cache_dir = repo_root.join(".crosslink").join(HUB_CACHE_DIR);
         let remote = read_tracker_remote(crosslink_dir);
 
-        Ok(SyncManager {
+        Ok(Self {
             crosslink_dir: crosslink_dir.to_path_buf(),
             cache_dir,
             repo_root,
@@ -50,6 +55,7 @@ impl SyncManager {
     }
 
     /// Get the configured git remote name for the hub branch.
+    #[must_use]
     pub fn remote(&self) -> &str {
         &self.remote
     }
@@ -61,6 +67,7 @@ impl SyncManager {
     }
 
     /// Get the path to the cache directory.
+    #[must_use]
     pub fn cache_path(&self) -> &Path {
         &self.cache_dir
     }
@@ -93,9 +100,8 @@ impl SyncManager {
     /// Return the cache directory path as a UTF-8 string, or bail with a
     /// clear error when the path contains non-UTF-8 bytes.
     pub(super) fn cache_path_str(&self) -> String {
-        match self.cache_dir.to_str() {
-            Some(s) => s.to_string(),
-            None => {
+        self.cache_dir.to_str().map_or_else(
+            || {
                 // Log and fall back to lossy conversion. A non-UTF-8 cache
                 // path will cause git commands to target the wrong directory,
                 // so this is loud on purpose.
@@ -105,8 +111,9 @@ impl SyncManager {
                     self.cache_dir
                 );
                 self.cache_dir.to_string_lossy().to_string()
-            }
-        }
+            },
+            str::to_string,
+        )
     }
 
     pub(super) fn git_in_repo(&self, args: &[&str]) -> Result<std::process::Output> {
@@ -114,10 +121,49 @@ impl SyncManager {
             .current_dir(&self.repo_root)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?}", args))?;
+            .with_context(|| format!("Failed to run git {args:?}"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} failed: {}", args, stderr);
+            bail!("git {args:?} failed: {stderr}");
+        }
+        Ok(output)
+    }
+
+    /// Run a git commit in the cache worktree with signing-awareness.
+    ///
+    /// If `commit.gpgsign` was explicitly configured at local or worktree scope
+    /// (e.g. by `crosslink agent init` / `configure_signing()`), honour it so
+    /// hub-cache commits carry the agent's signature for audit trail. If signing
+    /// was only inherited from the user's global git config, bypass it to avoid
+    /// failures when the global key isn't usable in the cache context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the git commit command fails.
+    pub(super) fn git_commit_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
+        let local_configured = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["config", "--local", "commit.gpgsign"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        let worktree_configured = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["config", "--worktree", "commit.gpgsign"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&self.cache_dir);
+        if !local_configured && !worktree_configured {
+            cmd.args(["-c", "commit.gpgsign=false"]);
+        }
+        cmd.arg("commit").args(args);
+        let output = cmd
+            .output()
+            .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("git commit {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }
@@ -127,17 +173,17 @@ impl SyncManager {
             .current_dir(&self.cache_dir)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?} in cache", args))?;
+            .with_context(|| format!("Failed to run git {args:?} in cache"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} in cache failed: {}", args, stderr);
+            bail!("git {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }
 
     /// Copy `.claude/hooks/` from the repo root into the hub cache worktree.
     ///
-    /// PreToolUse hooks resolve their path via `git rev-parse --show-toplevel`.
+    /// `PreToolUse` hooks resolve their path via `git rev-parse --show-toplevel`.
     /// When an agent's CWD is inside the hub cache, that resolves to the cache
     /// root instead of the main repo, so the hooks must exist there too.
     /// This is a best-effort operation — if `.claude/hooks/` doesn't exist in
@@ -238,7 +284,7 @@ impl SyncManager {
     /// Returns 0 if the remote ref doesn't exist or the count can't be determined.
     pub(super) fn count_unpushed_commits(&self) -> usize {
         let remote_ref = format!("{}/{}", self.remote, HUB_BRANCH);
-        let range = format!("{}..HEAD", remote_ref);
+        let range = format!("{remote_ref}..HEAD");
         match self.git_in_cache(&["rev-list", "--count", &range]) {
             Ok(output) => String::from_utf8_lossy(&output.stdout)
                 .trim()

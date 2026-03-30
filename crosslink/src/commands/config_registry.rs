@@ -30,7 +30,7 @@ pub enum ConfigGroup {
 }
 
 impl ConfigGroup {
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             ConfigGroup::Workflow => "Workflow",
             ConfigGroup::Security => "Security",
@@ -39,7 +39,7 @@ impl ConfigGroup {
         }
     }
 
-    pub fn all() -> &'static [ConfigGroup] {
+    pub const fn all() -> &'static [ConfigGroup] {
         &[
             ConfigGroup::Workflow,
             ConfigGroup::Security,
@@ -180,7 +180,7 @@ pub fn find_registry_key(key: &str) -> Option<&'static ConfigKey> {
     None
 }
 
-pub fn type_label(ct: ConfigType) -> &'static str {
+pub const fn type_label(ct: ConfigType) -> &'static str {
     match ct {
         ConfigType::Bool => "bool",
         ConfigType::Enum(_) => "enum",
@@ -266,12 +266,10 @@ impl WalkthroughCore {
                 let current_val = current_config.get(entry.key);
                 let sel = match entry.config_type {
                     ConfigType::Bool => {
-                        let val = current_val.and_then(|v| v.as_bool()).unwrap_or(false);
-                        if val {
-                            0
-                        } else {
-                            1
-                        }
+                        let val = current_val
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
+                        usize::from(!val)
                     }
                     ConfigType::Enum(options) => {
                         let val = current_val.and_then(|v| v.as_str()).unwrap_or("");
@@ -302,22 +300,22 @@ impl WalkthroughCore {
         }
     }
 
-    pub fn total_screens(&self) -> usize {
+    pub const fn total_screens(&self) -> usize {
         // preset + groups + extra_screens + confirm
         1 + self.group_names.len() + self.extra_screens + 1
     }
 
-    pub fn is_preset_screen(&self) -> bool {
+    pub const fn is_preset_screen(&self) -> bool {
         self.screen == 0
     }
 
-    pub fn is_confirm_screen(&self) -> bool {
+    pub const fn is_confirm_screen(&self) -> bool {
         self.screen == self.total_screens() - 1
     }
 
     /// Index of the first extra screen (e.g., alias screen in init).
     /// Returns None if no extra screens or not on one.
-    pub fn extra_screen_idx(&self) -> Option<usize> {
+    pub const fn extra_screen_idx(&self) -> Option<usize> {
         if self.extra_screens == 0 {
             return None;
         }
@@ -329,7 +327,7 @@ impl WalkthroughCore {
         }
     }
 
-    pub fn current_group_idx(&self) -> Option<usize> {
+    pub const fn current_group_idx(&self) -> Option<usize> {
         if self.screen >= 1 && self.screen < 1 + self.group_names.len() {
             Some(self.screen - 1)
         } else {
@@ -347,7 +345,7 @@ impl WalkthroughCore {
         }
     }
 
-    pub fn move_up(&mut self) {
+    pub const fn move_up(&mut self) {
         if self.is_preset_screen() {
             self.preset_selected = self.preset_selected.saturating_sub(1);
         } else if let Some(gi) = self.current_group_idx() {
@@ -392,18 +390,17 @@ impl WalkthroughCore {
                 self.apply_preset_selections();
                 // Skip group screens, go to first extra or confirm
                 self.screen = 1 + self.group_names.len();
-                self.group_cursor = 0;
             } else {
                 self.screen = 1;
-                self.group_cursor = 0;
             }
+            self.group_cursor = 0;
         } else {
             self.screen += 1;
             self.group_cursor = 0;
         }
     }
 
-    pub fn go_back(&mut self) {
+    pub const fn go_back(&mut self) {
         if self.screen > 0 {
             let first_extra = 1 + self.group_names.len();
             if self.screen == first_extra && self.preset_selected < 2 {

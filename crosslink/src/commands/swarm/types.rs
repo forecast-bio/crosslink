@@ -10,7 +10,7 @@ use crate::sync::SyncManager;
 // ---------------------------------------------------------------------------
 
 /// Top-level swarm plan, stored at `swarm/plan.json` on the hub branch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SwarmPlan {
     pub schema_version: u32,
     pub title: String,
@@ -21,7 +21,7 @@ pub struct SwarmPlan {
 }
 
 /// Definition of a single phase, stored at `swarm/phases/<name>.json`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PhaseDefinition {
     pub name: String,
     pub status: PhaseStatus,
@@ -55,7 +55,7 @@ impl std::fmt::Display for PhaseStatus {
 }
 
 /// An agent within a phase.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentEntry {
     pub slug: String,
     pub description: String,
@@ -95,7 +95,7 @@ impl std::fmt::Display for AgentStatus {
 }
 
 /// Gate result recorded after all phase agents complete.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GateResult {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -107,7 +107,7 @@ pub struct GateResult {
 }
 
 /// Checkpoint snapshot after a phase (or partial phase) completes.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Checkpoint {
     pub phase: String,
     pub created_at: String,
@@ -121,7 +121,7 @@ pub struct Checkpoint {
     pub handoff_notes: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TestResult {
     pub total: u64,
     pub passed: u64,
@@ -129,7 +129,7 @@ pub struct TestResult {
 }
 
 /// Budget configuration stored at `swarm/budget.json` on the hub branch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BudgetConfig {
     pub budget_window_s: u64,
     pub model: String,
@@ -146,7 +146,7 @@ impl Default for BudgetConfig {
 }
 
 /// Historical cost log stored at `swarm/history/cost-log.json`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct CostLog {
     #[serde(default)]
     pub observations: Vec<CostObservation>,
@@ -155,7 +155,7 @@ pub struct CostLog {
 }
 
 /// A single historical observation from a completed agent run.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CostObservation {
     pub agent_id: String,
     pub model: String,
@@ -167,14 +167,14 @@ pub struct CostObservation {
 }
 
 /// Aggregate duration estimates for a model.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelEstimate {
     pub median_duration_s: u64,
     pub p90_duration_s: u64,
 }
 
 /// Budget estimation result for a phase.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BudgetRecommendation {
     Proceed,
     ProceedWithCaution,
@@ -183,7 +183,7 @@ pub enum BudgetRecommendation {
 }
 
 /// A budget window in a multi-window plan.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowAllocation {
     pub window_index: usize,
     pub phases: Vec<WindowPhase>,
@@ -193,7 +193,7 @@ pub struct WindowAllocation {
 }
 
 /// A phase allocated to a window, with its estimated cost.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WindowPhase {
     pub name: String,
     pub agent_count: usize,
@@ -215,7 +215,7 @@ pub enum WindowFit {
 // ---------------------------------------------------------------------------
 
 /// Top-level merge plan, stored at `swarm/merge-plan.json` on the hub branch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MergePlan {
     pub target_branch: String,
     pub agents: Vec<MergeSource>,
@@ -224,7 +224,7 @@ pub struct MergePlan {
 }
 
 /// A single agent's worktree as a merge source.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MergeSource {
     pub agent_slug: String,
     pub worktree_path: PathBuf,
@@ -233,7 +233,7 @@ pub struct MergeSource {
 }
 
 /// A file conflict between multiple agents.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileConflict {
     pub file: String,
     pub agents: Vec<String>,
@@ -344,8 +344,8 @@ pub(super) fn create_swarm_slot(sync: &SyncManager, title: &str) -> anyhow::Resu
 
     write_hub_json(sync, "swarm/active.json", &active_ref)?;
 
-    let base = format!("swarm/{}", uuid);
-    let phases_dir = sync.cache_path().join(format!("{}/phases", base));
+    let base = format!("swarm/{uuid}");
+    let phases_dir = sync.cache_path().join(format!("{base}/phases"));
     std::fs::create_dir_all(&phases_dir)?;
 
     Ok(SwarmContext {
@@ -402,7 +402,7 @@ pub struct ReviewAgentAssignment {
 // ---------------------------------------------------------------------------
 
 /// Plan for parallel fix execution, stored at `swarm/fix-plan.json`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FixPlan {
     pub schema_version: u32,
     pub created_at: String,
@@ -410,7 +410,7 @@ pub struct FixPlan {
 }
 
 /// A single issue targeted for an agent fix.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FixTarget {
     pub issue_number: u64,
     pub title: String,

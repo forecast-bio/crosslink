@@ -32,6 +32,7 @@ const POLL_INTERVAL_SECS: u64 = 30;
 /// | < 5 min        | Active  |
 /// | 5 – 30 min     | Idle    |
 /// | > 30 min       | Stale   |
+#[must_use]
 pub fn status_from_heartbeat(heartbeat: &Heartbeat) -> AgentStatus {
     let age = Utc::now() - heartbeat.last_heartbeat;
     if age < Duration::minutes(5) {
@@ -176,8 +177,7 @@ fn diff_and_broadcast(
     for (agent_id, hb) in &current_state {
         let is_new_or_updated = last_state
             .get(agent_id)
-            .map(|prev| prev.last_heartbeat != hb.last_heartbeat)
-            .unwrap_or(true);
+            .is_none_or(|prev| prev.last_heartbeat != hb.last_heartbeat);
 
         if is_new_or_updated {
             // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
@@ -190,10 +190,7 @@ fn diff_and_broadcast(
 
             // Broadcast agent_status only when the derived status changes.
             let new_status = status_from_heartbeat(hb);
-            let status_changed = last_statuses
-                .get(agent_id)
-                .map(|prev| prev != &new_status)
-                .unwrap_or(true);
+            let status_changed = last_statuses.get(agent_id) != Some(&new_status);
 
             if status_changed {
                 // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected

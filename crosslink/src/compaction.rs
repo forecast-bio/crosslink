@@ -163,11 +163,14 @@ pub struct CompactionResult {
 ///
 /// If `force` is false, returns `None` when the lock is held by another agent.
 /// If `force` is true, stale or self-owned locks are removed before retrying.
+///
+/// # Errors
+///
+/// Returns an error if lock acquisition, checkpoint I/O, or event log reading fails.
 pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<CompactionResult>> {
     // Acquire filesystem lock — this is the real mutual exclusion mechanism.
-    let _lock_guard = match CompactionLockGuard::try_acquire(cache_dir, agent_id, force)? {
-        Some(guard) => guard,
-        None => return Ok(None),
+    let Some(_lock_guard) = CompactionLockGuard::try_acquire(cache_dir, agent_id, force)? else {
+        return Ok(None);
     };
 
     let mut state = read_checkpoint(cache_dir)?;
@@ -310,10 +313,14 @@ pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<C
 ///
 /// Removes events at or below the current watermark.
 /// Returns the number of events pruned.
+///
+/// # Errors
+///
+/// Returns an error if reading the watermark or event log fails, or if writing
+/// the pruned log back to disk fails.
 pub fn prune_events(cache_dir: &Path, agent_id: &str) -> Result<usize> {
-    let watermark = match read_watermark(cache_dir)? {
-        Some(wm) => wm,
-        None => return Ok(0),
+    let Some(watermark) = read_watermark(cache_dir)? else {
+        return Ok(0);
     };
 
     let log_path = cache_dir.join("agents").join(agent_id).join("events.log");
@@ -351,6 +358,32 @@ fn apply(
     changed_locks: &mut HashSet<i64>,
 ) {
     match &envelope.event {
+        Event::LockClaimed {
+            issue_display_id,
+            branch,
+        } => {
+            apply_lock_event(
+                state,
+                envelope,
+                changed_locks,
+                *issue_display_id,
+                Some(branch),
+            );
+        }
+        Event::LockReleased { issue_display_id } => {
+            apply_lock_event(state, envelope, changed_locks, *issue_display_id, None);
+        }
+        _ => apply_issue_event(state, envelope, changed_issues),
+    }
+}
+
+/// Dispatch issue-related events to their handlers.
+fn apply_issue_event(
+    state: &mut CheckpointState,
+    envelope: &EventEnvelope,
+    changed_issues: &mut HashSet<Uuid>,
+) {
+    match &envelope.event {
         Event::IssueCreated {
             uuid,
             title,
@@ -360,191 +393,212 @@ fn apply(
             parent_uuid,
             created_by,
         } => {
-            // Skip if UUID already exists (idempotent)
-            if state.issues.contains_key(uuid) {
-                return;
-            }
-            let display_id = state.next_display_id;
-            state.next_display_id += 1;
-            state.display_id_map.insert(*uuid, display_id);
-            state.issues.insert(
+            apply_issue_created(
+                state,
+                envelope,
+                changed_issues,
                 *uuid,
-                CompactIssue {
-                    uuid: *uuid,
-                    display_id: Some(display_id),
-                    title: title.clone(),
-                    description: description.clone(),
-                    status: crate::models::IssueStatus::Open,
-                    priority: priority.parse().unwrap_or(crate::models::Priority::Medium),
-                    parent_uuid: *parent_uuid,
-                    created_by: created_by.clone(),
-                    created_at: envelope.timestamp,
-                    updated_at: envelope.timestamp,
-                    closed_at: None,
-                    labels: labels.iter().cloned().collect(),
-                    blockers: BTreeSet::new(),
-                    related: BTreeSet::new(),
-                    milestone_uuid: None,
-                },
+                title,
+                description.as_ref(),
+                priority,
+                labels,
+                *parent_uuid,
+                created_by,
             );
-            changed_issues.insert(*uuid);
         }
-
-        Event::LockClaimed {
-            issue_display_id,
-            branch,
-        } => {
-            // First-claim-wins: reject if a *different* agent holds it.
-            // When the *same* agent re-claims, the lock is refreshed with the
-            // new branch and timestamp — this is the intended "reclaim"
-            // behavior for agents that restart or switch branches.
-            if let Some(existing) = state.locks.get(issue_display_id) {
-                if existing.agent_id != envelope.agent_id {
-                    return;
-                }
-            }
-            state.locks.insert(
-                *issue_display_id,
-                LockEntry {
-                    agent_id: envelope.agent_id.clone(),
-                    branch: branch.clone(),
-                    claimed_at: envelope.timestamp,
-                },
-            );
-            changed_locks.insert(*issue_display_id);
-        }
-
-        Event::LockReleased { issue_display_id } => {
-            // Only release if held by this agent
-            if let Some(existing) = state.locks.get(issue_display_id) {
-                if existing.agent_id == envelope.agent_id {
-                    state.locks.remove(issue_display_id);
-                    changed_locks.insert(*issue_display_id);
-                }
-            }
-        }
-
         Event::IssueUpdated {
             uuid,
             title,
             description,
             priority,
         } => {
-            if let Some(issue) = state.issues.get_mut(uuid) {
-                // Last-writer-wins per field
+            apply_issue_field(state, envelope, changed_issues, *uuid, |issue| {
                 if let Some(t) = title {
-                    issue.title = t.clone();
+                    issue.title.clone_from(t);
                 }
                 if let Some(d) = description {
                     issue.description = Some(d.clone());
                 }
                 if let Some(p) = priority {
-                    if let Ok(parsed) = p.parse() {
-                        issue.priority = parsed;
+                    if let Ok(v) = p.parse() {
+                        issue.priority = v;
                     }
                 }
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*uuid);
-            }
+            });
         }
-
         Event::StatusChanged {
             uuid,
             new_status,
             closed_at,
         } => {
-            if let Some(issue) = state.issues.get_mut(uuid) {
-                // Last-writer-wins (latest timestamp)
+            apply_issue_field(state, envelope, changed_issues, *uuid, |issue| {
                 issue.status = new_status.parse().unwrap_or(issue.status);
                 issue.closed_at = *closed_at;
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*uuid);
-            }
+            });
         }
+        _ => apply_graph_event(state, envelope, changed_issues),
+    }
+}
 
+/// Handle dependency, relation, label, milestone, and parent events.
+fn apply_graph_event(
+    state: &mut CheckpointState,
+    envelope: &EventEnvelope,
+    changed_issues: &mut HashSet<Uuid>,
+) {
+    match &envelope.event {
         Event::DependencyAdded {
             blocked_uuid,
             blocker_uuid,
         } => {
-            if let Some(issue) = state.issues.get_mut(blocked_uuid) {
-                issue.blockers.insert(*blocker_uuid);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*blocked_uuid);
-            }
+            apply_issue_field(state, envelope, changed_issues, *blocked_uuid, |i| {
+                i.blockers.insert(*blocker_uuid);
+            });
         }
-
         Event::DependencyRemoved {
             blocked_uuid,
             blocker_uuid,
         } => {
-            if let Some(issue) = state.issues.get_mut(blocked_uuid) {
-                issue.blockers.remove(blocker_uuid);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*blocked_uuid);
-            }
+            apply_issue_field(state, envelope, changed_issues, *blocked_uuid, |i| {
+                i.blockers.remove(blocker_uuid);
+            });
         }
-
         Event::RelationAdded { uuid_a, uuid_b } => {
-            if let Some(issue) = state.issues.get_mut(uuid_a) {
-                issue.related.insert(*uuid_b);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*uuid_a);
-            }
-            if let Some(issue) = state.issues.get_mut(uuid_b) {
-                issue.related.insert(*uuid_a);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*uuid_b);
-            }
+            apply_issue_field(state, envelope, changed_issues, *uuid_a, |i| {
+                i.related.insert(*uuid_b);
+            });
+            apply_issue_field(state, envelope, changed_issues, *uuid_b, |i| {
+                i.related.insert(*uuid_a);
+            });
         }
-
         Event::RelationRemoved { uuid_a, uuid_b } => {
-            if let Some(issue) = state.issues.get_mut(uuid_a) {
-                issue.related.remove(uuid_b);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*uuid_a);
-            }
-            if let Some(issue) = state.issues.get_mut(uuid_b) {
-                issue.related.remove(uuid_a);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*uuid_b);
-            }
+            apply_issue_field(state, envelope, changed_issues, *uuid_a, |i| {
+                i.related.remove(uuid_b);
+            });
+            apply_issue_field(state, envelope, changed_issues, *uuid_b, |i| {
+                i.related.remove(uuid_a);
+            });
         }
-
         Event::MilestoneAssigned {
             issue_uuid,
             milestone_uuid,
         } => {
-            if let Some(issue) = state.issues.get_mut(issue_uuid) {
-                issue.milestone_uuid = *milestone_uuid;
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*issue_uuid);
-            }
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |i| {
+                i.milestone_uuid = *milestone_uuid;
+            });
         }
-
         Event::LabelAdded { issue_uuid, label } => {
-            if let Some(issue) = state.issues.get_mut(issue_uuid) {
-                issue.labels.insert(label.clone());
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*issue_uuid);
-            }
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |i| {
+                i.labels.insert(label.clone());
+            });
         }
-
         Event::LabelRemoved { issue_uuid, label } => {
-            if let Some(issue) = state.issues.get_mut(issue_uuid) {
-                issue.labels.remove(label);
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*issue_uuid);
-            }
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |i| {
+                i.labels.remove(label);
+            });
         }
-
         Event::ParentChanged {
             issue_uuid,
             new_parent_uuid,
         } => {
-            if let Some(issue) = state.issues.get_mut(issue_uuid) {
-                issue.parent_uuid = *new_parent_uuid;
-                issue.updated_at = envelope.timestamp;
-                changed_issues.insert(*issue_uuid);
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |i| {
+                i.parent_uuid = *new_parent_uuid;
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Handle the `IssueCreated` event by inserting a new issue into checkpoint state.
+#[allow(clippy::too_many_arguments)]
+fn apply_issue_created(
+    state: &mut CheckpointState,
+    envelope: &EventEnvelope,
+    changed_issues: &mut HashSet<Uuid>,
+    uuid: Uuid,
+    title: &str,
+    description: Option<&String>,
+    priority: &str,
+    labels: &[String],
+    parent_uuid: Option<Uuid>,
+    created_by: &str,
+) {
+    if !state.issues.contains_key(&uuid) {
+        let display_id = state.next_display_id;
+        state.next_display_id += 1;
+        state.display_id_map.insert(uuid, display_id);
+        state.issues.insert(
+            uuid,
+            CompactIssue {
+                uuid,
+                display_id: Some(display_id),
+                title: title.to_string(),
+                description: description.cloned(),
+                status: crate::models::IssueStatus::Open,
+                priority: priority.parse().unwrap_or(crate::models::Priority::Medium),
+                parent_uuid,
+                created_by: created_by.to_string(),
+                created_at: envelope.timestamp,
+                updated_at: envelope.timestamp,
+                closed_at: None,
+                labels: labels.iter().cloned().collect(),
+                blockers: BTreeSet::new(),
+                related: BTreeSet::new(),
+                milestone_uuid: None,
+            },
+        );
+        changed_issues.insert(uuid);
+    }
+}
+
+/// Apply a simple field mutation to an existing issue and mark it changed.
+fn apply_issue_field(
+    state: &mut CheckpointState,
+    envelope: &EventEnvelope,
+    changed_issues: &mut HashSet<Uuid>,
+    uuid: Uuid,
+    mutate: impl FnOnce(&mut CompactIssue),
+) {
+    if let Some(issue) = state.issues.get_mut(&uuid) {
+        mutate(issue);
+        issue.updated_at = envelope.timestamp;
+        changed_issues.insert(uuid);
+    }
+}
+
+/// Handle lock claim or release events.
+///
+/// When `branch_opt` is `Some`, this is a claim (first-claim-wins with same-agent reclaim).
+/// When `branch_opt` is `None`, this is a release (only release if held by this agent).
+fn apply_lock_event(
+    state: &mut CheckpointState,
+    envelope: &EventEnvelope,
+    changed_locks: &mut HashSet<i64>,
+    issue_display_id: i64,
+    branch_opt: Option<&Option<String>>,
+) {
+    if let Some(branch) = branch_opt {
+        // Claim
+        if let Some(existing) = state.locks.get(&issue_display_id) {
+            if existing.agent_id != envelope.agent_id {
+                return;
+            }
+        }
+        state.locks.insert(
+            issue_display_id,
+            LockEntry {
+                agent_id: envelope.agent_id.clone(),
+                branch: branch.clone(),
+                claimed_at: envelope.timestamp,
+            },
+        );
+        changed_locks.insert(issue_display_id);
+    } else {
+        // Release — only if held by this agent
+        if let Some(existing) = state.locks.get(&issue_display_id) {
+            if existing.agent_id == envelope.agent_id {
+                state.locks.remove(&issue_display_id);
+                changed_locks.insert(issue_display_id);
             }
         }
     }
@@ -575,20 +629,20 @@ fn materialize(
             let content = serde_json::to_string_pretty(&issue_file)?;
 
             if layout_version >= 2 {
-                let issue_dir = issues_dir.join(uuid.to_string());
-                std::fs::create_dir_all(&issue_dir).with_context(|| {
-                    format!("Failed to create issue dir: {}", issue_dir.display())
+                let single_issue_dir = issues_dir.join(uuid.to_string());
+                std::fs::create_dir_all(&single_issue_dir).with_context(|| {
+                    format!("Failed to create issue dir: {}", single_issue_dir.display())
                 })?;
-                let path = issue_dir.join("issue.json");
+                let path = single_issue_dir.join("issue.json");
                 crate::utils::atomic_write(&path, content.as_bytes())?;
 
                 // Clean up stale V1 flat file if it exists (#428)
-                let v1_path = issues_dir.join(format!("{}.json", uuid));
+                let v1_path = issues_dir.join(format!("{uuid}.json"));
                 if v1_path.exists() {
                     let _ = std::fs::remove_file(&v1_path);
                 }
             } else {
-                let path = issues_dir.join(format!("{}.json", uuid));
+                let path = issues_dir.join(format!("{uuid}.json"));
                 crate::utils::atomic_write(&path, content.as_bytes())?;
             }
         }
@@ -602,7 +656,7 @@ fn materialize(
     // Materialize changed locks
     std::fs::create_dir_all(&locks_dir)?;
     for display_id in changed_locks {
-        let lock_path = locks_dir.join(format!("{}.json", display_id));
+        let lock_path = locks_dir.join(format!("{display_id}.json"));
         if let Some(lock_entry) = state.locks.get(display_id) {
             let lock_file = LockFileV2 {
                 issue_id: *display_id,
@@ -626,7 +680,7 @@ fn materialize(
     Ok(())
 }
 
-/// Convert a CompactIssue to an IssueFile for materialization.
+/// Convert a `CompactIssue` to an `IssueFile` for materialization.
 ///
 /// Delegates to the `From<&CompactIssue>` impl on `IssueFile`.
 fn compact_to_issue_file(compact: &CompactIssue) -> IssueFile {
@@ -666,7 +720,10 @@ fn check_unsigned(
         });
     } else if allowed_signers_path.exists() {
         // Verify the signature against the trust store
-        if let Ok(false) = crate::events::verify_event_signature(envelope, allowed_signers_path) {
+        if matches!(
+            crate::events::verify_event_signature(envelope, allowed_signers_path),
+            Ok(false)
+        ) {
             state.unsigned_event_warnings.push(UnsignedEventWarning {
                 agent_id: envelope.agent_id.clone(),
                 agent_seq: envelope.agent_seq,

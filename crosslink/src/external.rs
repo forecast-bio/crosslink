@@ -36,31 +36,35 @@ pub enum RepoSource {
     Remote(String),
 }
 
-/// Resolve a `--repo` value to a `RepoSource`.
+/// Resolve a `--repo` value to a [`RepoSource`].
 ///
 /// Resolution order:
-/// 1. Named alias (`@name`) → looked up in config `repo-alias.<name>`
-/// 2. Local path → if it exists on disk and contains `.crosslink/` or `.git/`
-/// 3. Git URL → HTTPS-first, SSH-fallback probe for shorthands
+/// 1. Named alias (`@name`) -- looked up in config `repo-alias.<name>`
+/// 2. Local path -- if it exists on disk and contains `.crosslink/` or `.git/`
+/// 3. Git URL -- HTTPS-first, SSH-fallback probe for shorthands
+///
+/// # Errors
+///
+/// Returns an error if an alias cannot be resolved or the repo value is invalid.
 pub fn resolve_repo(value: &str, crosslink_dir: &Path) -> Result<RepoSource> {
     // 1. Named alias
     if let Some(alias_name) = value.strip_prefix('@') {
         let alias_value = read_repo_alias(crosslink_dir, alias_name)?;
         // Recurse with the resolved alias (but don't allow nested aliases)
-        return resolve_repo_inner(&alias_value);
+        return Ok(resolve_repo_inner(&alias_value));
     }
 
-    resolve_repo_inner(value)
+    Ok(resolve_repo_inner(value))
 }
 
-fn resolve_repo_inner(value: &str) -> Result<RepoSource> {
+fn resolve_repo_inner(value: &str) -> RepoSource {
     // 2. Local path
     let path = PathBuf::from(value);
     if path.exists() {
         let has_crosslink = path.join(".crosslink").exists();
         let has_git = path.join(".git").exists();
         if has_crosslink || has_git {
-            return Ok(RepoSource::Local(path));
+            return RepoSource::Local(path);
         }
     }
 
@@ -70,11 +74,11 @@ fn resolve_repo_inner(value: &str) -> Result<RepoSource> {
         || value.starts_with("git@")
         || value.starts_with("ssh://")
     {
-        return Ok(RepoSource::Remote(value.to_string()));
+        return RepoSource::Remote(value.to_string());
     }
 
     // Shorthand like `github.com/org/repo` — will be probed during fetch
-    Ok(RepoSource::Remote(value.to_string()))
+    RepoSource::Remote(value.to_string())
 }
 
 /// Read a repo alias from config.
@@ -92,7 +96,7 @@ fn read_repo_alias(crosslink_dir: &Path, name: &str) -> Result<String> {
         .get("repo-alias")
         .and_then(|v| v.get(name))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Unknown repo alias: @{name}. Set it with: crosslink config set repo-alias.{name} <url>"
@@ -106,6 +110,10 @@ fn read_repo_alias(crosslink_dir: &Path, name: &str) -> Result<String> {
 
 /// For shorthand URLs like `github.com/org/repo`, probe HTTPS then SSH.
 /// Returns the first fetchable URL. Fully qualified URLs are returned as-is.
+///
+/// # Errors
+///
+/// Returns an error if the repository cannot be reached via HTTPS or SSH.
 pub fn probe_url(shorthand: &str) -> Result<String> {
     if shorthand.starts_with("https://")
         || shorthand.starts_with("http://")
@@ -115,14 +123,14 @@ pub fn probe_url(shorthand: &str) -> Result<String> {
         return Ok(shorthand.to_string());
     }
 
-    let https_url = format!("https://{}", shorthand);
+    let https_url = format!("https://{shorthand}");
     if git_ls_remote_ok(&https_url) {
         return Ok(https_url);
     }
 
     // Try SSH: github.com/org/repo → git@github.com:org/repo.git
     if let Some((host, path)) = shorthand.split_once('/') {
-        let ssh_url = format!("git@{}:{}.git", host, path);
+        let ssh_url = format!("git@{host}:{path}.git");
         if git_ls_remote_ok(&ssh_url) {
             return Ok(ssh_url);
         }
@@ -137,14 +145,13 @@ pub fn probe_url(shorthand: &str) -> Result<String> {
 }
 
 fn git_ls_remote_ok(url: &str) -> bool {
-    let mut child = match Command::new("git")
+    let Ok(mut child) = Command::new("git")
         .args(["ls-remote", "--quiet", "--exit-code", url])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
+    else {
+        return false;
     };
 
     // Wait with timeout
@@ -199,6 +206,7 @@ struct CacheMeta {
 
 impl ExternalCache {
     /// Create a cache handle for a remote source.
+    #[must_use]
     pub fn new(crosslink_dir: &Path, repo_label: &str) -> Self {
         let hash = cache_hash(repo_label);
         let cache_dir = crosslink_dir.join(".external-cache").join(hash);
@@ -209,6 +217,7 @@ impl ExternalCache {
     }
 
     /// Get path to the knowledge pages directory.
+    #[must_use]
     pub fn knowledge_dir(&self) -> PathBuf {
         self.cache_dir.join("knowledge")
     }
@@ -238,6 +247,10 @@ impl ExternalCache {
     }
 
     /// Ensure the knowledge branch is fetched and cached. Returns the knowledge dir path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if URL resolution or branch fetching fails.
     pub fn ensure_knowledge(
         &self,
         data_ttl: u64,
@@ -254,6 +267,10 @@ impl ExternalCache {
     }
 
     /// Ensure the hub branch is fetched and cached. Returns the hub dir path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if URL resolution or branch fetching fails.
     pub fn ensure_hub(&self, data_ttl: u64, url_ttl: u64, force_refresh: bool) -> Result<PathBuf> {
         let dir = self.cache_dir.join("hub");
         if !force_refresh && self.is_data_fresh("hub", data_ttl) {
@@ -281,7 +298,7 @@ impl ExternalCache {
         let resolved = probe_url(&self.repo_label)?;
         meta.resolved_url = Some(resolved.clone());
         meta.url_resolved_at = Some(now_iso());
-        meta.url = self.repo_label.clone();
+        meta.url.clone_from(&self.repo_label);
         self.write_meta(&meta)?;
         Ok(resolved)
     }
@@ -294,9 +311,7 @@ impl ExternalCache {
             "hub" => meta.hub_fetched_at.as_deref(),
             _ => None,
         };
-        fetched_at
-            .map(|ts| is_within_ttl(ts, ttl_secs))
-            .unwrap_or(false)
+        fetched_at.is_some_and(|ts| is_within_ttl(ts, ttl_secs))
     }
 
     /// Fetch a branch from a remote URL and materialize its files into `output_dir`.
@@ -390,8 +405,13 @@ fn cache_hash(label: &str) -> String {
 
 /// Simple hex encoding (avoid adding another dependency).
 mod hex {
+    use std::fmt::Write as _;
+
     pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+        bytes.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
     }
 }
 
@@ -400,12 +420,10 @@ fn now_iso() -> String {
 }
 
 fn is_within_ttl(timestamp: &str, ttl_secs: u64) -> bool {
-    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp) {
+    chrono::DateTime::parse_from_rfc3339(timestamp).is_ok_and(|ts| {
         let elapsed = chrono::Utc::now().signed_duration_since(ts);
-        elapsed.num_seconds() < ttl_secs as i64
-    } else {
-        false
-    }
+        elapsed.num_seconds() < i64::from(u32::try_from(ttl_secs).unwrap_or(u32::MAX))
+    })
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -413,11 +431,13 @@ fn is_within_ttl(timestamp: &str, ttl_secs: u64) -> bool {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// Read the data TTL from config, falling back to the default.
+#[must_use]
 pub fn read_data_ttl(crosslink_dir: &Path) -> u64 {
     read_config_u64(crosslink_dir, "external-cache-ttl").unwrap_or(DEFAULT_DATA_TTL_SECS)
 }
 
 /// Read the URL resolution TTL from config, falling back to the default.
+#[must_use]
 pub fn read_url_ttl(crosslink_dir: &Path) -> u64 {
     read_config_u64(crosslink_dir, "external-url-ttl").unwrap_or(DEFAULT_URL_TTL_SECS)
 }
@@ -443,11 +463,13 @@ pub struct ExternalKnowledgeReader {
 }
 
 impl ExternalKnowledgeReader {
-    pub fn new(pages_dir: PathBuf) -> Self {
+    #[must_use]
+    pub const fn new(pages_dir: PathBuf) -> Self {
         Self { pages_dir }
     }
 
     /// Create a reader for a local repo's knowledge cache.
+    #[must_use]
     pub fn for_local(repo_path: &Path) -> Self {
         Self {
             pages_dir: repo_path.join(".crosslink").join(".knowledge-cache"),
@@ -455,11 +477,19 @@ impl ExternalKnowledgeReader {
     }
 
     /// List all pages with parsed frontmatter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pages directory cannot be read.
     pub fn list_pages(&self) -> Result<Vec<PageInfo>> {
         list_pages_in_dir(&self.pages_dir)
     }
 
     /// Read a single page by slug.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the page does not exist or cannot be read.
     pub fn read_page(&self, slug: &str) -> Result<String> {
         let path = self.pages_dir.join(format!("{slug}.md"));
         if !path.exists() {
@@ -468,12 +498,20 @@ impl ExternalKnowledgeReader {
         std::fs::read_to_string(&path).context("Failed to read external page")
     }
 
-    /// Search page content (same algorithm as KnowledgeManager::search_content).
+    /// Search page content (same algorithm as `KnowledgeManager::search_content`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pages directory cannot be read.
     pub fn search_content(&self, query: &str, context: usize) -> Result<Vec<SearchMatch>> {
         search_content_in_dir(&self.pages_dir, query, context)
     }
 
     /// Search by source URL domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if listing pages fails.
     pub fn search_sources(&self, domain: &str) -> Result<Vec<PageInfo>> {
         let domain_lower = domain.to_lowercase();
         let pages = self.list_pages()?;
@@ -500,6 +538,10 @@ pub struct ExternalIssueReader {
 
 impl ExternalIssueReader {
     /// Create a reader from a hub directory that contains an `issues/` subdirectory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issues directory cannot be read or contains invalid data.
     pub fn from_hub_dir(hub_dir: &Path) -> Result<Self> {
         let issues_dir = hub_dir.join("issues");
         let issues = read_all_issue_files(&issues_dir)?;
@@ -507,12 +549,17 @@ impl ExternalIssueReader {
     }
 
     /// Create a reader for a local repo's hub cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hub cache directory cannot be read.
     pub fn for_local(repo_path: &Path) -> Result<Self> {
         let hub_dir = repo_path.join(".crosslink").join(".hub-cache");
         Self::from_hub_dir(&hub_dir)
     }
 
-    /// List issues with optional filters (mirrors db.list_issues semantics).
+    /// List issues with optional filters (mirrors `db.list_issues` semantics).
+    #[must_use]
     pub fn list_issues(
         &self,
         status_filter: Option<&str>,
@@ -532,20 +579,18 @@ impl ExternalIssueReader {
                 }
             })
             .filter(|issue| {
-                label_filter
-                    .map(|label| issue.labels.iter().any(|l| l == label))
-                    .unwrap_or(true)
+                label_filter.is_none_or(|label| issue.labels.iter().any(|l| l == label))
             })
             .filter(|issue| {
                 priority_filter
                     .and_then(|p| p.parse::<crate::models::Priority>().ok())
-                    .map(|p| issue.priority == p)
-                    .unwrap_or(true)
+                    .is_none_or(|p| issue.priority == p)
             })
             .collect()
     }
 
     /// Search issues by text (case-insensitive substring in title, description, comments).
+    #[must_use]
     pub fn search_issues(&self, query: &str) -> Vec<&IssueFile> {
         let query_lower = query.to_lowercase();
         self.issues
@@ -555,8 +600,7 @@ impl ExternalIssueReader {
                     || issue
                         .description
                         .as_ref()
-                        .map(|d: &String| d.to_lowercase().contains(&query_lower))
-                        .unwrap_or(false)
+                        .is_some_and(|d: &String| d.to_lowercase().contains(&query_lower))
                     || issue
                         .comments
                         .iter()
@@ -565,7 +609,8 @@ impl ExternalIssueReader {
             .collect()
     }
 
-    /// Find a single issue by display_id.
+    /// Find a single issue by `display_id`.
+    #[must_use]
     pub fn get_issue(&self, display_id: i64) -> Option<&IssueFile> {
         self.issues
             .iter()
@@ -578,6 +623,10 @@ impl ExternalIssueReader {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// List all `.md` pages in a directory with parsed frontmatter.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read or a page file is unreadable.
 pub fn list_pages_in_dir(dir: &Path) -> Result<Vec<PageInfo>> {
     let mut pages = Vec::new();
     if !dir.exists() {
@@ -587,7 +636,7 @@ pub fn list_pages_in_dir(dir: &Path) -> Result<Vec<PageInfo>> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map(|e| e == "md").unwrap_or(false) {
+        if path.extension().is_some_and(|e| e == "md") {
             let slug = path
                 .file_stem()
                 .unwrap_or_default()
@@ -610,8 +659,16 @@ pub fn list_pages_in_dir(dir: &Path) -> Result<Vec<PageInfo>> {
     Ok(pages)
 }
 
-/// Search page content in a directory (same algorithm as KnowledgeManager::search_content).
-pub fn search_content_in_dir(dir: &Path, query: &str, context: usize) -> Result<Vec<SearchMatch>> {
+/// Search page content in a directory (same algorithm as `KnowledgeManager::search_content`).
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read or a page file is unreadable.
+pub fn search_content_in_dir(
+    dir: &Path,
+    query: &str,
+    ctx_lines: usize,
+) -> Result<Vec<SearchMatch>> {
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -623,10 +680,10 @@ pub fn search_content_in_dir(dir: &Path, query: &str, context: usize) -> Result<
     }
 
     let mut entries: Vec<_> = std::fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+        .filter_map(std::result::Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(std::fs::DirEntry::file_name);
 
     let mut scored_results: Vec<(usize, Vec<SearchMatch>)> = Vec::new();
 
@@ -660,14 +717,14 @@ pub fn search_content_in_dir(dir: &Path, query: &str, context: usize) -> Result<
             .map(|(i, _)| i)
             .collect();
 
-        let groups = group_matches(&matching_indices, context);
+        let groups = group_matches(&matching_indices, ctx_lines);
         let mut file_matches = Vec::new();
 
         for group in groups {
             let first_match = group[0];
-            let start = first_match.saturating_sub(context);
+            let start = first_match.saturating_sub(ctx_lines);
             let last_match = group[group.len() - 1];
-            let end = (last_match + context + 1).min(lines.len());
+            let end = (last_match + ctx_lines + 1).min(lines.len());
 
             let context_lines: Vec<(usize, String)> = (start..end)
                 .map(|i| (i + 1, lines[i].to_string()))
@@ -745,7 +802,7 @@ mod tests {
         let repo_path = tmp.path().join("my-repo");
         fs::create_dir_all(repo_path.join(".crosslink")).unwrap();
 
-        let result = resolve_repo_inner(repo_path.to_str().unwrap()).unwrap();
+        let result = resolve_repo_inner(repo_path.to_str().unwrap());
         match result {
             RepoSource::Local(p) => assert_eq!(p, repo_path),
             _ => panic!("Expected Local variant"),
@@ -754,7 +811,7 @@ mod tests {
 
     #[test]
     fn test_resolve_repo_git_url() {
-        let result = resolve_repo_inner("https://github.com/org/repo").unwrap();
+        let result = resolve_repo_inner("https://github.com/org/repo");
         match result {
             RepoSource::Remote(url) => assert_eq!(url, "https://github.com/org/repo"),
             _ => panic!("Expected Remote variant"),
@@ -763,7 +820,7 @@ mod tests {
 
     #[test]
     fn test_resolve_repo_shorthand() {
-        let result = resolve_repo_inner("github.com/org/repo").unwrap();
+        let result = resolve_repo_inner("github.com/org/repo");
         match result {
             RepoSource::Remote(url) => assert_eq!(url, "github.com/org/repo"),
             _ => panic!("Expected Remote variant"),

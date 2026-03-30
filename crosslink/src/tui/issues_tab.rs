@@ -7,6 +7,7 @@ use ratatui::{
     Frame,
 };
 use std::cell::{Cell, RefCell};
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use crate::db::Database;
@@ -15,7 +16,7 @@ use crate::models::{Comment, Issue};
 use super::{StatusFilter, TabAction, HIGHLIGHT_BG};
 
 /// Sort options for the issue list.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortOrder {
     IdDesc,
     IdAsc,
@@ -24,21 +25,21 @@ pub enum SortOrder {
 }
 
 impl SortOrder {
-    fn next(self) -> Self {
+    const fn next(self) -> Self {
         match self {
-            SortOrder::IdDesc => SortOrder::IdAsc,
-            SortOrder::IdAsc => SortOrder::Priority,
-            SortOrder::Priority => SortOrder::Updated,
-            SortOrder::Updated => SortOrder::IdDesc,
+            Self::IdDesc => Self::IdAsc,
+            Self::IdAsc => Self::Priority,
+            Self::Priority => Self::Updated,
+            Self::Updated => Self::IdDesc,
         }
     }
 
-    fn label(self) -> &'static str {
+    const fn label(self) -> &'static str {
         match self {
-            SortOrder::IdDesc => "ID (newest)",
-            SortOrder::IdAsc => "ID (oldest)",
-            SortOrder::Priority => "Priority",
-            SortOrder::Updated => "Updated",
+            Self::IdDesc => "ID (newest)",
+            Self::IdAsc => "ID (oldest)",
+            Self::Priority => "Priority",
+            Self::Updated => "Updated",
         }
     }
 }
@@ -94,9 +95,9 @@ pub struct IssuesTab {
     /// Flattened tree nodes for tree view.
     tree_nodes: Vec<TreeNode>,
     tree_selected: usize,
-    /// TableState for list view scroll-to-follow (interior mutability for render).
+    /// `TableState` for list view scroll-to-follow (interior mutability for render).
     list_table_state: RefCell<TableState>,
-    /// TableState for tree view scroll-to-follow.
+    /// `TableState` for tree view scroll-to-follow.
     tree_table_state: RefCell<TableState>,
 }
 
@@ -180,7 +181,7 @@ impl IssuesTab {
             SortOrder::IdDesc => issues.sort_by(|a, b| b.id.cmp(&a.id)),
             SortOrder::IdAsc => issues.sort_by(|a, b| a.id.cmp(&b.id)),
             SortOrder::Priority => {
-                issues.sort_by(|a, b| priority_rank(&a.priority).cmp(&priority_rank(&b.priority)))
+                issues.sort_by(|a, b| priority_rank(a.priority).cmp(&priority_rank(b.priority)));
             }
             SortOrder::Updated => issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
         }
@@ -221,7 +222,7 @@ impl IssuesTab {
 
     /// Handle key events in list view mode. Returns true if consumed.
     ///
-    /// INTENTIONAL: `let _ =` on refresh/build_tree calls throughout this handler —
+    /// INTENTIONAL: `let _ =` on refresh/`build_tree` calls throughout this handler --
     /// TUI event handlers cannot propagate errors, so DB failures are silently ignored
     /// and the UI shows stale data until the next successful refresh.
     fn handle_list_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
@@ -305,7 +306,6 @@ impl IssuesTab {
                 self.searching = true;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Char('t') => {
                 if let Some(db) = db {
                     let _ = self.build_tree(db);
@@ -363,22 +363,23 @@ impl IssuesTab {
                 }
             );
             if let Some(ref desc) = d.issue.description {
-                text.push_str(&format!("\n{desc}\n"));
+                let _ = write!(text, "\n{desc}\n");
             }
             if !d.comments.is_empty() {
-                text.push_str(&format!("\nComments ({}):\n", d.comments.len()));
+                let _ = write!(text, "\nComments ({}):\n", d.comments.len());
                 for c in &d.comments {
-                    let kind = if c.kind != "note" {
-                        format!("[{}] ", c.kind)
-                    } else {
+                    let kind = if c.kind == "note" {
                         String::new()
+                    } else {
+                        format!("[{}] ", c.kind)
                     };
-                    text.push_str(&format!(
+                    let _ = write!(
+                        text,
                         "  {}{}\n  {}\n\n",
                         kind,
                         c.created_at.format("%Y-%m-%d %H:%M"),
                         c.content
-                    ));
+                    );
                 }
             }
             let ok = super::copy_to_clipboard(&text);
@@ -451,7 +452,7 @@ impl IssuesTab {
     }
 
     /// Handle key events in tree view mode.
-    /// INTENTIONAL: `let _ =` on build_tree calls — TUI event handlers cannot propagate errors.
+    /// INTENTIONAL: `let _ =` on `build_tree` calls -- TUI event handlers cannot propagate errors.
     fn handle_tree_key(&mut self, key: KeyEvent, db: Option<&Database>) -> TabAction {
         match key.code {
             KeyCode::Esc => {
@@ -511,7 +512,6 @@ impl IssuesTab {
                 }
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -553,7 +553,7 @@ impl IssuesTab {
                     let status_marker = if node.issue.status == crate::models::IssueStatus::Closed {
                         Span::styled("\u{2713} ", Style::default().fg(Color::DarkGray))
                     } else {
-                        Span::styled("\u{25cf} ", priority_color(&node.issue.priority))
+                        Span::styled("\u{25cf} ", priority_color(node.issue.priority))
                     };
 
                     let id_str = format_issue_id(node.issue.id);
@@ -570,9 +570,9 @@ impl IssuesTab {
                     };
 
                     Row::new(vec![ratatui::text::Text::from(Line::from(vec![
-                        Span::raw(format!("{}{}", indent, connector)),
+                        Span::raw(format!("{indent}{connector}")),
                         status_marker,
-                        Span::styled(format!("{} ", id_str), Style::default().fg(Color::DarkGray)),
+                        Span::styled(format!("{id_str} "), Style::default().fg(Color::DarkGray)),
                         Span::styled(node.issue.title.clone(), title_style),
                         Span::styled(labels_str, Style::default().fg(Color::Magenta)),
                     ]))])
@@ -756,9 +756,8 @@ impl IssuesTab {
     }
 
     fn render_detail(&self, frame: &mut Frame, area: Rect) {
-        let detail = match &self.detail {
-            Some(d) => d,
-            None => return,
+        let Some(detail) = &self.detail else {
+            return;
         };
 
         let issue = &detail.issue;
@@ -784,10 +783,10 @@ impl IssuesTab {
 
         lines.push(Line::from(vec![
             Span::styled(" Status: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(issue.status.as_str(), status_color(&issue.status)),
+            Span::styled(issue.status.as_str(), status_color(issue.status)),
             Span::raw("       "),
             Span::styled("Priority: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(issue.priority.as_str(), priority_color(&issue.priority)),
+            Span::styled(issue.priority.as_str(), priority_color(issue.priority)),
             Span::raw("       "),
             Span::styled("Labels: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(labels_str, Style::default().fg(Color::Magenta)),
@@ -796,16 +795,14 @@ impl IssuesTab {
         let milestone_str = detail
             .milestone
             .as_ref()
-            .map(|m| format!("#{} {}", m.id, m.name))
-            .unwrap_or_else(|| "(none)".to_string());
+            .map_or_else(|| "(none)".to_string(), |m| format!("#{} {}", m.id, m.name));
 
         lines.push(Line::from(vec![
             Span::styled(" Parent: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(
                 issue
                     .parent_id
-                    .map(format_issue_id)
-                    .unwrap_or_else(|| "(none)".to_string()),
+                    .map_or_else(|| "(none)".to_string(), format_issue_id),
             ),
             Span::raw("     "),
             Span::styled("Milestone: ", Style::default().add_modifier(Modifier::BOLD)),
@@ -827,7 +824,7 @@ impl IssuesTab {
                 .format("(%I:%M %p %Z)")
                 .to_string();
             ts_spans.push(Span::styled(
-                format!("  {}", local_created),
+                format!("  {local_created}"),
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -844,7 +841,7 @@ impl IssuesTab {
                 .format("(%I:%M %p %Z)")
                 .to_string();
             ts_spans.push(Span::styled(
-                format!("  {}", local_updated),
+                format!("  {local_updated}"),
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -892,7 +889,7 @@ impl IssuesTab {
                     Style::default().add_modifier(Modifier::BOLD),
                 )));
                 for line in desc.lines() {
-                    lines.push(Line::from(format!("   {}", line)));
+                    lines.push(Line::from(format!("   {line}")));
                 }
             }
         }
@@ -908,7 +905,7 @@ impl IssuesTab {
                 let status_marker = if sub.status == crate::models::IssueStatus::Closed {
                     Span::styled("  \u{2713} ", Style::default().fg(Color::DarkGray))
                 } else {
-                    Span::styled("  \u{25cf} ", priority_color(&sub.priority))
+                    Span::styled("  \u{25cf} ", priority_color(sub.priority))
                 };
                 let title_style = if sub.status == crate::models::IssueStatus::Closed {
                     Style::default().fg(Color::DarkGray)
@@ -922,7 +919,7 @@ impl IssuesTab {
                         Style::default().fg(Color::DarkGray),
                     ),
                     Span::styled(&sub.title, title_style),
-                    Span::styled(format!("  {}", sub.priority), priority_color(&sub.priority)),
+                    Span::styled(format!("  {}", sub.priority), priority_color(sub.priority)),
                 ]));
             }
         }
@@ -973,21 +970,21 @@ impl IssuesTab {
             )));
         } else {
             for comment in &detail.comments {
-                let kind_badge = if comment.kind != "note" {
-                    format!("[{}] ", comment.kind)
-                } else {
+                let kind_badge = if comment.kind == "note" {
                     String::new()
+                } else {
+                    format!("[{}] ", comment.kind)
                 };
 
                 let time = comment.created_at.format("%Y-%m-%d %H:%M");
 
                 lines.push(Line::from(vec![
-                    Span::styled(format!(" {}", kind_badge), Style::default().fg(Color::Cyan)),
-                    Span::styled(format!("{}", time), Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!(" {kind_badge}"), Style::default().fg(Color::Cyan)),
+                    Span::styled(format!("{time}"), Style::default().fg(Color::DarkGray)),
                 ]));
 
                 for line in comment.content.lines() {
-                    lines.push(Line::from(format!("   {}", line)));
+                    lines.push(Line::from(format!("   {line}")));
                 }
                 lines.push(Line::from(""));
             }
@@ -1033,7 +1030,7 @@ impl IssuesTab {
 }
 
 impl super::Tab for IssuesTab {
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Issues"
     }
 
@@ -1063,7 +1060,7 @@ impl super::Tab for IssuesTab {
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
 
-    /// INTENTIONAL: `let _ =` on refresh/build_tree — force_refresh is best-effort, TUI shows stale data on failure.
+    /// INTENTIONAL: `let _ =` on `refresh`/`build_tree` -- `force_refresh` is best-effort, TUI shows stale data on failure.
     fn force_refresh(&mut self) {
         if let Ok(db) = self.open_db() {
             match self.view_mode {
@@ -1084,11 +1081,11 @@ fn format_issue_id(id: i64) -> String {
     if id < 0 {
         format!("L{}", id.unsigned_abs())
     } else {
-        format!("#{}", id)
+        format!("#{id}")
     }
 }
 
-fn priority_rank(priority: &crate::models::Priority) -> u8 {
+const fn priority_rank(priority: crate::models::Priority) -> u8 {
     use crate::models::Priority;
     match priority {
         Priority::Critical => 0,
@@ -1098,7 +1095,7 @@ fn priority_rank(priority: &crate::models::Priority) -> u8 {
     }
 }
 
-fn priority_color(priority: &crate::models::Priority) -> Style {
+fn priority_color(priority: crate::models::Priority) -> Style {
     use crate::models::Priority;
     match priority {
         Priority::Critical => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -1108,7 +1105,7 @@ fn priority_color(priority: &crate::models::Priority) -> Style {
     }
 }
 
-fn status_color(status: &crate::models::IssueStatus) -> Style {
+fn status_color(status: crate::models::IssueStatus) -> Style {
     use crate::models::IssueStatus;
     match status {
         IssueStatus::Open => Style::default().fg(Color::Green),
@@ -1192,18 +1189,18 @@ mod tests {
     #[test]
     fn test_priority_rank_ordering() {
         assert!(
-            priority_rank(&crate::models::Priority::Critical)
-                < priority_rank(&crate::models::Priority::High)
+            priority_rank(crate::models::Priority::Critical)
+                < priority_rank(crate::models::Priority::High)
         );
         assert!(
-            priority_rank(&crate::models::Priority::High)
-                < priority_rank(&crate::models::Priority::Medium)
+            priority_rank(crate::models::Priority::High)
+                < priority_rank(crate::models::Priority::Medium)
         );
         assert!(
-            priority_rank(&crate::models::Priority::Medium)
-                < priority_rank(&crate::models::Priority::Low)
+            priority_rank(crate::models::Priority::Medium)
+                < priority_rank(crate::models::Priority::Low)
         );
-        assert!(priority_rank(&crate::models::Priority::Low) < 4);
+        assert!(priority_rank(crate::models::Priority::Low) < 4);
     }
 
     #[test]

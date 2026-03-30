@@ -36,7 +36,10 @@ fn build_detail(
     let progress_percent = if issue_count == 0 {
         0.0
     } else {
-        (completed_count as f64 / issue_count as f64) * 100.0
+        // Milestone issue counts are small enough to fit in u32.
+        let completed = u32::try_from(completed_count).unwrap_or(u32::MAX);
+        let total = u32::try_from(issue_count).unwrap_or(u32::MAX);
+        f64::from(completed) / f64::from(total) * 100.0
     };
     Ok(MilestoneDetail {
         milestone,
@@ -54,6 +57,10 @@ fn build_detail(
 ///
 /// Query params:
 /// - `?status=open|closed|all` — filter by status (default: open)
+///
+/// # Errors
+///
+/// Returns an error if the database query or detail building fails.
 pub async fn list_milestones(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<MilestoneListQuery>,
@@ -70,6 +77,7 @@ pub async fn list_milestones(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| internal_error("Failed to build milestone details", e))?;
 
+    drop(db);
     let total = items.len();
     Ok(Json(MilestoneListResponse { items, total }))
 }
@@ -79,6 +87,10 @@ pub async fn list_milestones(
 /// Body: `{"name": "<name>", "description": "<optional>"}`.
 ///
 /// Returns the newly created milestone with progress stats.
+///
+/// # Errors
+///
+/// Returns an error if creating, fetching, or building the milestone detail fails.
 pub async fn create_milestone(
     State(state): State<AppState>,
     Json(body): Json<CreateMilestoneRequest>,
@@ -102,10 +114,15 @@ pub async fn create_milestone(
     let detail = build_detail(&db, milestone)
         .map_err(|e| internal_error("Failed to build milestone detail", e))?;
 
+    drop(db);
     Ok(Json(detail))
 }
 
 /// `GET /api/v1/milestones/:id` — get a single milestone with progress statistics.
+///
+/// # Errors
+///
+/// Returns an error if the milestone is not found or the detail cannot be built.
 pub async fn get_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -115,17 +132,22 @@ pub async fn get_milestone(
     let milestone = db
         .get_milestone(id)
         .map_err(|e| internal_error("Failed to fetch milestone", e))?
-        .ok_or_else(|| not_found(format!("Milestone {} not found", id)))?;
+        .ok_or_else(|| not_found(format!("Milestone {id} not found")))?;
 
     let detail = build_detail(&db, milestone)
         .map_err(|e| internal_error("Failed to build milestone detail", e))?;
 
+    drop(db);
     Ok(Json(detail))
 }
 
 /// `POST /api/v1/milestones/:id/assign` — assign an issue to a milestone.
 ///
 /// Body: `{"issue_id": <id>}`.
+///
+/// # Errors
+///
+/// Returns an error if the milestone or issue is not found, or assignment fails.
 pub async fn assign_milestone(
     State(state): State<AppState>,
     Path(milestone_id): Path<i64>,
@@ -136,7 +158,7 @@ pub async fn assign_milestone(
     // Verify the milestone exists.
     db.get_milestone(milestone_id)
         .map_err(|e| internal_error("Failed to look up milestone", e))?
-        .ok_or_else(|| not_found(format!("Milestone {} not found", milestone_id)))?;
+        .ok_or_else(|| not_found(format!("Milestone {milestone_id} not found")))?;
 
     // Verify the issue exists.
     db.get_issue(body.issue_id)
@@ -146,10 +168,15 @@ pub async fn assign_milestone(
     db.add_issue_to_milestone(milestone_id, body.issue_id)
         .map_err(|e| internal_error("Failed to assign issue to milestone", e))?;
 
+    drop(db);
     Ok(Json(OkResponse { ok: true }))
 }
 
 /// `POST /api/v1/milestones/:id/close` — close a milestone.
+///
+/// # Errors
+///
+/// Returns an error if the milestone is not found or closing fails.
 pub async fn close_milestone(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -159,12 +186,13 @@ pub async fn close_milestone(
     // Verify the milestone exists first.
     db.get_milestone(id)
         .map_err(|e| internal_error("Failed to look up milestone", e))?
-        .ok_or_else(|| not_found(format!("Milestone {} not found", id)))?;
+        .ok_or_else(|| not_found(format!("Milestone {id} not found")))?;
 
     let closed = db
         .close_milestone(id)
         .map_err(|e| internal_error("Failed to close milestone", e))?;
 
+    drop(db);
     if !closed {
         return Err(internal_error("close_milestone returned false", ""));
     }

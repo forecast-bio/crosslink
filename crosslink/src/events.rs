@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::signing;
 
-/// Total ordering key for events: (timestamp, agent_id, agent_seq).
+/// Total ordering key for events: (timestamp, `agent_id`, `agent_seq`).
 ///
 /// Events are sorted by this key during compaction to produce a deterministic
 /// materialized state regardless of which agent reads them.
@@ -26,6 +26,7 @@ pub struct OrderingKey {
 }
 
 impl OrderingKey {
+    #[must_use]
     pub fn from_envelope(env: &EventEnvelope) -> Self {
         Self {
             timestamp: env.timestamp,
@@ -130,8 +131,25 @@ pub enum Event {
 
 /// Trait for encoding/decoding event envelopes.
 pub trait EventCodec {
+    /// Encode a single event envelope to bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails.
     fn encode(&self, event: &EventEnvelope) -> Result<Vec<u8>>;
+
+    /// Encode a batch of event envelopes to bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization of any event fails.
     fn encode_batch(&self, events: &[EventEnvelope]) -> Result<Vec<u8>>;
+
+    /// Decode all event envelopes from bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if deserialization fails for a non-trailing line.
     fn decode_all(&self, bytes: &[u8]) -> Result<Vec<EventEnvelope>>;
 }
 
@@ -204,15 +222,14 @@ fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
     // File does not end with newline — find the last newline and truncate.
     // Read up to 64 KiB from the tail to find it.
     let tail_size = len.min(65536);
-    file.seek(SeekFrom::End(-(tail_size as i64)))?;
+    file.seek(SeekFrom::End(-tail_size.cast_signed()))?;
     let mut buf = vec![0u8; tail_size as usize];
     file.read_exact(&mut buf)?;
-    let truncate_to = if let Some(pos) = buf.iter().rposition(|&b| b == b'\n') {
-        len - tail_size + pos as u64 + 1
-    } else {
+    let truncate_to = buf.iter().rposition(|&b| b == b'\n').map_or(
         // No newline found at all — the entire file is one corrupt fragment.
-        0
-    };
+        0,
+        |pos| len - tail_size + pos as u64 + 1,
+    );
     tracing::warn!(
         "truncating {} bytes of incomplete trailing data from event log",
         len - truncate_to
@@ -226,6 +243,10 @@ fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
 ///
 /// Repairs any incomplete trailing line left by a previous crash before
 /// appending, and fsyncs after writing to ensure durability.
+///
+/// # Errors
+///
+/// Returns an error if the log file cannot be opened, repaired, or written to.
 pub fn append_event(log_path: &Path, envelope: &EventEnvelope) -> Result<()> {
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent)
@@ -250,6 +271,10 @@ pub fn append_event(log_path: &Path, envelope: &EventEnvelope) -> Result<()> {
 }
 
 /// Read all events from a log file.
+///
+/// # Errors
+///
+/// Returns an error if the log file cannot be read or contains corrupt data.
 pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
     if !log_path.exists() {
         return Ok(Vec::new());
@@ -269,6 +294,10 @@ pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
 /// the watermark timestamp, but the NDJSON format requires scanning for
 /// newline boundaries regardless. The current approach is correct and
 /// performant for typical log sizes (<100k events). (#333)
+///
+/// # Errors
+///
+/// Returns an error if reading or parsing the log file fails.
 pub fn read_events_after(log_path: &Path, watermark: &OrderingKey) -> Result<Vec<EventEnvelope>> {
     let all = read_events(log_path)?;
     Ok(all
@@ -294,6 +323,10 @@ fn canonicalize_event(envelope: &EventEnvelope) -> Result<Vec<u8>> {
 }
 
 /// Sign an event envelope using the agent's SSH key.
+///
+/// # Errors
+///
+/// Returns an error if canonicalization or SSH signing fails.
 pub fn sign_event(
     envelope: &mut EventEnvelope,
     private_key_path: &Path,
@@ -307,13 +340,16 @@ pub fn sign_event(
 }
 
 /// Verify an event's signature against the allowed signers store.
+///
+/// # Errors
+///
+/// Returns an error if canonicalization or signature verification fails.
 pub fn verify_event_signature(
     envelope: &EventEnvelope,
     allowed_signers_path: &Path,
 ) -> Result<bool> {
-    let (signed_by, signature) = match (&envelope.signed_by, &envelope.signature) {
-        (Some(s), Some(sig)) => (s, sig),
-        _ => return Ok(false),
+    let (Some(signed_by), Some(signature)) = (&envelope.signed_by, &envelope.signature) else {
+        return Ok(false);
     };
     let content = canonicalize_event(envelope)?;
     let principal = format!("{}@crosslink", envelope.agent_id);
@@ -324,7 +360,7 @@ pub fn verify_event_signature(
         &content,
         signature,
     )
-    .with_context(|| format!("Failed to verify event signature for {}", signed_by))
+    .with_context(|| format!("Failed to verify event signature for {signed_by}"))
 }
 
 #[cfg(test)]

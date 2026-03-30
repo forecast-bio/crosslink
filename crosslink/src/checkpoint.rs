@@ -123,6 +123,10 @@ fn checkpoint_dir(cache_dir: &Path) -> std::path::PathBuf {
 }
 
 /// Read checkpoint state from disk. Returns default if missing.
+///
+/// # Errors
+///
+/// Returns an error if the checkpoint file exists but cannot be read or parsed.
 pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
     let path = checkpoint_dir(cache_dir).join(CHECKPOINT_FILE);
     if !path.exists() {
@@ -135,6 +139,10 @@ pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
 }
 
 /// Write checkpoint state to disk (pretty-printed JSON).
+///
+/// # Errors
+///
+/// Returns an error if the checkpoint directory cannot be created or the file cannot be written.
 pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()> {
     let dir = checkpoint_dir(cache_dir);
     std::fs::create_dir_all(&dir)
@@ -148,6 +156,10 @@ pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()>
 ///
 /// Reads from the checkpoint state's embedded `watermark` field (atomic).
 /// Falls back to the legacy `watermark.json` file for migration.
+///
+/// # Errors
+///
+/// Returns an error if checkpoint or watermark files cannot be read or parsed.
 pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
     // Prefer the watermark embedded in checkpoint state (atomic with state).
     let state = read_checkpoint(cache_dir)?;

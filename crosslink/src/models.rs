@@ -30,16 +30,16 @@ impl FromStr for IssueStatus {
             "open" => Ok(Self::Open),
             "closed" => Ok(Self::Closed),
             "archived" => Ok(Self::Archived),
-            other => anyhow::bail!(
-                "Invalid status '{}'. Valid values: open, closed, archived",
-                other
-            ),
+            other => {
+                anyhow::bail!("Invalid status '{other}'. Valid values: open, closed, archived")
+            }
         }
     }
 }
 
 impl IssueStatus {
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Open => "open",
             Self::Closed => "closed",
@@ -78,15 +78,15 @@ impl FromStr for Priority {
             "high" => Ok(Self::High),
             "critical" => Ok(Self::Critical),
             other => anyhow::bail!(
-                "Invalid priority '{}'. Valid values: low, medium, high, critical",
-                other
+                "Invalid priority '{other}'. Valid values: low, medium, high, critical"
             ),
         }
     }
 }
 
 impl Priority {
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Low => "low",
             Self::Medium => "medium",
@@ -202,7 +202,7 @@ impl FromSql for Priority {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Issue {
     pub id: i64,
     pub title: String,
@@ -215,7 +215,7 @@ pub struct Issue {
     pub closed_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Comment {
     pub id: i64,
     pub issue_id: i64,
@@ -235,7 +235,7 @@ fn default_comment_kind() -> String {
     "note".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Session {
     pub id: i64,
     pub started_at: DateTime<Utc>,
@@ -246,7 +246,7 @@ pub struct Session {
     pub agent_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Milestone {
     pub id: i64,
     pub name: String,

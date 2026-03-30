@@ -28,20 +28,24 @@ impl SyncManager {
     /// If the agent has an SSH key, sets `gpg.format=ssh`, `user.signingkey`,
     /// and `commit.gpgsign=true` in the cache worktree's local git config.
     /// This makes all subsequent commits on the hub branch automatically signed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if loading agent config or configuring git signing fails.
     pub fn configure_signing(&self, crosslink_dir: &Path) -> Result<()> {
         if !self.cache_dir.exists() {
             return Ok(());
         }
 
-        let agent = match AgentConfig::load(crosslink_dir)? {
-            Some(a) => a,
-            None => return Ok(()),
+        let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+            return Ok(());
         };
 
-        let (rel_key, _fingerprint) = match (&agent.ssh_key_path, &agent.ssh_fingerprint) {
-            (Some(k), Some(f)) => (k.clone(), f.clone()),
-            _ => return Ok(()),
+        let (Some(rel_key), Some(_fingerprint)) = (&agent.ssh_key_path, &agent.ssh_fingerprint)
+        else {
+            return Ok(());
         };
+        let rel_key = rel_key.clone();
 
         // Resolve private key path (relative to .crosslink/)
         let private_key = self.crosslink_dir.join(&rel_key);
@@ -83,58 +87,60 @@ impl SyncManager {
         let driver_key = output.ok().and_then(|o| {
             if o.status.success() {
                 let key = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if !key.is_empty() {
-                    Some(key)
-                } else {
+                if key.is_empty() {
                     None
+                } else {
+                    Some(key)
                 }
             } else {
                 None
             }
         });
 
-        match driver_key {
-            Some(key_path) => {
-                // Expand tilde to home directory. Handle both "~/" and bare "~".
-                // Uses $HOME (Unix) / $USERPROFILE (Windows) directly, same
-                // approach as signing::dirs_next().
-                let expanded = if let Some(rest) = key_path.strip_prefix("~/") {
-                    match home_dir() {
-                        Some(home) => home.join(rest),
-                        None => {
+        if let Some(key_path) = driver_key {
+            // Expand tilde to home directory. Handle both "~/" and bare "~".
+            // Uses $HOME (Unix) / $USERPROFILE (Windows) directly, same
+            // approach as signing::dirs_next().
+            let expanded = key_path.strip_prefix("~/").map_or_else(
+                || {
+                    if key_path == "~" {
+                        home_dir().unwrap_or_else(|| std::path::PathBuf::from(&key_path))
+                    } else {
+                        std::path::PathBuf::from(&key_path)
+                    }
+                },
+                |rest| {
+                    home_dir().map_or_else(
+                        || {
                             tracing::warn!(
                                 "tilde expansion failed: cannot determine home directory for '{}'",
                                 key_path
                             );
                             std::path::PathBuf::from(&key_path)
-                        }
-                    }
-                } else if key_path == "~" {
-                    home_dir().unwrap_or_else(|| std::path::PathBuf::from(&key_path))
-                } else {
-                    std::path::PathBuf::from(&key_path)
-                };
+                        },
+                        |home| home.join(rest),
+                    )
+                },
+            );
 
-                if expanded.exists() {
-                    tracing::info!(
-                        "agent key missing, falling back to driver signing key: {}",
-                        expanded.display()
-                    );
-                    signing::configure_git_ssh_signing(&self.cache_dir, &expanded, None)?;
-                } else {
-                    tracing::warn!(
-                        "agent key missing and driver key not found at {}, disabling signing",
-                        expanded.display()
-                    );
-                    signing::disable_git_signing(&self.cache_dir)?;
-                }
-            }
-            None => {
+            if expanded.exists() {
+                tracing::info!(
+                    "agent key missing, falling back to driver signing key: {}",
+                    expanded.display()
+                );
+                signing::configure_git_ssh_signing(&self.cache_dir, &expanded, None)?;
+            } else {
                 tracing::warn!(
-                    "agent key missing and no driver signing key configured, disabling signing"
+                    "agent key missing and driver key not found at {}, disabling signing",
+                    expanded.display()
                 );
                 signing::disable_git_signing(&self.cache_dir)?;
             }
+        } else {
+            tracing::warn!(
+                "agent key missing and no driver signing key configured, disabling signing"
+            );
+            signing::disable_git_signing(&self.cache_dir)?;
         }
 
         Ok(())
@@ -158,19 +164,21 @@ impl SyncManager {
     /// Subsequent commits from this agent will be signed normally. Auditors
     /// can verify the key-publication commit via the git history (the key
     /// file hash is deterministic given the public key content).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if loading agent config, writing the key file, or committing fails.
     pub fn ensure_agent_key_published(&self, crosslink_dir: &Path) -> Result<bool> {
         if !self.cache_dir.exists() {
             return Ok(false);
         }
 
-        let agent = match AgentConfig::load(crosslink_dir)? {
-            Some(a) => a,
-            None => return Ok(false),
+        let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+            return Ok(false);
         };
 
-        let public_key = match &agent.ssh_public_key {
-            Some(k) => k.clone(),
-            None => return Ok(false),
+        let Some(public_key) = agent.ssh_public_key.clone() else {
+            return Ok(false);
         };
 
         let key_file = self
@@ -187,7 +195,7 @@ impl SyncManager {
         // chicken-and-egg: we need to publish before signing is configured.
         let keys_dir = self.cache_dir.join("trust").join("keys");
         std::fs::create_dir_all(&keys_dir)?;
-        std::fs::write(&key_file, format!("{}\n", public_key))?;
+        std::fs::write(&key_file, format!("{public_key}\n"))?;
 
         self.git_in_cache(&["add", "trust/"])?;
         // Use -c commit.gpgsign=false to bypass signing for key publishing
@@ -206,7 +214,7 @@ impl SyncManager {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.contains("nothing to commit") {
-                bail!("git commit for key publication failed: {}", stderr);
+                bail!("git commit for key publication failed: {stderr}");
             }
         }
 
@@ -214,6 +222,10 @@ impl SyncManager {
     }
 
     /// Read the trust keyring from the cache (deprecated — use `read_allowed_signers`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the keyring file exists but cannot be parsed.
     pub fn read_keyring(&self) -> Result<Option<Keyring>> {
         let path = self.cache_dir.join("trust").join("keyring.json");
         if !path.exists() {
@@ -222,7 +234,11 @@ impl SyncManager {
         Ok(Some(Keyring::load(&path)?))
     }
 
-    /// Read the SSH allowed_signers trust store from the cache.
+    /// Read the SSH `allowed_signers` trust store from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the allowed signers file cannot be read or parsed.
     pub fn read_allowed_signers(&self) -> Result<signing::AllowedSigners> {
         let path = self.cache_dir.join("trust").join("allowed_signers");
         signing::AllowedSigners::load(&path)
@@ -242,7 +258,7 @@ impl SyncManager {
         let stdout = String::from_utf8_lossy(&verify.stdout);
         let stderr = String::from_utf8_lossy(&verify.stderr);
         // Combine stdout+stderr: macOS ssh-keygen emits "Good" on stdout
-        let combined = format!("{}\n{}", stdout, stderr);
+        let combined = format!("{stdout}\n{stderr}");
 
         if verify.status.success() {
             let parsed = signing::parse_verify_output(&combined);
@@ -272,11 +288,15 @@ impl SyncManager {
     /// Verify the last N commits on the hub branch.
     ///
     /// Returns a list of `(commit_hash, verification_result)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git log or signature verification commands fail.
     pub fn verify_recent_commits(
         &self,
         count: usize,
     ) -> Result<Vec<(String, SignatureVerification)>> {
-        let output = self.git_in_cache(&["log", &format!("-{}", count), "--format=%H"])?;
+        let output = self.git_in_cache(&["log", &format!("-{count}"), "--format=%H"])?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let commits: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
 
@@ -292,10 +312,14 @@ impl SyncManager {
     /// Verify per-entry signatures on comments in cached issue files.
     ///
     /// Reads all issues from the cache, checks any comments that have
-    /// `signed_by` + `signature` fields against the allowed_signers store
+    /// `signed_by` + `signature` fields against the `allowed_signers` store
     /// using `signing::verify_content()`.
     ///
     /// Returns `(verified, failed, unsigned)` counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading issue files or the allowed signers store fails.
     pub fn verify_entry_signatures(&self) -> Result<(usize, usize, usize)> {
         let issues_dir = self.cache_dir.join("issues");
         let issues = crate::issue_file::read_all_issue_files(&issues_dir)?;
@@ -364,6 +388,10 @@ impl SyncManager {
     /// Verify the signature on the latest commit that touched locks.json.
     ///
     /// Handles both SSH and GPG signatures via `signing::parse_verify_output`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git log or signature verification commands fail.
     pub fn verify_locks_signature(&self) -> Result<SignatureVerification> {
         // Get the commit that last touched locks.json
         let output = self.git_in_cache(&["log", "-1", "--format=%H", "--", "locks.json"])?;

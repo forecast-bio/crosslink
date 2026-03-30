@@ -56,7 +56,7 @@ pub fn format_relative_time(dt: &chrono::DateTime<chrono::Utc>) -> String {
 }
 
 /// Status filter options shared by Issues and Milestones tabs.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusFilter {
     Open,
     Closed,
@@ -64,19 +64,19 @@ pub enum StatusFilter {
 }
 
 impl StatusFilter {
-    pub fn next(self) -> Self {
+    pub const fn next(self) -> Self {
         match self {
-            StatusFilter::Open => StatusFilter::Closed,
-            StatusFilter::Closed => StatusFilter::All,
-            StatusFilter::All => StatusFilter::Open,
+            Self::Open => Self::Closed,
+            Self::Closed => Self::All,
+            Self::All => Self::Open,
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
-            StatusFilter::Open => "Open",
-            StatusFilter::Closed => "Closed",
-            StatusFilter::All => "All",
+            Self::Open => "Open",
+            Self::Closed => "Closed",
+            Self::All => "All",
         }
     }
 }
@@ -106,7 +106,7 @@ pub fn truncate_str(s: &str, max_len: usize) -> String {
 }
 
 /// Format an event into a human-readable summary string.
-/// Shared between agents_tab and config_tab for event display.
+/// Shared between `agents_tab` and `config_tab` for event display.
 pub fn format_event_description(event: &crate::events::Event) -> String {
     use crate::events::Event;
     match event {
@@ -151,7 +151,7 @@ pub enum TabAction {
 
 /// Trait that each tab panel must implement.
 pub trait Tab {
-    fn title(&self) -> &str;
+    fn title(&self) -> &'static str;
     fn render(&self, frame: &mut Frame, area: Rect);
     fn handle_key(&mut self, key: KeyEvent) -> TabAction;
     /// Called when this tab becomes the active tab.
@@ -160,7 +160,7 @@ pub trait Tab {
     fn on_leave(&mut self);
     /// Poll for async data updates (called each event-loop tick).
     fn poll_updates(&mut self) {}
-    /// Force a data reload (called after sync completes). Default cycles on_leave/on_enter.
+    /// Force a data reload (called after sync completes). Default cycles `on_leave`/`on_enter`.
     fn force_refresh(&mut self) {
         self.on_leave();
         self.on_enter();
@@ -218,10 +218,9 @@ pub fn copy_to_clipboard(text: &str) -> bool {
                     last_result = attempt;
                     break;
                 }
-                Ok(_) => continue,
+                Ok(_) => {}
                 Err(_) => {
                     last_result = attempt;
-                    continue;
                 }
             }
         }
@@ -370,7 +369,7 @@ impl App {
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.should_quit = true
+                self.should_quit = true;
             }
             KeyCode::Tab => self.next_tab(),
             KeyCode::BackTab => self.prev_tab(),
@@ -585,11 +584,11 @@ impl App {
             .style(Style::default().bg(Color::DarkGray).fg(Color::White));
             frame.render_widget(flash, chunks[2]);
         } else {
-            self.render_status_bar(frame, chunks[2]);
+            Self::render_status_bar(frame, chunks[2]);
         }
 
         if self.show_help {
-            self.render_help_overlay(frame);
+            Self::render_help_overlay(frame);
         }
     }
 
@@ -634,7 +633,7 @@ impl App {
         frame.render_widget(bar, area);
     }
 
-    fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
+    fn render_status_bar(frame: &mut Frame, area: Rect) {
         let keys = vec![
             Span::styled("q", Style::default().fg(Color::Cyan)),
             Span::raw(":Quit  "),
@@ -655,7 +654,7 @@ impl App {
         frame.render_widget(status, area);
     }
 
-    fn render_help_overlay(&self, frame: &mut Frame) {
+    fn render_help_overlay(frame: &mut Frame) {
         let area = centered_rect(60, 70, frame.area());
 
         // Clear the background

@@ -48,6 +48,11 @@ pub struct SearchResultItem {
 ///
 /// Searches across issues (title + description), comments (content), and
 /// knowledge pages (full-text). Returns a combined, ordered list of results.
+///
+/// # Errors
+///
+/// Returns an error if the search query is empty or a database/knowledge
+/// search operation fails.
 pub async fn global_search(
     State(state): State<AppState>,
     Query(params): Query<KnowledgeSearchQuery>,
@@ -67,6 +72,13 @@ pub async fn global_search(
             .search_issues(&query)
             .map_err(|e| internal_error("Issue search failed", e))?;
 
+        // --- Search comments (single query instead of N+1) ---
+        let matching_comments = db
+            .search_comments(&query)
+            .map_err(|e| internal_error("Failed to search comments", e))?;
+
+        drop(db);
+
         for issue in issues {
             let snippet = issue
                 .description
@@ -85,16 +97,11 @@ pub async fn global_search(
             });
         }
 
-        // --- Search comments (single query instead of N+1) ---
-        let matching_comments = db
-            .search_comments(&query)
-            .map_err(|e| internal_error("Failed to search comments", e))?;
-
         for (comment, issue_id, issue_title) in matching_comments {
             let snippet = comment.content.chars().take(200).collect::<String>();
             results.push(SearchResultItem {
                 kind: "comment".to_string(),
-                title: format!("Comment on #{}: {}", issue_id, issue_title),
+                title: format!("Comment on #{issue_id}: {issue_title}"),
                 snippet,
                 id: comment.id.to_string(),
                 issue_id: Some(issue_id),

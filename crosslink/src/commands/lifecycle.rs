@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
@@ -60,9 +61,8 @@ fn close_inner(
     let quiet = output == OutputMode::Quiet;
     // Get issue details before closing
     let issue = db.get_issue(id)?;
-    let issue = match issue {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(id)),
+    let Some(issue) = issue else {
+        bail!("Issue {} not found", format_issue_id(id));
     };
     let labels = db.get_labels(id)?;
 
@@ -96,7 +96,7 @@ fn close_inner(
     // Auto-release lock in multi-agent mode
     match crate::lock_check::try_release_lock(crosslink_dir, id) {
         Ok(true) if !quiet => {
-            println!("Released lock on issue {}", format_issue_id(id))
+            println!("Released lock on issue {}", format_issue_id(id));
         }
         Ok(_) => {}
         Err(e) => tracing::warn!("Could not release lock on {}: {}", format_issue_id(id), e),
@@ -142,13 +142,13 @@ fn update_changelog_for_issue(
         if let Err(e) = append_to_changelog(&changelog_path, &category, &entry) {
             tracing::warn!("Could not update CHANGELOG.md: {}", e);
         } else if !quiet {
-            println!("Added to CHANGELOG.md under {}", category);
+            println!("Added to CHANGELOG.md under {category}");
         }
     }
 }
 
 fn create_changelog(path: &Path) -> Result<()> {
-    let template = r#"# Changelog
+    let template = r"# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -161,7 +161,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 ### Changed
-"#;
+";
     fs::write(path, template).context("Failed to create CHANGELOG.md")?;
     Ok(())
 }
@@ -175,7 +175,7 @@ fn determine_changelog_category(labels: &[String]) -> String {
             "deprecated" => return "Deprecated".to_string(),
             "removed" => return "Removed".to_string(),
             "security" => return "Security".to_string(),
-            _ => continue,
+            _ => {}
         }
     }
     "Changed".to_string() // Default category
@@ -183,11 +183,11 @@ fn determine_changelog_category(labels: &[String]) -> String {
 
 fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
     let content = fs::read_to_string(path).context("Failed to read CHANGELOG.md")?;
-    let heading = format!("### {}", category);
+    let heading = format!("### {category}");
 
-    let new_content = if content.contains(&heading) {
+    let mut result = String::new();
+    if content.contains(&heading) {
         // Insert after the heading
-        let mut result = String::new();
         let mut found = false;
         for line in content.lines() {
             result.push_str(line);
@@ -197,28 +197,27 @@ fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
                 found = true;
             }
         }
-        result
     } else {
         // Add new section after first ## heading (usually ## [Unreleased])
-        let mut result = String::new();
         let mut added = false;
         for line in content.lines() {
             result.push_str(line);
             result.push('\n');
             if !added && line.starts_with("## ") {
                 result.push('\n');
-                result.push_str(&format!("{}\n", heading));
+                let _ = writeln!(result, "{heading}");
                 result.push_str(entry);
                 added = true;
             }
         }
         if !added {
             // No ## heading found, append at end
-            result.push_str(&format!("\n{}\n", heading));
+            result.push('\n');
+            let _ = writeln!(result, "{heading}");
             result.push_str(entry);
         }
-        result
-    };
+    }
+    let new_content = result;
 
     fs::write(path, new_content).context("Failed to write CHANGELOG.md")?;
     Ok(())
@@ -247,7 +246,7 @@ pub fn close_all(
         }
     }
 
-    println!("Closed {} issue(s).", closed_count);
+    println!("Closed {closed_count} issue(s).");
     Ok(())
 }
 

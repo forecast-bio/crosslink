@@ -6,9 +6,8 @@ use crate::utils::format_issue_id;
 
 pub fn start(db: &Database, issue_id: i64) -> Result<()> {
     // Verify issue exists
-    let issue = match db.get_issue(issue_id)? {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(issue_id)),
+    let Some(issue) = db.get_issue(issue_id)? else {
+        bail!("Issue {} not found", format_issue_id(issue_id));
     };
 
     // Check if there's already an active timer
@@ -18,12 +17,11 @@ pub fn start(db: &Database, issue_id: i64) -> Result<()> {
                 "Timer already running for issue {}",
                 format_issue_id(issue_id)
             );
-        } else {
-            bail!(
-                "Timer already running for issue {}. Stop it first with 'crosslink stop'.",
-                format_issue_id(active_id)
-            );
         }
+        bail!(
+            "Timer already running for issue {}. Stop it first with 'crosslink stop'.",
+            format_issue_id(active_id)
+        );
     }
 
     db.start_timer(issue_id)?;
@@ -38,34 +36,28 @@ pub fn start(db: &Database, issue_id: i64) -> Result<()> {
 }
 
 pub fn stop(db: &Database) -> Result<()> {
-    let (issue_id, started_at) = match db.get_active_timer()? {
-        Some(a) => a,
-        None => bail!("No timer running. Start one with 'crosslink start <id>'."),
+    let Some((issue_id, started_at)) = db.get_active_timer()? else {
+        bail!("No timer running. Start one with 'crosslink start <id>'.");
     };
     let duration = Utc::now().signed_duration_since(started_at);
 
     db.stop_timer(issue_id)?;
 
     let issue = db.get_issue(issue_id)?;
-    let title = issue
-        .map(|i| i.title)
-        .unwrap_or_else(|| "(deleted)".to_string());
+    let title = issue.map_or_else(|| "(deleted)".to_string(), |i| i.title);
 
     let hours = duration.num_hours();
     let minutes = duration.num_minutes() % 60;
     let seconds = duration.num_seconds() % 60;
 
     println!("Stopped timer for {}: {}", format_issue_id(issue_id), title);
-    println!("Time spent: {}h {}m {}s", hours, minutes, seconds);
+    println!("Time spent: {hours}h {minutes}m {seconds}s");
 
     // Show total time for this issue
     let total = db.get_total_time(issue_id)?;
     let total_hours = total / 3600;
     let total_minutes = (total % 3600) / 60;
-    println!(
-        "Total time on this issue: {}h {}m",
-        total_hours, total_minutes
-    );
+    println!("Total time on this issue: {total_hours}h {total_minutes}m");
 
     Ok(())
 }
@@ -81,12 +73,10 @@ pub fn status(db: &Database) -> Result<()> {
             let seconds = duration.num_seconds() % 60;
 
             let issue = db.get_issue(issue_id)?;
-            let title = issue
-                .map(|i| i.title)
-                .unwrap_or_else(|| "(deleted)".to_string());
+            let title = issue.map_or_else(|| "(deleted)".to_string(), |i| i.title);
 
             println!("Timer running: {} {}", format_issue_id(issue_id), title);
-            println!("Elapsed: {}h {}m {}s", hours, minutes, seconds);
+            println!("Elapsed: {hours}h {minutes}m {seconds}s");
         }
         None => {
             println!("No timer running.");

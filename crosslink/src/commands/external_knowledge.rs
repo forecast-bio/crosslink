@@ -10,7 +10,7 @@ use crate::external::{
 };
 use crate::knowledge::parse_frontmatter;
 
-/// Get an ExternalKnowledgeReader for the given repo value.
+/// Get an `ExternalKnowledgeReader` for the given repo value.
 fn get_reader(
     crosslink_dir: &Path,
     repo_value: &str,
@@ -71,9 +71,9 @@ pub fn search(
         if json {
             print_sources_json(&matches, &label);
         } else if !quiet {
-            println!("--- Results from {} ---\n", label);
+            println!("--- Results from {label} ---\n");
             if matches.is_empty() {
-                println!("No knowledge pages cite \"{}\".", domain);
+                println!("No knowledge pages cite \"{domain}\".");
             } else {
                 for page in &matches {
                     let matching_sources: Vec<_> = page
@@ -86,7 +86,7 @@ pub fn search(
                     for src in matching_sources {
                         print!("  {} ({})", src.url, src.title);
                         if let Some(ref accessed) = src.accessed_at {
-                            print!(" [accessed: {}]", accessed);
+                            print!(" [accessed: {accessed}]");
                         }
                         println!();
                     }
@@ -111,13 +111,11 @@ pub fn search(
     // Apply metadata filters
     if tag.is_some() || since.is_some() || contributor.is_some() {
         matches.retain(|m| {
-            let content = match reader.read_page(&m.slug) {
-                Ok(c) => c,
-                Err(_) => return false,
+            let Ok(content) = reader.read_page(&m.slug) else {
+                return false;
             };
-            let fm = match parse_frontmatter(&content) {
-                Some(fm) => fm,
-                None => return false,
+            let Some(fm) = parse_frontmatter(&content) else {
+                return false;
             };
             if let Some(tag) = tag {
                 if !fm.tags.iter().any(|t| t == tag) {
@@ -141,9 +139,9 @@ pub fn search(
     if json {
         print_content_json(&matches, &label);
     } else if !quiet {
-        println!("--- Results from {} ---\n", label);
+        println!("--- Results from {label} ---\n");
         if matches.is_empty() {
-            println!("No knowledge pages match \"{}\".", query);
+            println!("No knowledge pages match \"{query}\".");
         } else {
             for (i, m) in matches.iter().enumerate() {
                 if i > 0 {
@@ -151,7 +149,7 @@ pub fn search(
                 }
                 println!("  {}.md (line {}):", m.slug, m.line_number);
                 for (line_num, line) in &m.context_lines {
-                    println!("    {:>4} | {}", line_num, line);
+                    println!("    {line_num:>4} | {line}");
                 }
             }
         }
@@ -198,13 +196,13 @@ pub fn show(
             });
             println!("{}", serde_json::to_string_pretty(&json_obj)?);
         } else {
-            bail!("Page '{}' has no valid frontmatter", slug);
+            bail!("Page '{slug}' has no valid frontmatter");
         }
     } else {
         if !quiet {
-            println!("--- Results from {} ---\n", label);
+            println!("--- Results from {label} ---\n");
         }
-        print!("{}", content);
+        print!("{content}");
         if !quiet {
             println!("\n--- End external results ---");
         }
@@ -267,7 +265,7 @@ pub fn list(
     }
 
     if !quiet {
-        println!("--- Results from {} ---\n", label);
+        println!("--- Results from {label} ---\n");
     }
 
     if filtered.is_empty() {

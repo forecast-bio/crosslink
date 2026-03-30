@@ -6,7 +6,7 @@ use crate::db::Database;
 use crate::models::Issue;
 use crate::utils::format_issue_id;
 
-fn status_icon(status: &crate::models::IssueStatus) -> &'static str {
+const fn status_icon(status: crate::models::IssueStatus) -> &'static str {
     use crate::models::IssueStatus;
     match status {
         IssueStatus::Open => " ",
@@ -17,7 +17,7 @@ fn status_icon(status: &crate::models::IssueStatus) -> &'static str {
 
 fn print_issue(issue: &Issue, indent: usize) {
     let prefix = "  ".repeat(indent);
-    let icon = status_icon(&issue.status);
+    let icon = status_icon(issue.status);
     println!(
         "{}[{}] {} {} - {}",
         prefix,
@@ -130,17 +130,17 @@ mod tests {
 
     #[test]
     fn test_status_icon_open() {
-        assert_eq!(status_icon(&crate::models::IssueStatus::Open), " ");
+        assert_eq!(status_icon(crate::models::IssueStatus::Open), " ");
     }
 
     #[test]
     fn test_status_icon_closed() {
-        assert_eq!(status_icon(&crate::models::IssueStatus::Closed), "x");
+        assert_eq!(status_icon(crate::models::IssueStatus::Closed), "x");
     }
 
     #[test]
     fn test_status_icon_unknown() {
-        assert_eq!(status_icon(&crate::models::IssueStatus::Archived), "?");
+        assert_eq!(status_icon(crate::models::IssueStatus::Archived), "?");
     }
 
     #[test]

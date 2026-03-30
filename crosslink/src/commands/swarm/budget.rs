@@ -36,7 +36,7 @@ pub fn config_budget(crosslink_dir: &Path, budget_window: &str, model: &str) -> 
     commit_hub_files(
         &sync,
         &[&budget_path],
-        &format!("swarm: set budget {}  model={}", budget_window, model),
+        &format!("swarm: set budget {budget_window}  model={model}"),
     )?;
 
     println!(
@@ -81,11 +81,8 @@ pub(super) fn estimate_phase_cost(
             continue; // already running/done
         }
 
-        let duration = if let Some(est) = model_est {
-            est.p90_duration_s
-        } else {
-            default_agent_duration(model)
-        };
+        let duration =
+            model_est.map_or_else(|| default_agent_duration(model), |est| est.p90_duration_s);
 
         agent_estimates.push((agent.slug.clone(), duration));
     }
@@ -154,7 +151,7 @@ pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
     let (phase, _) = load_phase(&sync, phase_slug)?;
 
     let budget_config: BudgetConfig =
-        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig::default());
+        read_hub_json(&sync, &ctx.budget_path()).unwrap_or_else(|_| BudgetConfig::default());
 
     let cost_log: CostLog = read_hub_json(&sync, &ctx.history_path()).unwrap_or_default();
 
@@ -203,16 +200,14 @@ pub fn estimate(crosslink_dir: &Path, phase_slug: &str) -> Result<()> {
         }
         BudgetRecommendation::Split { recommended_count } => {
             println!(
-                "Recommendation: SPLIT — budget supports ~{} of {} agents.",
-                recommended_count, agent_count
+                "Recommendation: SPLIT — budget supports ~{recommended_count} of {agent_count} agents."
             );
             println!(
-                "  Suggest: launch first {} agents, checkpoint, then launch the rest.",
-                recommended_count
+                "  Suggest: launch first {recommended_count} agents, checkpoint, then launch the rest."
             );
         }
         BudgetRecommendation::Block { reason } => {
-            println!("Recommendation: BLOCK — {}", reason);
+            println!("Recommendation: BLOCK — {reason}");
         }
     }
 
@@ -240,7 +235,7 @@ pub fn launch_budget_aware(
     let (phase, _) = load_phase(&sync, phase_slug)?;
 
     let budget_config: BudgetConfig =
-        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig::default());
+        read_hub_json(&sync, &ctx.budget_path()).unwrap_or_else(|_| BudgetConfig::default());
 
     let cost_log: CostLog = read_hub_json(&sync, &ctx.history_path()).unwrap_or_default();
 
@@ -257,10 +252,8 @@ pub fn launch_budget_aware(
     match &recommendation {
         BudgetRecommendation::Block { reason } => {
             bail!(
-                "Budget check BLOCKED launch: {}\n\
-                 Use `crosslink swarm launch {}` (without --budget-aware) to override.",
-                reason,
-                phase_slug
+                "Budget check BLOCKED launch: {reason}\n\
+                 Use `crosslink swarm launch {phase_slug}` (without --budget-aware) to override."
             );
         }
         BudgetRecommendation::Split { recommended_count } => {
@@ -314,15 +307,14 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
     let mut new_observations = 0u32;
 
     let entries = std::fs::read_dir(&worktrees_dir).context("Failed to read .worktrees")?;
-    for entry in entries.filter_map(|e| e.ok()) {
+    for entry in entries.filter_map(std::result::Result::ok) {
         let report_file = entry.path().join(".kickoff-report.json");
         if !report_file.exists() {
             continue;
         }
 
-        let content = match std::fs::read_to_string(&report_file) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Ok(content) = std::fs::read_to_string(&report_file) else {
+            continue;
         };
 
         let report: kickoff::KickoffReport = match serde_json::from_str(&content) {
@@ -340,23 +332,19 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
         }
 
         // Extract total duration from phases
-        let duration_s = report
-            .phases
-            .as_ref()
-            .map(|p| {
-                [
-                    p.exploration.as_ref(),
-                    p.planning.as_ref(),
-                    p.implementation.as_ref(),
-                    p.testing.as_ref(),
-                    p.validation.as_ref(),
-                    p.review.as_ref(),
-                ]
-                .iter()
-                .filter_map(|t| t.map(|t| t.duration_s))
-                .sum::<u64>()
-            })
-            .unwrap_or(0);
+        let duration_s = report.phases.as_ref().map_or(0, |p| {
+            [
+                p.exploration.as_ref(),
+                p.planning.as_ref(),
+                p.implementation.as_ref(),
+                p.testing.as_ref(),
+                p.validation.as_ref(),
+                p.review.as_ref(),
+            ]
+            .iter()
+            .filter_map(|t| t.map(|t| t.duration_s))
+            .sum::<u64>()
+        });
 
         if duration_s == 0 {
             continue;
@@ -389,7 +377,7 @@ pub fn harvest_costs(crosslink_dir: &Path) -> Result<()> {
     commit_hub_files(
         &sync,
         &[&history_path],
-        &format!("swarm: harvest {} cost observations", new_observations),
+        &format!("swarm: harvest {new_observations} cost observations"),
     )?;
 
     println!(
@@ -424,11 +412,11 @@ pub(super) fn recompute_model_estimates(cost_log: &mut CostLog) {
 
     cost_log.model_estimates.clear();
     for (model, mut durations) in by_model {
-        durations.sort();
+        durations.sort_unstable();
         let len = durations.len();
         // Correct median for even-length arrays: average the two middle values.
         let median = if len % 2 == 0 && len >= 2 {
-            (durations[len / 2 - 1] + durations[len / 2]) / 2
+            u64::midpoint(durations[len / 2 - 1], durations[len / 2])
         } else {
             durations[len / 2]
         };
@@ -463,7 +451,7 @@ pub(super) fn pack_windows(
         stop_point: String::new(),
     };
 
-    for (name, estimate, _agent_count) in phases {
+    for (name, estimate, agent_count) in phases {
         let fit = if current.total_estimate_s + estimate <= (window_s as f64 * 0.8) as u64 {
             WindowFit::Fits
         } else if current.total_estimate_s + estimate <= window_s {
@@ -477,11 +465,7 @@ pub(super) fn pack_windows(
             current.buffer_s = window_s.saturating_sub(current.total_estimate_s);
             current.stop_point = format!(
                 "after {} gate → checkpoint",
-                current
-                    .phases
-                    .last()
-                    .map(|p| p.name.as_str())
-                    .unwrap_or("?")
+                current.phases.last().map_or("?", |p| p.name.as_str())
             );
             windows.push(current);
 
@@ -506,7 +490,7 @@ pub(super) fn pack_windows(
         current.total_estimate_s += estimate;
         current.phases.push(WindowPhase {
             name: name.clone(),
-            agent_count: *_agent_count,
+            agent_count: *agent_count,
             estimate_s: *estimate,
             fit: recalculated_fit,
         });
@@ -517,11 +501,7 @@ pub(super) fn pack_windows(
         current.buffer_s = window_s.saturating_sub(current.total_estimate_s);
         current.stop_point = format!(
             "after {} gate → final checkpoint",
-            current
-                .phases
-                .last()
-                .map(|p| p.name.as_str())
-                .unwrap_or("?")
+            current.phases.last().map_or("?", |p| p.name.as_str())
         );
         windows.push(current);
     }
@@ -541,7 +521,7 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
         .context("No swarm plan found. Run `crosslink swarm init --doc <file>` first.")?;
 
     let budget_config: BudgetConfig =
-        read_hub_json(&sync, &ctx.budget_path()).unwrap_or(BudgetConfig::default());
+        read_hub_json(&sync, &ctx.budget_path()).unwrap_or_else(|_| BudgetConfig::default());
 
     let window_s = if let Some(w) = budget_window {
         kickoff::parse_duration(w)?.as_secs()
@@ -623,7 +603,7 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
     for (i, (name, _, _)) in phase_estimates.iter().enumerate() {
         let is_window_boundary = windows
             .iter()
-            .any(|w| w.phases.last().map(|p| p.name == *name).unwrap_or(false));
+            .any(|w| w.phases.last().is_some_and(|p| p.name == *name));
         let is_last = i == total_phases - 1;
 
         let qualifier = if is_last {
@@ -634,7 +614,7 @@ pub fn plan(crosslink_dir: &Path, budget_window: Option<&str>) -> Result<()> {
             "optional, early exit"
         };
 
-        println!("  After {} gate ({})", name, qualifier);
+        println!("  After {name} gate ({qualifier})");
     }
 
     println!();

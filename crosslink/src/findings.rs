@@ -8,6 +8,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -52,13 +53,12 @@ impl std::fmt::Display for FindingSeverity {
 impl FindingSeverity {
     /// Bump severity up one level (towards Critical).  Critical cannot be
     /// bumped further and stays as-is.
-    fn bumped(self) -> Self {
+    const fn bumped(self) -> Self {
         match self {
             Self::Info => Self::Low,
             Self::Low => Self::Medium,
             Self::Medium => Self::High,
-            Self::High => Self::Critical,
-            Self::Critical => Self::Critical,
+            Self::High | Self::Critical => Self::Critical,
         }
     }
 }
@@ -108,6 +108,7 @@ pub struct FindingGroup {
 /// - Same severity: +0.1
 /// - Title word overlap (Jaccard): +0.3 * jaccard
 /// - Description word overlap (Jaccard): +0.2 * jaccard
+#[must_use]
 pub fn similarity_score(a: &Finding, b: &Finding) -> f64 {
     let mut score = 0.0;
 
@@ -135,15 +136,16 @@ pub fn similarity_score(a: &Finding, b: &Finding) -> f64 {
 /// Words are lowercased and split on whitespace.  Returns 0.0 when both
 /// strings are empty.
 fn jaccard_similarity(a: &str, b: &str) -> f64 {
-    let set_a: HashSet<String> = a.split_whitespace().map(|w| w.to_lowercase()).collect();
-    let set_b: HashSet<String> = b.split_whitespace().map(|w| w.to_lowercase()).collect();
+    let set_a: HashSet<String> = a.split_whitespace().map(str::to_lowercase).collect();
+    let set_b: HashSet<String> = b.split_whitespace().map(str::to_lowercase).collect();
 
     if set_a.is_empty() && set_b.is_empty() {
         return 0.0;
     }
 
-    let intersection = set_a.intersection(&set_b).count() as f64;
-    let union = set_a.union(&set_b).count() as f64;
+    let intersection =
+        f64::from(u32::try_from(set_a.intersection(&set_b).count()).unwrap_or(u32::MAX));
+    let union = f64::from(u32::try_from(set_a.union(&set_b).count()).unwrap_or(u32::MAX));
 
     intersection / union
 }
@@ -156,6 +158,11 @@ const SIMILARITY_THRESHOLD: f64 = 0.5;
 // ---------------------------------------------------------------------------
 
 /// Read all `review-findings-*.json` files from `dir` and deserialize them.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read, a matching file cannot be
+/// read from disk, or a file contains invalid JSON.
 pub fn parse_reports(dir: &Path) -> Result<Vec<ReviewReport>> {
     let mut reports = Vec::new();
 
@@ -170,7 +177,11 @@ pub fn parse_reports(dir: &Path) -> Result<Vec<ReviewReport>> {
             None => continue,
         };
 
-        if file_name.starts_with("review-findings-") && file_name.ends_with(".json") {
+        if file_name.starts_with("review-findings-")
+            && std::path::Path::new(&file_name)
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+        {
             let content = std::fs::read_to_string(&path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
             let report: ReviewReport = serde_json::from_str(&content)
@@ -288,21 +299,23 @@ fn build_finding_group(mut members: Vec<Finding>) -> FindingGroup {
 // ---------------------------------------------------------------------------
 
 /// Render a `ConsolidatedReport` as a Markdown string.
+#[must_use]
 pub fn generate_markdown_report(report: &ConsolidatedReport) -> String {
     let mut md = String::new();
 
     // Header
-    md.push_str(&format!("# {}\n\n", report.title));
-    md.push_str(&format!("Generated: {}\n\n", report.generated_at));
+    let _ = writeln!(md, "# {}\n", report.title);
+    let _ = writeln!(md, "Generated: {}\n", report.generated_at);
     md.push_str("## Summary\n\n");
     md.push_str("| Metric | Value |\n");
     md.push_str("|--------|-------|\n");
-    md.push_str(&format!("| Agents | {} |\n", report.agent_count));
-    md.push_str(&format!("| Total findings | {} |\n", report.total_findings));
-    md.push_str(&format!(
-        "| After deduplication | {} |\n",
+    let _ = writeln!(md, "| Agents | {} |", report.agent_count);
+    let _ = writeln!(md, "| Total findings | {} |", report.total_findings);
+    let _ = writeln!(
+        md,
+        "| After deduplication | {} |",
         report.deduplicated_findings
-    ));
+    );
     md.push('\n');
 
     // Group findings by severity for rendering.
@@ -327,43 +340,45 @@ pub fn generate_markdown_report(report: &ConsolidatedReport) -> String {
             continue;
         };
 
-        md.push_str(&format!("## {} Findings\n\n", severity_header(*severity)));
+        let _ = writeln!(md, "## {} Findings\n", severity_header(*severity));
 
         for (i, group) in groups.iter().enumerate() {
             let f = &group.canonical;
-            let location = match f.line {
-                Some(line) => format!("{}:{}", f.file, line),
-                None => f.file.clone(),
-            };
+            let location = f
+                .line
+                .map_or_else(|| f.file.clone(), |line| format!("{}:{}", f.file, line));
 
-            md.push_str(&format!(
-                "### {}. {} ({})\n\n",
+            let _ = writeln!(
+                md,
+                "### {}. {} ({})\n",
                 i + 1,
                 f.title,
                 group.effective_severity
-            ));
-            md.push_str(&format!("**File:** `{}`\n\n", location));
-            md.push_str(&format!(
-                "**Consensus:** {}/{} agents\n\n",
+            );
+            let _ = writeln!(md, "**File:** `{location}`\n");
+            let _ = writeln!(
+                md,
+                "**Consensus:** {}/{} agents\n",
                 group.consensus_count,
                 // We don't know the total agent count here, but it's in the
                 // report; callers can cross-reference.  Just show the raw
                 // consensus count.
                 group.consensus_count
-            ));
-            md.push_str(&format!("{}\n\n", f.description));
+            );
+            let _ = writeln!(md, "{}\n", f.description);
 
             if let Some(fix) = &f.suggested_fix {
-                md.push_str(&format!("**Suggested fix:** {}\n\n", fix));
+                let _ = writeln!(md, "**Suggested fix:** {fix}\n");
             }
 
             if !group.duplicates.is_empty() {
                 md.push_str("<details>\n<summary>Duplicate reports</summary>\n\n");
                 for dup in &group.duplicates {
-                    md.push_str(&format!(
-                        "- **{}** (agent: {}, severity: {}): {}\n",
+                    let _ = writeln!(
+                        md,
+                        "- **{}** (agent: {}, severity: {}): {}",
                         dup.title, dup.agent, dup.severity, dup.description
-                    ));
+                    );
                 }
                 md.push_str("\n</details>\n\n");
             }
@@ -374,7 +389,7 @@ pub fn generate_markdown_report(report: &ConsolidatedReport) -> String {
 }
 
 /// Human-friendly header for a severity level.
-fn severity_header(s: FindingSeverity) -> &'static str {
+const fn severity_header(s: FindingSeverity) -> &'static str {
     match s {
         FindingSeverity::Critical => "Critical",
         FindingSeverity::High => "High",
@@ -390,6 +405,7 @@ fn severity_header(s: FindingSeverity) -> &'static str {
 
 /// Filter out finding groups whose canonical title matches an existing issue
 /// title (case-insensitive).
+#[must_use]
 pub fn cross_reference_issues(
     findings: &[FindingGroup],
     existing_issues: &[String],

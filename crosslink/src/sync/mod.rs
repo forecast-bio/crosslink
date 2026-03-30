@@ -40,13 +40,15 @@ pub use self::locks::LockMode;
 /// This is a pure config read — no subprocess calls. Use
 /// `SyncManager::remote_exists()` to validate the remote.
 pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
+    static WARNED: Once = Once::new();
+
     let config_path = crosslink_dir.join("hook-config.json");
     let configured = std::fs::read_to_string(&config_path)
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
         .and_then(|v| {
             v.get("tracker_remote")
-                .and_then(|r| r.as_str().map(|s| s.to_string()))
+                .and_then(|r| r.as_str().map(std::string::ToString::to_string))
         });
 
     if let Some(remote) = configured {
@@ -54,7 +56,6 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
     }
 
     // Warn once when falling back to "origin".
-    static WARNED: Once = Once::new();
     WARNED.call_once(|| {
         tracing::warn!(
             "no tracker_remote configured in {}, defaulting to \"origin\"",
@@ -71,6 +72,7 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
 /// free of subprocess calls (#356). Available for callers that need to
 /// validate the remote without constructing a full `SyncManager`.
 #[allow(dead_code)]
+#[must_use]
 pub fn validate_remote_exists(repo_root: &Path, remote: &str) -> bool {
     std::process::Command::new("git")
         .current_dir(repo_root)

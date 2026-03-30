@@ -21,6 +21,7 @@ const LANGUAGE_MANIFESTS: &[(&str, &str, &str)] = &[
     ("CMakeLists.txt", "C/C++", "cpp.md"),
     ("Makefile", "C/C++", "c.md"),
     ("mix.exs", "Elixir", "elixir.md"),
+    (".shellcheckrc", "Shell", "shell.md"),
 ];
 
 /// Expected hook files that should exist in .claude/hooks/.
@@ -63,7 +64,8 @@ pub fn run(command: ContextCommands, crosslink_dir: &Path) -> Result<()> {
                 .parent()
                 .context("Cannot determine project root")?
                 .join(".claude");
-            check(crosslink_dir, &claude_dir)
+            check(crosslink_dir, &claude_dir);
+            Ok(())
         }
     }
 }
@@ -101,7 +103,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
             .ok()
             .into_iter()
             .flatten()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect()
     } else {
@@ -111,15 +113,14 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     if rules_dir.is_dir() {
         let mut entries: Vec<_> = fs::read_dir(&rules_dir)
             .context("Failed to read rules directory")?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| {
                 e.path()
                     .extension()
-                    .map(|ext| ext == "md" || ext == "txt")
-                    .unwrap_or(false)
+                    .is_some_and(|ext| ext == "md" || ext == "txt")
             })
             .collect();
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
 
         for entry in &entries {
             let path = entry.path();
@@ -148,10 +149,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
                 "dormant"
             };
 
-            println!(
-                "{:<35} {:>8} {:>8}  {}{}",
-                filename, size, tokens, status, suffix
-            );
+            println!("{filename:<35} {size:>8} {tokens:>8}  {status}{suffix}");
         }
     }
 
@@ -162,7 +160,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
                 .ok()
                 .into_iter()
                 .flatten()
-                .filter_map(|e| e.ok())
+                .filter_map(std::result::Result::ok)
                 .map(|e| e.file_name().to_string_lossy().to_string())
                 .collect()
         } else {
@@ -173,17 +171,16 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
             .ok()
             .into_iter()
             .flatten()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
                 !base_files.contains(&name)
                     && e.path()
                         .extension()
-                        .map(|ext| ext == "md" || ext == "txt")
-                        .unwrap_or(false)
+                        .is_some_and(|ext| ext == "md" || ext == "txt")
             })
             .collect();
-        local_entries.sort_by_key(|e| e.file_name());
+        local_entries.sort_by_key(std::fs::DirEntry::file_name);
 
         for entry in &local_entries {
             let path = entry.path();
@@ -193,7 +190,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
             total_rules += size;
             active_rules += size;
 
-            println!("{:<35} {:>8} {:>8}  active (local)", filename, size, tokens);
+            println!("{filename:<35} {size:>8} {tokens:>8}  active (local)");
         }
     }
 
@@ -220,7 +217,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         println!("  (none detected)");
     } else {
         for lang in &active_langs {
-            println!("  - {}", lang);
+            println!("  - {lang}");
         }
     }
 
@@ -256,10 +253,10 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
 
         let mut entries: Vec<_> = fs::read_dir(&commands_dir)
             .context("Failed to read commands directory")?
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
             .collect();
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
 
         for entry in &entries {
             let path = entry.path();
@@ -285,10 +282,10 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     let full_guard = tree_est + deps_est + active_rules + wrapper_est;
 
     println!("\n## Estimated first-prompt injection");
-    println!("  Project tree:    ~{:>6} bytes", tree_est);
-    println!("  Dependencies:    ~{:>6} bytes", deps_est);
-    println!("  Active rules:     {:>6} bytes", active_rules);
-    println!("  Wrapper/headers: ~{:>6} bytes", wrapper_est);
+    println!("  Project tree:    ~{tree_est:>6} bytes");
+    println!("  Dependencies:    ~{deps_est:>6} bytes");
+    println!("  Active rules:     {active_rules:>6} bytes");
+    println!("  Wrapper/headers: ~{wrapper_est:>6} bytes");
     println!("  ─────────────────────────");
     println!(
         "  Total:           ~{:>6} bytes (~{} tokens)",
@@ -339,7 +336,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         if config_path.is_file() {
             let content =
                 fs::read_to_string(&config_path).context("Failed to read hook-config.json")?;
-            println!("{}", content);
+            println!("{content}");
         } else {
             println!("  (not found)");
         }
@@ -355,7 +352,7 @@ fn detect_active_languages(project_root: &Path) -> Vec<String> {
     // Check project root and immediate subdirs
     let mut check_dirs = vec![project_root.to_path_buf()];
     if let Ok(entries) = fs::read_dir(project_root) {
-        for entry in entries.filter_map(|e| e.ok()) {
+        for entry in entries.filter_map(std::result::Result::ok) {
             let path = entry.path();
             if path.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -370,6 +367,29 @@ fn detect_active_languages(project_root: &Path) -> Vec<String> {
         for &(manifest, lang, _rule_file) in LANGUAGE_MANIFESTS {
             if dir.join(manifest).exists() && seen.insert(lang.to_string()) {
                 found.push(lang.to_string());
+            }
+        }
+    }
+
+    // Shell detection: scan for .sh files in root, scripts/, and bin/
+    if !seen.contains("Shell") {
+        let shell_dirs = [
+            project_root.to_path_buf(),
+            project_root.join("scripts"),
+            project_root.join("bin"),
+        ];
+        'shell_scan: for dir in &shell_dirs {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.filter_map(std::result::Result::ok) {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if std::path::Path::new(&name).extension().is_some_and(|ext| {
+                        ext.eq_ignore_ascii_case("sh") || ext.eq_ignore_ascii_case("bash")
+                    }) {
+                        seen.insert("Shell".to_string());
+                        found.push("Shell".to_string());
+                        break 'shell_scan;
+                    }
+                }
             }
         }
     }
@@ -394,7 +414,7 @@ fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
     }
 
     // Check if the rule matches a detected language
-    for &(_manifest, lang, rule_file) in LANGUAGE_MANIFESTS {
+    for &(_, lang, rule_file) in LANGUAGE_MANIFESTS {
         if filename == rule_file && active_langs.iter().any(|l| l == lang) {
             return true;
         }
@@ -407,7 +427,7 @@ fn is_rule_active(filename: &str, active_langs: &[String]) -> bool {
 // check — verify crosslink deployment integrity
 // ---------------------------------------------------------------------------
 
-fn check(crosslink_dir: &Path, claude_dir: &Path) -> Result<()> {
+fn check(crosslink_dir: &Path, claude_dir: &Path) {
     let mut problems = 0;
 
     println!("Crosslink deployment check");
@@ -419,20 +439,20 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) -> Result<()> {
     for &name in EXPECTED_RULES {
         let path = rules_dir.join(name);
         if path.is_file() {
-            println!("  OK  {}", name);
+            println!("  OK  {name}");
         } else {
-            println!("  MISSING  {}", name);
+            println!("  MISSING  {name}");
             problems += 1;
         }
     }
 
     // Also check language rule files
-    for &(_name, _content) in init::RULE_FILES {
-        let path = rules_dir.join(_name);
+    for &(rule_name, _content) in init::RULE_FILES {
+        let path = rules_dir.join(rule_name);
         if path.is_file() {
             // verbose: could print OK
         } else {
-            println!("  MISSING  {}", _name);
+            println!("  MISSING  {rule_name}");
             problems += 1;
         }
     }
@@ -443,9 +463,9 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) -> Result<()> {
     for &name in EXPECTED_HOOKS {
         let path = hooks_dir.join(name);
         if path.is_file() {
-            println!("  OK  {}", name);
+            println!("  OK  {name}");
         } else {
-            println!("  MISSING  {}", name);
+            println!("  MISSING  {name}");
             problems += 1;
         }
     }
@@ -456,9 +476,9 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) -> Result<()> {
     for &name in EXPECTED_COMMANDS {
         let path = commands_dir.join(name);
         if path.is_file() {
-            println!("  OK  {}", name);
+            println!("  OK  {name}");
         } else {
-            println!("  MISSING  {}", name);
+            println!("  MISSING  {name}");
             problems += 1;
         }
     }
@@ -471,12 +491,12 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) -> Result<()> {
             Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                 Ok(_) => println!("  OK  hook-config.json (valid JSON)"),
                 Err(e) => {
-                    println!("  INVALID  hook-config.json: {}", e);
+                    println!("  INVALID  hook-config.json: {e}");
                     problems += 1;
                 }
             },
             Err(e) => {
-                println!("  ERROR  hook-config.json: {}", e);
+                println!("  ERROR  hook-config.json: {e}");
                 problems += 1;
             }
         }
@@ -490,12 +510,7 @@ fn check(crosslink_dir: &Path, claude_dir: &Path) -> Result<()> {
     if problems == 0 {
         println!("All checks passed.");
     } else {
-        println!(
-            "{} problem(s) found. Run `crosslink init --force` to repair.",
-            problems
-        );
+        println!("{problems} problem(s) found. Run `crosslink init --force` to repair.");
         std::process::exit(1);
     }
-
-    Ok(())
 }

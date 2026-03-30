@@ -1,5 +1,7 @@
 // E-ana tablet — design document parser for kickoff prompts
 
+use std::fmt::Write as _;
+
 /// A group of requirements under a layer/phase header.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RequirementGroup {
@@ -81,8 +83,7 @@ pub(crate) fn parse_design_doc(content: &str) -> DesignDoc {
                 doc.title = rest
                     .strip_prefix("Feature:")
                     .or_else(|| rest.strip_prefix("feature:"))
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|| rest.to_string());
+                    .map_or_else(|| rest.to_string(), |s| s.trim().to_string());
                 section = Section::Title;
                 current_block.clear();
                 continue;
@@ -144,8 +145,8 @@ fn flush_block(doc: &mut DesignDoc, section: &Section, block: &str) {
 
 /// Parse a requirements block, detecting `### Layer N:` / `### Phase N:` headers.
 ///
-/// Returns (flat_requirements, groups). If no layer headers are found, groups is empty
-/// and flat_requirements contains all items. Sub-bullets (indented `- ` or `* `) are
+/// Returns (`flat_requirements`, groups). If no layer headers are found, groups is empty
+/// and `flat_requirements` contains all items. Sub-bullets (indented `- ` or `* `) are
 /// collapsed into their parent item rather than becoming separate entries.
 fn parse_requirements_block(block: &str) -> (Vec<String>, Vec<RequirementGroup>) {
     let mut groups: Vec<RequirementGroup> = Vec::new();
@@ -207,7 +208,7 @@ fn parse_requirements_block(block: &str) -> (Vec<String>, Vec<RequirementGroup>)
     (flat, groups)
 }
 
-/// Parse a layer/phase header, returning (name, execution_hint).
+/// Parse a layer/phase header, returning (name, `execution_hint`).
 ///
 /// Input examples:
 /// - `"Layer 1: Foundation (sequential — everything else depends on these)"`
@@ -215,26 +216,24 @@ fn parse_requirements_block(block: &str) -> (Vec<String>, Vec<RequirementGroup>)
 /// - `"Layer 3: End-to-end delivery"`
 fn parse_layer_header(header: &str) -> (String, String) {
     // Strip "Layer N:" or "Phase N:" prefix
-    let after_prefix = header
-        .find(':')
-        .map(|i| header[i + 1..].trim())
-        .unwrap_or(header);
+    let after_prefix = header.find(':').map_or(header, |i| header[i + 1..].trim());
 
     // Extract parenthetical hint
-    let (name, hint) = if let Some(paren_start) = after_prefix.find('(') {
-        let name = after_prefix[..paren_start].trim().to_string();
-        let paren_content = after_prefix[paren_start + 1..].trim_end_matches(')').trim();
-        let hint = if paren_content.starts_with("parallel") {
-            "parallel".to_string()
-        } else if paren_content.starts_with("sequential") {
-            "sequential".to_string()
-        } else {
-            paren_content.to_string()
-        };
-        (name, hint)
-    } else {
-        (after_prefix.to_string(), String::new())
-    };
+    let (name, hint) = after_prefix.find('(').map_or_else(
+        || (after_prefix.to_string(), String::new()),
+        |paren_start| {
+            let name = after_prefix[..paren_start].trim().to_string();
+            let paren_content = after_prefix[paren_start + 1..].trim_end_matches(')').trim();
+            let hint = if paren_content.starts_with("parallel") {
+                "parallel".to_string()
+            } else if paren_content.starts_with("sequential") {
+                "sequential".to_string()
+            } else {
+                paren_content.to_string()
+            };
+            (name, hint)
+        },
+    );
 
     (name, hint)
 }
@@ -371,7 +370,7 @@ pub(crate) fn build_design_doc_section(doc: &DesignDoc) -> String {
     if !doc.requirements.is_empty() {
         out.push_str("### Requirements\n\n");
         for req in &doc.requirements {
-            out.push_str(&format!("- {}\n", req));
+            let _ = writeln!(out, "- {req}");
         }
         out.push('\n');
     }
@@ -379,7 +378,7 @@ pub(crate) fn build_design_doc_section(doc: &DesignDoc) -> String {
     if !doc.acceptance_criteria.is_empty() {
         out.push_str("### Acceptance Criteria\n\n");
         for ac in &doc.acceptance_criteria {
-            out.push_str(&format!("- [ ] {}\n", ac));
+            let _ = writeln!(out, "- [ ] {ac}");
         }
         out.push('\n');
     }
@@ -393,13 +392,13 @@ pub(crate) fn build_design_doc_section(doc: &DesignDoc) -> String {
     if !doc.out_of_scope.is_empty() {
         out.push_str("### Out of Scope\n\n");
         for item in &doc.out_of_scope {
-            out.push_str(&format!("- {}\n", item));
+            let _ = writeln!(out, "- {item}");
         }
         out.push('\n');
     }
 
     for (name, body) in &doc.unknown_sections {
-        out.push_str(&format!("### {}\n\n", name));
+        let _ = writeln!(out, "### {name}\n");
         out.push_str(body);
         out.push_str("\n\n");
     }
@@ -422,7 +421,7 @@ pub(crate) fn build_open_questions_escalation(doc: &DesignDoc) -> Option<String>
     );
 
     for (i, q) in doc.open_questions.iter().enumerate() {
-        out.push_str(&format!("{}. {}\n", i + 1, q));
+        let _ = writeln!(out, "{}. {}", i + 1, q);
     }
 
     out.push_str(

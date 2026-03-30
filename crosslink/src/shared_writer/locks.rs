@@ -18,13 +18,16 @@ pub enum LockClaimResult {
 impl SharedWriter {
     /// Claim a lock on an issue using the V2 event-based protocol.
     ///
-    /// 1. Check if already held by self -> AlreadyHeld
-    /// 2. Emit LockClaimed event -> append to event log
+    /// 1. Check if already held by self -> `AlreadyHeld`
+    /// 2. Emit `LockClaimed` event -> append to event log
     /// 3. Push event log (conflict-free per-agent file)
     /// 4. Compact with force=true
     /// 5. Stage + commit + push compaction output (rebase-retry)
     /// 6. Read materialized lock file
-    /// 7. If winner is self -> Claimed; else -> emit LockReleased cleanup -> Contended
+    /// 7. If winner is self -> Claimed; else -> emit `LockReleased` cleanup -> Contended
+    ///
+    /// # Errors
+    /// Returns an error if event emission, compaction, or push fails, or if confirmation times out.
     pub fn claim_lock_v2(
         &self,
         issue_display_id: i64,
@@ -42,10 +45,10 @@ impl SharedWriter {
         // fail rather than treating a stale result as authoritative.
         let event = crate::events::Event::LockClaimed {
             issue_display_id,
-            branch: branch.map(|s| s.to_string()),
+            branch: branch.map(std::string::ToString::to_string),
         };
         let start = std::time::Instant::now();
-        self.emit_compact_push(event, &format!("claim lock on #{}", issue_display_id))?;
+        self.emit_compact_push(event, &format!("claim lock on #{issue_display_id}"))?;
         let elapsed = start.elapsed();
         if elapsed > std::time::Duration::from_secs(LOCK_CONFIRM_TIMEOUT_SECS) {
             bail!(
@@ -66,7 +69,7 @@ impl SharedWriter {
                 // If push fails, compaction will resolve it (winner's claim wins).
                 if let Err(e) = self.emit_compact_push(
                     release,
-                    &format!("release lock on #{} (contention cleanup)", issue_display_id),
+                    &format!("release lock on #{issue_display_id} (contention cleanup)"),
                 ) {
                     tracing::info!("contention cleanup push deferred: {}", e);
                 }
@@ -84,13 +87,16 @@ impl SharedWriter {
     /// Release a lock on an issue using the V2 event-based protocol.
     ///
     /// Returns Ok(true) if released, Ok(false) if not held.
+    ///
+    /// # Errors
+    /// Returns an error if reading the lock state or emitting events fails.
     pub fn release_lock_v2(&self, issue_display_id: i64) -> Result<bool> {
         // Check if we actually hold it
         match self.read_lock_v2(issue_display_id)? {
             Some(lock) if lock.agent_id == self.agent.agent_id => {
                 // We hold it -- release
                 let event = crate::events::Event::LockReleased { issue_display_id };
-                self.emit_compact_push(event, &format!("release lock on #{}", issue_display_id))?;
+                self.emit_compact_push(event, &format!("release lock on #{issue_display_id}"))?;
                 Ok(true)
             }
             Some(_) => {
@@ -122,7 +128,7 @@ impl SharedWriter {
         let lock_path = self
             .cache_dir
             .join("locks")
-            .join(format!("{}.json", issue_display_id));
+            .join(format!("{issue_display_id}.json"));
         if lock_path.exists() {
             std::fs::remove_file(&lock_path)?;
         }
@@ -134,6 +140,9 @@ impl SharedWriter {
     ///
     /// Prunes the stale agent's events, clears checkpoint lock state,
     /// then claims normally.
+    ///
+    /// # Errors
+    /// Returns an error if clearing stale state or claiming the lock fails.
     pub fn steal_lock_v2(
         &self,
         issue_display_id: i64,
@@ -148,6 +157,9 @@ impl SharedWriter {
     ///
     /// Used by `integrity locks --repair` to actually free stale locks.
     /// Unlike `steal_lock_v2`, this does NOT call `claim_lock_v2` afterwards.
+    ///
+    /// # Errors
+    /// Returns an error if clearing stale state or emitting events fails.
     pub fn force_release_lock_v2(
         &self,
         issue_display_id: i64,
@@ -159,7 +171,7 @@ impl SharedWriter {
         let event = crate::events::Event::LockReleased { issue_display_id };
         self.emit_compact_push(
             event,
-            &format!("force-release stale lock on #{}", issue_display_id),
+            &format!("force-release stale lock on #{issue_display_id}"),
         )?;
 
         Ok(true)
@@ -168,6 +180,9 @@ impl SharedWriter {
     /// Read a V2 lock file for a specific issue.
     ///
     /// Returns None if the lock file doesn't exist.
+    ///
+    /// # Errors
+    /// Returns an error if the lock file exists but cannot be read or parsed.
     pub fn read_lock_v2(
         &self,
         issue_display_id: i64,
@@ -175,7 +190,7 @@ impl SharedWriter {
         let lock_path = self
             .cache_dir
             .join("locks")
-            .join(format!("{}.json", issue_display_id));
+            .join(format!("{issue_display_id}.json"));
         if !lock_path.exists() {
             return Ok(None);
         }

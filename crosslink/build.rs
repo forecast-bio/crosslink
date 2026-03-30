@@ -1,4 +1,4 @@
-//! Build script to track include_str! dependencies, inject git metadata,
+//! Build script to track `include_str`! dependencies, inject git metadata,
 //! and auto-generate rule file includes from resources/crosslink/rules/.
 
 use std::fs;
@@ -25,7 +25,7 @@ fn main() {
             } else {
                 format!("{}+{}", env!("CARGO_PKG_VERSION"), hash)
             };
-            println!("cargo:rustc-env=CROSSLINK_VERSION={}", suffix);
+            println!("cargo:rustc-env=CROSSLINK_VERSION={suffix}");
         }
     }
 
@@ -48,7 +48,7 @@ fn main() {
     let rules_dir = Path::new("resources/crosslink/rules");
     if rules_dir.is_dir() {
         if let Err(e) = generate_rules_file(rules_dir) {
-            eprintln!("cargo:warning=Failed to generate rules_gen.rs: {}", e);
+            eprintln!("cargo:warning=Failed to generate rules_gen.rs: {e}");
         }
     }
 
@@ -57,7 +57,7 @@ fn main() {
     let commands_dir = Path::new("resources/claude/commands");
     if commands_dir.is_dir() {
         if let Err(e) = generate_commands_file(commands_dir) {
-            eprintln!("cargo:warning=Failed to generate commands_gen.rs: {}", e);
+            eprintln!("cargo:warning=Failed to generate commands_gen.rs: {e}");
         }
     }
 }
@@ -66,22 +66,22 @@ fn generate_commands_file(commands_dir: &Path) -> Result<(), Box<dyn std::error:
     let mut cmd_entries: Vec<(String, String)> = Vec::new();
 
     let mut entries: Vec<_> = fs::read_dir(commands_dir)?
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| e.file_name().to_string_lossy().ends_with(".md"))
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(std::fs::DirEntry::file_name);
 
     for entry in entries {
         let filename = entry.file_name().to_string_lossy().to_string();
-        let rel_path = format!("resources/claude/commands/{}", filename);
-        println!("cargo:rerun-if-changed={}", rel_path);
+        let rel_path = format!("resources/claude/commands/{filename}");
+        println!("cargo:rerun-if-changed={rel_path}");
 
         // Generate a const name: crosslink-guide.md -> CMD_CROSSLINK_GUIDE
         let const_name = filename
             .trim_end_matches(".md")
             .to_uppercase()
             .replace('-', "_");
-        let const_name = format!("CMD_{}", const_name);
+        let const_name = format!("CMD_{const_name}");
 
         cmd_entries.push((filename, const_name));
     }
@@ -107,8 +107,7 @@ fn generate_commands_file(commands_dir: &Path) -> Result<(), Box<dyn std::error:
         let abs_path_str = abs_path.to_string_lossy().replace('\\', "/");
         writeln!(
             gen_file,
-            "pub(crate) const {}: &str = include_str!(\"{}\");",
-            const_name, abs_path_str
+            "pub(crate) const {const_name}: &str = include_str!(\"{abs_path_str}\");"
         )?;
     }
 
@@ -118,7 +117,7 @@ fn generate_commands_file(commands_dir: &Path) -> Result<(), Box<dyn std::error:
         "pub(crate) const COMMAND_FILES: &[(&str, &str)] = &["
     )?;
     for (filename, const_name) in &cmd_entries {
-        writeln!(gen_file, "    (\"{}\", {}),", filename, const_name)?;
+        writeln!(gen_file, "    (\"{filename}\", {const_name}),")?;
     }
     writeln!(gen_file, "];")?;
 
@@ -129,18 +128,23 @@ fn generate_rules_file(rules_dir: &Path) -> Result<(), Box<dyn std::error::Error
     let mut rule_entries: Vec<(String, String)> = Vec::new();
 
     let mut entries: Vec<_> = fs::read_dir(rules_dir)?
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            name.ends_with(".md") || name.ends_with(".txt")
+            std::path::Path::new(&name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                || std::path::Path::new(&name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
         })
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(std::fs::DirEntry::file_name);
 
     for entry in entries {
         let filename = entry.file_name().to_string_lossy().to_string();
-        let rel_path = format!("resources/crosslink/rules/{}", filename);
-        println!("cargo:rerun-if-changed={}", rel_path);
+        let rel_path = format!("resources/crosslink/rules/{filename}");
+        println!("cargo:rerun-if-changed={rel_path}");
 
         // Generate a const name from filename: quality.md -> RULE_QUALITY
         let const_name = filename
@@ -148,7 +152,7 @@ fn generate_rules_file(rules_dir: &Path) -> Result<(), Box<dyn std::error::Error
             .trim_end_matches(".txt")
             .to_uppercase()
             .replace('-', "_");
-        let const_name = format!("RULE_{}", const_name);
+        let const_name = format!("RULE_{const_name}");
 
         rule_entries.push((filename, const_name));
     }
@@ -177,8 +181,7 @@ fn generate_rules_file(rules_dir: &Path) -> Result<(), Box<dyn std::error::Error
         let abs_path_str = abs_path.to_string_lossy().replace('\\', "/");
         writeln!(
             gen_file,
-            "pub(crate) const {}: &str = include_str!(\"{}\");",
-            const_name, abs_path_str
+            "pub(crate) const {const_name}: &str = include_str!(\"{abs_path_str}\");"
         )?;
     }
 
@@ -190,7 +193,7 @@ fn generate_rules_file(rules_dir: &Path) -> Result<(), Box<dyn std::error::Error
         "pub(crate) const RULE_FILES: &[(&str, &str)] = &["
     )?;
     for (filename, const_name) in &rule_entries {
-        writeln!(gen_file, "    (\"{}\", {}),", filename, const_name)?;
+        writeln!(gen_file, "    (\"{filename}\", {const_name}),")?;
     }
     writeln!(gen_file, "];")?;
 

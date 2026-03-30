@@ -69,7 +69,7 @@ pub struct LlmDecomposeResponse {
     pub estimated_hours: f64,
 }
 
-fn default_agent_count() -> usize {
+const fn default_agent_count() -> usize {
     1
 }
 

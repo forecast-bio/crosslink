@@ -54,14 +54,13 @@ pub fn compute_doc_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     let result = hasher.finalize();
-    format!("sha256:{:x}", result)
+    format!("sha256:{result:x}")
 }
 
 /// Check if a plan is stale by comparing the stored hash with the current file content.
 pub fn is_plan_stale(pipeline: &PipelineState, design_doc_path: &Path) -> bool {
-    let content = match std::fs::read_to_string(design_doc_path) {
-        Ok(c) => c,
-        Err(_) => return false, // Can't read doc — don't flag as stale
+    let Ok(content) = std::fs::read_to_string(design_doc_path) else {
+        return false; // Can't read doc — don't flag as stale
     };
     let current_hash = compute_doc_hash(&content);
     current_hash != pipeline.doc_hash
@@ -75,7 +74,7 @@ pub fn pipeline_path_for_doc(doc_path: &Path) -> std::path::PathBuf {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    doc_path.with_file_name(format!("{}.pipeline.json", stem))
+    doc_path.with_file_name(format!("{stem}.pipeline.json"))
 }
 
 /// Derive the plan JSON path from a design doc path.
@@ -86,7 +85,7 @@ pub fn plan_path_for_doc(doc_path: &Path) -> std::path::PathBuf {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    doc_path.with_file_name(format!("{}.plan.json", stem))
+    doc_path.with_file_name(format!("{stem}.plan.json"))
 }
 
 /// Read the pipeline state for a design document, if it exists.
@@ -126,11 +125,7 @@ pub fn create_initial_pipeline(doc_path: &Path) -> Result<PipelineState> {
 /// Ensure a pipeline state file exists for a design document.
 /// Returns the current (possibly newly created) state.
 pub fn ensure_pipeline_state(doc_path: &Path) -> Result<PipelineState> {
-    if let Some(state) = read_pipeline_state(doc_path) {
-        Ok(state)
-    } else {
-        create_initial_pipeline(doc_path)
-    }
+    read_pipeline_state(doc_path).map_or_else(|| create_initial_pipeline(doc_path), Ok)
 }
 
 /// Update pipeline state to "planning" stage with a new plan record.
@@ -223,30 +218,23 @@ pub fn stage_display(pipeline: &PipelineState, doc_path: &Path) -> String {
 
     match pipeline.stage.as_str() {
         "designed" => "designed".to_string(),
-        "planning" => {
-            if let Some(plan) = pipeline.plans.last() {
-                format!("planning \u{27f3}  {}", plan.agent_id)
-            } else {
-                "planning \u{27f3}".to_string()
-            }
-        }
-        "planned" => {
-            if let Some(plan) = pipeline.plans.last() {
+        "planning" => pipeline.plans.last().map_or_else(
+            || "planning \u{27f3}".to_string(),
+            |plan| format!("planning \u{27f3}  {}", plan.agent_id),
+        ),
+        "planned" => pipeline.plans.last().map_or_else(
+            || format!("planned{stale}"),
+            |plan| {
                 format!(
                     "planned \u{2713}{}   {}/{}",
                     stale, plan.blocking_gaps, plan.advisory_gaps
                 )
-            } else {
-                format!("planned{}", stale)
-            }
-        }
-        "running" => {
-            if let Some(run) = pipeline.runs.last() {
-                format!("running  {} \u{27f3}", run.agent_id)
-            } else {
-                "running \u{27f3}".to_string()
-            }
-        }
+            },
+        ),
+        "running" => pipeline.runs.last().map_or_else(
+            || "running \u{27f3}".to_string(),
+            |run| format!("running  {} \u{27f3}", run.agent_id),
+        ),
         "complete" => "complete \u{2713}".to_string(),
         other => other.to_string(),
     }
@@ -264,10 +252,10 @@ fn plan_age_display(completed_at: &Option<String>) -> String {
     let elapsed = chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
     let mins = elapsed.num_minutes();
     if mins < 60 {
-        format!("({}m ago)", mins)
+        format!("({mins}m ago)")
     } else {
         let hours = mins / 60;
-        format!("({}h ago)", hours)
+        format!("({hours}h ago)")
     }
 }
 
