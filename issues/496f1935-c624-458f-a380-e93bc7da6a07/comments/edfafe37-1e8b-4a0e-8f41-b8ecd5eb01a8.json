@@ -1,0 +1,8 @@
+{
+  "uuid": "edfafe37-1e8b-4a0e-8f41-b8ecd5eb01a8",
+  "issue_uuid": "496f1935-c624-458f-a380-e93bc7da6a07",
+  "author": "anon-ab6221f8",
+  "content": "Delivered: manifest.rs module with InitManifest struct, sha256 hashing, atomic write, three-way classify_update. CLI flags --update/--dry-run/--no-prompt with clap conflicts_with. run_update() implements the full three-way merge table. Manifest written after every init/force. init-manifest.json added to gitignore. 14 new tests, all 99 init/workflow tests pass.",
+  "created_at": "2026-03-30T13:39:37.699405889Z",
+  "kind": "result"
+}
