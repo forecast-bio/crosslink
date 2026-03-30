@@ -23,6 +23,8 @@ const GITIGNORE_MANAGED_SECTION: &str = "\
 .crosslink/.hub-cache/
 .crosslink/.knowledge-cache/
 .crosslink/.cache/
+.crosslink/init-manifest.json
+.crosslink/init-manifest.json.tmp
 .crosslink/hook-config.local.json
 .crosslink/integrations/
 .crosslink/rules.local/

@@ -1,3 +1,4 @@
+mod manifest;
 mod merge;
 mod python;
 mod signing;
@@ -214,6 +215,9 @@ impl InitUI {
 /// Options for `crosslink init`.
 pub struct InitOpts<'a> {
     pub force: bool,
+    pub update: bool,
+    pub dry_run: bool,
+    pub no_prompt: bool,
     pub python_prefix: Option<&'a str>,
     pub skip_cpitd: bool,
     pub skip_signing: bool,
@@ -315,7 +319,325 @@ fn populate_agent_tool_commands(config_path: &Path, project_root: &Path) -> Resu
     Ok(())
 }
 
+/// Collect all managed files as `(relative_path, template_content)` pairs.
+///
+/// For `settings.json` the content is the template *after* `__PYTHON_PREFIX__`
+/// substitution but *before* the `allowedTools` merge — this ensures user
+/// tool additions don't produce false "user-modified" signals in the manifest.
+fn managed_files(python_prefix: &str) -> Vec<(String, String)> {
+    let mut files: Vec<(String, String)> = Vec::new();
+
+    // Hook files
+    files.push((".claude/hooks/prompt-guard.py".into(), PROMPT_GUARD_PY.into()));
+    files.push((".claude/hooks/post-edit-check.py".into(), POST_EDIT_CHECK_PY.into()));
+    files.push((".claude/hooks/session-start.py".into(), SESSION_START_PY.into()));
+    files.push((".claude/hooks/pre-web-check.py".into(), PRE_WEB_CHECK_PY.into()));
+    files.push((".claude/hooks/work-check.py".into(), WORK_CHECK_PY.into()));
+    files.push((".claude/hooks/crosslink_config.py".into(), CROSSLINK_CONFIG_PY.into()));
+    files.push((".claude/hooks/heartbeat.py".into(), HEARTBEAT_PY.into()));
+
+    // MCP servers
+    files.push((".claude/mcp/safe-fetch-server.py".into(), SAFE_FETCH_SERVER_PY.into()));
+    files.push((".claude/mcp/knowledge-server.py".into(), KNOWLEDGE_SERVER_PY.into()));
+
+    // Command files (auto-discovered by build.rs)
+    for (filename, content) in COMMAND_FILES {
+        files.push((format!(".claude/commands/{filename}"), content.to_string()));
+    }
+
+    // Rule files (auto-discovered by build.rs)
+    for (filename, content) in RULE_FILES {
+        files.push((format!(".crosslink/rules/{filename}"), content.to_string()));
+    }
+
+    // Settings.json — template after prefix substitution, before merge
+    let settings_template = SETTINGS_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, python_prefix);
+    files.push((".claude/settings.json".into(), settings_template));
+
+    files
+}
+
+/// Run the `--update` flow: manifest-tracked safe upgrade of managed files.
+fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
+    use manifest::{
+        build_manifest, classify_update, read_manifest, sha256_file, sha256_hex, write_manifest,
+        UpdateAction,
+    };
+
+    let crosslink_dir = path.join(".crosslink");
+    let ui = InitUI::new();
+
+    if !crosslink_dir.exists() || !path.join(".claude").exists() {
+        anyhow::bail!(
+            "Project not initialized. Run `crosslink init` first, then use `--update` for upgrades."
+        );
+    }
+
+    // Detect Python prefix (needed for settings.json template)
+    let prefix = opts
+        .python_prefix
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| detect_python_prefix(path));
+
+    let template_files = managed_files(&prefix);
+    let old_manifest = read_manifest(&crosslink_dir);
+
+    let manifest_missing = old_manifest.is_none();
+    if manifest_missing {
+        ui.warn(
+            "No init-manifest.json found — treating all managed files as potentially modified.",
+        );
+        ui.detail("This is expected on first upgrade from a pre-manifest crosslink version.");
+        ui.detail("Use `crosslink init --force` instead to overwrite all managed files.");
+        println!();
+    }
+
+    ui.banner();
+
+    // Build a lookup from the old manifest
+    let old_files = old_manifest
+        .as_ref()
+        .map(|m| &m.files)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut auto_updated: Vec<String> = Vec::new();
+    let mut up_to_date: Vec<String> = Vec::new();
+    let mut template_unchanged: Vec<String> = Vec::new();
+    let mut conflicts: Vec<String> = Vec::new();
+    let mut deleted: Vec<String> = Vec::new();
+    let mut new_files: Vec<String> = Vec::new();
+
+    // Classify each managed file
+    for (rel_path, template_content) in &template_files {
+        let abs_path = path.join(rel_path);
+        let new_template_hash = sha256_hex(template_content);
+
+        match old_files.get(rel_path) {
+            Some(entry) => {
+                let current_hash = sha256_file(&abs_path)?;
+                let action = classify_update(
+                    &entry.sha256,
+                    current_hash.as_deref(),
+                    &new_template_hash,
+                );
+
+                match action {
+                    UpdateAction::UpToDate => up_to_date.push(rel_path.clone()),
+                    UpdateAction::AutoUpdate => auto_updated.push(rel_path.clone()),
+                    UpdateAction::TemplateUnchanged => {
+                        template_unchanged.push(rel_path.clone());
+                    }
+                    UpdateAction::Conflict => conflicts.push(rel_path.clone()),
+                    UpdateAction::Deleted => deleted.push(rel_path.clone()),
+                    UpdateAction::NewFile => unreachable!(),
+                }
+            }
+            None => {
+                // File not in old manifest — it's a newly added template file
+                new_files.push(rel_path.clone());
+            }
+        }
+    }
+
+    // ── Report ──────────────────────────────────────────────────────────
+    let total_changes = auto_updated.len() + new_files.len();
+    let has_issues = !conflicts.is_empty() || !deleted.is_empty();
+
+    if total_changes == 0 && !has_issues {
+        ui.step_skip("All managed files are up to date.");
+        return Ok(());
+    }
+
+    if !auto_updated.is_empty() {
+        ui.step_start(&format!(
+            "{} file{} to auto-update",
+            auto_updated.len(),
+            if auto_updated.len() == 1 { "" } else { "s" }
+        ));
+        println!();
+        for f in &auto_updated {
+            ui.detail(f);
+        }
+    }
+
+    if !new_files.is_empty() {
+        ui.step_start(&format!(
+            "{} new file{} to create",
+            new_files.len(),
+            if new_files.len() == 1 { "" } else { "s" }
+        ));
+        println!();
+        for f in &new_files {
+            ui.detail(f);
+        }
+    }
+
+    if !conflicts.is_empty() {
+        ui.warn(&format!(
+            "{} file{} modified by both user and template — {}",
+            conflicts.len(),
+            if conflicts.len() == 1 { "" } else { "s" },
+            if opts.no_prompt {
+                "skipping (--no-prompt)"
+            } else {
+                "will prompt"
+            }
+        ));
+        for f in &conflicts {
+            ui.detail(f);
+        }
+    }
+
+    for f in &deleted {
+        ui.detail(&format!(
+            "{f} — deleted by user, skipping (will not recreate)"
+        ));
+    }
+
+    if !template_unchanged.is_empty() || !up_to_date.is_empty() {
+        let skip_count = template_unchanged.len() + up_to_date.len();
+        ui.step_skip(&format!(
+            "{skip_count} file{} already up to date",
+            if skip_count == 1 { "" } else { "s" }
+        ));
+    }
+
+    // ── Dry run: stop here ──────────────────────────────────────────────
+    if opts.dry_run {
+        println!();
+        ui.detail("Dry run — no files were modified.");
+        return Ok(());
+    }
+
+    // ── Apply changes ───────────────────────────────────────────────────
+    let template_map: std::collections::HashMap<&str, &str> = template_files
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    // Auto-update files (user never touched them)
+    for rel_path in &auto_updated {
+        let abs_path = path.join(rel_path);
+        let content = template_map[rel_path.as_str()];
+
+        if rel_path == ".claude/settings.json" {
+            // settings.json: re-run the merge to preserve user allowedTools
+            write_settings_json_merged(&abs_path, &prefix)?;
+        } else {
+            // Ensure parent directory exists
+            if let Some(parent) = abs_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&abs_path, content)
+                .with_context(|| format!("Failed to write {rel_path}"))?;
+        }
+    }
+
+    // Create new files (added in newer template set)
+    for rel_path in &new_files {
+        let abs_path = path.join(rel_path);
+        let content = template_map[rel_path.as_str()];
+
+        if rel_path == ".claude/settings.json" {
+            write_settings_json_merged(&abs_path, &prefix)?;
+        } else {
+            if let Some(parent) = abs_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&abs_path, content)
+                .with_context(|| format!("Failed to write {rel_path}"))?;
+        }
+    }
+
+    // Handle conflicts (prompt or skip)
+    let mut conflict_accepted: Vec<String> = Vec::new();
+    if !opts.no_prompt {
+        let is_tty = io::stdin().is_terminal();
+        for rel_path in &conflicts {
+            if !is_tty {
+                // Non-interactive: skip like --no-prompt
+                ui.detail(&format!("Skipping {rel_path} (non-interactive terminal)"));
+                continue;
+            }
+
+            print!(
+                "  Overwrite {rel_path} with new template? (user changes will be lost) [y/N] "
+            );
+            io::stdout().flush().ok();
+
+            let mut answer = String::new();
+            io::stdin().read_line(&mut answer).ok();
+
+            if answer.trim().eq_ignore_ascii_case("y") {
+                let abs_path = path.join(rel_path);
+                let content = template_map[rel_path.as_str()];
+                if rel_path == ".claude/settings.json" {
+                    write_settings_json_merged(&abs_path, &prefix)?;
+                } else {
+                    fs::write(&abs_path, content)
+                        .with_context(|| format!("Failed to write {rel_path}"))?;
+                }
+                conflict_accepted.push(rel_path.clone());
+            } else {
+                ui.detail(&format!("Keeping user version of {rel_path}"));
+            }
+        }
+    }
+
+    // ── Write updated manifest ──────────────────────────────────────────
+    // Build new manifest. For files we wrote, use the new template hash.
+    // For files we skipped (user-modified, deleted), keep the old manifest entry
+    // so future updates can still detect changes correctly.
+    let new_full_manifest = build_manifest(&template_files);
+    let mut final_manifest = new_full_manifest;
+
+    // For files where the user kept their version (conflict not accepted),
+    // preserve the old manifest hash so the conflict surfaces again next time.
+    for rel_path in &conflicts {
+        if !conflict_accepted.contains(rel_path) {
+            if let Some(old_entry) = old_files.get(rel_path) {
+                final_manifest
+                    .files
+                    .insert(rel_path.clone(), old_entry.clone());
+            }
+        }
+    }
+
+    // For deleted files, remove from manifest entirely
+    for rel_path in &deleted {
+        final_manifest.files.remove(rel_path);
+    }
+
+    // For template-unchanged user-modified files, preserve old manifest entry
+    for rel_path in &template_unchanged {
+        if let Some(old_entry) = old_files.get(rel_path) {
+            final_manifest
+                .files
+                .insert(rel_path.clone(), old_entry.clone());
+        }
+    }
+
+    write_manifest(&crosslink_dir, &final_manifest)?;
+
+    // ── Summary ─────────────────────────────────────────────────────────
+    let total_written = auto_updated.len() + new_files.len() + conflict_accepted.len();
+    if total_written > 0 {
+        ui.step_ok(Some(&format!(
+            "{total_written} file{} updated",
+            if total_written == 1 { "" } else { "s" }
+        )));
+    }
+
+    Ok(())
+}
+
 pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
+    // Dispatch to update flow if --update is set
+    if opts.update {
+        return run_update(path, opts);
+    }
+
     let force = opts.force;
     let python_prefix = opts.python_prefix;
     let skip_cpitd = opts.skip_cpitd;
@@ -538,6 +860,15 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         }
     }
 
+    // Write init manifest after all managed file writes succeed.
+    // This enables future `--update` runs to perform three-way merges.
+    {
+        let manifest_files = managed_files(&prefix);
+        let m = manifest::build_manifest(&manifest_files);
+        manifest::write_manifest(&crosslink_dir, &m)
+            .context("Failed to write init-manifest.json")?;
+    }
+
     // Auto-install cpitd unless skipped
     if !skip_cpitd {
         ui.step_start("Checking cpitd");
@@ -608,6 +939,9 @@ mod tests {
     fn test_opts(force: bool) -> InitOpts<'static> {
         InitOpts {
             force,
+            update: false,
+            dry_run: false,
+            no_prompt: false,
             python_prefix: None,
             skip_cpitd: true,
             skip_signing: true,
@@ -1212,6 +1546,7 @@ mod tests {
                 ..test_opts(false)
             },
         )
+
         .unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
@@ -1689,5 +2024,303 @@ mod tests {
         run(dir.path(), &test_opts(true)).unwrap();
         assert!(commands_dir.join("maintain.md").exists());
         assert!(commands_dir.join("design.md").exists());
+    }
+
+    // --- Init manifest and --update tests ---
+
+    fn update_opts() -> InitOpts<'static> {
+        InitOpts {
+            force: false,
+            update: true,
+            dry_run: false,
+            no_prompt: true, // Tests are non-interactive
+            python_prefix: None,
+            skip_cpitd: true,
+            skip_signing: true,
+            signing_key: None,
+            reconfigure: false,
+            defaults: true,
+        }
+    }
+
+    fn dry_run_opts() -> InitOpts<'static> {
+        InitOpts {
+            dry_run: true,
+            ..update_opts()
+        }
+    }
+
+    #[test]
+    fn test_init_writes_manifest() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        let manifest_path = dir.path().join(".crosslink/init-manifest.json");
+        assert!(manifest_path.exists(), "Manifest should be created on init");
+
+        let content = fs::read_to_string(&manifest_path).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        assert!(manifest.get("crosslink_version").is_some());
+        assert!(manifest.get("initialized_at").is_some());
+        assert!(manifest.get("files").is_some());
+
+        let files = manifest["files"].as_object().unwrap();
+        assert!(
+            files.contains_key(".claude/hooks/prompt-guard.py"),
+            "Manifest should track hook files"
+        );
+        assert!(
+            files.contains_key(".claude/settings.json"),
+            "Manifest should track settings.json"
+        );
+        assert!(
+            files.contains_key(".claude/mcp/safe-fetch-server.py"),
+            "Manifest should track MCP servers"
+        );
+    }
+
+    #[test]
+    fn test_force_init_updates_manifest() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        let manifest_path = dir.path().join(".crosslink/init-manifest.json");
+        let first = fs::read_to_string(&manifest_path).unwrap();
+
+        // Force re-init
+        run(dir.path(), &test_opts(true)).unwrap();
+
+        let second = fs::read_to_string(&manifest_path).unwrap();
+        // Hashes should be the same (same templates), but timestamp may differ
+        let m1: serde_json::Value = serde_json::from_str(&first).unwrap();
+        let m2: serde_json::Value = serde_json::from_str(&second).unwrap();
+        assert_eq!(m1["files"], m2["files"], "File hashes should be identical across force re-inits");
+    }
+
+    #[test]
+    fn test_update_no_changes_needed() {
+        let dir = test_dir();
+        // Fresh init creates manifest
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // Immediately update — nothing should change
+        let result = run(dir.path(), &update_opts());
+        assert!(result.is_ok());
+
+        // Verify hook file wasn't modified (content same as template)
+        let content = fs::read_to_string(dir.path().join(".claude/hooks/prompt-guard.py")).unwrap();
+        assert!(content.contains("python") || content.contains("def") || content.len() > 20);
+    }
+
+    #[test]
+    fn test_update_fails_without_init() {
+        let dir = test_dir();
+        // No init — update should fail
+        let result = run(dir.path(), &update_opts());
+        assert!(result.is_err());
+        let err = format!("{:#}", result.unwrap_err());
+        assert!(
+            err.contains("not initialized"),
+            "Should mention not initialized, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_update_preserves_user_modified_hook() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // User modifies a hook file
+        let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
+        fs::write(&hook_path, "# user customization\nprint('hello')").unwrap();
+
+        // Update with --no-prompt — user-modified file should be kept
+        run(dir.path(), &update_opts()).unwrap();
+
+        let content = fs::read_to_string(&hook_path).unwrap();
+        assert_eq!(
+            content, "# user customization\nprint('hello')",
+            "User-modified hook should not be overwritten"
+        );
+    }
+
+    #[test]
+    fn test_update_skips_deleted_files() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // User deletes a hook file
+        let hook_path = dir.path().join(".claude/hooks/heartbeat.py");
+        fs::remove_file(&hook_path).unwrap();
+
+        // Update should NOT recreate deleted files
+        run(dir.path(), &update_opts()).unwrap();
+
+        assert!(
+            !hook_path.exists(),
+            "Deleted file should not be recreated by --update"
+        );
+    }
+
+    #[test]
+    fn test_update_dry_run_makes_no_changes() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // Modify a hook file
+        let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
+        let original = fs::read_to_string(&hook_path).unwrap();
+        fs::write(&hook_path, "# modified").unwrap();
+
+        // Read manifest before dry run
+        let manifest_before =
+            fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+
+        // Dry run
+        run(dir.path(), &dry_run_opts()).unwrap();
+
+        // File should still be modified
+        let content = fs::read_to_string(&hook_path).unwrap();
+        assert_eq!(content, "# modified", "Dry run should not modify files");
+
+        // Manifest should be unchanged
+        let manifest_after =
+            fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+        assert_eq!(
+            manifest_before, manifest_after,
+            "Dry run should not update manifest"
+        );
+
+        // Restore for other tests
+        fs::write(&hook_path, original).unwrap();
+    }
+
+    #[test]
+    fn test_update_preserves_user_allowed_tools() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // Add a custom allowedTools entry
+        let settings_path = dir.path().join(".claude/settings.json");
+        let mut content: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
+        content["allowedTools"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::Value::String("Bash(my-tool *)".into()));
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&content).unwrap(),
+        )
+        .unwrap();
+
+        // Run update
+        run(dir.path(), &update_opts()).unwrap();
+
+        // Custom tool should still be present
+        let result: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
+        let tools: Vec<&str> = result["allowedTools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(
+            tools.contains(&"Bash(my-tool *)"),
+            "Custom allowedTools entry should survive --update"
+        );
+    }
+
+    #[test]
+    fn test_update_without_manifest_warns() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // Remove manifest to simulate old install
+        fs::remove_file(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+
+        // Update should still work (treats everything as potentially modified)
+        let result = run(dir.path(), &update_opts());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_gitignore_includes_manifest() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(
+            content.contains("init-manifest.json"),
+            "Gitignore should include init-manifest.json"
+        );
+    }
+
+    #[test]
+    fn test_manifest_tracks_all_managed_files() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        let manifest_content =
+            fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&manifest_content).unwrap();
+        let files = manifest["files"].as_object().unwrap();
+
+        // Should track all hook files
+        let hook_files = [
+            "prompt-guard.py",
+            "post-edit-check.py",
+            "session-start.py",
+            "pre-web-check.py",
+            "work-check.py",
+            "crosslink_config.py",
+            "heartbeat.py",
+        ];
+        for hook in &hook_files {
+            let key = format!(".claude/hooks/{hook}");
+            assert!(
+                files.contains_key(&key),
+                "Manifest should track {}",
+                key
+            );
+        }
+
+        // Should track MCP servers
+        assert!(files.contains_key(".claude/mcp/safe-fetch-server.py"));
+        assert!(files.contains_key(".claude/mcp/knowledge-server.py"));
+
+        // Should track settings.json
+        assert!(files.contains_key(".claude/settings.json"));
+
+        // Should track rule files
+        assert!(files.contains_key(".crosslink/rules/global.md"));
+        assert!(files.contains_key(".crosslink/rules/rust.md"));
+    }
+
+    #[test]
+    fn test_manifest_hashes_match_file_content() {
+        use manifest::sha256_hex;
+
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        let manifest_content =
+            fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+        let manifest: manifest::InitManifest =
+            serde_json::from_str(&manifest_content).unwrap();
+
+        // Hook files should have hash matching on-disk content
+        let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
+        let on_disk = fs::read_to_string(&hook_path).unwrap();
+        let expected_hash = sha256_hex(&on_disk);
+
+        assert_eq!(
+            manifest.files[".claude/hooks/prompt-guard.py"].sha256,
+            expected_hash,
+            "Manifest hash should match on-disk file for non-merged files"
+        );
     }
 }

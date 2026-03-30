@@ -365,6 +365,9 @@ mod tests {
             dir.path(),
             &crate::commands::init::InitOpts {
                 force: false,
+                update: false,
+                dry_run: false,
+                no_prompt: false,
                 python_prefix: None,
                 skip_cpitd: true,
                 skip_signing: true,
@@ -389,6 +392,9 @@ mod tests {
             dir.path(),
             &crate::commands::init::InitOpts {
                 force: false,
+                update: false,
+                dry_run: false,
+                no_prompt: false,
                 python_prefix: None,
                 skip_cpitd: true,
                 skip_signing: true,
@@ -421,6 +427,9 @@ mod tests {
             dir.path(),
             &crate::commands::init::InitOpts {
                 force: false,
+                update: false,
+                dry_run: false,
+                no_prompt: false,
                 python_prefix: None,
                 skip_cpitd: true,
                 skip_signing: true,
@@ -447,6 +456,9 @@ mod tests {
             dir.path(),
             &crate::commands::init::InitOpts {
                 force: false,
+                update: false,
+                dry_run: false,
+                no_prompt: false,
                 python_prefix: None,
                 skip_cpitd: true,
                 skip_signing: true,
@@ -469,6 +481,9 @@ mod tests {
             dir.path(),
             &crate::commands::init::InitOpts {
                 force: false,
+                update: false,
+                dry_run: false,
+                no_prompt: false,
                 python_prefix: None,
                 skip_cpitd: true,
                 skip_signing: true,
@@ -493,6 +508,9 @@ mod tests {
             dir.path(),
             &crate::commands::init::InitOpts {
                 force: false,
+                update: false,
+                dry_run: false,
+                no_prompt: false,
                 python_prefix: None,
                 skip_cpitd: true,
                 skip_signing: true,

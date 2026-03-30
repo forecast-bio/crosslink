@@ -68,8 +68,17 @@ enum Commands {
     /// Initialize crosslink in the current directory
     Init {
         /// Force update hooks even if already initialized
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "update")]
         force: bool,
+        /// Safe upgrade: update managed files using manifest-tracked three-way merge
+        #[arg(long, conflicts_with_all = ["force", "reconfigure"])]
+        update: bool,
+        /// Show what --update would change without writing anything
+        #[arg(long, requires = "update")]
+        dry_run: bool,
+        /// Skip conflict prompts — silently keep user-modified files (for CI)
+        #[arg(long, requires = "update")]
+        no_prompt: bool,
         /// Override auto-detected Python prefix for hook commands (e.g. "uv run python3")
         #[arg(long)]
         python_prefix: Option<String>,
@@ -83,7 +92,7 @@ enum Commands {
         #[arg(long)]
         signing_key: Option<String>,
         /// Re-run TUI walkthrough even if config exists
-        #[arg(long)]
+        #[arg(long, conflicts_with = "update")]
         reconfigure: bool,
         /// Skip TUI and use opinionated defaults
         #[arg(long)]
@@ -2184,6 +2193,9 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Init {
             force,
+            update,
+            dry_run,
+            no_prompt,
             python_prefix,
             skip_cpitd,
             skip_signing,
@@ -2194,6 +2206,9 @@ fn main() -> Result<()> {
             let cwd = env::current_dir()?;
             let opts = commands::init::InitOpts {
                 force,
+                update,
+                dry_run,
+                no_prompt,
                 python_prefix: python_prefix.as_deref(),
                 skip_cpitd,
                 skip_signing,
