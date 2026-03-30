@@ -8,7 +8,30 @@ use super::io::*;
 use super::types::*;
 use crate::sync::SyncManager;
 
-/// Discover agent worktrees that have commits beyond the base branch (develop).
+/// Default base refs to try, in priority order.
+const BASE_REFS: &[&str] = &["develop", "main", "origin/develop", "origin/main"];
+
+/// Detect the base branch by checking which ref exists in the given directory.
+///
+/// Tries `develop`, `main`, `origin/develop`, `origin/main` in order and
+/// returns the first one that resolves. Returns `None` if none exist.
+fn detect_base_branch(repo_dir: &Path) -> Option<String> {
+    for base in BASE_REFS {
+        let ok = std::process::Command::new("git")
+            .current_dir(repo_dir)
+            .args(["rev-parse", "--verify", base])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if ok {
+            return Some((*base).to_string());
+        }
+    }
+    None
+}
+
+/// Discover agent worktrees that have commits beyond the base branch.
 fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
     let worktrees_dir = repo_root.join(".worktrees");
     if !worktrees_dir.is_dir() {
@@ -31,54 +54,39 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
         let slug = entry.file_name().to_string_lossy().to_string();
 
         // Get changed files relative to the base branch.
-        // Try multiple base refs since worktrees may have been created from
-        // develop, main, or their remote counterparts (#392).
-        let base_refs = ["develop", "main", "origin/develop", "origin/main"];
-        let mut changed_files = Vec::new();
-        for base in &base_refs {
-            let diff_output = std::process::Command::new("git")
-                .current_dir(&wt_path)
-                .args(["diff", "--name-only", &format!("{base}...HEAD")])
-                .output();
+        let Some(base) = detect_base_branch(&wt_path) else {
+            continue;
+        };
 
-            if let Ok(output) = diff_output {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    changed_files = stdout
-                        .lines()
-                        .filter(|l| !l.is_empty())
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>();
-                    if !changed_files.is_empty() {
-                        break;
-                    }
-                }
-            }
-        }
+        let diff_output = std::process::Command::new("git")
+            .current_dir(&wt_path)
+            .args(["diff", "--name-only", &format!("{base}...HEAD")])
+            .output();
+
+        let changed_files: Vec<String> = diff_output
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
 
         if changed_files.is_empty() {
             continue;
         }
 
         // Count commits beyond base branch
-        let mut commit_count = 0;
-        for base in &base_refs {
-            let log_output = std::process::Command::new("git")
-                .current_dir(&wt_path)
-                .args(["log", "--oneline", &format!("{base}..HEAD")])
-                .output();
-
-            if let Ok(output) = log_output {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let count = stdout.lines().count();
-                    if count > 0 {
-                        commit_count = count;
-                        break;
-                    }
-                }
-            }
-        }
+        let commit_count = std::process::Command::new("git")
+            .current_dir(&wt_path)
+            .args(["log", "--oneline", &format!("{base}..HEAD")])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map_or(0, |o| String::from_utf8_lossy(&o.stdout).lines().count());
 
         sources.push(MergeSource {
             agent_slug: slug,
@@ -96,24 +104,12 @@ fn discover_worktrees(repo_root: &Path) -> Result<Vec<MergeSource>> {
 /// Tries multiple base refs (develop, main, origin/develop, origin/main) to handle
 /// worktrees created from different bases, matching `discover_worktrees` behavior.
 fn extract_diff_ranges(worktree: &Path, file: &str) -> Result<Vec<(usize, usize)>> {
-    // Try multiple base refs instead of hardcoding "develop"
-    let base_refs = ["develop", "main", "origin/develop", "origin/main"];
-    let mut last_output = None;
-    for base in &base_refs {
-        let output = std::process::Command::new("git")
-            .current_dir(worktree)
-            .args(["diff", &format!("{base}...HEAD"), "--", file])
-            .output();
-        if let Ok(ref o) = output {
-            if o.status.success() && !o.stdout.is_empty() {
-                last_output = Some(output);
-                break;
-            }
-        }
-        last_output = Some(output);
-    }
-    let output = last_output
-        .ok_or_else(|| anyhow::anyhow!("No base ref available for diff"))?
+    let base = detect_base_branch(worktree)
+        .ok_or_else(|| anyhow::anyhow!("No base ref available for diff"))?;
+    let output = std::process::Command::new("git")
+        .current_dir(worktree)
+        .args(["diff", &format!("{base}...HEAD"), "--", file])
+        .output()
         .context("Failed to run git diff")?;
 
     if !output.status.success() {
@@ -282,12 +278,24 @@ pub(super) fn compute_merge_order(
 pub fn merge(
     crosslink_dir: &Path,
     branch: &str,
+    base_branch: Option<&str>,
     dry_run: bool,
     agents_filter: Option<&str>,
 ) -> Result<()> {
     let repo_root = crosslink_dir
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
+
+    // Resolve the base branch — explicit flag, or auto-detect from repo
+    let resolved_base = base_branch
+        .map(ToString::to_string)
+        .or_else(|| detect_base_branch(repo_root))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No base branch found (tried develop, main). \
+                 Use --base <ref> to specify one."
+            )
+        })?;
 
     // Discover agent worktrees with changes
     let mut sources = discover_worktrees(repo_root)?;
@@ -416,15 +424,15 @@ pub fn merge(
         return Ok(());
     }
 
-    // Create the target branch from develop
+    // Create the target branch from the resolved base
     let create_branch = std::process::Command::new("git")
         .current_dir(repo_root)
-        .args(["checkout", "-b", branch, "develop"])
+        .args(["checkout", "-b", branch, &resolved_base])
         .output()
         .context("Failed to create target branch")?;
 
     if create_branch.status.success() {
-        println!("Created branch '{branch}' from develop.");
+        println!("Created branch '{branch}' from {resolved_base}.");
     } else {
         let stderr = String::from_utf8_lossy(&create_branch.stderr);
         // If branch already exists, try to check it out
@@ -464,7 +472,7 @@ pub fn merge(
         // Generate the diff from the agent's worktree
         let diff_output = std::process::Command::new("git")
             .current_dir(&source.worktree_path)
-            .args(["diff", "develop...HEAD"])
+            .args(["diff", &format!("{resolved_base}...HEAD")])
             .output()
             .context("Failed to generate diff")?;
 

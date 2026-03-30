@@ -1683,6 +1683,9 @@ enum SwarmCommands {
         /// Target branch name for merged changes
         #[arg(long, default_value = "swarm-combined")]
         branch: String,
+        /// Base branch to create the target from (default: auto-detect develop or main)
+        #[arg(long)]
+        base: Option<String>,
         /// Only analyze conflicts, don't apply changes
         #[arg(long)]
         dry_run: bool,
@@ -2794,9 +2797,16 @@ fn main() -> Result<()> {
                 ),
                 SwarmCommands::Merge {
                     branch,
+                    base,
                     dry_run,
                     agents,
-                } => commands::swarm::merge(&crosslink_dir, &branch, dry_run, agents.as_deref()),
+                } => commands::swarm::merge(
+                    &crosslink_dir,
+                    &branch,
+                    base.as_deref(),
+                    dry_run,
+                    agents.as_deref(),
+                ),
                 SwarmCommands::MoveAgent { agent, to_phase } => {
                     commands::swarm::move_agent(&crosslink_dir, &agent, &to_phase)
                 }
