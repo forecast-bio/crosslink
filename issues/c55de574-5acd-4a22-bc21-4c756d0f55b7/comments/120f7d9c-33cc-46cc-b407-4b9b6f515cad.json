@@ -1,0 +1,8 @@
+{
+  "uuid": "120f7d9c-33cc-46cc-b407-4b9b6f515cad",
+  "issue_uuid": "c55de574-5acd-4a22-bc21-4c756d0f55b7",
+  "author": "anon-ab6221f8",
+  "content": "Delivered: (1) SyncManager::git_commit_in_cache() checks local/worktree commit.gpgsign — signs when agent configured, bypasses when inherited global. (2) All 5 SyncManager commit sites migrated. (3) SharedWriter mutations.rs amend call routed through new git_commit_in_cache_with_args. (4) crosslink init auto-runs agent init to generate identity and SSH key by default.",
+  "created_at": "2026-03-30T17:38:44.575449177Z",
+  "kind": "result"
+}
