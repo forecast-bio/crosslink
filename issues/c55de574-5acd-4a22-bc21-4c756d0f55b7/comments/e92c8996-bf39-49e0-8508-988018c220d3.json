@@ -1,0 +1,8 @@
+{
+  "uuid": "e92c8996-bf39-49e0-8508-988018c220d3",
+  "issue_uuid": "c55de574-5acd-4a22-bc21-4c756d0f55b7",
+  "author": "anon-ab6221f8",
+  "content": "Plan: (1) Add SyncManager::git_commit_in_cache() that checks local/worktree commit.gpgsign config — sign if explicitly configured, bypass if inherited global. (2) Migrate 5 SyncManager commit sites and 2 SharedWriter commit sites to use signing-aware method. (3) Auto-run agent init during crosslink init so signing is always available from the start.",
+  "created_at": "2026-03-30T17:31:46.350614156Z",
+  "kind": "plan"
+}
