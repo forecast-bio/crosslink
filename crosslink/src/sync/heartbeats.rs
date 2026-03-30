@@ -44,7 +44,7 @@ impl SyncManager {
             agent.agent_id,
             Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
         );
-        let commit_result = self.git_in_cache(&["commit", "-m", &msg]);
+        let commit_result = self.git_commit_in_cache(&["-m", &msg]);
         if let Err(e) = &commit_result {
             let err_str = e.to_string();
             if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
@@ -221,8 +221,7 @@ impl SyncManager {
 
         // Stage and commit
         self.git_in_cache(&["add", &format!("agents/{agent_id}/heartbeat.json")])?;
-        self.git_in_cache(&[
-            "commit",
+        self.git_commit_in_cache(&[
             "-m",
             &format!("bootstrap: initialize agent directory for {agent_id}"),
         ])?;

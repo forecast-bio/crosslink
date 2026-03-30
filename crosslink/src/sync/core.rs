@@ -129,6 +129,45 @@ impl SyncManager {
         Ok(output)
     }
 
+    /// Run a git commit in the cache worktree with signing-awareness.
+    ///
+    /// If `commit.gpgsign` was explicitly configured at local or worktree scope
+    /// (e.g. by `crosslink agent init` / `configure_signing()`), honour it so
+    /// hub-cache commits carry the agent's signature for audit trail. If signing
+    /// was only inherited from the user's global git config, bypass it to avoid
+    /// failures when the global key isn't usable in the cache context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the git commit command fails.
+    pub(super) fn git_commit_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
+        let local_configured = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["config", "--local", "commit.gpgsign"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        let worktree_configured = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["config", "--worktree", "commit.gpgsign"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&self.cache_dir);
+        if !local_configured && !worktree_configured {
+            cmd.args(["-c", "commit.gpgsign=false"]);
+        }
+        cmd.arg("commit").args(args);
+        let output = cmd
+            .output()
+            .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("git commit {args:?} in cache failed: {stderr}");
+        }
+        Ok(output)
+    }
+
     pub(super) fn git_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
         let output = Command::new("git")
             .current_dir(&self.cache_dir)

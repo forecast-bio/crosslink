@@ -98,6 +98,12 @@ impl SharedWriter {
         };
         let sync = SyncManager::new(crosslink_dir)?;
         if !sync.is_initialized() {
+            // If there's no remote, hub sync is impossible — fall back to
+            // direct SQLite writes. This covers local-only repos and test
+            // environments where no remote is configured.
+            if !sync.remote_exists() {
+                return Ok(None);
+            }
             bail!("Sync cache not initialized. Run `crosslink sync` first.");
         }
         let cache_dir = sync.cache_path().to_path_buf();
@@ -866,19 +872,28 @@ impl SharedWriter {
     /// Run a git commit in the cache worktree, disabling signing when
     /// the agent has no SSH key (anonymous/pre-init mode).
     pub(super) fn git_commit_in_cache(&self, message: &str) -> Result<std::process::Output> {
+        self.git_commit_in_cache_with_args(&["-m", message])
+    }
+
+    /// Run a git commit with arbitrary args in the cache worktree,
+    /// disabling signing when the agent has no SSH key.
+    pub(super) fn git_commit_in_cache_with_args(
+        &self,
+        args: &[&str],
+    ) -> Result<std::process::Output> {
         let has_key = self.agent.ssh_key_path.is_some();
         let mut cmd = std::process::Command::new("git");
         cmd.current_dir(&self.cache_dir);
         if !has_key {
             cmd.args(["-c", "commit.gpgsign=false"]);
         }
-        cmd.args(["commit", "-m", message]);
+        cmd.arg("commit").args(args);
         let output = cmd
             .output()
-            .with_context(|| "Failed to run git commit in cache".to_string())?;
+            .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git commit in cache failed: {stderr}");
+            bail!("git commit {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }

@@ -686,7 +686,7 @@ impl SharedWriter {
         let rel_path = self.issue_rel_path(&uuid);
         self.git_in_cache(&["add", &rel_path])?;
         self.git_in_cache(&["add", "meta/counters.json"])?;
-        self.git_in_cache(&["commit", "--amend", "--no-edit"])?;
+        self.git_commit_in_cache_with_args(&["--amend", "--no-edit"])?;
         Ok(())
     }
 }

@@ -258,6 +258,38 @@ pub fn read_repo_compact_id(crosslink_dir: &Path) -> String {
     crate::utils::base62_encode_4(hasher.finish())
 }
 
+/// Lightweight agent identity setup for `crosslink init`.
+///
+/// Creates the agent config and generates an SSH key, but does NOT
+/// publish keys to the hub or configure signing on the cache worktree.
+/// Those heavier operations happen lazily on first `crosslink sync` or
+/// `crosslink agent init`.
+///
+/// # Errors
+///
+/// Returns an error if agent config creation or SSH key generation fails.
+fn init_agent_identity(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
+    let mut config = crate::identity::AgentConfig::init(crosslink_dir, agent_id, None)?;
+
+    let keys_dir = crosslink_dir.join("keys");
+    match crate::signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
+        Ok(keypair) => {
+            config.ssh_key_path = Some(format!("keys/{agent_id}_ed25519"));
+            config.ssh_fingerprint = Some(keypair.fingerprint);
+            config.ssh_public_key = Some(keypair.public_key);
+
+            let path = crosslink_dir.join("agent.json");
+            let json = serde_json::to_string_pretty(&config)?;
+            fs::write(&path, json)?;
+        }
+        Err(e) => {
+            tracing::warn!("Could not generate agent SSH key: {e}");
+        }
+    }
+
+    Ok(())
+}
+
 /// Detect project lint/test commands and populate `agent_overrides` in
 /// hook-config.json so kickoff agents can self-validate their work (#495).
 ///
@@ -901,6 +933,23 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
     // Driver SSH key detection and setup
     if !skip_signing {
         setup_driver_signing(path, signing_key, &ui)?;
+    }
+
+    // Auto-initialise agent identity so hub-cache commits are always
+    // signing-aware. Creates agent ID + SSH key only — hub publishing and
+    // signing configuration happen lazily on first sync. Errors are
+    // non-fatal; the agent can still work unsigned.
+    if crate::identity::AgentConfig::load(&crosslink_dir)?.is_none() {
+        let agent_id = crate::utils::generate_compact_id();
+        ui.step_start("Initializing agent identity");
+        match init_agent_identity(&crosslink_dir, &agent_id) {
+            Ok(()) => ui.step_ok(Some(&agent_id)),
+            Err(e) => {
+                println!();
+                ui.warn(&format!("Could not auto-initialize agent: {e}"));
+                ui.detail("Run `crosslink agent init <id>` manually to enable signing.");
+            }
+        }
     }
 
     // Shell alias setup (REQ-10)

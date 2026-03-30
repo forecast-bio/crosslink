@@ -191,7 +191,7 @@ impl SyncManager {
             // Ensure git identity before first commit — CI/containers may lack
             // a global gitconfig.
             self.ensure_cache_git_identity()?;
-            self.git_in_cache(&["commit", "-m", "Initialize crosslink/hub branch"])?;
+            self.git_commit_in_cache(&["-m", "Initialize crosslink/hub branch"])?;
         }
 
         // Also ensure identity for the has_remote path so callers that commit
@@ -488,11 +488,8 @@ impl SyncManager {
                     self.git_in_cache(&["reset", "--hard", "HEAD"])?;
                     return Ok(true);
                 }
-                let commit_result = self.git_in_cache(&[
-                    "commit",
-                    "-m",
-                    "sync: auto-stage dirty hub state (recovery)",
-                ]);
+                let commit_result = self
+                    .git_commit_in_cache(&["-m", "sync: auto-stage dirty hub state (recovery)"]);
                 match commit_result {
                     Ok(_) => Ok(true),
                     Err(e) => {
@@ -633,7 +630,7 @@ impl SyncManager {
     pub(super) fn commit_and_push_locks(&self, message: &str) -> Result<()> {
         self.git_in_cache(&["add", "locks.json"])?;
 
-        let commit_result = self.git_in_cache(&["commit", "-m", message]);
+        let commit_result = self.git_commit_in_cache(&["-m", message]);
         if let Err(e) = &commit_result {
             let err_str = e.to_string();
             if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
