@@ -1,0 +1,8 @@
+{
+  "uuid": "fd44c81c-7d82-4451-aa21-e8fb160941ef",
+  "issue_uuid": "a9547fcb-1e46-47e5-b51b-fc33697fdae8",
+  "author": "anon-ab6221f8",
+  "content": "Plan: use cargo clippy --fix for auto-fixable lints, then manually fix remaining. Categories: uninlined_format_args, redundant_closure_for_method_calls, doc_markdown, case_sensitive_file_extension_comparisons, similar names, unnecessary raw string hashes, etc.",
+  "created_at": "2026-03-30T13:44:53.887386045Z",
+  "kind": "plan"
+}
