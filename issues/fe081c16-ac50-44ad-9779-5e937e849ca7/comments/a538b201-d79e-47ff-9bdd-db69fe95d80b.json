@@ -1,0 +1,8 @@
+{
+  "uuid": "a538b201-d79e-47ff-9bdd-db69fe95d80b",
+  "issue_uuid": "fe081c16-ac50-44ad-9779-5e937e849ca7",
+  "author": "anon-ab6221f8",
+  "content": "Plan: (1) Expand DEFAULT_ALLOWED_BASH with gh, cat, wc, head, tail, which, command, mktemp, sleep, find, sort, grep, rg, date, env, basename, dirname, realpath, stat, file, uname, id. (2) Write .crosslink/.active-issue sentinel file in session work/quick, read it in hook instead of spawning subprocess. Clear on session end.",
+  "created_at": "2026-03-30T18:26:02.954777160Z",
+  "kind": "plan"
+}
