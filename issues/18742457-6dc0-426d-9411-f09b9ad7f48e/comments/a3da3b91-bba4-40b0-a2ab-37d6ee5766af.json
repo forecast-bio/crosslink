@@ -1,0 +1,8 @@
+{
+  "uuid": "a3da3b91-bba4-40b0-a2ab-37d6ee5766af",
+  "issue_uuid": "18742457-6dc0-426d-9411-f09b9ad7f48e",
+  "author": "anon-ab6221f8",
+  "content": "Delivered: ensure_hub_gitignore() excludes .hub-write-lock from git tracking. Called in init_cache (new branches), after init (fetched branches), and in fetch (self-healing for existing caches). Also untracks the file via git rm --cached if previously tracked.",
+  "created_at": "2026-03-30T18:17:25.589562716Z",
+  "kind": "result"
+}
