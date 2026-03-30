@@ -24,6 +24,23 @@ pub fn run(
 }
 
 /// Load the current `agent_id` from `.crosslink/agent.json` (best-effort).
+const ACTIVE_ISSUE_SENTINEL: &str = ".active-issue";
+
+/// Write a sentinel file recording the active issue ID for fast hook checks.
+///
+/// The `work-check.py` hook reads this file instead of spawning
+/// `crosslink session status`, reducing hook latency from ~100ms to ~1ms.
+pub fn write_active_issue_sentinel(crosslink_dir: &Path, issue_id: i64) {
+    let path = crosslink_dir.join(ACTIVE_ISSUE_SENTINEL);
+    let _ = std::fs::write(&path, issue_id.to_string());
+}
+
+/// Remove the active-issue sentinel file (session ended or issue closed).
+pub fn clear_active_issue_sentinel(crosslink_dir: &Path) {
+    let path = crosslink_dir.join(ACTIVE_ISSUE_SENTINEL);
+    let _ = std::fs::remove_file(&path);
+}
+
 fn load_agent_id(crosslink_dir: &std::path::Path) -> Option<String> {
     crate::identity::AgentConfig::load(crosslink_dir)
         .ok()
@@ -109,6 +126,10 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
     // attempts to find the active issue for comment attachment. Moving
     // end_session above the comment block would silently lose handoff notes (#441).
     db.end_session(session.id, notes)?;
+
+    // Clear sentinel file so hooks know no issue is active (#522).
+    clear_active_issue_sentinel(crosslink_dir);
+
     println!("Session #{} ended.", session.id);
     if notes.is_some() {
         println!("Handoff notes saved.");
@@ -251,6 +272,10 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
         }
         return Err(e);
     }
+    // Write sentinel file for fast hook checks (#522).
+    // The work-check hook reads this instead of spawning `crosslink session status`.
+    write_active_issue_sentinel(crosslink_dir, issue.id);
+
     println!(
         "Now working on: {} {}",
         format_issue_id(issue.id),

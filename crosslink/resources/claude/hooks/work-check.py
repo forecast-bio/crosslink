@@ -57,6 +57,14 @@ DEFAULT_ALLOWED_BASH = [
     "npm test", "npm run", "npx ",
     "tsc", "node ", "python ",
     "ls", "dir", "pwd", "echo",
+    # GitHub CLI and common read-only / infrastructure commands (#522)
+    "gh ",
+    "cat ", "head ", "tail ", "wc ",
+    "grep ", "rg ", "find ", "sort ", "uniq ",
+    "which ", "command ",
+    "mktemp", "sleep ",
+    "date", "env", "uname", "id ",
+    "basename ", "dirname ", "realpath ", "stat ", "file ",
 ]
 
 
@@ -380,7 +388,19 @@ def main():
     if not crosslink_dir:
         sys.exit(0)
 
-    # Check session status
+    # Fast path: check sentinel file written by `crosslink session work` / `quick` (#522).
+    # Avoids spawning a subprocess (~100ms) on every non-allowlisted Bash call.
+    sentinel = os.path.join(crosslink_dir, ".active-issue")
+    if os.path.isfile(sentinel):
+        try:
+            with open(sentinel) as f:
+                content = f.read().strip()
+            if content:
+                sys.exit(0)
+        except OSError:
+            pass  # Fall through to subprocess check
+
+    # Slow path: sentinel missing or empty — fall back to session status subprocess
     status = run_crosslink(["session", "status"], crosslink_dir)
     if not status:
         # crosslink not available — don't block

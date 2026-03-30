@@ -124,6 +124,10 @@ fn auto_claim_and_set_work(
             }
             return Err(e);
         }
+        // Write sentinel file for fast hook checks (#522)
+        if let Some(dir) = crosslink_dir {
+            crate::commands::session::write_active_issue_sentinel(dir, id);
+        }
         if !quiet {
             println!("Now working on: {} {}", format_issue_id(id), title);
         }

@@ -19,6 +19,7 @@ const GITIGNORE_MANAGED_SECTION: &str = "\
 .crosslink/daemon.pid
 .crosslink/daemon.log
 .crosslink/last_test_run
+.crosslink/.active-issue
 .crosslink/keys/
 .crosslink/.hub-cache/
 .crosslink/.knowledge-cache/
