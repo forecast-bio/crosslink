@@ -112,6 +112,46 @@ impl SyncManager {
         let lock_path = self.cache_dir.join(".hub-write-lock");
         acquire_hub_lock(&lock_path)
     }
+    /// Ensure the hub cache has a `.gitignore` that excludes runtime files.
+    ///
+    /// `.hub-write-lock` is a PID lock file created and deleted every sync
+    /// cycle. If tracked, it causes a dirty-state recovery loop that diverges
+    /// the cache from origin (#528). This method:
+    ///
+    /// 1. Creates or updates `.gitignore` with the exclusion entry.
+    /// 2. Untracks the file via `git rm --cached` if it was previously tracked.
+    ///
+    /// Safe to call multiple times — idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if writing `.gitignore` or git operations fail.
+    pub fn ensure_hub_gitignore(&self) -> Result<()> {
+        if !self.cache_dir.exists() {
+            return Ok(());
+        }
+        let gitignore_path = self.cache_dir.join(".gitignore");
+        let entry = ".hub-write-lock";
+
+        let needs_write = std::fs::read_to_string(&gitignore_path).map_or(true, |content| {
+            !content.lines().any(|line| line.trim() == entry)
+        });
+
+        if needs_write {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&gitignore_path)?;
+            writeln!(f, "{entry}")?;
+        }
+
+        // Untrack the lock file if git is currently tracking it
+        let _ = self.git_in_cache(&["rm", "--cached", "-f", entry]);
+
+        Ok(())
+    }
+
     /// Initialize the hub cache directory.
     ///
     /// If the `crosslink/hub` branch exists on the remote, fetches it and
@@ -185,9 +225,12 @@ impl SyncManager {
                 crate::issue_file::CURRENT_LAYOUT_VERSION,
             )?;
 
+            // Exclude runtime files from tracking before first commit (#528)
+            self.ensure_hub_gitignore()?;
+
             // Commit the initial state so the branch has at least one commit.
             // Without this, `git log` and other commands fail on the empty orphan.
-            self.git_in_cache(&["add", "locks.json"])?;
+            self.git_in_cache(&["add", "-A"])?;
             // Ensure git identity before first commit — CI/containers may lack
             // a global gitconfig.
             self.ensure_cache_git_identity()?;
@@ -197,6 +240,10 @@ impl SyncManager {
         // Also ensure identity for the has_remote path so callers that commit
         // in the cache (e.g. bootstrap step 7) don't fail in CI.
         self.ensure_cache_git_identity()?;
+
+        // Self-heal: ensure .hub-write-lock is gitignored on existing caches
+        // that were initialized before this fix (#528).
+        self.ensure_hub_gitignore()?;
 
         // Propagate .claude/hooks into the cache worktree so that PreToolUse
         // hooks (which resolve via `git rev-parse --show-toplevel`) still work
@@ -526,6 +573,11 @@ impl SyncManager {
 
         // Recover from broken git states before attempting fetch (#454, #455, #456)
         self.hub_health_check();
+
+        // Self-heal: ensure .hub-write-lock is gitignored (#528).
+        // Must run before clean_dirty_state so lock file changes don't
+        // trigger spurious recovery commits.
+        let _ = self.ensure_hub_gitignore();
 
         // Stage any untracked or modified files before fetch. Concurrent
         // agents may have written heartbeat/lock files that aren't committed
