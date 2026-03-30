@@ -90,6 +90,7 @@ def load_all_rules(crosslink_dir):
         'swift.md': 'Swift', 'kotlin.md': 'Kotlin', 'scala.md': 'Scala',
         'zig.md': 'Zig', 'odin.md': 'Odin',
         'elixir.md': 'Elixir', 'elixir-phoenix.md': 'Elixir/Phoenix',
+        'shell.md': 'Shell',
         'web.md': 'Web',
     }
 
@@ -160,6 +161,8 @@ def detect_languages():
         '.ex': 'Elixir',
         '.exs': 'Elixir',
         '.heex': 'Elixir/Phoenix',
+        '.sh': 'Shell',
+        '.bash': 'Shell',
     }
 
     found = set()
@@ -179,6 +182,7 @@ def detect_languages():
         'composer.json': 'PHP',
         'Package.swift': 'Swift',
         'mix.exs': 'Elixir',
+        '.shellcheckrc': 'Shell',
     }
 
     # Check cwd and immediate subdirs for config files

@@ -174,6 +174,32 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
         conv.allowed_tools.push("Bash(make *)".to_string());
     }
 
+    // Shell: detect via .shellcheckrc or .sh files in root/scripts/bin
+    let has_shell = repo_root.join(".shellcheckrc").is_file()
+        || ["", "scripts", "bin"].iter().any(|sub| {
+            let dir = if sub.is_empty() {
+                repo_root.to_path_buf()
+            } else {
+                repo_root.join(sub)
+            };
+            dir.is_dir()
+                && std::fs::read_dir(&dir)
+                    .ok()
+                    .map(|entries| {
+                        entries.filter_map(|e| e.ok()).any(|e| {
+                            let n = e.file_name().to_string_lossy().to_string();
+                            n.ends_with(".sh") || n.ends_with(".bash")
+                        })
+                    })
+                    .unwrap_or(false)
+        });
+    if has_shell {
+        conv.lint_commands.push("shellcheck **/*.sh".to_string());
+        conv.allowed_tools.push("Bash(shellcheck *)".to_string());
+        conv.allowed_tools.push("Bash(bash *)".to_string());
+        conv.allowed_tools.push("Bash(bats *)".to_string());
+    }
+
     // Elixir
     if repo_root.join("mix.exs").is_file() {
         if conv.test_command.is_none() {

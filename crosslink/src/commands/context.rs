@@ -21,6 +21,7 @@ const LANGUAGE_MANIFESTS: &[(&str, &str, &str)] = &[
     ("CMakeLists.txt", "C/C++", "cpp.md"),
     ("Makefile", "C/C++", "c.md"),
     ("mix.exs", "Elixir", "elixir.md"),
+    (".shellcheckrc", "Shell", "shell.md"),
 ];
 
 /// Expected hook files that should exist in .claude/hooks/.
@@ -370,6 +371,27 @@ fn detect_active_languages(project_root: &Path) -> Vec<String> {
         for &(manifest, lang, _rule_file) in LANGUAGE_MANIFESTS {
             if dir.join(manifest).exists() && seen.insert(lang.to_string()) {
                 found.push(lang.to_string());
+            }
+        }
+    }
+
+    // Shell detection: scan for .sh files in root, scripts/, and bin/
+    if !seen.contains("Shell") {
+        let shell_dirs = [
+            project_root.to_path_buf(),
+            project_root.join("scripts"),
+            project_root.join("bin"),
+        ];
+        'shell_scan: for dir in &shell_dirs {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.ends_with(".sh") || name.ends_with(".bash") {
+                        seen.insert("Shell".to_string());
+                        found.push("Shell".to_string());
+                        break 'shell_scan;
+                    }
+                }
             }
         }
     }
