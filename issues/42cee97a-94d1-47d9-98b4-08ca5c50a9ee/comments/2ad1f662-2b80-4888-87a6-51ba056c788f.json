@@ -1,0 +1,8 @@
+{
+  "uuid": "2ad1f662-2b80-4888-87a6-51ba056c788f",
+  "issue_uuid": "42cee97a-94d1-47d9-98b4-08ca5c50a9ee",
+  "author": "anon-ab6221f8",
+  "content": "Plan: (1) Add detect_base_branch() helper that tries develop, main, origin/develop, origin/main. (2) Add --base CLI flag to swarm merge with auto-detect default. (3) Fix hardcoded develop at branch creation (line 422) and diff generation (line 467). (4) Refactor discover_worktrees and extract_diff_ranges to use the same helper.",
+  "created_at": "2026-03-30T18:47:30.495164447Z",
+  "kind": "plan"
+}
