@@ -11,6 +11,27 @@ use crate::issue_file::{CommentEntry, CommentFile, IssueFile};
 
 use super::core::{PushOutcome, SharedWriter, WriteSet};
 
+/// Represents an update to a description field with three possible states:
+/// unchanged, cleared, or set to a new value.
+pub enum DescriptionUpdate<'a> {
+    /// Do not modify the description.
+    Unchanged,
+    /// Clear the description (set to `None`).
+    Clear,
+    /// Set the description to the given value.
+    Set(&'a str),
+}
+
+impl<'a> From<Option<Option<&'a str>>> for DescriptionUpdate<'a> {
+    fn from(opt: Option<Option<&'a str>>) -> Self {
+        match opt {
+            None => Self::Unchanged,
+            Some(None) => Self::Clear,
+            Some(Some(s)) => Self::Set(s),
+        }
+    }
+}
+
 /// Internal parameters for creating a comment (shared by `add_comment`
 /// and `add_intervention_comment` to avoid duplicating V1/V2 dispatch).
 #[derive(Clone)]
@@ -40,7 +61,7 @@ impl SharedWriter {
         let uuid = Uuid::new_v4();
         let now = Utc::now();
         let title_owned = title.to_string();
-        let desc_owned = description.map(|s| s.to_string());
+        let desc_owned = description.map(std::string::ToString::to_string);
         let priority_parsed: crate::models::Priority = priority.parse()?;
         let agent_id = self.agent.agent_id.clone();
         let display_id = Cell::new(0i64);
@@ -91,17 +112,22 @@ impl SharedWriter {
 
         if outcome == PushOutcome::LocalOnly {
             self.rewrite_as_offline(uuid)?;
-            self.hydrate_with_retry(db)?;
+            self.hydrate_with_retry(db);
             return db.get_issue_id_by_uuid(&uuid.to_string());
         }
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(display_id.get())
     }
 
     /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
     ///
     /// Returns the assigned display ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if UUID generation, counter claiming, JSON serialization,
+    /// git operations, or hydration fail.
     pub fn create_issue(
         &self,
         db: &Database,
@@ -115,13 +141,17 @@ impl SharedWriter {
             description,
             priority,
             None,
-            &format!("create issue: {}", title),
+            &format!("create issue: {title}"),
         )
     }
 
     /// Create a subissue under a parent.
     ///
     /// Returns the assigned display ID for the child.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parent issue cannot be resolved, or if creation fails.
     pub fn create_subissue(
         &self,
         db: &Database,
@@ -137,37 +167,44 @@ impl SharedWriter {
             description,
             priority,
             Some(parent_uuid),
-            &format!("create subissue under #{}: {}", parent_id, title),
+            &format!("create subissue under #{parent_id}: {title}"),
         )
     }
 
     /// Update an issue's title, description, status, or priority.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded, status/priority parsing
+    /// fails, or git operations fail.
     pub fn update_issue(
         &self,
         db: &Database,
         display_id: i64,
         title: Option<&str>,
-        description: Option<Option<&str>>,
+        description: DescriptionUpdate<'_>,
         status: Option<&str>,
         priority: Option<&str>,
     ) -> Result<()> {
-        let title_owned = title.map(|s| s.to_string());
-        let desc_owned = description.map(|d| d.map(|s| s.to_string()));
+        let title_owned = title.map(std::string::ToString::to_string);
+        let desc_update = description;
         let status_parsed = status
-            .map(|s| s.parse::<crate::models::IssueStatus>())
+            .map(str::parse::<crate::models::IssueStatus>)
             .transpose()?;
         let priority_parsed = priority
-            .map(|s| s.parse::<crate::models::Priority>())
+            .map(str::parse::<crate::models::Priority>)
             .transpose()?;
 
         let _ = self.write_commit_push(
             |writer| {
                 let mut issue = writer.load_issue_by_id(display_id, db)?;
                 if let Some(ref t) = title_owned {
-                    issue.title = t.clone();
+                    issue.title.clone_from(t);
                 }
-                if let Some(ref d) = desc_owned {
-                    issue.description = d.clone();
+                match &desc_update {
+                    DescriptionUpdate::Unchanged => {}
+                    DescriptionUpdate::Clear => issue.description = None,
+                    DescriptionUpdate::Set(s) => issue.description = Some((*s).to_string()),
                 }
                 if let Some(s) = status_parsed {
                     issue.status = s;
@@ -184,14 +221,18 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("update issue #{}", display_id),
+            &format!("update issue #{display_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
-    /// Close an issue (set status to "closed" and record closed_at).
+    /// Close an issue (set status to "closed" and record `closed_at`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded or git operations fail.
     pub fn close_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
@@ -208,14 +249,18 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("close issue #{}", display_id),
+            &format!("close issue #{display_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
-    /// Reopen an issue (set status to "open", clear closed_at).
+    /// Reopen an issue (set status to "open", clear `closed_at`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded or git operations fail.
     pub fn reopen_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
@@ -231,14 +276,18 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("reopen issue #{}", display_id),
+            &format!("reopen issue #{display_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Delete an issue JSON file from the coordination branch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be found or git operations fail.
     pub fn delete_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let issue = self.load_issue_by_id(display_id, db)?;
         let uuid = issue.uuid;
@@ -252,20 +301,20 @@ impl SharedWriter {
                     // V2: pass the directory path so git rm -r removes
                     // issue.json + comments/ recursively (#460)
                     Ok(WriteSet {
-                        files: vec![(format!("issues/{}", uuid), vec![])],
+                        files: vec![(format!("issues/{uuid}"), vec![])],
                         counters: None,
                         use_git_rm: true,
                     })
                 } else {
                     // V1: pass the flat file path
                     Ok(WriteSet {
-                        files: vec![(format!("issues/{}.json", uuid), vec![])],
+                        files: vec![(format!("issues/{uuid}.json"), vec![])],
                         counters: None,
                         use_git_rm: true,
                     })
                 }
             },
-            &format!("delete issue #{}", display_id),
+            &format!("delete issue #{display_id}"),
         )?;
 
         // Post-commit cleanup: remove any untracked remnants (e.g. comment
@@ -281,14 +330,14 @@ impl SharedWriter {
                 );
             }
         }
-        let v1_path = self.cache_dir.join(format!("issues/{}.json", uuid));
+        let v1_path = self.cache_dir.join(format!("issues/{uuid}.json"));
         if v1_path.exists() {
             if let Err(e) = std::fs::remove_file(&v1_path) {
                 tracing::debug!("post-delete cleanup of {} failed: {}", v1_path.display(), e);
             }
         }
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
@@ -299,7 +348,7 @@ impl SharedWriter {
         &self,
         db: &Database,
         display_id: i64,
-        params: CommentParams,
+        params: &CommentParams,
         commit_msg: &str,
     ) -> Result<i64> {
         let agent_id = self.agent.agent_id.clone();
@@ -331,7 +380,7 @@ impl SharedWriter {
                         signature,
                     };
                     let json = serde_json::to_vec_pretty(&comment_file)?;
-                    let rel_path = writer.comment_rel_path(&issue.uuid, &comment_uuid);
+                    let rel_path = Self::comment_rel_path(&issue.uuid, &comment_uuid);
                     Ok(WriteSet {
                         files: vec![(rel_path, json)],
                         counters: Some(counters),
@@ -365,13 +414,17 @@ impl SharedWriter {
             commit_msg,
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(comment_id.get())
     }
 
     /// Add a comment to an issue.
     ///
     /// Returns the comment ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded or git operations fail.
     pub fn add_comment(
         &self,
         db: &Database,
@@ -382,18 +435,22 @@ impl SharedWriter {
         self.add_comment_inner(
             db,
             display_id,
-            CommentParams {
+            &CommentParams {
                 content: content.to_string(),
                 kind: kind.to_string(),
                 trigger_type: None,
                 intervention_context: None,
                 driver_key_fingerprint: None,
             },
-            &format!("comment on issue #{}", display_id),
+            &format!("comment on issue #{display_id}"),
         )
     }
 
     /// Add a driver intervention comment to an issue (kind = "intervention").
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded or git operations fail.
     pub fn add_intervention_comment(
         &self,
         db: &Database,
@@ -406,18 +463,23 @@ impl SharedWriter {
         self.add_comment_inner(
             db,
             display_id,
-            CommentParams {
+            &CommentParams {
                 content: content.to_string(),
                 kind: super::core::KIND_INTERVENTION.to_string(),
                 trigger_type: Some(trigger_type.to_string()),
-                intervention_context: intervention_context.map(|s| s.to_string()),
-                driver_key_fingerprint: driver_key_fingerprint.map(|s| s.to_string()),
+                intervention_context: intervention_context.map(std::string::ToString::to_string),
+                driver_key_fingerprint: driver_key_fingerprint
+                    .map(std::string::ToString::to_string),
             },
-            &format!("intervention on issue #{}", display_id),
+            &format!("intervention on issue #{display_id}"),
         )
     }
 
     /// Add a label to an issue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded or git operations fail.
     pub fn add_label(&self, db: &Database, display_id: i64, label: &str) -> Result<()> {
         let label_owned = label.to_string();
 
@@ -436,14 +498,18 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("label issue #{} with {}", display_id, label),
+            &format!("label issue #{display_id} with {label}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Remove a label from an issue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue cannot be loaded or git operations fail.
     pub fn remove_label(&self, db: &Database, display_id: i64, label: &str) -> Result<()> {
         let label_owned = label.to_string();
 
@@ -462,22 +528,26 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("unlabel {} from issue #{}", label, display_id),
+            &format!("unlabel {label} from issue #{display_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
-    /// Add a blocker dependency: `blocked_id` is blocked by `blocker_id`.
+    /// Add a blocker dependency: `issue_id` is blocked by `blocking_issue_id`.
     ///
     /// Only modifies the blocked issue's file (single-direction storage).
-    pub fn add_blocker(&self, db: &Database, blocked_id: i64, blocker_id: i64) -> Result<()> {
-        let blocker_uuid = self.resolve_uuid(blocker_id, db)?;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either issue cannot be resolved or git operations fail.
+    pub fn add_blocker(&self, db: &Database, issue_id: i64, blocking_issue_id: i64) -> Result<()> {
+        let blocker_uuid = self.resolve_uuid(blocking_issue_id, db)?;
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(blocked_id, db)?;
+                let mut issue = writer.load_issue_by_id(issue_id, db)?;
                 if !issue.blockers.contains(&blocker_uuid) {
                     issue.blockers.push(blocker_uuid);
                     issue.updated_at = Utc::now();
@@ -490,20 +560,29 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("block issue #{} on #{}", blocked_id, blocker_id),
+            &format!("block issue #{issue_id} on #{blocking_issue_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Remove a blocker dependency.
-    pub fn remove_blocker(&self, db: &Database, blocked_id: i64, blocker_id: i64) -> Result<()> {
-        let blocker_uuid = self.resolve_uuid(blocker_id, db)?;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either issue cannot be resolved or git operations fail.
+    pub fn remove_blocker(
+        &self,
+        db: &Database,
+        issue_id: i64,
+        blocking_issue_id: i64,
+    ) -> Result<()> {
+        let blocker_uuid = self.resolve_uuid(blocking_issue_id, db)?;
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(blocked_id, db)?;
+                let mut issue = writer.load_issue_by_id(issue_id, db)?;
                 if let Some(pos) = issue.blockers.iter().position(|u| u == &blocker_uuid) {
                     issue.blockers.remove(pos);
                     issue.updated_at = Utc::now();
@@ -516,14 +595,18 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("unblock issue #{} from #{}", blocked_id, blocker_id),
+            &format!("unblock issue #{issue_id} from #{blocking_issue_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Add a relation between two issues (single-direction storage).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either issue cannot be resolved or git operations fail.
     pub fn add_relation(&self, db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
         let related_uuid = self.resolve_uuid(related_id, db)?;
 
@@ -542,14 +625,18 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("relate issue #{} to #{}", issue_id, related_id),
+            &format!("relate issue #{issue_id} to #{related_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Remove a relation between two issues.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either issue cannot be resolved or git operations fail.
     pub fn remove_relation(&self, db: &Database, issue_id: i64, related_id: i64) -> Result<()> {
         let related_uuid = self.resolve_uuid(related_id, db)?;
 
@@ -568,10 +655,10 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("unrelate issue #{} from #{}", issue_id, related_id),
+            &format!("unrelate issue #{issue_id} from #{related_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 

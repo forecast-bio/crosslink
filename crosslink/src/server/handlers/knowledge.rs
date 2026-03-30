@@ -47,6 +47,9 @@ fn knowledge_manager(state: &AppState) -> Result<KnowledgeManager, (StatusCode, 
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/knowledge` — list all knowledge pages with summary metadata.
+///
+/// # Errors
+/// Returns an error if the knowledge manager cannot be initialized or pages cannot be listed.
 pub async fn list_knowledge_pages(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -83,6 +86,9 @@ pub async fn list_knowledge_pages(
 /// The request body must contain a `slug`, `title`, `content`, and optional
 /// `tags` and `sources`. The handler constructs YAML frontmatter and writes
 /// the page to the knowledge cache.
+///
+/// # Errors
+/// Returns an error if validation fails or the page cannot be written.
 pub async fn create_knowledge_page(
     State(state): State<AppState>,
     Json(body): Json<CreateKnowledgePageRequest>,
@@ -136,7 +142,8 @@ pub async fn create_knowledge_page(
                     yaml_escape(&s.title)
                 );
                 if let Some(ref at) = s.accessed_at {
-                    entry.push_str(&format!("\n    accessed_at: \"{}\"", yaml_escape(at)));
+                    use std::fmt::Write;
+                    let _ = write!(entry, "\n    accessed_at: \"{}\"", yaml_escape(at));
                 }
                 entry
             })
@@ -194,6 +201,9 @@ pub async fn create_knowledge_page(
 /// `GET /api/v1/knowledge/search?q=<query>` — search knowledge pages by content.
 ///
 /// Returns matching snippets with context lines, ranked by term relevance.
+///
+/// # Errors
+/// Returns an error if the query is empty or the search fails.
 pub async fn search_knowledge(
     State(state): State<AppState>,
     Query(params): Query<KnowledgeSearchQuery>,
@@ -248,6 +258,9 @@ pub async fn search_knowledge(
 /// `GET /api/v1/knowledge/:slug` — read a single knowledge page by slug.
 ///
 /// Returns the full page content along with parsed frontmatter metadata.
+///
+/// # Errors
+/// Returns an error if the page cannot be found or read.
 pub async fn get_knowledge_page(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -255,13 +268,13 @@ pub async fn get_knowledge_page(
     let km = knowledge_manager(&state)?;
 
     if !km.is_initialized() {
-        return Err(not_found(format!("Page '{}' not found", slug)));
+        return Err(not_found(format!("Page '{slug}' not found")));
     }
 
     let raw = km.read_page(&slug).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("not found") {
-            not_found(format!("Page '{}' not found", slug))
+            not_found(format!("Page '{slug}' not found"))
         } else {
             internal_error("Failed to read knowledge page", e)
         }
@@ -321,12 +334,13 @@ fn strip_frontmatter(raw: &str) -> String {
         return raw.to_string();
     }
     // Find the closing `---` after the opening one.
-    if let Some(end) = trimmed[3..].find("\n---") {
-        let after = &trimmed[3 + end + 4..]; // skip past "\n---"
-        after.trim_start_matches('\n').to_string()
-    } else {
-        raw.to_string()
-    }
+    trimmed[3..].find("\n---").map_or_else(
+        || raw.to_string(),
+        |end| {
+            let after = &trimmed[3 + end + 4..]; // skip past "\n---"
+            after.trim_start_matches('\n').to_string()
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------

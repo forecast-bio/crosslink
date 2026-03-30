@@ -168,24 +168,24 @@ pub fn run(
         // specify priority". An explicit `--priority medium` is indistinguishable from the
         // default and will be overridden by the template's priority. To fix this fully,
         // the CLI would need `Option<String>` for priority (#449).
-        let priority = if priority != "medium" {
-            priority
-        } else {
+        let priority = if priority == "medium" {
             tmpl.priority
+        } else {
+            priority
         };
 
         // Combine template description prefix with user description
         let desc = match (tmpl.description_prefix, description) {
-            (Some(prefix), Some(user_desc)) => Some(format!("{}\n\n{}", prefix, user_desc)),
+            (Some(prefix), Some(user_desc)) => Some(format!("{prefix}\n\n{user_desc}")),
             (Some(prefix), None) => Some(prefix.to_string()),
-            (None, user_desc) => user_desc.map(|s| s.to_string()),
+            (None, user_desc) => user_desc.map(ToString::to_string),
         };
 
         (priority.to_string(), desc, Some(tmpl.label))
     } else {
         (
             priority.to_string(),
-            description.map(|s| s.to_string()),
+            description.map(ToString::to_string),
             None,
         )
     };
@@ -238,11 +238,11 @@ pub fn run(
             format_issue_id(id)
         );
     } else if opts.quiet {
-        println!("{}", id);
+        println!("{id}");
     } else {
         println!("Created issue {}", format_issue_id(id));
         if let Some(tmpl) = template {
-            println!("  Applied template: {}", tmpl);
+            println!("  Applied template: {tmpl}");
         }
     }
 
@@ -302,7 +302,7 @@ pub fn run_subissue(
     };
 
     if opts.quiet {
-        println!("{}", id);
+        println!("{id}");
     } else {
         println!(
             "Created subissue {} under {}",

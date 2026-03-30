@@ -17,6 +17,10 @@ pub const MAX_DESCRIPTION_LEN: usize = 64 * 1024; // 64KB
 pub const MAX_COMMENT_LEN: usize = 1024 * 1024; // 1MB
 
 /// Validate that a status value is known, returning an error if not.
+///
+/// # Errors
+///
+/// Returns an error if the status is not one of the valid values.
 pub fn validate_status(status: &str) -> Result<()> {
     if VALID_STATUSES.contains(&status) {
         Ok(())
@@ -30,6 +34,10 @@ pub fn validate_status(status: &str) -> Result<()> {
 }
 
 /// Validate that a priority value is known, returning an error if not.
+///
+/// # Errors
+///
+/// Returns an error if the priority is not one of the valid values.
 pub fn validate_priority(priority: &str) -> Result<()> {
     if VALID_PRIORITIES.contains(&priority) {
         Ok(())
@@ -47,9 +55,13 @@ pub struct Database {
 }
 
 impl Database {
+    /// Open a database at the given path, initializing the schema if needed.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be opened or schema initialization fails.
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).context("Failed to open database")?;
-        let db = Database { conn };
+        let db = Self { conn };
         db.init_schema()?;
         Ok(db)
     }
@@ -58,6 +70,9 @@ impl Database {
     /// If the closure returns Ok, the transaction is committed.
     /// If the closure returns Err or the closure panics, the transaction is
     /// rolled back automatically via rusqlite's RAII `Transaction` type.
+    ///
+    /// # Errors
+    /// Returns an error if the transaction cannot be started, committed, or if the closure fails.
     pub fn transaction<T, F>(&self, f: F) -> Result<T>
     where
         F: FnOnce() -> Result<T>,
@@ -68,15 +83,18 @@ impl Database {
         Ok(result)
     }
 
-    /// Toggle SQLite foreign key enforcement.
+    /// Toggle `SQLite` foreign key enforcement.
     ///
     /// Must be called outside a transaction (`PRAGMA foreign_keys` is a
     /// no-op inside one). Used by hydration to prevent `ON DELETE` cascades
     /// during bulk clear/reinsert (#461).
+    ///
+    /// # Errors
+    /// Returns an error if the pragma execution fails.
     pub fn set_foreign_keys(&self, enabled: bool) -> Result<()> {
         let value = if enabled { "ON" } else { "OFF" };
         self.conn
-            .execute_batch(&format!("PRAGMA foreign_keys = {};", value))?;
+            .execute_batch(&format!("PRAGMA foreign_keys = {value};"))?;
         Ok(())
     }
 
@@ -127,8 +145,22 @@ impl Database {
             });
 
         if version < SCHEMA_VERSION {
-            self.conn.execute_batch(
-                r#"
+            self.create_tables()?;
+            self.run_migrations(version);
+
+            self.conn
+                .execute(&format!("PRAGMA user_version = {SCHEMA_VERSION}"), [])?;
+        }
+
+        // Enable foreign keys
+        self.conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+        Ok(())
+    }
+
+    fn create_tables(&self) -> Result<()> {
+        self.conn.execute_batch(
+            r"
                 -- Core issues table
                 CREATE TABLE IF NOT EXISTS issues (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,19 +263,22 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_relations_2 ON relations(issue_id_2);
                 CREATE INDEX IF NOT EXISTS idx_milestone_issues_m ON milestone_issues(milestone_id);
                 CREATE INDEX IF NOT EXISTS idx_milestone_issues_i ON milestone_issues(issue_id);
-                "#,
-            )?;
+                ",
+        )?;
+        Ok(())
+    }
 
-            // Migration: add parent_id column if upgrading from v1
-            self.migrate(
-                "ALTER TABLE issues ADD COLUMN parent_id INTEGER REFERENCES issues(id) ON DELETE CASCADE",
-            );
+    fn run_migrations(&self, version: i32) {
+        // Migration: add parent_id column if upgrading from v1
+        self.migrate(
+            "ALTER TABLE issues ADD COLUMN parent_id INTEGER REFERENCES issues(id) ON DELETE CASCADE",
+        );
 
-            // Migration v7: Recreate sessions table with ON DELETE SET NULL for active_issue_id
-            // This ensures deleting an issue clears the session reference instead of failing
-            if version < 7 {
-                self.migrate_batch(
-                    r#"
+        // Migration v7: Recreate sessions table with ON DELETE SET NULL for active_issue_id
+        // This ensures deleting an issue clears the session reference instead of failing
+        if version < 7 {
+            self.migrate_batch(
+                r"
                     DROP TABLE IF EXISTS sessions_new;
                     CREATE TABLE sessions_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,64 +292,64 @@ impl Database {
                         SELECT id, started_at, ended_at, active_issue_id, handoff_notes FROM sessions;
                     DROP TABLE IF EXISTS sessions;
                     ALTER TABLE sessions_new RENAME TO sessions;
-                    "#,
-                );
-            }
+                    ",
+            );
+        }
 
-            // Migration v8: Add last_action column to sessions table
-            if version < 8 {
-                self.migrate("ALTER TABLE sessions ADD COLUMN last_action TEXT");
-            }
+        // Migration v8: Add last_action column to sessions table
+        if version < 8 {
+            self.migrate("ALTER TABLE sessions ADD COLUMN last_action TEXT");
+        }
 
-            // Migration v9: Add agent_id column to sessions table
-            if version < 9 {
-                self.migrate("ALTER TABLE sessions ADD COLUMN agent_id TEXT");
-            }
+        // Migration v9: Add agent_id column to sessions table
+        if version < 9 {
+            self.migrate("ALTER TABLE sessions ADD COLUMN agent_id TEXT");
+        }
 
-            // Migration v10: Add uuid columns for shared issue coordination
-            if version < 10 {
-                self.migrate("ALTER TABLE issues ADD COLUMN uuid TEXT");
-                self.migrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_uuid ON issues(uuid)");
-                self.migrate("ALTER TABLE issues ADD COLUMN created_by TEXT");
-                self.migrate("ALTER TABLE comments ADD COLUMN uuid TEXT");
-                self.migrate("ALTER TABLE comments ADD COLUMN author TEXT");
-                self.migrate("ALTER TABLE milestones ADD COLUMN uuid TEXT");
-                self.migrate(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_milestones_uuid ON milestones(uuid)",
-                );
-            }
+        // Migration v10: Add uuid columns for shared issue coordination
+        if version < 10 {
+            self.migrate("ALTER TABLE issues ADD COLUMN uuid TEXT");
+            self.migrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_uuid ON issues(uuid)");
+            self.migrate("ALTER TABLE issues ADD COLUMN created_by TEXT");
+            self.migrate("ALTER TABLE comments ADD COLUMN uuid TEXT");
+            self.migrate("ALTER TABLE comments ADD COLUMN author TEXT");
+            self.migrate("ALTER TABLE milestones ADD COLUMN uuid TEXT");
+            self.migrate(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_milestones_uuid ON milestones(uuid)",
+            );
+        }
 
-            // Migration v11: Add kind column to comments for typed audit trail
-            if version < 11 {
-                self.migrate("ALTER TABLE comments ADD COLUMN kind TEXT DEFAULT 'note'");
-            }
+        // Migration v11: Add kind column to comments for typed audit trail
+        if version < 11 {
+            self.migrate("ALTER TABLE comments ADD COLUMN kind TEXT DEFAULT 'note'");
+        }
 
-            // Migration v12: Add trigger_type and intervention_context for driver intervention tracking
-            if version < 12 {
-                self.migrate("ALTER TABLE comments ADD COLUMN trigger_type TEXT");
-                self.migrate("ALTER TABLE comments ADD COLUMN intervention_context TEXT");
-            }
+        // Migration v12: Add trigger_type and intervention_context for driver intervention tracking
+        if version < 12 {
+            self.migrate("ALTER TABLE comments ADD COLUMN trigger_type TEXT");
+            self.migrate("ALTER TABLE comments ADD COLUMN intervention_context TEXT");
+        }
 
-            // Migration v13: Add driver_key_fingerprint to comments for audit trail
-            if version < 13 {
-                let _ = self.conn.execute(
-                    "ALTER TABLE comments ADD COLUMN driver_key_fingerprint TEXT",
-                    [],
-                );
-            }
+        // Migration v13: Add driver_key_fingerprint to comments for audit trail
+        if version < 13 {
+            let _ = self.conn.execute(
+                "ALTER TABLE comments ADD COLUMN driver_key_fingerprint TEXT",
+                [],
+            );
+        }
 
-            // Migration v14: Drop leftover sessions_new table from a bug where
-            // user_version was always read as 0 (wrong column name in the query),
-            // causing the v7 migration to re-run on every open and leave behind
-            // a stale sessions_new table.
-            if version < 14 {
-                self.migrate("DROP TABLE IF EXISTS sessions_new");
-            }
+        // Migration v14: Drop leftover sessions_new table from a bug where
+        // user_version was always read as 0 (wrong column name in the query),
+        // causing the v7 migration to re-run on every open and leave behind
+        // a stale sessions_new table.
+        if version < 14 {
+            self.migrate("DROP TABLE IF EXISTS sessions_new");
+        }
 
-            // Migration v15: Token usage tracking table for web dashboard
-            if version < 15 {
-                self.migrate_batch(
-                    r#"
+        // Migration v15: Token usage tracking table for web dashboard
+        if version < 15 {
+            self.migrate_batch(
+                r"
                     CREATE TABLE IF NOT EXISTS token_usage (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         agent_id TEXT NOT NULL,
@@ -331,21 +366,15 @@ impl Database {
                     CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_id);
                     CREATE INDEX IF NOT EXISTS idx_token_usage_session ON token_usage(session_id);
                     CREATE INDEX IF NOT EXISTS idx_token_usage_timestamp ON token_usage(timestamp);
-                    "#,
-                );
-            }
-
-            self.conn
-                .execute(&format!("PRAGMA user_version = {}", SCHEMA_VERSION), [])?;
+                    ",
+            );
         }
-
-        // Enable foreign keys
-        self.conn.execute("PRAGMA foreign_keys = ON", [])?;
-
-        Ok(())
     }
 
-    /// Get the current schema version (PRAGMA user_version).
+    /// Get the current schema version (PRAGMA `user_version`).
+    ///
+    /// # Errors
+    /// Returns an error if the pragma query fails.
     pub fn get_schema_version(&self) -> Result<i32> {
         let version: i32 = self
             .conn

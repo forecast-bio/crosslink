@@ -14,7 +14,7 @@ pub fn run(db: &Database, query: &str) -> Result<()> {
     let results = db.search_issues(query)?;
 
     if results.is_empty() {
-        println!("No issues found matching '{}'", query);
+        println!("No issues found matching '{query}'");
         return Ok(());
     }
 

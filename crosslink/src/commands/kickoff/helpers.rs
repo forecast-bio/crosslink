@@ -5,7 +5,7 @@ use std::process::Command;
 
 use super::types::*;
 
-/// Maximum slug length: 64 (agent_id limit) - 4 (repo) - 1 (-) - 4 (agent) - 1 (-) = 54.
+/// Maximum slug length: 64 (`agent_id` limit) - 4 (repo) - 1 (-) - 4 (agent) - 1 (-) = 54.
 pub(crate) const MAX_SLUG_LEN: usize = 54;
 
 /// Slugify a feature description into a branch-safe name.
@@ -40,10 +40,10 @@ fn slugify_with_max(description: &str, max_len: usize) -> String {
     let trimmed = result.trim_end_matches('-');
     if trimmed.len() > max_len {
         // Cut at the last hyphen before max_len chars to avoid mid-word
-        match trimmed[..max_len].rfind('-') {
-            Some(pos) => trimmed[..pos].to_string(),
-            None => trimmed[..max_len].to_string(),
-        }
+        trimmed[..max_len].rfind('-').map_or_else(
+            || trimmed[..max_len].to_string(),
+            |pos| trimmed[..pos].to_string(),
+        )
     } else {
         trimmed.to_string()
     }
@@ -59,7 +59,7 @@ pub(super) fn parse_criterion_id(text: &str) -> (String, String) {
         if let Some(colon_pos) = rest.find(':') {
             let digits = &rest[..colon_pos];
             if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
-                let id = format!("AC-{}", digits);
+                let id = format!("AC-{digits}");
                 let remaining = trimmed[3 + colon_pos + 1..].trim().to_string();
                 return (id, remaining);
             }
@@ -94,16 +94,16 @@ pub(crate) fn extract_criteria(
 
     for raw in &doc.acceptance_criteria {
         let (parsed_id, text) = parse_criterion_id(raw);
-        let id = if !parsed_id.is_empty() {
-            parsed_id
-        } else {
+        let id = if parsed_id.is_empty() {
             loop {
                 auto_counter += 1;
-                let candidate = format!("AC-{}", auto_counter);
+                let candidate = format!("AC-{auto_counter}");
                 if !explicit_ids.contains(&candidate) {
                     break candidate;
                 }
             }
+        } else {
+            parsed_id
         };
         criteria.push(Criterion {
             id,
@@ -243,7 +243,7 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
 }
 
 /// Format the verification level as a display string.
-pub(crate) fn verify_level_name(level: &VerifyLevel) -> &'static str {
+pub(crate) const fn verify_level_name(level: &VerifyLevel) -> &'static str {
     match level {
         VerifyLevel::Local => "local",
         VerifyLevel::Ci => "ci",
@@ -435,11 +435,7 @@ pub(super) fn install_hint(cmd: &str, platform: &Platform) -> String {
             Platform::MacOS => "`claude` CLI is not installed.\n\n  brew install claude-code\n\
                  \nOr install via npm:\n\n  npm install -g @anthropic-ai/claude-code"
                 .to_string(),
-            Platform::Windows => {
-                "`claude` CLI is not installed.\n\n  npm install -g @anthropic-ai/claude-code"
-                    .to_string()
-            }
-            Platform::Linux(_) => {
+            Platform::Windows | Platform::Linux(_) => {
                 "`claude` CLI is not installed.\n\n  npm install -g @anthropic-ai/claude-code"
                     .to_string()
             }
@@ -552,10 +548,9 @@ pub(super) fn install_hint(cmd: &str, platform: &Platform) -> String {
                  \nAlternatively, use --container none for local mode."
                 .to_string(),
         },
-        other => format!(
-            "`{}` is not installed. Install it using your system package manager.",
-            other
-        ),
+        other => {
+            format!("`{other}` is not installed. Install it using your system package manager.")
+        }
     }
 }
 
@@ -565,20 +560,20 @@ pub(crate) fn format_duration(secs: u64) -> String {
         let h = secs / 3600;
         let m = (secs % 3600) / 60;
         if m > 0 {
-            format!("{}h {}m", h, m)
+            format!("{h}h {m}m")
         } else {
-            format!("{}h", h)
+            format!("{h}h")
         }
     } else if secs >= 60 {
         let m = secs / 60;
         let s = secs % 60;
         if s > 0 {
-            format!("{}m {}s", m, s)
+            format!("{m}m {s}s")
         } else {
-            format!("{}m", m)
+            format!("{m}m")
         }
     } else {
-        format!("{}s", secs)
+        format!("{secs}s")
     }
 }
 
@@ -636,7 +631,7 @@ pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<
         if let Ok(content) = std::fs::read_to_string(&criteria_path) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                 // The criteria file might have issue_id in extracted metadata
-                if let Some(id) = val.get("issue_id").and_then(|v| v.as_i64()) {
+                if let Some(id) = val.get("issue_id").and_then(serde_json::Value::as_i64) {
                     return Some(crate::utils::format_issue_id(id));
                 }
             }
@@ -647,7 +642,7 @@ pub(super) fn read_agent_issue(wt_path: &Path, _crosslink_dir: &Path) -> Option<
     if agent_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&agent_json) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(id) = val.get("issue_id").and_then(|v| v.as_i64()) {
+                if let Some(id) = val.get("issue_id").and_then(serde_json::Value::as_i64) {
                     return Some(crate::utils::format_issue_id(id));
                 }
             }
@@ -684,14 +679,10 @@ pub(super) fn rand_hex_suffix() -> String {
 /// Classify an agent for cleanup purposes.
 pub(super) fn classify_agent(agent: &AgentInfo) -> CleanupClass {
     match agent.status.as_str() {
-        "done" => CleanupClass::Done,
+        // "done" and "failed" agents are safe to clean up (terminal states)
+        "done" | "failed" => CleanupClass::Done,
         "running" => CleanupClass::Active,
-        // "stopped" means tmux/container gone but no DONE sentinel — potentially stale
-        "stopped" => CleanupClass::Stale,
-        // "failed" agents are safe to clean up (they have a terminal sentinel)
-        "failed" => CleanupClass::Done,
-        // "timed-out" agents exceeded their timeout budget — treat as stale
-        "timed-out" => CleanupClass::Stale,
+        // "stopped", "timed-out", and anything else — potentially stale
         _ => CleanupClass::Stale,
     }
 }

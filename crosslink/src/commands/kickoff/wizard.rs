@@ -23,7 +23,7 @@ pub enum WizardSource {
 }
 
 /// Stage selection.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WizardStage {
     Plan,
     Run,
@@ -144,7 +144,7 @@ impl WizardApp {
         }
     }
 
-    fn total_source_items(&self) -> usize {
+    const fn total_source_items(&self) -> usize {
         self.design_docs.len() + 1 // +1 for quick description
     }
 
@@ -170,7 +170,7 @@ impl WizardApp {
                 if let Some(ref pipeline) = entry.pipeline {
                     match pipeline.stage.as_str() {
                         "designed" => self.stage_selected = 0, // Plan first
-                        "planned" => self.stage_selected = 1,  // Ready to run
+                        // "planned" and all other stages are ready to run
                         _ => self.stage_selected = 1,
                     }
                 } else {
@@ -266,11 +266,11 @@ impl WizardApp {
         self.screen = Screen::Launch;
     }
 
-    fn confirm_launch(&mut self) {
+    const fn confirm_launch(&mut self) {
         self.finished = true;
     }
 
-    fn go_back(&mut self) {
+    const fn go_back(&mut self) {
         match self.screen {
             Screen::Source => {} // Can't go back from first screen
             Screen::Stage => self.screen = Screen::Source,
@@ -435,10 +435,8 @@ fn draw_source_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
                 };
 
                 let stage_style = match entry.pipeline.as_ref().map(|p| p.stage.as_str()) {
-                    Some("planned") => Style::default().fg(Color::Green),
-                    Some("planning") => Style::default().fg(Color::Yellow),
-                    Some("running") => Style::default().fg(Color::Yellow),
-                    Some("complete") => Style::default().fg(Color::Green),
+                    Some("planned" | "complete") => Style::default().fg(Color::Green),
+                    Some("planning" | "running") => Style::default().fg(Color::Yellow),
                     _ => Style::default().fg(Color::DarkGray),
                 };
 
@@ -797,7 +795,7 @@ fn draw_configure_screen(frame: &mut Frame, app: &WizardApp, area: Rect) {
                 } else {
                     "[ ] "
                 };
-                spans.push(Span::styled(format!("{}{}", prefix, val), style));
+                spans.push(Span::styled(format!("{prefix}{val}"), style));
                 spans
             })
             .collect();
@@ -1152,25 +1150,26 @@ fn build_design_doc_entries(repo_root: &Path, _crosslink_dir: &Path) -> Vec<Desi
 
             let pipeline = pipeline::read_pipeline_state(&path);
 
-            let stage_display = if let Some(ref p) = pipeline {
-                pipeline::stage_display(p, &path)
-            } else {
-                "\u{2014}".to_string()
-            };
+            let stage_display = pipeline.as_ref().map_or_else(
+                || "\u{2014}".to_string(),
+                |p| pipeline::stage_display(p, &path),
+            );
 
-            let gaps_display = if let Some(ref p) = pipeline {
-                if let Some(plan) = p.plans.last() {
-                    if plan.status == "done" {
-                        format!("{} blocking", plan.blocking_gaps)
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    "\u{2014}".to_string()
-                }
-            } else {
-                "\u{2014}".to_string()
-            };
+            let gaps_display = pipeline.as_ref().map_or_else(
+                || "\u{2014}".to_string(),
+                |p| {
+                    p.plans.last().map_or_else(
+                        || "\u{2014}".to_string(),
+                        |plan| {
+                            if plan.status == "done" {
+                                format!("{} blocking", plan.blocking_gaps)
+                            } else {
+                                String::new()
+                            }
+                        },
+                    )
+                },
+            );
 
             DesignDocEntry {
                 path,
@@ -1186,7 +1185,7 @@ fn build_design_doc_entries(repo_root: &Path, _crosslink_dir: &Path) -> Vec<Desi
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() > max {
         let truncated: String = s.chars().take(max - 3).collect();
-        format!("{}...", truncated)
+        format!("{truncated}...")
     } else {
         s.to_string()
     }

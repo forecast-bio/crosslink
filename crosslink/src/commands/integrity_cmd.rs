@@ -59,7 +59,7 @@ pub fn run(action: Option<&IntegrityCommands>, crosslink_dir: &Path, db: &Databa
             Ok(())
         }
         Some(IntegrityCommands::Layout { repair }) => {
-            let result = check_layout(crosslink_dir, *repair)?;
+            let result = check_layout(crosslink_dir, *repair);
             print_result(&result);
             Ok(())
         }
@@ -74,7 +74,7 @@ fn run_all(crosslink_dir: &Path, db: &Database) -> Result<()> {
         check_counters(crosslink_dir, db, false)?,
         check_hydration(crosslink_dir, db, false)?,
         check_locks(crosslink_dir, false)?,
-        check_layout(crosslink_dir, false)?,
+        check_layout(crosslink_dir, false),
     ];
 
     for result in &results {
@@ -98,8 +98,7 @@ fn check_schema(db: &Database, _repair: bool) -> Result<CheckResult> {
         // something is genuinely wrong. Report it but there's nothing to repair
         // beyond reopening the DB (which already happened).
         CheckStatus::Fail(format!(
-            "version {} does not match expected {}",
-            version, SCHEMA_VERSION
+            "version {version} does not match expected {SCHEMA_VERSION}"
         ))
     };
     Ok(CheckResult {
@@ -165,7 +164,7 @@ fn check_counters(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<C
 
     Ok(CheckResult {
         name: "counters".to_string(),
-        status: CheckStatus::Repaired(format!("fixed: {}", details)),
+        status: CheckStatus::Repaired(format!("fixed: {details}")),
     })
 }
 
@@ -211,14 +210,12 @@ fn check_hydration(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<
     let mut issues = Vec::new();
     if !issues_ok {
         issues.push(format!(
-            "{} issues in JSON, {} in SQLite",
-            json_issue_count, db_issue_count
+            "{json_issue_count} issues in JSON, {db_issue_count} in SQLite"
         ));
     }
     if !milestones_ok {
         issues.push(format!(
-            "{} milestones in JSON, {} in SQLite",
-            json_milestone_count, db_milestone_count
+            "{json_milestone_count} milestones in JSON, {db_milestone_count} in SQLite"
         ));
     }
     let details = issues.join("; ");
@@ -243,14 +240,11 @@ fn check_hydration(crosslink_dir: &Path, db: &Database, repair: bool) -> Result<
 }
 
 fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
-    let sync = match SyncManager::new(crosslink_dir) {
-        Ok(s) => s,
-        Err(_) => {
-            return Ok(CheckResult {
-                name: "locks".to_string(),
-                status: CheckStatus::Skipped("sync not configured".to_string()),
-            });
-        }
+    let Ok(sync) = SyncManager::new(crosslink_dir) else {
+        return Ok(CheckResult {
+            name: "locks".to_string(),
+            status: CheckStatus::Skipped("sync not configured".to_string()),
+        });
     };
 
     if !sync.is_initialized() {
@@ -274,7 +268,7 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
         stale.len(),
         stale
             .iter()
-            .map(|(id, agent)| format!("#{} ({})", id, agent))
+            .map(|(id, agent)| format!("#{id} ({agent})"))
             .collect::<Vec<_>>()
             .join(", ")
     );
@@ -286,17 +280,11 @@ fn check_locks(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
         });
     }
 
-    let agent = match AgentConfig::load(crosslink_dir)? {
-        Some(a) => a,
-        None => {
-            return Ok(CheckResult {
-                name: "locks".to_string(),
-                status: CheckStatus::Fail(format!(
-                    "{}; cannot repair without agent identity",
-                    details
-                )),
-            });
-        }
+    let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+        return Ok(CheckResult {
+            name: "locks".to_string(),
+            status: CheckStatus::Fail(format!("{details}; cannot repair without agent identity")),
+        });
     };
 
     let mut released = 0;
@@ -339,7 +327,7 @@ fn print_result(result: &CheckResult) {
         CheckStatus::Skipped(d) => ("SKIPPED", d.clone()),
     };
 
-    let tag_str = format!("[{}]", tag);
+    let tag_str = format!("[{tag}]");
     if detail.is_empty() {
         println!("{:<12} {}", tag_str, result.name);
     } else {
@@ -367,16 +355,16 @@ fn print_summary(results: &[CheckResult]) {
 
     let mut parts = Vec::new();
     if passed > 0 {
-        parts.push(format!("{} passed", passed));
+        parts.push(format!("{passed} passed"));
     }
     if failed > 0 {
-        parts.push(format!("{} failed", failed));
+        parts.push(format!("{failed} failed"));
     }
     if repaired > 0 {
-        parts.push(format!("{} repaired", repaired));
+        parts.push(format!("{repaired} repaired"));
     }
     if skipped > 0 {
-        parts.push(format!("{} skipped", skipped));
+        parts.push(format!("{skipped} skipped"));
     }
 
     println!("Integrity: {}", parts.join(", "));
@@ -386,15 +374,15 @@ fn print_summary(results: &[CheckResult]) {
 // Layout check: detect mixed V1/V2 issue files
 // ---------------------------------------------------------------------------
 
-fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
+fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
     let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     let issues_dir = cache_dir.join("issues");
 
     if !issues_dir.exists() {
-        return Ok(CheckResult {
+        return CheckResult {
             name: "layout".to_string(),
             status: CheckStatus::Skipped("no issues directory".to_string()),
-        });
+        };
     }
 
     // Scan for V1 flat files and V2 directories
@@ -407,7 +395,11 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
 
-            if path.is_file() && name.ends_with(".json") {
+            if path.is_file()
+                && std::path::Path::new(&name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+            {
                 let uuid = name.trim_end_matches(".json").to_string();
                 v1_uuids.push(uuid);
             } else if path.is_dir() && path.join("issue.json").exists() {
@@ -417,8 +409,8 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
     }
 
     // Find UUIDs that exist in both formats
-    let v1_set: std::collections::HashSet<&str> = v1_uuids.iter().map(|s| s.as_str()).collect();
-    let v2_set: std::collections::HashSet<&str> = v2_uuids.iter().map(|s| s.as_str()).collect();
+    let v1_set: std::collections::HashSet<&str> = v1_uuids.iter().map(String::as_str).collect();
+    let v2_set: std::collections::HashSet<&str> = v2_uuids.iter().map(String::as_str).collect();
     for uuid in &v1_set {
         if v2_set.contains(uuid) {
             both_uuids.push(uuid.to_string());
@@ -431,16 +423,16 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
     let v1_only: Vec<&str> = v1_uuids
         .iter()
         .filter(|u| !v2_set.contains(u.as_str()))
-        .map(|s| s.as_str())
+        .map(String::as_str)
         .collect();
 
     let has_problems = !both_uuids.is_empty() || (version >= 2 && !v1_only.is_empty());
 
     if !has_problems {
-        return Ok(CheckResult {
+        return CheckResult {
             name: "layout".to_string(),
             status: CheckStatus::Pass,
-        });
+        };
     }
 
     let mut issues_desc = Vec::new();
@@ -455,10 +447,10 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
     }
 
     if !repair {
-        return Ok(CheckResult {
+        return CheckResult {
             name: "layout".to_string(),
             status: CheckStatus::Fail(issues_desc.join("; ")),
-        });
+        };
     }
 
     // Repair: migrate V1 → V2 and remove stale V1 duplicates
@@ -467,7 +459,7 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
 
     // Remove V1 files that have V2 equivalents (stale duplicates)
     for uuid in &both_uuids {
-        let v1_path = issues_dir.join(format!("{}.json", uuid));
+        let v1_path = issues_dir.join(format!("{uuid}.json"));
         if v1_path.exists() {
             let _ = std::fs::remove_file(&v1_path);
             cleaned += 1;
@@ -477,7 +469,7 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
     // Migrate V1-only files to V2 format (when hub is V2)
     if version >= 2 {
         for uuid in &v1_only {
-            let v1_path = issues_dir.join(format!("{}.json", uuid));
+            let v1_path = issues_dir.join(format!("{uuid}.json"));
             let v2_dir = issues_dir.join(uuid);
             let v2_path = v2_dir.join("issue.json");
 
@@ -504,16 +496,16 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> Result<CheckResult> {
 
     let mut repair_desc = Vec::new();
     if cleaned > 0 {
-        repair_desc.push(format!("{} stale V1 duplicate(s) removed", cleaned));
+        repair_desc.push(format!("{cleaned} stale V1 duplicate(s) removed"));
     }
     if migrated > 0 {
-        repair_desc.push(format!("{} V1 file(s) migrated to V2", migrated));
+        repair_desc.push(format!("{migrated} V1 file(s) migrated to V2"));
     }
 
-    Ok(CheckResult {
+    CheckResult {
         name: "layout".to_string(),
         status: CheckStatus::Repaired(repair_desc.join("; ")),
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------

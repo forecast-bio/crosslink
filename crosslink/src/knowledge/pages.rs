@@ -10,6 +10,9 @@ impl KnowledgeManager {
     ///
     /// Reads only the first 4 KiB of each file to extract frontmatter,
     /// avoiding full-file reads for pages with large body content (#427).
+    ///
+    /// # Errors
+    /// Returns an error if the cache directory cannot be read or a file cannot be opened.
     pub fn list_pages(&self) -> Result<Vec<PageInfo>> {
         use std::io::Read;
 
@@ -26,7 +29,7 @@ impl KnowledgeManager {
         for entry in std::fs::read_dir(&self.cache_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map(|e| e == "md").unwrap_or(false) {
+            if path.extension().is_some_and(|e| e == "md") {
                 let slug = path
                     .file_stem()
                     .unwrap_or_default()
@@ -67,15 +70,12 @@ impl KnowledgeManager {
             bail!("Page slug cannot be empty");
         }
         if slug.contains('/') || slug.contains('\\') || slug.contains('\0') || slug.contains("..") {
-            bail!(
-                "Invalid page slug '{}': must not contain path separators or '..'",
-                slug
-            );
+            bail!("Invalid page slug '{slug}': must not contain path separators or '..'");
         }
         if is_windows_reserved_name(slug) {
-            bail!("Invalid page slug '{}': Windows reserved filename", slug);
+            bail!("Invalid page slug '{slug}': Windows reserved filename");
         }
-        let path = self.cache_dir.join(format!("{}.md", slug));
+        let path = self.cache_dir.join(format!("{slug}.md"));
         // Defense in depth: verify the resolved path is within cache_dir.
         // Both paths must be canonicalized for a reliable starts_with check.
         // If either canonicalization fails (directory does not exist yet),
@@ -85,25 +85,28 @@ impl KnowledgeManager {
             path.parent().and_then(|p| p.canonicalize().ok()),
         ) {
             if !canonical_parent.starts_with(&canonical_cache) {
-                bail!(
-                    "Invalid page slug '{}': resolves outside knowledge cache",
-                    slug
-                );
+                bail!("Invalid page slug '{slug}': resolves outside knowledge cache");
             }
         }
         Ok(path)
     }
 
     /// Read a page by its filename slug (without `.md` extension).
+    ///
+    /// # Errors
+    /// Returns an error if the slug is invalid or the page does not exist.
     pub fn read_page(&self, slug: &str) -> Result<String> {
         let path = self.safe_page_path(slug)?;
         if !path.exists() {
-            bail!("Page '{}' not found", slug);
+            bail!("Page '{slug}' not found");
         }
         std::fs::read_to_string(&path).context("Failed to read page")
     }
 
     /// Write or overwrite a page by its filename slug.
+    ///
+    /// # Errors
+    /// Returns an error if the cache is not initialized or the write fails.
     pub fn write_page(&self, slug: &str, content: &str) -> Result<()> {
         if !self.cache_dir.exists() {
             bail!("Knowledge cache not initialized. Run init_cache() first.");
@@ -113,6 +116,7 @@ impl KnowledgeManager {
     }
 
     /// Check if a page exists by slug.
+    #[must_use]
     pub fn page_exists(&self, slug: &str) -> bool {
         self.safe_page_path(slug)
             .map(|path| path.exists())
@@ -120,10 +124,13 @@ impl KnowledgeManager {
     }
 
     /// Delete a page by slug.
+    ///
+    /// # Errors
+    /// Returns an error if the slug is invalid or the page does not exist.
     pub fn delete_page(&self, slug: &str) -> Result<()> {
         let path = self.safe_page_path(slug)?;
         if !path.exists() {
-            bail!("Page '{}' not found", slug);
+            bail!("Page '{slug}' not found");
         }
         std::fs::remove_file(&path).context("Failed to delete page")
     }

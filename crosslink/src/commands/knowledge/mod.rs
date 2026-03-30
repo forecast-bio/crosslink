@@ -33,8 +33,9 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             slug,
             repo,
             refresh,
-        } => {
-            if let Some(repo_value) = repo {
+        } => repo.map_or_else(
+            || show(crosslink_dir, &slug, global_json),
+            |repo_value| {
                 crate::commands::external_knowledge::show(
                     crosslink_dir,
                     &repo_value,
@@ -43,10 +44,8 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                     global_json,
                     false,
                 )
-            } else {
-                show(crosslink_dir, &slug, global_json)
-            }
-        }
+            },
+        ),
         KnowledgeCommands::List {
             tag,
             contributor,
@@ -54,8 +53,17 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             json,
             repo,
             refresh,
-        } => {
-            if let Some(repo_value) = repo {
+        } => repo.map_or_else(
+            || {
+                list(
+                    crosslink_dir,
+                    tag.as_deref(),
+                    contributor.as_deref(),
+                    since.as_deref(),
+                    json,
+                )
+            },
+            |repo_value| {
                 crate::commands::external_knowledge::list(
                     crosslink_dir,
                     &repo_value,
@@ -66,16 +74,8 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                     json,
                     false,
                 )
-            } else {
-                list(
-                    crosslink_dir,
-                    tag.as_deref(),
-                    contributor.as_deref(),
-                    since.as_deref(),
-                    json,
-                )
-            }
-        }
+            },
+        ),
         KnowledgeCommands::Edit {
             slug,
             append,
@@ -133,8 +133,20 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             contributor,
             repo,
             refresh,
-        } => {
-            if let Some(repo_value) = repo {
+        } => repo.map_or_else(
+            || {
+                search(
+                    crosslink_dir,
+                    query.as_deref(),
+                    context,
+                    source.as_deref(),
+                    global_json,
+                    tag.as_deref(),
+                    since.as_deref(),
+                    contributor.as_deref(),
+                )
+            },
+            |repo_value| {
                 crate::commands::external_knowledge::search(
                     crosslink_dir,
                     &repo_value,
@@ -148,19 +160,8 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                     since.as_deref(),
                     contributor.as_deref(),
                 )
-            } else {
-                search(
-                    crosslink_dir,
-                    query.as_deref(),
-                    context,
-                    source.as_deref(),
-                    global_json,
-                    tag.as_deref(),
-                    since.as_deref(),
-                    contributor.as_deref(),
-                )
-            }
-        }
+            },
+        ),
     }
 }
 

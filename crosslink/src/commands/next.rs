@@ -21,7 +21,7 @@ struct ScoredIssue {
 
 /// Init cache, fetch remote, and load lock state for filtering.
 /// Side effects: initializes the hub cache and fetches from remote (best-effort).
-/// Returns (LocksFile, my_agent_id) or None if agent/sync not configured.
+/// Returns (`LocksFile`, `my_agent_id`) or None if agent/sync not configured.
 fn fetch_and_load_locks(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
     let agent = crate::identity::AgentConfig::load(crosslink_dir).ok()??;
     let sync = crate::sync::SyncManager::new(crosslink_dir).ok()?;
@@ -33,7 +33,7 @@ fn fetch_and_load_locks(crosslink_dir: &Path) -> Option<(LocksFile, String)> {
 }
 
 /// Priority order for sorting (higher = more important).
-fn priority_weight(priority: &crate::models::Priority) -> i32 {
+const fn priority_weight(priority: crate::models::Priority) -> i32 {
     match priority {
         crate::models::Priority::Critical => 4,
         crate::models::Priority::High => 3,
@@ -87,7 +87,7 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
             }
         }
 
-        let priority_score = priority_weight(&issue.priority) * 100;
+        let priority_score = priority_weight(issue.priority) * 100;
         let progress = calculate_progress(db, issue)?;
 
         // Boost score for issues that are partially complete (finish what you started)
@@ -145,7 +145,7 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         if !desc.is_empty() {
             let preview: String = desc.chars().take(80).collect();
             let suffix = if desc.chars().count() > 80 { "..." } else { "" };
-            println!("       {}{}", preview, suffix);
+            println!("       {preview}{suffix}");
         }
     }
 
@@ -157,10 +157,10 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
         println!();
         println!("Also ready:");
         for entry in scored.iter().skip(1).take(3) {
-            let progress_str = match &entry.progress {
-                Some(p) => format!(" ({}/{})", p.completed, p.total),
-                None => String::new(),
-            };
+            let progress_str = entry
+                .progress
+                .as_ref()
+                .map_or_else(String::new, |p| format!(" ({}/{})", p.completed, p.total));
             println!(
                 "  {} [{}] {}{}",
                 format_issue_id(entry.issue.id),
@@ -188,22 +188,22 @@ mod tests {
 
     #[test]
     fn test_priority_weight_critical() {
-        assert_eq!(priority_weight(&crate::models::Priority::Critical), 4);
+        assert_eq!(priority_weight(crate::models::Priority::Critical), 4);
     }
 
     #[test]
     fn test_priority_weight_high() {
-        assert_eq!(priority_weight(&crate::models::Priority::High), 3);
+        assert_eq!(priority_weight(crate::models::Priority::High), 3);
     }
 
     #[test]
     fn test_priority_weight_medium() {
-        assert_eq!(priority_weight(&crate::models::Priority::Medium), 2);
+        assert_eq!(priority_weight(crate::models::Priority::Medium), 2);
     }
 
     #[test]
     fn test_priority_weight_low() {
-        assert_eq!(priority_weight(&crate::models::Priority::Low), 1);
+        assert_eq!(priority_weight(crate::models::Priority::Low), 1);
     }
 
     #[test]
@@ -242,9 +242,9 @@ mod tests {
         assert_eq!(critical.priority, "critical");
         // Critical should have highest weight
         use crate::models::Priority;
-        assert_eq!(priority_weight(&Priority::Critical), 4);
-        assert!(priority_weight(&Priority::Critical) > priority_weight(&Priority::Low));
-        assert!(priority_weight(&Priority::Critical) > priority_weight(&Priority::Medium));
+        assert_eq!(priority_weight(Priority::Critical), 4);
+        assert!(priority_weight(Priority::Critical) > priority_weight(Priority::Low));
+        assert!(priority_weight(Priority::Critical) > priority_weight(Priority::Medium));
     }
 
     #[test]
@@ -314,7 +314,7 @@ mod tests {
         #[test]
         fn prop_priority_weight_valid(priority in "low|medium|high|critical") {
             let p: crate::models::Priority = priority.parse().unwrap();
-            let weight = priority_weight(&p);
+            let weight = priority_weight(p);
             prop_assert!((1..=4).contains(&weight));
         }
 

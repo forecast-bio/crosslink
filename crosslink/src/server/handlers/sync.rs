@@ -25,6 +25,11 @@ fn sync_manager(state: &AppState) -> Result<SyncManager, (StatusCode, Json<ApiEr
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/sync/status` — return hub initialization state, remote, and lock counts.
+///
+/// # Errors
+///
+/// Returns an error if the sync manager cannot be initialized or lock
+/// data cannot be read.
 pub async fn sync_status(
     State(state): State<AppState>,
 ) -> Result<Json<SyncStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -40,9 +45,9 @@ pub async fn sync_status(
             .map_err(|e| internal_error("Failed to read locks", e))?;
         let active = locks.locks.len();
 
-        let stale = sm.find_stale_locks_with_age().map(|v| v.len()).unwrap_or(0);
+        let stale_count = sm.find_stale_locks_with_age().map(|v| v.len()).unwrap_or(0);
 
-        (active, stale)
+        (active, stale_count)
     } else {
         (0, 0)
     };
@@ -68,6 +73,10 @@ pub async fn sync_status(
 }
 
 /// `POST /api/v1/sync/fetch` — fetch the latest hub state from remote.
+///
+/// # Errors
+///
+/// Returns an error if the hub is not initialized or the fetch operation fails.
 pub async fn sync_fetch(
     State(state): State<AppState>,
 ) -> Result<Json<SyncActionResponse>, (StatusCode, Json<ApiError>)> {
@@ -97,6 +106,10 @@ pub async fn sync_fetch(
 /// `POST /api/v1/sync/push` — push local hub state to remote.
 ///
 /// Commits any uncommitted changes in the hub cache and pushes to the remote.
+///
+/// # Errors
+///
+/// Returns an error if the hub is not initialized or the push operation fails.
 pub async fn sync_push(
     State(state): State<AppState>,
 ) -> Result<Json<SyncActionResponse>, (StatusCode, Json<ApiError>)> {
@@ -172,7 +185,7 @@ fn push_hub_cache(sm: &SyncManager) -> anyhow::Result<()> {
             continue;
         }
 
-        anyhow::bail!("Push failed: {}", stderr);
+        anyhow::bail!("Push failed: {stderr}");
     }
 
     Ok(())

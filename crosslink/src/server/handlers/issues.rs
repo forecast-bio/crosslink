@@ -65,6 +65,10 @@ fn broadcast_issue_updated(state: &AppState, issue_id: i64, field: &str) {
 /// - `priority`  — `low` | `medium` | `high`
 /// - `search`    — full-text search across title, description, and comments
 /// - `parent_id` — restrict to sub-issues of this parent
+///
+/// # Errors
+///
+/// Returns an error if the database query fails or an internal inconsistency is detected.
 pub async fn list_issues(
     State(state): State<AppState>,
     Query(params): Query<IssueListQuery>,
@@ -126,15 +130,16 @@ pub async fn list_issues(
     let issue_ids: Vec<i64> = issues.iter().map(|i| i.id).collect();
     let labels_map = db.get_labels_batch(&issue_ids).unwrap_or_default();
     let blocker_counts = db.get_blocker_counts_batch(&issue_ids).unwrap_or_default();
+    drop(db);
 
     let mut items: Vec<IssueSummary> = Vec::with_capacity(issues.len());
     for issue in issues {
         let labels = labels_map.get(&issue.id).cloned().unwrap_or_default();
         let blocker_count = blocker_counts.get(&issue.id).copied().unwrap_or(0);
         items.push(IssueSummary {
-            blocker_count,
             issue,
             labels,
+            blocker_count,
         });
     }
 
@@ -147,6 +152,10 @@ pub async fn list_issues(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/issues` — create a new issue.
+///
+/// # Errors
+///
+/// Returns an error if the issue cannot be created or retrieved after creation.
 pub async fn create_issue(
     State(state): State<AppState>,
     Json(body): Json<CreateIssueRequest>,
@@ -171,6 +180,7 @@ pub async fn create_issue(
         .get_issue(id)
         .map_err(|e| internal_error("Failed to retrieve created issue", e))?
         .ok_or_else(|| internal_error("Issue was created but not found", "unexpected state"))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "created");
     Ok(Json(json!(issue)))
@@ -182,6 +192,10 @@ pub async fn create_issue(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/issues/blocked` — open issues that have at least one open blocker.
+///
+/// # Errors
+///
+/// Returns an error if the database query fails.
 pub async fn list_blocked(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -190,6 +204,7 @@ pub async fn list_blocked(
     let issues = db
         .list_blocked_issues()
         .map_err(|e| internal_error("Failed to list blocked issues", e))?;
+    drop(db);
 
     let total = issues.len();
     Ok(Json(json!({ "items": issues, "total": total })))
@@ -201,6 +216,10 @@ pub async fn list_blocked(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/issues/ready` — open issues with no open blockers.
+///
+/// # Errors
+///
+/// Returns an error if the database query fails.
 pub async fn list_ready(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -209,6 +228,7 @@ pub async fn list_ready(
     let issues = db
         .list_ready_issues()
         .map_err(|e| internal_error("Failed to list ready issues", e))?;
+    drop(db);
 
     let total = issues.len();
     Ok(Json(json!({ "items": issues, "total": total })))
@@ -219,6 +239,10 @@ pub async fn list_ready(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/issues/:id` — fully hydrated issue: labels, comments, deps, subissues.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or a database query fails.
 pub async fn get_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -256,6 +280,7 @@ pub async fn get_issue(
                 name: m.name,
                 status: m.status,
             });
+    drop(db);
 
     Ok(Json(IssueDetail {
         issue,
@@ -273,6 +298,9 @@ pub async fn get_issue(
 // ---------------------------------------------------------------------------
 
 /// `PATCH /api/v1/issues/:id` — update title, description, and/or priority.
+///
+/// # Errors
+/// Returns an error if the issue is not found or the update fails.
 pub async fn update_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -285,7 +313,7 @@ pub async fn update_issue(
         .map_err(|e| internal_error("Failed to fetch issue", e))?
         .ok_or_else(|| not_found(format!("Issue #{id} not found")))?;
 
-    let priority_str = body.priority.as_ref().map(|p| p.to_string());
+    let priority_str = body.priority.as_ref().map(std::string::ToString::to_string);
     let updated = db
         .update_issue(
             id,
@@ -303,6 +331,7 @@ pub async fn update_issue(
         .get_issue(id)
         .map_err(|e| internal_error("Failed to refetch updated issue", e))?
         .ok_or_else(|| internal_error("Issue disappeared after update", "unexpected state"))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "updated");
     Ok(Json(json!(issue)))
@@ -313,6 +342,10 @@ pub async fn update_issue(
 // ---------------------------------------------------------------------------
 
 /// `DELETE /api/v1/issues/:id` — permanently delete an issue.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the delete fails.
 pub async fn delete_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -322,6 +355,7 @@ pub async fn delete_issue(
     let deleted = db
         .delete_issue(id)
         .map_err(|e| internal_error("Failed to delete issue", e))?;
+    drop(db);
 
     if !deleted {
         return Err(not_found(format!("Issue #{id} not found")));
@@ -336,6 +370,10 @@ pub async fn delete_issue(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/issues/:id/close` — mark an issue as closed.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the close operation fails.
 pub async fn close_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -354,6 +392,7 @@ pub async fn close_issue(
         .get_issue(id)
         .map_err(|e| internal_error("Failed to refetch closed issue", e))?
         .ok_or_else(|| internal_error("Issue disappeared after close", "unexpected state"))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "status");
     Ok(Json(json!(issue)))
@@ -364,6 +403,10 @@ pub async fn close_issue(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/issues/:id/reopen` — reopen a closed issue.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the reopen operation fails.
 pub async fn reopen_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -382,6 +425,7 @@ pub async fn reopen_issue(
         .get_issue(id)
         .map_err(|e| internal_error("Failed to refetch reopened issue", e))?
         .ok_or_else(|| internal_error("Issue disappeared after reopen", "unexpected state"))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "status");
     Ok(Json(json!(issue)))
@@ -392,6 +436,10 @@ pub async fn reopen_issue(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/issues/:id/subissue` — create a child issue under `:id`.
+///
+/// # Errors
+///
+/// Returns an error if the parent is not found or child creation fails.
 pub async fn create_subissue(
     State(state): State<AppState>,
     Path(parent_id): Path<i64>,
@@ -418,6 +466,7 @@ pub async fn create_subissue(
         .get_issue(child_id)
         .map_err(|e| internal_error("Failed to retrieve created subissue", e))?
         .ok_or_else(|| internal_error("Subissue was created but not found", "unexpected state"))?;
+    drop(db);
 
     broadcast_issue_updated(&state, parent_id, "subissues");
     broadcast_issue_updated(&state, child_id, "created");
@@ -429,6 +478,10 @@ pub async fn create_subissue(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/issues/:id/comments` — list all comments on an issue.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the query fails.
 pub async fn list_comments(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -443,6 +496,7 @@ pub async fn list_comments(
     let comments = db
         .get_comments(id)
         .map_err(|e| internal_error("Failed to fetch comments", e))?;
+    drop(db);
 
     let total = comments.len();
     Ok(Json(json!({ "items": comments, "total": total })))
@@ -457,6 +511,10 @@ pub async fn list_comments(
 /// For `kind = "intervention"`, the comment is stored with the additional
 /// `trigger_type` and `intervention_context` fields via
 /// `db.add_intervention_comment`.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the comment cannot be added.
 pub async fn add_comment(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -501,6 +559,7 @@ pub async fn add_comment(
         .into_iter()
         .find(|c| c.id == comment_id)
         .ok_or_else(|| internal_error("Comment was stored but not found", "unexpected state"))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "comments");
     Ok(Json(json!(comment)))
@@ -511,6 +570,10 @@ pub async fn add_comment(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/issues/:id/labels` — attach a label to an issue.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the label cannot be added.
 pub async fn add_label(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -524,6 +587,7 @@ pub async fn add_label(
 
     db.add_label(id, &body.label)
         .map_err(|e| bad_request(e.to_string()))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "labels");
     Ok(Json(OkResponse { ok: true }))
@@ -534,6 +598,10 @@ pub async fn add_label(
 // ---------------------------------------------------------------------------
 
 /// `DELETE /api/v1/issues/:id/labels/:label` — detach a label from an issue.
+///
+/// # Errors
+///
+/// Returns an error if the issue or label is not found.
 pub async fn remove_label(
     State(state): State<AppState>,
     Path((id, label)): Path<(i64, String)>,
@@ -547,6 +615,7 @@ pub async fn remove_label(
     let removed = db
         .remove_label(id, &label)
         .map_err(|e| internal_error("Failed to remove label", e))?;
+    drop(db);
 
     if !removed {
         return Err(not_found(format!(
@@ -563,6 +632,10 @@ pub async fn remove_label(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/issues/:id/block` — declare that `:id` is blocked by `blocker_id`.
+///
+/// # Errors
+///
+/// Returns an error if either issue is not found or the dependency cannot be added.
 pub async fn add_blocker(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -580,6 +653,7 @@ pub async fn add_blocker(
 
     db.add_dependency(id, body.blocker_id)
         .map_err(|e| bad_request(e.to_string()))?;
+    drop(db);
 
     broadcast_issue_updated(&state, id, "blockers");
     Ok(Json(OkResponse { ok: true }))
@@ -590,6 +664,10 @@ pub async fn add_blocker(
 // ---------------------------------------------------------------------------
 
 /// `DELETE /api/v1/issues/:id/block/:blocker_id` — remove a blocker dependency.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found or the dependency does not exist.
 pub async fn remove_blocker(
     State(state): State<AppState>,
     Path((id, blocker_id)): Path<(i64, i64)>,
@@ -603,6 +681,7 @@ pub async fn remove_blocker(
     let removed = db
         .remove_dependency(id, blocker_id)
         .map_err(|e| internal_error("Failed to remove dependency", e))?;
+    drop(db);
 
     if !removed {
         return Err(not_found(format!(

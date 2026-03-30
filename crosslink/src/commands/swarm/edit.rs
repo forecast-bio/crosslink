@@ -16,34 +16,28 @@ pub fn move_agent(crosslink_dir: &Path, agent_slug: &str, to_phase: &str) -> Res
     for (_path, phase) in &mut phases {
         if let Some(pos) = phase.agents.iter().position(|a| a.slug == agent_slug) {
             found_agent = Some(phase.agents.remove(pos));
-            source_phase_name = phase.name.clone();
+            phase.name.clone_into(&mut source_phase_name);
             break;
         }
     }
 
     let agent = found_agent
-        .ok_or_else(|| anyhow::anyhow!("Agent '{}' not found in any phase", agent_slug))?;
+        .ok_or_else(|| anyhow::anyhow!("Agent '{agent_slug}' not found in any phase"))?;
 
     // Find target phase and add agent
     let target = phases
         .iter_mut()
         .find(|(_, p)| p.name == to_phase)
-        .ok_or_else(|| anyhow::anyhow!("Phase '{}' not found", to_phase))?;
+        .ok_or_else(|| anyhow::anyhow!("Phase '{to_phase}' not found"))?;
     target.1.agents.push(agent);
 
     save_plan_and_phases(
         &sync,
         &plan,
         &phases,
-        &format!(
-            "swarm: move {} from {} to {}",
-            agent_slug, source_phase_name, to_phase
-        ),
+        &format!("swarm: move {agent_slug} from {source_phase_name} to {to_phase}"),
     )?;
-    println!(
-        "Moved '{}' from '{}' to '{}'",
-        agent_slug, source_phase_name, to_phase
-    );
+    println!("Moved '{agent_slug}' from '{source_phase_name}' to '{to_phase}'");
     Ok(())
 }
 
@@ -54,11 +48,11 @@ pub fn merge_phases(crosslink_dir: &Path, phase_a: &str, phase_b: &str) -> Resul
     let idx_a = phases
         .iter()
         .position(|(_, p)| p.name == phase_a)
-        .ok_or_else(|| anyhow::anyhow!("Phase '{}' not found", phase_a))?;
+        .ok_or_else(|| anyhow::anyhow!("Phase '{phase_a}' not found"))?;
     let idx_b = phases
         .iter()
         .position(|(_, p)| p.name == phase_b)
-        .ok_or_else(|| anyhow::anyhow!("Phase '{}' not found", phase_b))?;
+        .ok_or_else(|| anyhow::anyhow!("Phase '{phase_b}' not found"))?;
 
     // Move agents from B into A
     let agents_b: Vec<AgentEntry> = phases[idx_b].1.agents.clone();
@@ -77,9 +71,9 @@ pub fn merge_phases(crosslink_dir: &Path, phase_a: &str, phase_b: &str) -> Resul
         &sync,
         &plan,
         &phases,
-        &format!("swarm: merge '{}' into '{}'", phase_b, phase_a),
+        &format!("swarm: merge '{phase_b}' into '{phase_a}'"),
     )?;
-    println!("Merged '{}' into '{}'", phase_b, phase_a);
+    println!("Merged '{phase_b}' into '{phase_a}'");
     Ok(())
 }
 
@@ -90,7 +84,7 @@ pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) ->
     let idx = phases
         .iter()
         .position(|(_, p)| p.name == phase_name)
-        .ok_or_else(|| anyhow::anyhow!("Phase '{}' not found", phase_name))?;
+        .ok_or_else(|| anyhow::anyhow!("Phase '{phase_name}' not found"))?;
 
     let split_pos = phases[idx]
         .1
@@ -98,25 +92,17 @@ pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) ->
         .iter()
         .position(|a| a.slug == after_agent)
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Agent '{}' not found in phase '{}'",
-                after_agent,
-                phase_name
-            )
+            anyhow::anyhow!("Agent '{after_agent}' not found in phase '{phase_name}'")
         })?;
 
     if split_pos + 1 >= phases[idx].1.agents.len() {
-        bail!(
-            "Agent '{}' is the last agent in '{}' — nothing to split off",
-            after_agent,
-            phase_name
-        );
+        bail!("Agent '{after_agent}' is the last agent in '{phase_name}' — nothing to split off");
     }
 
     // Split agents
     let ctx = resolve_swarm(&sync)?;
     let new_agents: Vec<AgentEntry> = phases[idx].1.agents.drain(split_pos + 1..).collect();
-    let new_name = format!("{} (split)", phase_name);
+    let new_name = format!("{phase_name} (split)");
     let new_path = ctx.phase_path(&new_name);
 
     let new_phase = PhaseDefinition {
@@ -144,12 +130,9 @@ pub fn split_phase(crosslink_dir: &Path, phase_name: &str, after_agent: &str) ->
         &sync,
         &plan,
         &phases,
-        &format!("swarm: split '{}' after '{}'", phase_name, after_agent),
+        &format!("swarm: split '{phase_name}' after '{after_agent}'"),
     )?;
-    println!(
-        "Split '{}' after '{}' — new phase: '{}'",
-        phase_name, after_agent, new_name
-    );
+    println!("Split '{phase_name}' after '{after_agent}' — new phase: '{new_name}'");
     Ok(())
 }
 
@@ -162,23 +145,23 @@ pub fn remove_agent(crosslink_dir: &Path, agent_slug: &str) -> Result<()> {
     for (_path, phase) in &mut phases {
         if let Some(pos) = phase.agents.iter().position(|a| a.slug == agent_slug) {
             phase.agents.remove(pos);
-            from_phase = phase.name.clone();
+            phase.name.clone_into(&mut from_phase);
             removed = true;
             break;
         }
     }
 
     if !removed {
-        bail!("Agent '{}' not found in any phase", agent_slug);
+        bail!("Agent '{agent_slug}' not found in any phase");
     }
 
     save_plan_and_phases(
         &sync,
         &plan,
         &phases,
-        &format!("swarm: remove agent '{}'", agent_slug),
+        &format!("swarm: remove agent '{agent_slug}'"),
     )?;
-    println!("Removed '{}' from '{}'", agent_slug, from_phase);
+    println!("Removed '{agent_slug}' from '{from_phase}'");
     Ok(())
 }
 
@@ -193,11 +176,11 @@ pub fn reorder_phase(crosslink_dir: &Path, phase_name: &str, position: usize) ->
     let current_idx = phases
         .iter()
         .position(|(_, p)| p.name == phase_name)
-        .ok_or_else(|| anyhow::anyhow!("Phase '{}' not found", phase_name))?;
+        .ok_or_else(|| anyhow::anyhow!("Phase '{phase_name}' not found"))?;
 
     let target_idx = position - 1;
     if current_idx == target_idx {
-        println!("Phase '{}' is already at position {}", phase_name, position);
+        println!("Phase '{phase_name}' is already at position {position}");
         return Ok(());
     }
 
@@ -211,9 +194,9 @@ pub fn reorder_phase(crosslink_dir: &Path, phase_name: &str, position: usize) ->
         &sync,
         &plan,
         &phases,
-        &format!("swarm: reorder '{}' to position {}", phase_name, position),
+        &format!("swarm: reorder '{phase_name}' to position {position}"),
     )?;
-    println!("Moved '{}' to position {}", phase_name, position);
+    println!("Moved '{phase_name}' to position {position}");
     Ok(())
 }
 
@@ -224,7 +207,7 @@ pub fn rename_phase(crosslink_dir: &Path, old_name: &str, new_name: &str) -> Res
     let idx = phases
         .iter()
         .position(|(_, p)| p.name == old_name)
-        .ok_or_else(|| anyhow::anyhow!("Phase '{}' not found", old_name))?;
+        .ok_or_else(|| anyhow::anyhow!("Phase '{old_name}' not found"))?;
 
     // Update the phase name
     phases[idx].1.name = new_name.to_string();
@@ -259,8 +242,8 @@ pub fn rename_phase(crosslink_dir: &Path, old_name: &str, new_name: &str) -> Res
         &sync,
         &plan,
         &phases,
-        &format!("swarm: rename '{}' to '{}'", old_name, new_name),
+        &format!("swarm: rename '{old_name}' to '{new_name}'"),
     )?;
-    println!("Renamed '{}' to '{}'", old_name, new_name);
+    println!("Renamed '{old_name}' to '{new_name}'");
     Ok(())
 }

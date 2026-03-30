@@ -7,6 +7,7 @@ use ratatui::{
     Frame,
 };
 use std::cell::RefCell;
+use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::db::Database;
@@ -20,8 +21,8 @@ enum MilestoneViewMode {
     Detail,
 }
 
-/// Convert StatusFilter to the database argument format used by milestones.
-fn status_filter_db_arg(sf: StatusFilter) -> Option<&'static str> {
+/// Convert `StatusFilter` to the database argument format used by milestones.
+const fn status_filter_db_arg(sf: StatusFilter) -> Option<&'static str> {
     match sf {
         StatusFilter::Open => None, // default = open
         StatusFilter::Closed => Some("closed"),
@@ -76,7 +77,7 @@ pub struct MilestonesTab {
     detail_max_scroll: std::cell::Cell<u16>,
     status_msg: String,
     error_msg: Option<String>,
-    /// TableState for list view scroll-to-follow.
+    /// `TableState` for list view scroll-to-follow.
     list_table_state: RefCell<TableState>,
 }
 
@@ -299,10 +300,7 @@ impl MilestonesTab {
     }
 
     fn render_detail(&self, frame: &mut Frame, area: Rect) {
-        let detail = match &self.detail {
-            Some(d) => d,
-            None => return,
-        };
+        let Some(detail) = &self.detail else { return };
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -488,7 +486,6 @@ impl MilestonesTab {
                 self.refresh();
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -534,20 +531,21 @@ impl MilestonesTab {
                 d.id, d.name, d.status, d.closed_count, d.total_count
             );
             if let Some(ref desc) = d.description {
-                text.push_str(&format!("\n{desc}\n"));
+                let _ = write!(text, "\n{desc}\n");
             }
             if !d.issues.is_empty() {
-                text.push_str(&format!("\nIssues ({}):\n", d.issues.len()));
+                let _ = write!(text, "\nIssues ({}):\n", d.issues.len());
                 for issue in &d.issues {
                     let marker = if issue.status == crate::models::IssueStatus::Closed {
                         "✓"
                     } else {
                         "○"
                     };
-                    text.push_str(&format!(
-                        "  {marker} #{} [{}] {}\n",
+                    let _ = writeln!(
+                        text,
+                        "  {marker} #{} [{}] {}",
                         issue.id, issue.priority, issue.title
-                    ));
+                    );
                 }
             }
             let ok = super::copy_to_clipboard(&text);
@@ -563,7 +561,7 @@ impl MilestonesTab {
 }
 
 impl Tab for MilestonesTab {
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Milestones"
     }
 

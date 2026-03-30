@@ -14,6 +14,9 @@ impl SharedWriter {
     /// Create a milestone on the coordination branch.
     ///
     /// Returns the assigned milestone display ID.
+    ///
+    /// # Errors
+    /// Returns an error if writing or pushing to the coordination branch fails.
     pub fn create_milestone(
         &self,
         db: &Database,
@@ -23,7 +26,7 @@ impl SharedWriter {
         let uuid = Uuid::new_v4();
         let now = Utc::now();
         let name_owned = name.to_string();
-        let desc_owned = description.map(|s| s.to_string());
+        let desc_owned = description.map(std::string::ToString::to_string);
         let display_id = Cell::new(0i64);
 
         let _ = self.write_commit_push(
@@ -42,19 +45,22 @@ impl SharedWriter {
                 let mut json = Vec::new();
                 serde_json::to_writer_pretty(&mut json, &entry)?;
                 Ok(WriteSet {
-                    files: vec![(format!("meta/milestones/{}.json", uuid), json)],
+                    files: vec![(format!("meta/milestones/{uuid}.json"), json)],
                     counters: Some(counters),
                     use_git_rm: false,
                 })
             },
-            &format!("create milestone: {}", name),
+            &format!("create milestone: {name}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(display_id.get())
     }
 
     /// Close a milestone on the coordination branch.
+    ///
+    /// # Errors
+    /// Returns an error if the milestone cannot be loaded or the write fails.
     pub fn close_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
@@ -69,14 +75,17 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("close milestone #{}", milestone_id),
+            &format!("close milestone #{milestone_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Delete a milestone file from the coordination branch.
+    ///
+    /// # Errors
+    /// Returns an error if the milestone cannot be loaded or the write fails.
     pub fn delete_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let entry = self.load_milestone_by_id(milestone_id)?;
         let rel_path = format!("meta/milestones/{}.json", entry.uuid);
@@ -97,17 +106,20 @@ impl SharedWriter {
                     use_git_rm: true,
                 })
             },
-            &format!("delete milestone #{}", milestone_id),
+            &format!("delete milestone #{milestone_id}"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Set `milestone_uuid` on issue JSON files for the given issue IDs.
     ///
     /// Loads the milestone to get its UUID, then patches each issue file.
-    /// Also adds the issues to the SQLite milestone_issues table via hydration.
+    /// Also adds the issues to the `SQLite` `milestone_issues` table via hydration.
+    ///
+    /// # Errors
+    /// Returns an error if the milestone or any issue cannot be loaded, or the write fails.
     pub fn set_milestone_on_issues(
         &self,
         db: &Database,
@@ -138,11 +150,14 @@ impl SharedWriter {
             &format!("add {} issue(s) to milestone #{}", ids.len(), milestone_id),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 
     /// Clear `milestone_uuid` on an issue JSON file.
+    ///
+    /// # Errors
+    /// Returns an error if the issue cannot be loaded or the write fails.
     pub fn clear_milestone_on_issue(&self, db: &Database, issue_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
@@ -157,10 +172,10 @@ impl SharedWriter {
                     use_git_rm: false,
                 })
             },
-            &format!("remove issue #{} from milestone", issue_id),
+            &format!("remove issue #{issue_id} from milestone"),
         )?;
 
-        self.hydrate_with_retry(db)?;
+        self.hydrate_with_retry(db);
         Ok(())
     }
 }

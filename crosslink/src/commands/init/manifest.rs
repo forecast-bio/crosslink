@@ -90,7 +90,8 @@ pub(super) fn write_manifest(crosslink_dir: &Path, manifest: &InitManifest) -> R
     output.push('\n');
 
     fs::write(&tmp_path, &output).context("Failed to write init-manifest.json.tmp")?;
-    fs::rename(&tmp_path, &path).context("Failed to rename init-manifest.json.tmp → init-manifest.json")?;
+    fs::rename(&tmp_path, &path)
+        .context("Failed to rename init-manifest.json.tmp → init-manifest.json")?;
     Ok(())
 }
 
@@ -104,9 +105,7 @@ pub(super) fn write_manifest(crosslink_dir: &Path, manifest: &InitManifest) -> R
 /// signals.
 pub(super) fn build_manifest(files: &[(String, String)]) -> InitManifest {
     let version = env!("CARGO_PKG_VERSION").to_string();
-    let now = chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     let mut entries = BTreeMap::new();
     for (path, content) in files {
@@ -139,20 +138,17 @@ pub(super) fn classify_update(
     current_hash: Option<&str>,
     new_template_hash: &str,
 ) -> UpdateAction {
-    match current_hash {
-        None => UpdateAction::Deleted,
-        Some(current) => {
-            let user_changed = manifest_hash != current;
-            let template_changed = manifest_hash != new_template_hash;
+    current_hash.map_or(UpdateAction::Deleted, |current| {
+        let user_changed = manifest_hash != current;
+        let template_changed = manifest_hash != new_template_hash;
 
-            match (user_changed, template_changed) {
-                (false, false) => UpdateAction::UpToDate,
-                (false, true) => UpdateAction::AutoUpdate,
-                (true, false) => UpdateAction::TemplateUnchanged,
-                (true, true) => UpdateAction::Conflict,
-            }
+        match (user_changed, template_changed) {
+            (false, false) => UpdateAction::UpToDate,
+            (false, true) => UpdateAction::AutoUpdate,
+            (true, false) => UpdateAction::TemplateUnchanged,
+            (true, true) => UpdateAction::Conflict,
         }
-    }
+    })
 }
 
 #[cfg(test)]
@@ -206,10 +202,7 @@ mod tests {
 
         assert_eq!(loaded.crosslink_version, manifest.crosslink_version);
         assert_eq!(loaded.files.len(), 2);
-        assert_eq!(
-            loaded.files["a.py"].sha256,
-            manifest.files["a.py"].sha256
-        );
+        assert_eq!(loaded.files["a.py"].sha256, manifest.files["a.py"].sha256);
     }
 
     #[test]
@@ -278,9 +271,6 @@ mod tests {
 
     #[test]
     fn test_classify_deleted() {
-        assert_eq!(
-            classify_update("abc", None, "def"),
-            UpdateAction::Deleted
-        );
+        assert_eq!(classify_update("abc", None, "def"), UpdateAction::Deleted);
     }
 }

@@ -14,9 +14,8 @@ pub fn run(command: ArchiveCommands, db: &Database) -> Result<()> {
 }
 
 pub fn archive(db: &Database, id: i64) -> Result<()> {
-    let issue = match db.get_issue(id)? {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(id)),
+    let Some(issue) = db.get_issue(id)? else {
+        bail!("Issue {} not found", format_issue_id(id));
     };
 
     if issue.status != crate::models::IssueStatus::Closed {
@@ -75,15 +74,9 @@ pub fn list(db: &Database) -> Result<()> {
 pub fn archive_older(db: &Database, days: i64) -> Result<()> {
     let count = db.archive_older_than(days)?;
     if count > 0 {
-        println!(
-            "Archived {} issue(s) closed more than {} days ago",
-            count, days
-        );
+        println!("Archived {count} issue(s) closed more than {days} days ago");
     } else {
-        println!(
-            "No issues to archive (none closed more than {} days ago)",
-            days
-        );
+        println!("No issues to archive (none closed more than {days} days ago)");
     }
 
     Ok(())

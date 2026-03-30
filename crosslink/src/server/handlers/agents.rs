@@ -31,7 +31,7 @@ use crate::sync::SyncManager;
 /// Heartbeat age below which an agent is considered "active".
 const ACTIVE_THRESHOLD_SECS: i64 = 5 * 60;
 /// Heartbeat age above which an agent is considered "stale" (between this and
-/// ACTIVE_THRESHOLD is "idle").
+/// `ACTIVE_THRESHOLD` is "idle").
 const IDLE_THRESHOLD_SECS: i64 = 30 * 60;
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ pub struct AgentStatusResponse {
 // ---------------------------------------------------------------------------
 
 /// Classify an agent's status from its heartbeat age in seconds.
-fn classify_status(age_secs: i64) -> AgentStatus {
+const fn classify_status(age_secs: i64) -> AgentStatus {
     if age_secs < ACTIVE_THRESHOLD_SECS {
         AgentStatus::Active
     } else if age_secs < IDLE_THRESHOLD_SECS {
@@ -70,7 +70,7 @@ fn classify_status(age_secs: i64) -> AgentStatus {
 ///
 /// Matching rules (tried in order):
 /// 1. Exact slug match.
-/// 2. Word-boundary match: the agent_id contains the slug (or vice versa)
+/// 2. Word-boundary match: the `agent_id` contains the slug (or vice versa)
 ///    at a word boundary (preceded/followed by start/end or `-`/`_`/`.`).
 ///
 /// The word-boundary constraint prevents false positives like agent "a"
@@ -83,7 +83,7 @@ fn find_worktree_for_agent(root: &Path, agent_id: &str) -> Option<PathBuf> {
     }
     std::fs::read_dir(&worktrees_dir)
         .ok()?
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .find(|e| {
             let slug = e.file_name().to_string_lossy().to_string();
@@ -98,12 +98,13 @@ fn find_worktree_for_agent(root: &Path, agent_id: &str) -> Option<PathBuf> {
 ///
 /// A word boundary means the character immediately before and after the
 /// match is either absent (start/end of string) or a separator (`-`, `_`, `.`).
+const fn is_boundary(c: u8) -> bool {
+    matches!(c, b'-' | b'_' | b'.')
+}
+
 fn contains_at_word_boundary(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() || needle.len() > haystack.len() {
         return false;
-    }
-    fn is_boundary(c: u8) -> bool {
-        matches!(c, b'-' | b'_' | b'.')
     }
     let h = haystack.as_bytes();
     let n = needle.as_bytes();
@@ -168,7 +169,7 @@ fn agent_tmux_session(agent_id: &str) -> String {
         .unwrap_or(agent_id);
     // Split on "--": agent IDs are "<parent>--<slug>"; we want the last part
     let wt_slug = slug.rsplit("--").next().unwrap_or(slug);
-    let raw = format!("feat-{}", wt_slug);
+    let raw = format!("feat-{wt_slug}");
     let sanitized: String = raw
         .chars()
         .map(|c| if c == '.' || c == ':' { '-' } else { c })
@@ -187,6 +188,10 @@ use crate::server::errors::internal_error;
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/agents` — list all known agents with latest heartbeat and status.
+///
+/// # Errors
+///
+/// Returns an error if the sync manager or heartbeat/lock reads fail.
 pub async fn list_agents(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -205,8 +210,7 @@ pub async fn list_agents(
     let root = state
         .crosslink_dir
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| state.crosslink_dir.clone());
+        .map_or_else(|| state.crosslink_dir.clone(), std::path::Path::to_path_buf);
 
     let agents: Vec<AgentSummary> = heartbeats
         .into_iter()
@@ -242,6 +246,10 @@ pub async fn list_agents(
 }
 
 /// `GET /api/v1/agents/:id` — detailed view of a single agent.
+///
+/// # Errors
+///
+/// Returns an error if the sync manager or heartbeat/lock reads fail.
 pub async fn get_agent(
     State(state): State<AppState>,
     AxumPath(agent_id): AxumPath<String>,
@@ -260,8 +268,9 @@ pub async fn get_agent(
         .unwrap_or_else(|_| crate::locks::LocksFile::empty());
 
     let now = Utc::now();
-    let (status, agent_locks) = match &hb {
-        Some(h) => {
+    let (status, agent_locks) = hb.as_ref().map_or_else(
+        || (AgentStatus::Unknown, locks_file.agent_locks(&agent_id)),
+        |h| {
             let age_secs = now
                 .signed_duration_since(h.last_heartbeat)
                 .max(Duration::zero())
@@ -270,15 +279,13 @@ pub async fn get_agent(
                 classify_status(age_secs),
                 locks_file.agent_locks(&h.agent_id),
             )
-        }
-        None => (AgentStatus::Unknown, locks_file.agent_locks(&agent_id)),
-    };
+        },
+    );
 
     let root = state
         .crosslink_dir
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| state.crosslink_dir.clone());
+        .map_or_else(|| state.crosslink_dir.clone(), std::path::Path::to_path_buf);
 
     let worktree = find_worktree_for_agent(&root, &agent_id);
     let branch = worktree.as_deref().and_then(read_worktree_branch);
@@ -299,18 +306,14 @@ pub async fn get_agent(
     let summary = AgentSummary {
         agent_id: hb
             .as_ref()
-            .map(|h| h.agent_id.clone())
-            .unwrap_or_else(|| agent_id.clone()),
+            .map_or_else(|| agent_id.clone(), |h| h.agent_id.clone()),
         machine_id: hb
             .as_ref()
             .map(|h| h.machine_id.clone())
             .unwrap_or_default(),
         description: None,
         status,
-        last_heartbeat: hb
-            .as_ref()
-            .map(|h| h.last_heartbeat)
-            .unwrap_or_else(Utc::now),
+        last_heartbeat: hb.as_ref().map_or_else(Utc::now, |h| h.last_heartbeat),
         active_issue_id: hb.as_ref().and_then(|h| h.active_issue_id),
         branch,
         worktree_path,
@@ -328,6 +331,10 @@ pub async fn get_agent(
 ///
 /// Reads the `.kickoff-status` file from the agent's worktree (if present)
 /// and reports whether the agent's tmux session is still running.
+///
+/// # Errors
+///
+/// Returns an error if the agent status cannot be determined.
 pub async fn get_agent_status(
     State(state): State<AppState>,
     AxumPath(agent_id): AxumPath<String>,
@@ -335,13 +342,13 @@ pub async fn get_agent_status(
     let root = state
         .crosslink_dir
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| state.crosslink_dir.clone());
+        .map_or_else(|| state.crosslink_dir.clone(), std::path::Path::to_path_buf);
 
     let worktree = find_worktree_for_agent(&root, &agent_id);
 
-    let kickoff_status = match &worktree {
-        Some(wt) => {
+    let kickoff_status = worktree.as_ref().map_or_else(
+        || "unknown".to_string(),
+        |wt| {
             let path = wt.join(".kickoff-status");
             if path.exists() {
                 std::fs::read_to_string(&path)
@@ -351,9 +358,8 @@ pub async fn get_agent_status(
             } else {
                 "running".to_string()
             }
-        }
-        None => "unknown".to_string(),
-    };
+        },
+    );
 
     let session_name = agent_tmux_session(&agent_id);
     let tmux_session_active = tmux_session_exists(&session_name).await;
@@ -367,6 +373,10 @@ pub async fn get_agent_status(
 }
 
 /// `GET /api/v1/locks` — all active locks with derived metadata.
+///
+/// # Errors
+///
+/// Returns an error if the sync manager or lock reads fail.
 pub async fn list_locks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -378,7 +388,8 @@ pub async fn list_locks(
         .map_err(|e| internal_error("Failed to read locks", e))?;
 
     let now = Utc::now();
-    let stale_timeout = Duration::minutes(locks_file.settings.stale_lock_timeout_minutes as i64);
+    let stale_timeout =
+        Duration::minutes(locks_file.settings.stale_lock_timeout_minutes.cast_signed());
 
     let entries: Vec<LockEntry> = locks_file
         .locks
@@ -411,13 +422,17 @@ pub async fn list_locks(
 ///
 /// Uses `SyncManager::find_stale_locks_with_age` which accounts for the
 /// agent's heartbeat freshness, not just lock claimed-at time.
+///
+/// # Errors
+///
+/// Returns an error if the sync manager or stale lock detection fails.
 pub async fn list_stale_locks(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let sync = SyncManager::new(&state.crosslink_dir)
         .map_err(|e| internal_error("Failed to initialise SyncManager", e))?;
 
-    let stale = sync
+    let stale_locks = sync
         .find_stale_locks_with_age()
         .map_err(|e| internal_error("Failed to read stale locks", e))?;
 
@@ -427,7 +442,7 @@ pub async fn list_stale_locks(
         .unwrap_or_else(|_| crate::locks::LocksFile::empty());
 
     let now = Utc::now();
-    let entries: Vec<LockEntry> = stale
+    let entries: Vec<LockEntry> = stale_locks
         .into_iter()
         .filter_map(|(issue_id, _agent_id_from_stale, _age_minutes)| {
             let lock = locks_file.get_lock(issue_id)?;
@@ -470,6 +485,10 @@ pub struct LockNotifyRequest {
 ///
 /// Agents call this after claiming or releasing a lock so that all connected
 /// WebSocket clients are notified in real time.
+///
+/// # Errors
+///
+/// Returns an error if the lock action is invalid.
 pub async fn notify_lock_changed(
     State(state): State<AppState>,
     Json(body): Json<LockNotifyRequest>,
@@ -482,8 +501,7 @@ pub async fn notify_lock_changed(
                 StatusCode::BAD_REQUEST,
                 Json(ApiError {
                     error: format!(
-                        "Invalid lock action '{}'. Must be 'claimed' or 'released'",
-                        other
+                        "Invalid lock action '{other}'. Must be 'claimed' or 'released'"
                     ),
                     detail: None,
                 }),

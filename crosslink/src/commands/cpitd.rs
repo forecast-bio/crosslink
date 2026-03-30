@@ -4,6 +4,7 @@
 //! and creates crosslink issues for detected code clones.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -128,7 +129,7 @@ fn dedup_marker(file_a: &str, file_b: &str) -> String {
     } else {
         (file_b, file_a)
     };
-    format!("<!-- cpitd:file_a={}:file_b={} -->", a, b)
+    format!("<!-- cpitd:file_a={a}:file_b={b} -->")
 }
 
 fn find_existing_clone_issue(db: &Database, file_a: &str, file_b: &str) -> Result<Option<i64>> {
@@ -169,8 +170,9 @@ fn format_clone_description(report: &CpitdCloneReport) -> String {
     );
 
     for (i, group) in report.groups.iter().enumerate() {
-        desc.push_str(&format!(
-            "{}. Lines {}-{} <-> Lines {}-{} ({} lines, {} tokens)\n",
+        let _ = writeln!(
+            desc,
+            "{}. Lines {}-{} <-> Lines {}-{} ({} lines, {} tokens)",
             i + 1,
             group.lines_a[0],
             group.lines_a[1],
@@ -178,7 +180,7 @@ fn format_clone_description(report: &CpitdCloneReport) -> String {
             group.lines_b[1],
             group.line_count,
             group.token_count,
-        ));
+        );
     }
 
     desc.push_str("\nConsider extracting shared logic into a common function or module.");
@@ -205,7 +207,7 @@ fn create_clone_issue(db: &Database, report: &CpitdCloneReport, quiet: bool) -> 
     Ok(id)
 }
 
-fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) -> Result<()> {
+fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) {
     let mut file_to_issues: HashMap<&str, Vec<i64>> = HashMap::new();
     for (id, file_a, file_b) in created {
         file_to_issues.entry(file_a).or_default().push(*id);
@@ -219,7 +221,6 @@ fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) -> Resu
             }
         }
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -273,39 +274,33 @@ pub fn scan(
     let mut created_ids: Vec<(i64, String, String)> = Vec::new();
 
     for report in &output.clone_reports {
-        match find_existing_clone_issue(db, &report.file_a, &report.file_b)? {
-            Some(existing_id) => {
-                let comment = format!(
-                    "[cpitd rescan] {} total cloned lines, {} group(s)",
-                    report.total_cloned_lines,
-                    report.groups.len(),
+        if let Some(existing_id) = find_existing_clone_issue(db, &report.file_a, &report.file_b)? {
+            let comment = format!(
+                "[cpitd rescan] {} total cloned lines, {} group(s)",
+                report.total_cloned_lines,
+                report.groups.len(),
+            );
+            db.add_comment(existing_id, &comment, "note")?;
+            updated_count += 1;
+            if !quiet {
+                println!(
+                    "  Updated issue {} (clone still present)",
+                    format_issue_id(existing_id)
                 );
-                db.add_comment(existing_id, &comment, "note")?;
-                updated_count += 1;
-                if !quiet {
-                    println!(
-                        "  Updated issue {} (clone still present)",
-                        format_issue_id(existing_id)
-                    );
-                }
             }
-            None => {
-                let id = create_clone_issue(db, report, quiet)?;
-                created_ids.push((id, report.file_a.clone(), report.file_b.clone()));
-                created_count += 1;
-            }
+        } else {
+            let id = create_clone_issue(db, report, quiet)?;
+            created_ids.push((id, report.file_a.clone(), report.file_b.clone()));
+            created_count += 1;
         }
     }
 
     if created_ids.len() > 1 {
-        relate_clone_issues(db, &created_ids)?;
+        relate_clone_issues(db, &created_ids);
     }
 
     if !quiet {
-        println!(
-            "\ncpitd scan complete: {} created, {} updated",
-            created_count, updated_count,
-        );
+        println!("\ncpitd scan complete: {created_count} created, {updated_count} updated",);
     }
 
     Ok(())
@@ -339,7 +334,7 @@ pub fn clear(db: &Database) -> Result<()> {
         db.close_issue(issue.id)?;
     }
 
-    println!("Closed {} cpitd clone issue(s).", count);
+    println!("Closed {count} cpitd clone issue(s).");
     Ok(())
 }
 

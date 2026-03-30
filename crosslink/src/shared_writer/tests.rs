@@ -6,6 +6,7 @@ use crate::shared_writer::core::{
     PushOutcome, SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS, MAX_RETRIES,
 };
 use crate::shared_writer::locks::LockClaimResult;
+use crate::shared_writer::mutations::DescriptionUpdate;
 use crate::shared_writer::offline::{replace_local_refs, RewriteStats};
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -1112,7 +1113,14 @@ mod integration {
             .create_issue(&db, "Old title", None, "medium")
             .unwrap();
         writer
-            .update_issue(&db, id, Some("New title"), None, None, None)
+            .update_issue(
+                &db,
+                id,
+                Some("New title"),
+                DescriptionUpdate::Unchanged,
+                None,
+                None,
+            )
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1130,7 +1138,14 @@ mod integration {
             .create_issue(&db, "Priority test", None, "low")
             .unwrap();
         writer
-            .update_issue(&db, id, None, None, None, Some("high"))
+            .update_issue(
+                &db,
+                id,
+                None,
+                DescriptionUpdate::Unchanged,
+                None,
+                Some("high"),
+            )
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1146,7 +1161,14 @@ mod integration {
 
         let id = writer.create_issue(&db, "Desc test", None, "low").unwrap();
         writer
-            .update_issue(&db, id, None, Some(Some("Updated desc")), None, None)
+            .update_issue(
+                &db,
+                id,
+                None,
+                DescriptionUpdate::Set("Updated desc"),
+                None,
+                None,
+            )
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1164,7 +1186,7 @@ mod integration {
             .create_issue(&db, "Has desc", Some("initial desc"), "low")
             .unwrap();
         writer
-            .update_issue(&db, id, None, Some(None), None, None)
+            .update_issue(&db, id, None, DescriptionUpdate::Clear, None, None)
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -2032,7 +2054,14 @@ mod integration {
 
         // Update
         writer
-            .update_issue(&db, id, Some("Updated lifecycle"), None, None, Some("high"))
+            .update_issue(
+                &db,
+                id,
+                Some("Updated lifecycle"),
+                DescriptionUpdate::Unchanged,
+                None,
+                Some("high"),
+            )
             .unwrap();
 
         // Close

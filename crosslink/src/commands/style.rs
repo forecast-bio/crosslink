@@ -50,14 +50,14 @@ const COMPONENT_DIRS: &[(&str, &str, &str)] = &[
     ("commands", "commands", ".claude/commands"),
 ];
 
-/// Read the current hook-config.json as a serde_json::Value.
+/// Read the current hook-config.json as a `serde_json::Value`.
 fn read_hook_config(crosslink_dir: &Path) -> Result<serde_json::Value> {
     let config_path = crosslink_dir.join("hook-config.json");
     let raw = fs::read_to_string(&config_path).context("Failed to read hook-config.json")?;
     serde_json::from_str(&raw).context("hook-config.json is not valid JSON")
 }
 
-/// Write a serde_json::Value back to hook-config.json.
+/// Write a `serde_json::Value` back to hook-config.json.
 fn write_hook_config(crosslink_dir: &Path, value: &serde_json::Value) -> Result<()> {
     let config_path = crosslink_dir.join("hook-config.json");
     let mut output =
@@ -66,7 +66,7 @@ fn write_hook_config(crosslink_dir: &Path, value: &serde_json::Value) -> Result<
     fs::write(&config_path, output).context("Failed to write hook-config.json")
 }
 
-/// Extract the HouseStyleConfig from hook-config.json, if present.
+/// Extract the `HouseStyleConfig` from hook-config.json, if present.
 fn get_house_style(crosslink_dir: &Path) -> Result<Option<HouseStyleConfig>> {
     let config = read_hook_config(crosslink_dir)?;
     match config.get("house_style") {
@@ -79,7 +79,7 @@ fn get_house_style(crosslink_dir: &Path) -> Result<Option<HouseStyleConfig>> {
     }
 }
 
-/// Save the HouseStyleConfig into hook-config.json.
+/// Save the `HouseStyleConfig` into hook-config.json.
 fn set_house_style(crosslink_dir: &Path, hs: &HouseStyleConfig) -> Result<()> {
     let mut config = read_hook_config(crosslink_dir)?;
     let obj = config
@@ -92,7 +92,7 @@ fn set_house_style(crosslink_dir: &Path, hs: &HouseStyleConfig) -> Result<()> {
     write_hook_config(crosslink_dir, &config)
 }
 
-/// Remove the house_style field from hook-config.json.
+/// Remove the `house_style` field from hook-config.json.
 fn remove_house_style(crosslink_dir: &Path) -> Result<()> {
     let mut config = read_hook_config(crosslink_dir)?;
     let obj = config
@@ -129,7 +129,7 @@ fn fetch_style_repo(crosslink_dir: &Path, url: &str, ref_name: &str) -> Result<(
                 &cache.to_string_lossy(),
                 "reset",
                 "--hard",
-                &format!("origin/{}", ref_name),
+                &format!("origin/{ref_name}"),
             ])
             .output()
             .context("Failed to run git reset")?;
@@ -180,33 +180,29 @@ enum FileAction {
 
 /// Compare a source file from the cache against a deployed file.
 fn compare_files(source: &Path, deployed: &Path) -> FileAction {
-    let source_content = match fs::read_to_string(source) {
-        Ok(c) => c,
-        Err(_) => return FileAction::Unchanged, // source doesn't exist, nothing to do
+    let Ok(source_content) = fs::read_to_string(source) else {
+        return FileAction::Unchanged; // source doesn't exist, nothing to do
     };
 
-    match fs::read_to_string(deployed) {
-        Ok(deployed_content) => {
-            if deployed_content == source_content {
-                FileAction::Unchanged
-            } else if has_custom_marker(deployed) {
-                FileAction::CustomMarker
-            } else {
-                let diff_lines = deployed_content
-                    .lines()
-                    .zip(source_content.lines())
-                    .filter(|(a, b)| a != b)
-                    .count();
-                let len_diff = deployed_content
-                    .lines()
-                    .count()
-                    .abs_diff(source_content.lines().count());
-                let total = diff_lines + len_diff;
-                FileAction::Update(format!("{} lines differ", total))
-            }
+    fs::read_to_string(deployed).map_or(FileAction::New, |deployed_content| {
+        if deployed_content == source_content {
+            FileAction::Unchanged
+        } else if has_custom_marker(deployed) {
+            FileAction::CustomMarker
+        } else {
+            let diff_lines = deployed_content
+                .lines()
+                .zip(source_content.lines())
+                .filter(|(a, b)| a != b)
+                .count();
+            let len_diff = deployed_content
+                .lines()
+                .count()
+                .abs_diff(source_content.lines().count());
+            let total = diff_lines + len_diff;
+            FileAction::Update(format!("{total} lines differ"))
         }
-        Err(_) => FileAction::New,
-    }
+    })
 }
 
 /// Ensure .style-cache/ is in .crosslink/.gitignore.
@@ -236,8 +232,8 @@ pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()
         bail!("URL cannot be empty");
     }
 
-    println!("Setting house style source: {}", url);
-    println!("  ref: {}", ref_name);
+    println!("Setting house style source: {url}");
+    println!("  ref: {ref_name}");
 
     // Ensure .style-cache/ is gitignored
     ensure_gitignore(crosslink_dir)?;
@@ -263,13 +259,13 @@ pub fn set(crosslink_dir: &Path, url: &str, ref_name: Option<&str>) -> Result<()
     if let Ok(raw) = fs::read_to_string(cache.join("style.json")) {
         if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) {
             if let Some(name) = meta.get("name").and_then(|v| v.as_str()) {
-                println!("  Style: {}", name);
+                println!("  Style: {name}");
             }
             if let Some(version) = meta.get("version").and_then(|v| v.as_str()) {
-                println!("  Version: {}", version);
+                println!("  Version: {version}");
             }
             if let Some(desc) = meta.get("description").and_then(|v| v.as_str()) {
-                println!("  Description: {}", desc);
+                println!("  Description: {desc}");
             }
         }
     }
@@ -326,8 +322,8 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
 
         let target_dir = project_root.join(target_rel);
 
-        let entries = fs::read_dir(&src_dir)
-            .with_context(|| format!("Failed to read cache/{}", src_subdir))?;
+        let entries =
+            fs::read_dir(&src_dir).with_context(|| format!("Failed to read cache/{src_subdir}"))?;
 
         for entry in entries {
             let entry = entry?;
@@ -415,15 +411,9 @@ pub fn sync(crosslink_dir: &Path, dry_run: bool) -> Result<()> {
 
     println!();
     if dry_run {
-        println!(
-            "Would change {} file(s), {} skipped (custom marker).",
-            changed, skipped
-        );
+        println!("Would change {changed} file(s), {skipped} skipped (custom marker).");
     } else {
-        println!(
-            "Sync complete. {} file(s) updated, {} skipped (custom marker).",
-            changed, skipped
-        );
+        println!("Sync complete. {changed} file(s) updated, {skipped} skipped (custom marker).");
     }
 
     Ok(())
@@ -460,14 +450,11 @@ fn merge_hook_config(
             continue;
         }
 
-        let should_update = match local_obj.get(key) {
-            Some(local_value) => local_value != remote_value,
-            None => true,
-        };
+        let should_update = local_obj.get(key) != Some(remote_value);
 
         if should_update {
             if dry_run {
-                println!("  MERGE  hook-config.json: update field \"{}\"", key);
+                println!("  MERGE  hook-config.json: update field \"{key}\"");
             }
             merged.insert(key.clone(), remote_value.clone());
             fields_updated += 1;
@@ -514,8 +501,8 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
 
         let target_dir = project_root.join(target_rel);
 
-        let entries = fs::read_dir(&src_dir)
-            .with_context(|| format!("Failed to read cache/{}", src_subdir))?;
+        let entries =
+            fs::read_dir(&src_dir).with_context(|| format!("Failed to read cache/{src_subdir}"))?;
 
         for entry in entries {
             let entry = entry?;
@@ -533,14 +520,14 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
             match action {
                 FileAction::Unchanged => {}
                 FileAction::CustomMarker => {
-                    println!("  ~ {} (custom marker — skipped)", display_path);
+                    println!("  ~ {display_path} (custom marker — skipped)");
                 }
                 FileAction::Update(desc) => {
-                    println!("  ! {} ({})", display_path, desc);
+                    println!("  ! {display_path} ({desc})");
                     drift_count += 1;
                 }
                 FileAction::New => {
-                    println!("  + {} (not deployed)", display_path);
+                    println!("  + {display_path} (not deployed)");
                     drift_count += 1;
                 }
             }
@@ -567,8 +554,7 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
     } else {
         println!();
         println!(
-            "Drift detected: {} difference(s). Run 'crosslink style sync' to update.",
-            drift_count
+            "Drift detected: {drift_count} difference(s). Run 'crosslink style sync' to update."
         );
         std::process::exit(1);
     }
@@ -578,13 +564,10 @@ pub fn diff(crosslink_dir: &Path) -> Result<()> {
 
 /// `crosslink style show`
 pub fn show(crosslink_dir: &Path) -> Result<()> {
-    let hs = match get_house_style(crosslink_dir)? {
-        Some(hs) => hs,
-        None => {
-            println!("No house style configured.");
-            println!("Run 'crosslink style set <url>' to configure one.");
-            return Ok(());
-        }
+    let Some(hs) = get_house_style(crosslink_dir)? else {
+        println!("No house style configured.");
+        println!("Run 'crosslink style set <url>' to configure one.");
+        return Ok(());
     };
 
     println!("House style configuration:");
@@ -602,13 +585,13 @@ pub fn show(crosslink_dir: &Path) -> Result<()> {
         if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&raw) {
             println!();
             if let Some(name) = meta.get("name").and_then(|v| v.as_str()) {
-                println!("  Style name:    {}", name);
+                println!("  Style name:    {name}");
             }
             if let Some(version) = meta.get("version").and_then(|v| v.as_str()) {
-                println!("  Style version: {}", version);
+                println!("  Style version: {version}");
             }
             if let Some(desc) = meta.get("description").and_then(|v| v.as_str()) {
-                println!("  Description:   {}", desc);
+                println!("  Description:   {desc}");
             }
         }
     }

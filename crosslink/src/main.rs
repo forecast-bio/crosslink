@@ -1,3 +1,42 @@
+// ── Crate-level clippy configuration ────────────────────────────────────────
+#![warn(clippy::pedantic, clippy::nursery)]
+// Impractical to add `# Errors` doc sections to 300+ fallible functions retroactively.
+#![allow(clippy::missing_errors_doc)]
+// Panic doc sections are similarly impractical at scale.
+#![allow(clippy::missing_panics_doc)]
+// `Self` vs type name in return position is a style preference; current naming is clear.
+#![allow(clippy::use_self)]
+// Field/module name repetition (e.g. `IssueStatus` inside `issue` module) is intentional.
+#![allow(clippy::module_name_repetitions)]
+// Long functions are an architectural concern, not a lint fix.
+#![allow(clippy::too_many_lines)]
+// Similar variable names (e.g. `src`/`dst`, `old`/`new`) are often intentional.
+#![allow(clippy::similar_names)]
+// Items after statements is common in test code and builder patterns.
+#![allow(clippy::items_after_statements)]
+// Wildcard imports are idiomatic in test modules.
+#![allow(clippy::wildcard_imports)]
+// `must_use` on every pure function is too noisy for a CLI app.
+#![allow(clippy::must_use_candidate)]
+// Drop tightening suggestions often make code less readable.
+#![allow(clippy::significant_drop_tightening)]
+// Cast lints: numeric casts are context-dependent and reviewed at write time.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless
+)]
+// pub(crate) inside private modules is harmless and matches intent.
+#![allow(clippy::redundant_pub_crate)]
+// Struct field naming is a style preference.
+#![allow(clippy::struct_field_names)]
+// Bool params: sometimes clearer than a dedicated enum for 2-3 bools.
+#![allow(clippy::struct_excessive_bools, clippy::fn_params_excessive_bools)]
+// Option<&T> vs &Option<T>: both are valid depending on context.
+#![allow(clippy::ref_option)]
+
 mod checkpoint;
 mod clock_skew;
 mod commands;
@@ -637,7 +676,7 @@ enum IssueCommands {
         id: i64,
         /// Description of the intervention
         description: String,
-        /// Trigger type (tool_rejected, tool_blocked, redirect, context_provided, manual_action, question_answered)
+        /// Trigger type (`tool_rejected`, `tool_blocked`, `redirect`, `context_provided`, `manual_action`, `question_answered`)
         #[arg(long)]
         trigger: String,
         /// Context: what the agent was attempting when intervention occurred
@@ -748,9 +787,9 @@ enum TimerCommands {
 /// Migration subcommands
 #[derive(Subcommand)]
 enum MigrateCommands {
-    /// Migrate local SQLite issues to shared coordination branch
+    /// Migrate local `SQLite` issues to shared coordination branch
     ToShared,
-    /// Import shared issues from coordination branch into local SQLite
+    /// Import shared issues from coordination branch into local `SQLite`
     FromShared,
     /// Rename coordination branch from crosslink/locks to crosslink/hub
     RenameBranch,
@@ -847,7 +886,7 @@ enum ContainerCommands {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Copy)]
 enum ArchiveCommands {
     /// Archive a closed issue
     Add {
@@ -1285,15 +1324,15 @@ enum KnowledgeCommands {
 
 #[derive(Subcommand)]
 enum IntegrityCommands {
-    /// Check counter consistency (next_display_id, next_comment_id)
+    /// Check counter consistency (`next_display_id`, `next_comment_id`)
     Counters {
         /// Repair inconsistencies by recalculating from data
         #[arg(long)]
         repair: bool,
     },
-    /// Verify SQLite matches JSON issue files
+    /// Verify `SQLite` matches JSON issue files
     Hydration {
-        /// Re-hydrate SQLite from JSON
+        /// Re-hydrate `SQLite` from JSON
         #[arg(long)]
         repair: bool,
     },
@@ -1303,7 +1342,7 @@ enum IntegrityCommands {
         #[arg(long)]
         repair: bool,
     },
-    /// Verify SQLite schema version
+    /// Verify `SQLite` schema version
     Schema {
         /// Re-run migrations to update schema
         #[arg(long)]
@@ -1715,7 +1754,7 @@ enum SwarmCommands {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Copy)]
 enum ContextCommands {
     /// Measure context injection sizes and estimate token overhead
     Measure {
@@ -1785,7 +1824,7 @@ fn get_db() -> Result<Database> {
     Ok(db)
 }
 
-/// Try to create a SharedWriter for multi-agent mode.
+/// Try to create a `SharedWriter` for multi-agent mode.
 /// Returns None if agent.json is absent or sync cache isn't initialized.
 fn get_writer(crosslink_dir: &std::path::Path) -> Option<shared_writer::SharedWriter> {
     match shared_writer::SharedWriter::new(crosslink_dir) {
@@ -1805,21 +1844,20 @@ fn parse_issue_id_clap(s: &str) -> std::result::Result<i64, String> {
 /// Parse an issue ID string, supporting both regular IDs and offline local IDs.
 ///
 /// - `"42"` → `42` (regular display ID)
-/// - `"L1"` or `"l1"` → `-1` (offline local ID, stored as negative in SQLite)
+/// - `"L1"` or `"l1"` → `-1` (offline local ID, stored as negative in `SQLite`)
 ///
-/// Used when offline issue creation is enabled (display_id: null in JSON).
+/// Used when offline issue creation is enabled (`display_id`: null in JSON).
 fn parse_issue_id(s: &str) -> Result<i64> {
     if let Some(n) = s.strip_prefix('L').or_else(|| s.strip_prefix('l')) {
         let num: i64 = n
             .parse()
-            .with_context(|| format!("Invalid local issue ID: {}", s))?;
+            .with_context(|| format!("Invalid local issue ID: {s}"))?;
         if num <= 0 {
-            bail!("Local issue ID must be positive: {}", s);
+            bail!("Local issue ID must be positive: {s}");
         }
         Ok(-num)
     } else {
-        s.parse()
-            .with_context(|| format!("Invalid issue ID: {}", s))
+        s.parse().with_context(|| format!("Invalid issue ID: {s}"))
     }
 }
 
@@ -1830,7 +1868,7 @@ fn hint(quiet: bool, msg: &str) {
     }
 }
 
-/// Dispatch an IssueCommands variant.
+/// Dispatch an `IssueCommands` variant.
 fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> {
     match action {
         IssueCommands::Create {
@@ -1846,41 +1884,37 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
-            if let Some(parent_id) = parent {
-                let opts = commands::create::CreateOpts {
-                    labels: &label,
-                    work,
-                    quiet,
-                    crosslink_dir: Some(&crosslink_dir),
-                    defer_id: false,
-                };
-                commands::create::run_subissue(
-                    &db,
-                    writer.as_ref(),
-                    parent_id,
-                    &title,
-                    description.as_deref(),
-                    &priority,
-                    &opts,
-                )
-            } else {
-                let opts = commands::create::CreateOpts {
-                    labels: &label,
-                    work,
-                    quiet,
-                    crosslink_dir: Some(&crosslink_dir),
-                    defer_id,
-                };
-                commands::create::run(
-                    &db,
-                    writer.as_ref(),
-                    &title,
-                    description.as_deref(),
-                    &priority,
-                    template.as_deref(),
-                    &opts,
-                )
-            }
+            let opts = commands::create::CreateOpts {
+                labels: &label,
+                work,
+                quiet,
+                crosslink_dir: Some(&crosslink_dir),
+                defer_id: parent.is_none() && defer_id,
+            };
+            parent.map_or_else(
+                || {
+                    commands::create::run(
+                        &db,
+                        writer.as_ref(),
+                        &title,
+                        description.as_deref(),
+                        &priority,
+                        template.as_deref(),
+                        &opts,
+                    )
+                },
+                |parent_id| {
+                    commands::create::run_subissue(
+                        &db,
+                        writer.as_ref(),
+                        parent_id,
+                        &title,
+                        description.as_deref(),
+                        &priority,
+                        &opts,
+                    )
+                },
+            )
         }
 
         IssueCommands::Quick {
@@ -1894,41 +1928,37 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
-            if let Some(parent_id) = parent {
-                let opts = commands::create::CreateOpts {
-                    labels: &label,
-                    work: true,
-                    quiet,
-                    crosslink_dir: Some(&crosslink_dir),
-                    defer_id: false,
-                };
-                commands::create::run_subissue(
-                    &db,
-                    writer.as_ref(),
-                    parent_id,
-                    &title,
-                    description.as_deref(),
-                    &priority,
-                    &opts,
-                )
-            } else {
-                let opts = commands::create::CreateOpts {
-                    labels: &label,
-                    work: true,
-                    quiet,
-                    crosslink_dir: Some(&crosslink_dir),
-                    defer_id: false,
-                };
-                commands::create::run(
-                    &db,
-                    writer.as_ref(),
-                    &title,
-                    description.as_deref(),
-                    &priority,
-                    template.as_deref(),
-                    &opts,
-                )
-            }
+            let opts = commands::create::CreateOpts {
+                labels: &label,
+                work: true,
+                quiet,
+                crosslink_dir: Some(&crosslink_dir),
+                defer_id: false,
+            };
+            parent.map_or_else(
+                || {
+                    commands::create::run(
+                        &db,
+                        writer.as_ref(),
+                        &title,
+                        description.as_deref(),
+                        &priority,
+                        template.as_deref(),
+                        &opts,
+                    )
+                },
+                |parent_id| {
+                    commands::create::run_subissue(
+                        &db,
+                        writer.as_ref(),
+                        parent_id,
+                        &title,
+                        description.as_deref(),
+                        &priority,
+                        &opts,
+                    )
+                },
+            )
         }
 
         IssueCommands::List {
@@ -2356,16 +2386,16 @@ fn main() -> Result<()> {
         }
 
         Commands::Issues { action } => {
+            hint(
+                cli.quiet,
+                "did you mean 'crosslink issue list'? Using that.",
+            );
             if let Some(IssuesAliasCommands::List {
                 status,
                 label,
                 priority,
             }) = action
             {
-                hint(
-                    cli.quiet,
-                    "did you mean 'crosslink issue list'? Using that.",
-                );
                 dispatch_issue(
                     IssueCommands::List {
                         status,
@@ -2378,10 +2408,6 @@ fn main() -> Result<()> {
                     cli.json,
                 )
             } else {
-                hint(
-                    cli.quiet,
-                    "did you mean 'crosslink issue list'? Using that.",
-                );
                 dispatch_issue(
                     IssueCommands::List {
                         status: "open".to_string(),
@@ -2479,7 +2505,7 @@ fn main() -> Result<()> {
                 "json" => commands::export::run_json(&db, output.as_deref()),
                 "markdown" | "md" => commands::export::run_markdown(&db, output.as_deref()),
                 _ => {
-                    bail!("Unknown format '{}'. Use 'json' or 'markdown'", format);
+                    bail!("Unknown format '{format}'. Use 'json' or 'markdown'");
                 }
             }
         }
@@ -2518,7 +2544,8 @@ fn main() -> Result<()> {
             }
             DaemonCommands::Status => {
                 let crosslink_dir = find_crosslink_dir()?;
-                daemon::status(&crosslink_dir)
+                daemon::status(&crosslink_dir);
+                Ok(())
             }
             DaemonCommands::Run { dir } => daemon::run_daemon(&dir),
         },
@@ -2612,10 +2639,10 @@ fn main() -> Result<()> {
 
         Commands::Config { command, preset } => {
             let crosslink_dir = find_crosslink_dir()?;
-            match command {
-                Some(cmd) => commands::config::run(cmd, &crosslink_dir),
-                None => commands::config::run_bare(&crosslink_dir, preset.as_deref()),
-            }
+            command.map_or_else(
+                || commands::config::run_bare(&crosslink_dir, preset.as_deref()),
+                |cmd| commands::config::run(cmd, &crosslink_dir),
+            )
         }
         Commands::Context { command } => {
             let crosslink_dir = find_crosslink_dir()?;
@@ -2631,7 +2658,7 @@ fn main() -> Result<()> {
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);
             // Bare `crosslink kickoff` → launch the interactive wizard
-            let action = action.unwrap_or(KickoffCommands::Launch {
+            let action = action.unwrap_or_else(|| KickoffCommands::Launch {
                 doc: None,
                 plan: false,
                 run: false,

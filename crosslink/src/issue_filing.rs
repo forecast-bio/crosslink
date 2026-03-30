@@ -62,19 +62,20 @@ pub struct FindingForFiling {
 ///   and Metadata sections.
 /// - Labels are derived from severity: critical/high -> "bug", medium ->
 ///   "enhancement", low/info -> "tech-debt". "review-finding" is always added.
+#[must_use]
 pub fn build_issue_template(finding: &FindingForFiling) -> IssueTemplate {
     let severity_upper = finding.severity.to_uppercase();
     let title = format!("[{}] {}", severity_upper, finding.title);
 
-    let location = match finding.line {
-        Some(line) => format!("`{}:{}`", finding.file, line),
-        None => format!("`{}`", finding.file),
-    };
+    let location = finding.line.map_or_else(
+        || format!("`{}`", finding.file),
+        |line| format!("`{}:{}`", finding.file, line),
+    );
 
-    let suggested_fix_section = match &finding.suggested_fix {
-        Some(fix) => format!("## Suggested Fix\n\n{}\n", fix),
-        None => String::new(),
-    };
+    let suggested_fix_section = finding
+        .suggested_fix
+        .as_ref()
+        .map_or_else(String::new, |fix| format!("## Suggested Fix\n\n{fix}\n"));
 
     let body = format!(
         "## Description\n\n{}\n\n## Location\n\n{}\n\n{}## Metadata\n\n- **Severity**: {}\n- **Consensus count**: {}\n- **Source**: automated swarm review\n",
@@ -126,7 +127,9 @@ fn normalize_title(title: &str) -> String {
 
 /// Extract the set of words from a string.
 fn word_set(s: &str) -> HashSet<String> {
-    s.split_whitespace().map(|w| w.to_string()).collect()
+    s.split_whitespace()
+        .map(std::string::ToString::to_string)
+        .collect()
 }
 
 /// Jaccard similarity between two word sets.
@@ -139,12 +142,14 @@ fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     if union == 0 {
         return 0.0;
     }
-    intersection as f64 / union as f64
+    f64::from(u32::try_from(intersection).unwrap_or(u32::MAX))
+        / f64::from(u32::try_from(union).unwrap_or(u32::MAX))
 }
 
 /// Check whether `title` is a likely duplicate of any entry in
 /// `existing_issues`. Uses normalized comparison and word-overlap Jaccard
 /// similarity with a threshold of 0.7.
+#[must_use]
 pub fn check_duplicate(title: &str, existing_issues: &[String]) -> bool {
     let norm = normalize_title(title);
     let norm_words = word_set(&norm);
@@ -185,7 +190,7 @@ fn fetch_existing_issue_titles() -> Result<Vec<String>> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("gh issue list failed: {}", stderr);
+        anyhow::bail!("gh issue list failed: {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -220,7 +225,7 @@ fn create_issue_via_gh(template: &IssueTemplate) -> Result<(u64, String)> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("gh issue create failed: {}", stderr);
+        anyhow::bail!("gh issue create failed: {stderr}");
     }
 
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -241,6 +246,9 @@ fn create_issue_via_gh(template: &IssueTemplate) -> Result<(u64, String)> {
 ///
 /// When `dry_run` is true no issues are actually created — the result shows
 /// what *would* happen.
+/// # Errors
+///
+/// Returns an error if fetching existing issues or creating new issues fails.
 pub fn file_issues(findings: &[FindingForFiling], dry_run: bool) -> Result<FilingResult> {
     let existing_titles = if dry_run {
         // In dry-run mode we still try to fetch existing issues so we can
@@ -285,6 +293,9 @@ pub fn file_issues(findings: &[FindingForFiling], dry_run: bool) -> Result<Filin
 }
 
 /// File issues with a summary table printed to stdout afterwards.
+/// # Errors
+///
+/// Returns an error if issue filing or retrieval fails.
 pub fn file_issues_batch(findings: &[FindingForFiling], dry_run: bool) -> Result<FilingResult> {
     let result = file_issues(findings, dry_run)?;
 

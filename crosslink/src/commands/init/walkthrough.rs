@@ -47,7 +47,9 @@ impl InitWalkthroughApp {
         };
 
         // Check if alias already installed
-        let alias_already = if !shell_config_file.is_empty() {
+        let alias_already = if shell_config_file.is_empty() {
+            false
+        } else {
             let alias_line = if shell_name == "fish" {
                 "abbr -a xl crosslink"
             } else {
@@ -56,22 +58,20 @@ impl InitWalkthroughApp {
             fs::read_to_string(&shell_config_file)
                 .map(|c| c.lines().any(|l| l.trim() == alias_line))
                 .unwrap_or(false)
-        } else {
-            false
         };
 
         Self {
             core,
-            alias_selected: if alias_already { 1 } else { 0 },
+            alias_selected: usize::from(alias_already),
             shell_config_file,
         }
     }
 
-    fn is_alias_screen(&self) -> bool {
+    const fn is_alias_screen(&self) -> bool {
         self.core.extra_screen_idx().is_some()
     }
 
-    fn move_up(&mut self) {
+    const fn move_up(&mut self) {
         if self.is_alias_screen() {
             self.alias_selected = self.alias_selected.saturating_sub(1);
         } else {
@@ -121,17 +121,17 @@ fn draw_init_walkthrough(frame: &mut Frame, app: &InitWalkthroughApp) {
     // Progress dots
     let total = app.core.total_screens();
     let progress_spans: Vec<Span> = (0..total)
-        .map(|i| {
-            if i < app.core.screen {
+        .map(|i| match i.cmp(&app.core.screen) {
+            std::cmp::Ordering::Less => {
                 Span::styled(" \u{25cf} ", Style::default().fg(Color::Green))
-            } else if i == app.core.screen {
-                Span::styled(
-                    " \u{25cf} ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else {
+            }
+            std::cmp::Ordering::Equal => Span::styled(
+                " \u{25cf} ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            std::cmp::Ordering::Greater => {
                 Span::styled(" \u{25cb} ", Style::default().fg(Color::DarkGray))
             }
         })
@@ -279,7 +279,7 @@ fn draw_init_group(
                 Span::styled(marker, style),
                 Span::styled(format!("{:<30}", entry.key), style),
                 Span::styled(
-                    format!("[{}]", val_str),
+                    format!("[{val_str}]"),
                     if ki == app.core.group_cursor {
                         Style::default().fg(Color::Yellow)
                     } else {
@@ -413,7 +413,7 @@ fn draw_init_confirm(
     area: Rect,
     progress_spans: Vec<Span>,
 ) {
-    let total_keys: usize = app.core.group_keys.iter().map(|k| k.len()).sum();
+    let total_keys: usize = app.core.group_keys.iter().map(Vec::len).sum();
     let summary_height = total_keys as u16 + app.core.group_names.len() as u16 + 3;
 
     let chunks = Layout::vertical([
@@ -530,17 +530,17 @@ pub(super) fn run_tui_walkthrough(existing: Option<&serde_json::Value>) -> Resul
                 }
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') if !app.core.is_confirm_screen() => {
-                        app.move_up()
+                        app.move_up();
                     }
                     KeyCode::Down | KeyCode::Char('j') if !app.core.is_confirm_screen() => {
-                        app.move_down()
+                        app.move_down();
                     }
                     KeyCode::Right
                         if !app.core.is_preset_screen()
                             && !app.core.is_confirm_screen()
                             && !app.is_alias_screen() =>
                     {
-                        app.core.cycle_value()
+                        app.core.cycle_value();
                     }
                     KeyCode::Left
                         if !app.core.is_preset_screen()
@@ -682,7 +682,7 @@ pub(super) fn setup_shell_alias(ui: &InitUI, choices: &TuiChoices) {
 
     // Append the alias
     ui.step_start("Installing xl alias");
-    let line_to_append = format!("\n# crosslink shortcut\n{}\n", alias_line);
+    let line_to_append = format!("\n# crosslink shortcut\n{alias_line}\n");
     match fs::OpenOptions::new().append(true).open(path) {
         Ok(mut file) => {
             use std::io::Write;
@@ -691,13 +691,12 @@ pub(super) fn setup_shell_alias(ui: &InitUI, choices: &TuiChoices) {
             } else {
                 ui.step_ok(Some(&config_file));
                 ui.detail(&format!(
-                    "Run `source {}` or open a new terminal to activate",
-                    config_file
+                    "Run `source {config_file}` or open a new terminal to activate"
                 ));
             }
         }
         Err(e) => {
-            ui.warn(&format!("Could not open {}: {e}", config_file));
+            ui.warn(&format!("Could not open {config_file}: {e}"));
         }
     }
 }

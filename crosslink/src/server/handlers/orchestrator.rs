@@ -22,6 +22,13 @@ use crate::server::{
     types::{ApiError, DecomposeRequest, ExecutionStatus, OrchestratorPlan},
 };
 
+/// Convert a progress percentage (0.0..=100.0) to a `u32`, clamping negatives to 0.
+fn progress_to_u32(pct: f64) -> u32 {
+    format!("{:.0}", pct.round().clamp(0.0, 100.0))
+        .parse::<u32>()
+        .unwrap_or(0)
+}
+
 fn conflict(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
     (
         StatusCode::CONFLICT,
@@ -41,6 +48,9 @@ fn conflict(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
 /// Accepts a JSON body with `document` (markdown string) and optional `slug`.
 /// Calls the Claude CLI to produce a structured phase/stage/task breakdown,
 /// stores the resulting plan on disk, and returns it.
+///
+/// # Errors
+/// Returns an error if the document is empty or decomposition fails.
 pub async fn decompose_handler(
     State(state): State<AppState>,
     Json(body): Json<DecomposeRequest>,
@@ -67,13 +77,15 @@ pub async fn decompose_handler(
 /// `GET /api/v1/orchestrator/plan` — get the current plan, if any.
 ///
 /// Returns the plan JSON or `null` if no plan has been decomposed yet.
+///
+/// # Errors
+/// Returns an error if plan loading encounters a non-missing-file error.
 pub async fn get_plan(
     State(state): State<AppState>,
 ) -> Result<Json<Option<OrchestratorPlan>>, (StatusCode, Json<ApiError>)> {
-    match OrchestratorExecutor::load_plan(&state.crosslink_dir) {
-        Ok(plan) => Ok(Json(Some(plan))),
-        Err(_) => Ok(Json(None)),
-    }
+    Ok(Json(
+        OrchestratorExecutor::load_plan(&state.crosslink_dir).ok(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +96,9 @@ pub async fn get_plan(
 ///
 /// Returns progress percentage and execution state. If no execution exists,
 /// returns idle status with 0% progress.
+///
+/// # Errors
+/// Returns an error if the execution state cannot be loaded.
 pub async fn get_status(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -99,7 +114,7 @@ pub async fn get_status(
         .map_err(|e| internal_error("Failed to load execution state", e))?;
 
     let full_status = executor.status();
-    let progress_pct = full_status.progress_percent.round() as u32;
+    let progress_pct = progress_to_u32(full_status.progress_percent);
     let status_str = match full_status.state {
         crate::server::types::ExecutionState::Idle => "idle",
         crate::server::types::ExecutionState::Running => "running",
@@ -129,6 +144,10 @@ pub struct ExecutionStatusResponse {
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/execute` — start or resume execution.
+///
+/// # Errors
+/// Returns an error if no plan exists, the execution state cannot be loaded, or
+/// starting/resuming fails.
 pub async fn execute(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -138,9 +157,9 @@ pub async fn execute(
             .map_err(|e| not_found(format!("No plan found: {e}")))?;
 
         let db = state.db().await;
-
         let mut executor = OrchestratorExecutor::init(&state.crosslink_dir, &db, &plan)
             .map_err(|e| internal_error("Failed to initialize execution", e))?;
+        drop(db);
 
         let _ready = executor
             .start()
@@ -149,7 +168,7 @@ pub async fn execute(
         let full_status = executor.status();
         return Ok(Json(ExecutionStatusResponse {
             status: "running".to_string(),
-            progress_pct: full_status.progress_percent.round() as u32,
+            progress_pct: progress_to_u32(full_status.progress_percent),
             detail: Some(full_status),
         }));
     }
@@ -165,7 +184,7 @@ pub async fn execute(
     let full_status = executor.status();
     Ok(Json(ExecutionStatusResponse {
         status: "running".to_string(),
-        progress_pct: full_status.progress_percent.round() as u32,
+        progress_pct: progress_to_u32(full_status.progress_percent),
         detail: Some(full_status),
     }))
 }
@@ -175,6 +194,9 @@ pub async fn execute(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/pause` — pause execution.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or pausing fails.
 pub async fn pause(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -192,7 +214,7 @@ pub async fn pause(
     let full_status = executor.status();
     Ok(Json(ExecutionStatusResponse {
         status: "paused".to_string(),
-        progress_pct: full_status.progress_percent.round() as u32,
+        progress_pct: progress_to_u32(full_status.progress_percent),
         detail: Some(full_status),
     }))
 }
@@ -202,6 +224,10 @@ pub async fn pause(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/stages/:id/retry` — retry a failed stage.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or the
+/// stage cannot be retried.
 pub async fn retry_stage(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -229,6 +255,10 @@ pub async fn retry_stage(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/stages/:id/skip` — skip a stage.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or the
+/// stage cannot be skipped.
 pub async fn skip_stage(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -259,6 +289,9 @@ pub async fn skip_stage(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/orchestrator/plans` — list all stored plan IDs.
+///
+/// # Errors
+/// Returns an error if the plan directory cannot be read.
 pub async fn list_plans_handler(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ApiError>)> {
@@ -272,6 +305,9 @@ pub async fn list_plans_handler(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/orchestrator/plans/:id` — retrieve a specific stored plan.
+///
+/// # Errors
+/// Returns an error if the plan is not found or cannot be serialized.
 pub async fn get_plan_by_id(
     State(state): State<AppState>,
     Path(plan_id): Path<String>,
@@ -288,6 +324,9 @@ pub async fn get_plan_by_id(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/resume` — resume a paused execution.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or resuming fails.
 pub async fn resume_execution(
     State(state): State<AppState>,
 ) -> Result<Json<ExecutionStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -305,7 +344,7 @@ pub async fn resume_execution(
     let full_status = executor.status();
     Ok(Json(ExecutionStatusResponse {
         status: "running".to_string(),
-        progress_pct: full_status.progress_percent.round() as u32,
+        progress_pct: progress_to_u32(full_status.progress_percent),
         detail: Some(full_status),
     }))
 }
@@ -321,6 +360,10 @@ pub struct MarkRunningRequest {
 }
 
 /// `POST /api/v1/orchestrator/stages/:id/running` — record agent launch for a stage.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or the
+/// stage cannot be marked as running.
 pub async fn mark_stage_running_handler(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -350,6 +393,10 @@ pub async fn mark_stage_running_handler(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/stages/:id/done` — record stage completion.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or the
+/// stage cannot be marked as done.
 pub async fn mark_stage_done_handler(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -381,6 +428,10 @@ pub async fn mark_stage_done_handler(
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/orchestrator/stages/:id/failed` — record stage failure.
+///
+/// # Errors
+/// Returns an error if no execution exists, the state cannot be loaded, or the
+/// stage cannot be marked as failed.
 pub async fn mark_stage_failed_handler(
     State(state): State<AppState>,
     Path(stage_id): Path<String>,
@@ -410,6 +461,9 @@ pub async fn mark_stage_failed_handler(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/orchestrator/agents/poll` — poll running agent status files.
+///
+/// # Errors
+/// Returns an error if no execution exists or the state cannot be loaded.
 pub async fn poll_agents(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
@@ -437,6 +491,9 @@ pub async fn poll_agents(
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/orchestrator/snapshot` — full execution state export with DAG details.
+///
+/// # Errors
+/// Returns an error if no execution exists or the state cannot be loaded.
 pub async fn get_snapshot(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
@@ -592,7 +649,7 @@ mod tests {
                 })
             })
             .collect();
-        let dag = Dag::from_nodes(nodes).unwrap();
+        let dag = Dag::from_nodes(&nodes).unwrap();
 
         let snapshot = ExecutionSnapshot {
             plan_id: plan.id.clone(),
@@ -640,7 +697,7 @@ mod tests {
                 })
             })
             .collect();
-        let dag = Dag::from_nodes(nodes).unwrap();
+        let dag = Dag::from_nodes(&nodes).unwrap();
 
         let snapshot = ExecutionSnapshot {
             plan_id: plan.id.clone(),
@@ -687,7 +744,7 @@ mod tests {
                 })
             })
             .collect();
-        let dag = Dag::from_nodes(nodes).unwrap();
+        let dag = Dag::from_nodes(&nodes).unwrap();
 
         let snapshot = ExecutionSnapshot {
             plan_id: plan.id.clone(),

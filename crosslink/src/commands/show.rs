@@ -19,9 +19,8 @@ struct IssueDetail {
 }
 
 pub fn run_json(db: &Database, id: i64) -> Result<()> {
-    let issue = match db.get_issue(id)? {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(id)),
+    let Some(issue) = db.get_issue(id)? else {
+        bail!("Issue {} not found", format_issue_id(id));
     };
 
     let detail = IssueDetail {
@@ -40,9 +39,8 @@ pub fn run_json(db: &Database, id: i64) -> Result<()> {
 }
 
 pub fn run(db: &Database, id: i64) -> Result<()> {
-    let issue = match db.get_issue(id)? {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(id)),
+    let Some(issue) = db.get_issue(id)? else {
+        bail!("Issue {} not found", format_issue_id(id));
     };
 
     print_header(&issue);
@@ -91,7 +89,7 @@ fn print_description(issue: &crate::models::Issue) {
         if !desc.is_empty() {
             println!("\nDescription:");
             for line in desc.lines() {
-                println!("  {}", line);
+                println!("  {line}");
             }
         }
     }
@@ -102,14 +100,14 @@ fn print_comments(db: &Database, id: i64) -> Result<()> {
     if !comments.is_empty() {
         println!("\nComments:");
         for comment in comments {
-            let kind_prefix = if comment.kind != "note" {
-                format!("[{}] ", comment.kind)
-            } else {
+            let kind_prefix = if comment.kind == "note" {
                 String::new()
+            } else {
+                format!("[{}] ", comment.kind)
             };
             let intervention_suffix = match (&comment.trigger_type, &comment.intervention_context) {
-                (Some(trigger), Some(ctx)) => format!(" (trigger: {}, context: {})", trigger, ctx),
-                (Some(trigger), None) => format!(" (trigger: {})", trigger),
+                (Some(trigger), Some(ctx)) => format!(" (trigger: {trigger}, context: {ctx})"),
+                (Some(trigger), None) => format!(" (trigger: {trigger})"),
                 _ => String::new(),
             };
             println!(

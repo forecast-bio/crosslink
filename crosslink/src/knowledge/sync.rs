@@ -12,6 +12,9 @@ impl KnowledgeManager {
     /// If the `crosslink/knowledge` branch exists on the remote, fetches it and
     /// creates a worktree. If not, creates an orphan branch with an initial
     /// `index.md` page.
+    ///
+    /// # Errors
+    /// Returns an error if git operations or filesystem writes fail.
     pub fn init_cache(&self) -> Result<()> {
         if self.cache_dir.exists() {
             return Ok(());
@@ -92,6 +95,9 @@ This is the shared knowledge repository for the project.
     /// strategy: aborts the rebase, merges instead, and resolves any remaining
     /// conflicts by keeping both versions. Returns the list of slugs that had
     /// conflicts resolved.
+    ///
+    /// # Errors
+    /// Returns an error if fetching, rebasing, or conflict resolution fails.
     pub fn sync(&self) -> Result<SyncOutcome> {
         let fetch_result = self.git_in_cache(&["fetch", &self.remote, KNOWLEDGE_BRANCH]);
         if let Err(e) = &fetch_result {
@@ -109,7 +115,7 @@ This is the shared knowledge repository for the project.
 
         // Check for unpushed local commits. If any exist, rebase to preserve them.
         let remote_ref = format!("{}/{}", self.remote, KNOWLEDGE_BRANCH);
-        let log_result = self.git_in_cache(&["log", &format!("{}..HEAD", remote_ref), "--oneline"]);
+        let log_result = self.git_in_cache(&["log", &format!("{remote_ref}..HEAD"), "--oneline"]);
         if let Ok(output) = &log_result {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if !stdout.trim().is_empty() {
@@ -158,6 +164,9 @@ This is the shared knowledge repository for the project.
     ///
     /// If the push is rejected (non-fast-forward), attempts a pull --rebase.
     /// If that rebase produces conflicts, falls back to "accept both" resolution.
+    ///
+    /// # Errors
+    /// Returns an error if pushing or conflict resolution fails.
     pub fn push(&self) -> Result<SyncOutcome> {
         let push_result = self.git_in_cache(&["push", &self.remote, KNOWLEDGE_BRANCH]);
         if let Err(e) = &push_result {
@@ -220,8 +229,7 @@ This is the shared knowledge repository for the project.
             self.git_in_cache(&["add", "-A"])?;
             let slugs_str = resolved.join(", ");
             self.commit(&format!(
-                "knowledge: accept-both conflict resolution for {}",
-                slugs_str
+                "knowledge: accept-both conflict resolution for {slugs_str}"
             ))?;
         }
 
@@ -243,7 +251,7 @@ This is the shared knowledge repository for the project.
         for entry in std::fs::read_dir(&self.cache_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map(|e| e == "md").unwrap_or(false) {
+            if path.extension().is_some_and(|e| e == "md") {
                 let content = std::fs::read_to_string(&path)?;
                 if has_conflict_markers(&content) {
                     let slug = path
@@ -262,6 +270,9 @@ This is the shared knowledge repository for the project.
     }
 
     /// Stage all changes in the knowledge worktree and commit.
+    ///
+    /// # Errors
+    /// Returns an error if staging or committing fails.
     pub fn commit(&self, message: &str) -> Result<()> {
         self.git_in_cache(&["add", "-A"])?;
 
@@ -283,10 +294,10 @@ This is the shared knowledge repository for the project.
             .current_dir(&self.repo_root)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?}", args))?;
+            .with_context(|| format!("Failed to run git {args:?}"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} failed: {}", args, stderr);
+            bail!("git {args:?} failed: {stderr}");
         }
         Ok(output)
     }
@@ -296,10 +307,10 @@ This is the shared knowledge repository for the project.
             .current_dir(&self.cache_dir)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?} in knowledge cache", args))?;
+            .with_context(|| format!("Failed to run git {args:?} in knowledge cache"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} in knowledge cache failed: {}", args, stderr);
+            bail!("git {args:?} in knowledge cache failed: {stderr}");
         }
         Ok(output)
     }

@@ -75,7 +75,7 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
 
     if json_output {
         let json = serde_json::to_string_pretty(&locks_file)?;
-        println!("{}", json);
+        println!("{json}");
         return Ok(());
     }
 
@@ -91,8 +91,7 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
     for (&issue_id, lock) in &locks_file.locks {
         let title = db
             .get_issue(issue_id)?
-            .map(|i| truncate(&i.title, 40))
-            .unwrap_or_else(|| "(unknown issue)".to_string());
+            .map_or_else(|| "(unknown issue)".to_string(), |i| truncate(&i.title, 40));
 
         let stale_marker = if stale_ids.contains(&issue_id) {
             " [STALE]"
@@ -109,7 +108,7 @@ pub fn list(crosslink_dir: &Path, db: &Database, json_output: bool) -> Result<()
             stale_marker
         );
         if let Some(branch) = &lock.branch {
-            println!("         branch: {}", branch);
+            println!("         branch: {branch}");
         }
     }
     Ok(())
@@ -132,7 +131,7 @@ pub fn check(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
                 lock.claimed_at.format("%Y-%m-%d %H:%M")
             );
             if let Some(branch) = &lock.branch {
-                println!("  Branch: {}", branch);
+                println!("  Branch: {branch}");
             }
             // Check if stale
             let stale = sync.find_stale_locks()?;
@@ -168,7 +167,7 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
             LockClaimResult::Claimed => {
                 println!("Claimed lock on issue {}", format_issue_id(issue_id));
                 if let Some(b) = branch {
-                    println!("  Branch: {}", b);
+                    println!("  Branch: {b}");
                 }
             }
             LockClaimResult::AlreadyHeld => {
@@ -188,26 +187,23 @@ pub fn claim(crosslink_dir: &Path, issue_id: i64, branch: Option<&str>) -> Resul
         return Ok(());
     }
 
-    match sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
-        true => {
-            println!("Claimed lock on issue {}", format_issue_id(issue_id));
-            if let Some(b) = branch {
-                println!("  Branch: {}", b);
-            }
+    if sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
+        println!("Claimed lock on issue {}", format_issue_id(issue_id));
+        if let Some(b) = branch {
+            println!("  Branch: {b}");
         }
-        false => {
-            println!(
-                "You already hold the lock on issue {}",
-                format_issue_id(issue_id)
-            );
-        }
+    } else {
+        println!(
+            "You already hold the lock on issue {}",
+            format_issue_id(issue_id)
+        );
     }
     Ok(())
 }
 
 /// `crosslink locks release <id>` — release a lock on an issue
 pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
-    let _agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
+    let agent = AgentConfig::load(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!("No agent configured. Run 'crosslink agent init <id>' first.")
     })?;
 
@@ -218,16 +214,18 @@ pub fn release(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
     if sync.is_v2_layout() {
         let writer = SharedWriter::new(crosslink_dir)?
             .ok_or_else(|| anyhow::anyhow!("SharedWriter not available — is agent configured?"))?;
-        match writer.release_lock_v2(issue_id)? {
-            true => println!("Released lock on issue {}", format_issue_id(issue_id)),
-            false => println!("Issue {} was not locked.", format_issue_id(issue_id)),
+        if writer.release_lock_v2(issue_id)? {
+            println!("Released lock on issue {}", format_issue_id(issue_id));
+        } else {
+            println!("Issue {} was not locked.", format_issue_id(issue_id));
         }
         return Ok(());
     }
 
-    match sync.release_lock(&_agent, issue_id, crate::sync::LockMode::Normal)? {
-        true => println!("Released lock on issue {}", format_issue_id(issue_id)),
-        false => println!("Issue {} was not locked.", format_issue_id(issue_id)),
+    if sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal)? {
+        println!("Released lock on issue {}", format_issue_id(issue_id));
+    } else {
+        println!("Issue {} was not locked.", format_issue_id(issue_id));
     }
     Ok(())
 }
@@ -268,19 +266,14 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
             let writer = SharedWriter::new(crosslink_dir)?
                 .ok_or_else(|| anyhow::anyhow!("SharedWriter not available"))?;
             writer.steal_lock_v2(issue_id, &existing.agent_id, None)?;
-            println!(
-                "Stole lock on issue {} from '{}'",
-                format_issue_id(issue_id),
-                existing.agent_id
-            );
         } else {
             sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
-            println!(
-                "Stole lock on issue {} from '{}'",
-                format_issue_id(issue_id),
-                existing.agent_id
-            );
         }
+        println!(
+            "Stole lock on issue {} from '{}'",
+            format_issue_id(issue_id),
+            existing.agent_id
+        );
     } else {
         // Not locked — just claim it
         if sync.is_v2_layout() {
@@ -290,7 +283,7 @@ pub fn steal(crosslink_dir: &Path, issue_id: i64) -> Result<()> {
             match writer.claim_lock_v2(issue_id, None)? {
                 LockClaimResult::Claimed | LockClaimResult::AlreadyHeld => {}
                 LockClaimResult::Contended { winner_agent_id } => {
-                    anyhow::bail!("Lock contended — won by '{}'", winner_agent_id);
+                    anyhow::bail!("Lock contended — won by '{winner_agent_id}'");
                 }
             }
         } else {
@@ -358,7 +351,7 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 if *neg_id != 0 {
                     println!("  L{} -> #{}: {}", neg_id.unsigned_abs(), new_id, title);
                 } else {
-                    println!("  -> #{}: {}", new_id, title);
+                    println!("  -> #{new_id}: {title}");
                 }
             }
 
@@ -397,29 +390,23 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 &commit[..7.min(commit.len())]
             );
             if let Some(who) = principal {
-                println!("  Signer: {}", who);
+                println!("  Signer: {who}");
             }
             if let Some(fp) = fingerprint {
-                println!("  Fingerprint: {}", fp);
+                println!("  Fingerprint: {fp}");
                 // Check against allowed_signers (preferred) or legacy keyring
-                let trusted = if let Ok(signers) = sync.read_allowed_signers() {
-                    if !signers.entries.is_empty() {
-                        let is_trusted = principal
-                            .as_ref()
-                            .map(|p| signers.is_trusted(p))
-                            .unwrap_or(false);
-                        if is_trusted {
-                            println!("  Signer is trusted (allowed_signers).");
-                        } else {
-                            println!("  WARNING: Signer not in allowed_signers!");
-                        }
-                        true // we checked
-                    } else {
-                        false
+                let trusted = sync.read_allowed_signers().ok().is_some_and(|signers| {
+                    if signers.entries.is_empty() {
+                        return false;
                     }
-                } else {
-                    false
-                };
+                    let is_trusted = principal.as_ref().is_some_and(|p| signers.is_trusted(p));
+                    if is_trusted {
+                        println!("  Signer is trusted (allowed_signers).");
+                    } else {
+                        println!("  WARNING: Signer not in allowed_signers!");
+                    }
+                    true // we checked
+                });
                 // Fall back to legacy keyring
                 if !trusted {
                     if let Ok(Some(keyring)) = sync.read_keyring() {
@@ -482,11 +469,10 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 results.len()
             );
             if enforcement == "enforced" {
-                anyhow::bail!("Signing enforcement FAILED: {}", msg);
-            } else {
-                // audit mode
-                println!("Signing audit: {}", msg);
+                anyhow::bail!("Signing enforcement FAILED: {msg}");
             }
+            // audit mode
+            println!("Signing audit: {msg}");
         } else if !results.is_empty() {
             println!(
                 "Signing audit: all {} recent commit(s) are signed.",
@@ -500,18 +486,15 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         if total_entries > 0 {
             if failed > 0 {
                 let msg = format!(
-                    "{} verified, {} FAILED, {} unsigned entry signature(s)",
-                    verified, failed, entry_unsigned
+                    "{verified} verified, {failed} FAILED, {entry_unsigned} unsigned entry signature(s)"
                 );
                 if enforcement == "enforced" {
-                    anyhow::bail!("Entry signing enforcement FAILED: {}", msg);
-                } else {
-                    println!("Entry signing audit: {}", msg);
+                    anyhow::bail!("Entry signing enforcement FAILED: {msg}");
                 }
+                println!("Entry signing audit: {msg}");
             } else if verified > 0 {
                 println!(
-                    "Entry signing audit: {} verified, {} unsigned entry signature(s).",
-                    verified, entry_unsigned
+                    "Entry signing audit: {verified} verified, {entry_unsigned} unsigned entry signature(s)."
                 );
             }
         }
@@ -525,13 +508,11 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
 /// Returns `"disabled"`, `"audit"`, or `"enforced"`. Defaults to `"disabled"`.
 fn read_signing_enforcement(crosslink_dir: &Path) -> String {
     let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return "disabled".to_string(),
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return "disabled".to_string();
     };
-    let parsed: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return "disabled".to_string(),
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return "disabled".to_string();
     };
     parsed
         .get("signing_enforcement")

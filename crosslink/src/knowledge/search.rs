@@ -10,6 +10,9 @@ impl KnowledgeManager {
     /// query terms matched within each page — pages matching more terms appear
     /// first. Within a page, contiguous matching lines are grouped with
     /// surrounding context.
+    ///
+    /// # Errors
+    /// Returns an error if the cache directory cannot be read.
     pub fn search_content(&self, query: &str, context: usize) -> Result<Vec<SearchMatch>> {
         if !self.cache_dir.exists() {
             return Ok(Vec::new());
@@ -22,10 +25,10 @@ impl KnowledgeManager {
         }
 
         let mut entries: Vec<_> = std::fs::read_dir(&self.cache_dir)?
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
             .collect();
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
 
         // Collect (term_match_count, matches) per file for ranking
         let mut scored_results: Vec<(usize, Vec<SearchMatch>)> = Vec::new();
@@ -37,8 +40,8 @@ impl KnowledgeManager {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            let content = std::fs::read_to_string(&path)?;
-            let lines: Vec<&str> = content.lines().collect();
+            let page_text = std::fs::read_to_string(&path)?;
+            let lines: Vec<&str> = page_text.lines().collect();
 
             // Lowercase each line once and reuse for both term-hit counting
             // and per-line matching (avoids redundant lowercasing of the
@@ -100,6 +103,9 @@ impl KnowledgeManager {
     /// Search knowledge pages by source URL domain.
     ///
     /// Finds pages that have a source whose URL contains the given domain string.
+    ///
+    /// # Errors
+    /// Returns an error if listing pages fails.
     pub fn search_sources(&self, domain: &str) -> Result<Vec<PageInfo>> {
         let domain_lower = domain.to_lowercase();
 

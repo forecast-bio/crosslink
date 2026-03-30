@@ -37,39 +37,42 @@ pub(super) fn read_sandbox_command(crosslink_dir: &Path) -> Option<String> {
         .and_then(|s| s.get("command"))
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+        .map(ToString::to_string)
 }
 
 pub(super) fn read_watchdog_config(crosslink_dir: &Path) -> WatchdogConfig {
     let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return WatchdogConfig::default(),
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return WatchdogConfig::default();
     };
-    let parsed: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return WatchdogConfig::default(),
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return WatchdogConfig::default();
     };
 
-    let wd = match parsed.get("watchdog") {
-        Some(v) => v,
-        None => return WatchdogConfig::default(),
+    let Some(wd) = parsed.get("watchdog") else {
+        return WatchdogConfig::default();
     };
 
     let mut cfg = WatchdogConfig::default();
-    if let Some(v) = wd.get("enabled").and_then(|v| v.as_bool()) {
+    if let Some(v) = wd.get("enabled").and_then(serde_json::Value::as_bool) {
         cfg.enabled = v;
     }
-    if let Some(v) = wd.get("staleness_secs").and_then(|v| v.as_u64()) {
+    if let Some(v) = wd.get("staleness_secs").and_then(serde_json::Value::as_u64) {
         cfg.staleness_secs = v;
     }
-    if let Some(v) = wd.get("max_nudges").and_then(|v| v.as_u64()) {
-        cfg.max_nudges = v as u32;
+    if let Some(v) = wd.get("max_nudges").and_then(serde_json::Value::as_u64) {
+        cfg.max_nudges = u32::try_from(v).unwrap_or(u32::MAX);
     }
-    if let Some(v) = wd.get("check_interval_secs").and_then(|v| v.as_u64()) {
+    if let Some(v) = wd
+        .get("check_interval_secs")
+        .and_then(serde_json::Value::as_u64)
+    {
         cfg.check_interval_secs = v;
     }
-    if let Some(v) = wd.get("grace_period_secs").and_then(|v| v.as_u64()) {
+    if let Some(v) = wd
+        .get("grace_period_secs")
+        .and_then(serde_json::Value::as_u64)
+    {
         cfg.grace_period_secs = v;
     }
     cfg
@@ -164,20 +167,16 @@ pub(super) fn build_agent_command(
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
     let claude_cmd = format!(
-        "env -u CLAUDECODE claude{} --model {} --allowedTools {} -- \"$(cat {})\"",
-        skip_flag, escaped_model, escaped_tools, escaped_kickoff
+        "env -u CLAUDECODE claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
     );
-    match sandbox_command {
-        Some(cmd) => {
+    sandbox_command.map_or_else(
+        || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
+        |cmd| {
             let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
             let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
-            format!(
-                "{} {}s {} {}",
-                timeout_cmd, timeout_secs, expanded, claude_cmd
-            )
-        }
-        None => format!("{} {}s {}", timeout_cmd, timeout_secs, claude_cmd),
-    }
+            format!("{timeout_cmd} {timeout_secs}s {expanded} {claude_cmd}")
+        },
+    )
 }
 
 /// Pre-flight check: verify all required external commands are present before
@@ -195,7 +194,7 @@ pub(super) fn preflight_check(
     let timeout_cmd = match resolve_timeout_command(&platform) {
         Ok(cmd) => cmd,
         Err(e) => {
-            missing.push(format!("{}", e));
+            missing.push(format!("{e}"));
             "timeout" // placeholder, won't be used since we'll bail
         }
     };
@@ -243,8 +242,7 @@ pub(super) fn preflight_check(
         let binary = cmd.split_whitespace().next().unwrap_or(cmd);
         if !command_available(binary) {
             missing.push(format!(
-                "`{}` (configured in hook-config.json sandbox.command) not found on PATH",
-                binary
+                "`{binary}` (configured in hook-config.json sandbox.command) not found on PATH"
             ));
         }
     }
@@ -261,7 +259,7 @@ pub(super) fn preflight_check(
             .map(|(i, msg)| format!("{}. {}", i + 1, msg))
             .collect::<Vec<_>>()
             .join("\n\n");
-        bail!("{}{}", header, body);
+        bail!("{header}{body}");
     }
 
     Ok(PreflightResult {
@@ -301,7 +299,7 @@ pub(super) fn create_worktree(
     slug: &str,
     base_branch: Option<&str>,
 ) -> Result<(std::path::PathBuf, String)> {
-    let branch_name = format!("feature/{}", slug);
+    let branch_name = format!("feature/{slug}");
     let worktree_dir = repo_root.join(".worktrees").join(slug);
 
     // Safety guard: reject worktree paths that land inside internal directories (#425)
@@ -357,9 +355,8 @@ pub(super) fn create_worktree(
 
         if has_active_worktree {
             bail!(
-                "Branch '{}' already exists and has an active worktree. \
-                 Clean up the worktree first with: git worktree remove <path>",
-                branch_name
+                "Branch '{branch_name}' already exists and has an active worktree. \
+                 Clean up the worktree first with: git worktree remove <path>"
             );
         }
 
@@ -392,11 +389,9 @@ pub(super) fn create_worktree(
             }
         } else {
             bail!(
-                "Branch '{}' already exists and has unmerged changes. \
+                "Branch '{branch_name}' already exists and has unmerged changes. \
                  Either merge it first, delete it manually with \
-                 `git branch -D {}`, or use a different slug.",
-                branch_name,
-                branch_name
+                 `git branch -D {branch_name}`, or use a different slug."
             );
         }
     }
@@ -451,7 +446,7 @@ pub(super) fn init_worktree_agent(
             if let Err(e) = super::super::agent::init(
                 &wt_crosslink,
                 &agent_id,
-                Some(&format!("Kickoff agent for: {}", compact_name)),
+                Some(&format!("Kickoff agent for: {compact_name}")),
                 false, // generate dedicated signing key
                 false,
             ) {
@@ -512,7 +507,7 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
             .open(&exclude_path)
             .context("Failed to open git exclude file")?;
         for pattern in additions {
-            writeln!(file, "{}", pattern)?;
+            writeln!(file, "{pattern}")?;
         }
     }
 
@@ -612,33 +607,28 @@ pub(super) fn launch_container(
 
     // Check runtime is available
     if !command_available(runtime_cmd) {
-        bail!(
-            "{} is not installed. Install it or use --container none for local mode.",
-            runtime_cmd
-        );
+        bail!("{runtime_cmd} is not installed. Install it or use --container none for local mode.");
     }
 
     let timeout_secs = timeout.as_secs();
-    let container_name = format!("crosslink-agent-{}", agent_id);
+    let container_name = format!("crosslink-agent-{agent_id}");
 
     // Resolve host auth path for credential mounting
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let host_auth = format!("{}/.claude", home);
+    let host_auth = format!("{home}/.claude");
 
     // Get host UID/GID for remapping (skip on Windows — Docker Desktop handles user mapping)
     let uid_gid = if cfg!(target_os = "windows") {
         None
     } else {
-        let uid = Command::new("id")
-            .arg("-u")
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|_| "1000".to_string());
-        let gid = Command::new("id")
-            .arg("-g")
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|_| "1000".to_string());
+        let uid = Command::new("id").arg("-u").output().map_or_else(
+            |_| "1000".to_string(),
+            |o| String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        );
+        let gid = Command::new("id").arg("-g").output().map_or_else(
+            |_| "1000".to_string(),
+            |o| String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        );
         Some((uid, gid))
     };
 
@@ -646,7 +636,7 @@ pub(super) fn launch_container(
         "run".to_string(),
         "-d".to_string(),
         "--name".to_string(),
-        container_name.clone(),
+        container_name,
         // Hard-kill the container after the timeout (grace period = 10s on top)
         "--stop-timeout".to_string(),
         format!("{}", timeout_secs),
@@ -665,9 +655,9 @@ pub(super) fn launch_container(
     if let Some((uid, gid)) = &uid_gid {
         args.extend([
             "-e".to_string(),
-            format!("HOST_UID={}", uid),
+            format!("HOST_UID={uid}"),
             "-e".to_string(),
-            format!("HOST_GID={}", gid),
+            format!("HOST_GID={gid}"),
         ]);
     }
 
@@ -676,14 +666,13 @@ pub(super) fn launch_container(
     args.push("bash".to_string());
     args.push("-c".to_string());
     args.push(format!(
-        "cd /workspaces/repo && timeout {}s claude --model {} --allowedTools '{}' -- \"$(cat KICKOFF.md)\"",
-        timeout_secs, model, allowed_tools
+        "cd /workspaces/repo && timeout {timeout_secs}s claude --model {model} --allowedTools '{allowed_tools}' -- \"$(cat KICKOFF.md)\""
     ));
 
     let output = Command::new(runtime_cmd)
         .args(&args)
         .output()
-        .with_context(|| format!("Failed to launch {} container", runtime_cmd))?;
+        .with_context(|| format!("Failed to launch {runtime_cmd} container"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

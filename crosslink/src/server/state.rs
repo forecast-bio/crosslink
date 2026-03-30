@@ -15,7 +15,7 @@ use crate::server::ws::{self, WsEvent};
 pub struct AppState {
     /// Shared database handle — wrapped for concurrent async handler access.
     pub db: Arc<Mutex<Database>>,
-    /// Path to the `.crosslink` directory (used to construct SyncManager on demand).
+    /// Path to the `.crosslink` directory (used to construct `SyncManager` on demand).
     pub crosslink_dir: PathBuf,
     /// Crosslink version string for health/info responses.
     pub version: &'static str,
@@ -57,6 +57,6 @@ fn generate_auth_token() -> String {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let pid = std::process::id() as u128;
+    let pid = u128::from(std::process::id());
     format!("{:032x}", seed ^ (pid << 64))
 }

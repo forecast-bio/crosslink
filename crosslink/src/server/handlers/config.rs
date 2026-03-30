@@ -12,7 +12,7 @@ use crate::server::{
     types::{ApiError, ConfigResponse, UpdateConfigRequest},
 };
 
-/// Extract a ConfigResponse from a raw JSON Value.
+/// Extract a `ConfigResponse` from a raw JSON Value.
 ///
 /// Field name mapping between `hook-config.json` and the API response:
 ///
@@ -36,7 +36,7 @@ fn config_from_value(v: &serde_json::Value) -> ConfigResponse {
             .to_string(),
         stale_lock_timeout_minutes: v
             .get("stale_lock_timeout_minutes")
-            .and_then(|x| x.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(30),
         remote: v
             .get("tracker_remote")
@@ -50,11 +50,11 @@ fn config_from_value(v: &serde_json::Value) -> ConfigResponse {
             .to_string(),
         intervention_tracking: v
             .get("intervention_tracking")
-            .and_then(|x| x.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
         auto_steal_stale_locks: v
             .get("auto_steal_stale_locks")
-            .and_then(|x| x.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
     }
 }
@@ -64,6 +64,9 @@ fn config_from_value(v: &serde_json::Value) -> ConfigResponse {
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/config` — return the current project configuration.
+///
+/// # Errors
+/// Returns an error if the config file cannot be read or parsed.
 pub async fn get_config(
     State(state): State<AppState>,
 ) -> Result<Json<ConfigResponse>, (StatusCode, Json<ApiError>)> {
@@ -101,6 +104,9 @@ pub async fn get_config(
 ///
 /// Only provided (non-null) fields are updated; all others are left unchanged.
 /// The full updated config is written back to `hook-config.json` and returned.
+///
+/// # Errors
+/// Returns an error if validation fails, or the config file cannot be read or written.
 pub async fn update_config(
     State(state): State<AppState>,
     Json(body): Json<UpdateConfigRequest>,
@@ -197,7 +203,7 @@ pub async fn update_config(
                     .map_err(|e| internal_error("Failed to create config directory", e))?;
             }
 
-            std::fs::write(&config_path, format!("{}\n", pretty))
+            std::fs::write(&config_path, format!("{pretty}\n"))
                 .map_err(|e| internal_error("Failed to write config file", e))?;
 
             Ok(config_from_value(&value))

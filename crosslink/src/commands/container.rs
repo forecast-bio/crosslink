@@ -75,12 +75,12 @@ fn file_hash(path: &Path) -> Result<String> {
     buf.truncate(n);
 
     // Simple FNV-1a hash (no external dep needed)
-    let mut hash: u64 = 0xcbf29ce484222325;
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for &byte in &buf {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
-    Ok(format!("{:016x}", hash))
+    Ok(format!("{hash:016x}"))
 }
 
 /// Resolve the main repo root (handles worktrees).
@@ -151,17 +151,17 @@ fn compute_memory_limit(config_override: Option<&str>) -> String {
             return val.to_string();
         }
     }
-    match detect_host_memory_gb() {
-        Some(host_gb) => {
+    detect_host_memory_gb().map_or_else(
+        || "8g".to_string(), // safe default
+        |host_gb| {
             let container_gb = if host_gb > 6 {
                 host_gb - 2
             } else {
                 4.max(host_gb)
             };
-            format!("{}g", container_gb)
-        }
-        None => "8g".to_string(), // safe default
-    }
+            format!("{container_gb}g")
+        },
+    )
 }
 
 /// Get the image hash label if present.
@@ -171,7 +171,7 @@ fn get_image_hash() -> Option<String> {
             "inspect",
             "--format",
             "{{index .Config.Labels \"crosslink-binary-hash\"}}",
-            &format!("{}:{}", IMAGE_NAME, IMAGE_TAG),
+            &format!("{IMAGE_NAME}:{IMAGE_TAG}"),
         ])
         .output()
         .ok()?;
@@ -186,9 +186,8 @@ fn get_image_hash() -> Option<String> {
 
 /// Check if the image is stale compared to the running binary.
 fn check_staleness() {
-    let binary_hash = match find_crosslink_binary().and_then(|p| file_hash(&p)) {
-        Ok(h) => h,
-        Err(_) => return,
+    let Ok(binary_hash) = find_crosslink_binary().and_then(|p| file_hash(&p)) else {
+        return;
     };
     if let Some(image_hash) = get_image_hash() {
         if image_hash != binary_hash {
@@ -219,7 +218,7 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     }
 
     let tag = tag.unwrap_or(IMAGE_TAG);
-    let image = format!("{}:{}", IMAGE_NAME, tag);
+    let image = format!("{IMAGE_NAME}:{tag}");
 
     // Create temp build context
     let build_path =
@@ -231,7 +230,7 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     // Write Dockerfile
     let dockerfile_content = if let Some(path) = dockerfile {
         std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read custom Dockerfile: {}", path))?
+            .with_context(|| format!("Failed to read custom Dockerfile: {path}"))?
     } else {
         DOCKERFILE.to_string()
     };
@@ -248,12 +247,12 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
     // Compute binary hash for staleness detection
     let binary_hash = file_hash(&binary).unwrap_or_else(|_| "unknown".to_string());
 
-    println!("Building container image: {}", image);
+    println!("Building container image: {image}");
 
     let mut cmd = Command::new("docker");
     cmd.args(["build", "-t", &image]);
     cmd.args(["--label", LABEL_AGENT]);
-    cmd.args(["--label", &format!("crosslink-binary-hash={}", binary_hash)]);
+    cmd.args(["--label", &format!("crosslink-binary-hash={binary_hash}")]);
     if force {
         cmd.arg("--no-cache");
     }
@@ -265,8 +264,8 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
         bail!("Docker build failed");
     }
 
-    println!("Image built successfully: {}", image);
-    println!("Binary hash: {}", binary_hash);
+    println!("Image built successfully: {image}");
+    println!("Binary hash: {binary_hash}");
     Ok(())
 }
 
@@ -292,9 +291,10 @@ pub fn start(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-    let container_name = name
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| format!("{}{}", CONTAINER_PREFIX, worktree_slug));
+    let container_name = name.map_or_else(
+        || format!("{CONTAINER_PREFIX}{worktree_slug}"),
+        ToString::to_string,
+    );
 
     // Resolve paths
     let git_common_dir = resolve_git_common_dir()?;
@@ -302,9 +302,7 @@ pub fn start(
     let hub_cache = repo_root.join(".crosslink").join(".hub-cache");
 
     // Read the prompt file
-    let prompt_path = prompt_file
-        .map(PathBuf::from)
-        .unwrap_or_else(|| worktree_abs.join("KICKOFF.md"));
+    let prompt_path = prompt_file.map_or_else(|| worktree_abs.join("KICKOFF.md"), PathBuf::from);
     if !prompt_path.exists() {
         bail!(
             "Prompt file not found: {}. Write a KICKOFF.md in the worktree first.",
@@ -329,22 +327,22 @@ pub fn start(
     let memory_limit = compute_memory_limit(memory);
 
     // Derive agent ID
-    let agent_id = format!("container--{}", worktree_slug);
+    let agent_id = format!("container--{worktree_slug}");
 
-    let image = format!("{}:{}", IMAGE_NAME, IMAGE_TAG);
+    let image = format!("{IMAGE_NAME}:{IMAGE_TAG}");
 
-    println!("Starting task container: {}", container_name);
+    println!("Starting task container: {container_name}");
     println!("  Worktree: {}", worktree_abs.display());
-    println!("  Memory:   {}", memory_limit);
-    println!("  Agent:    {}", agent_id);
+    println!("  Memory:   {memory_limit}");
+    println!("  Agent:    {agent_id}");
 
     let mut cmd = Command::new("docker");
     cmd.args(["run", "-d"]);
     cmd.args(["--name", &container_name]);
     cmd.args(["--label", LABEL_AGENT]);
-    cmd.args(["--label", &format!("crosslink-task={}", worktree_slug)]);
+    cmd.args(["--label", &format!("crosslink-task={worktree_slug}")]);
     if let Some(id) = issue_id {
-        cmd.args(["--label", &format!("crosslink-issue={}", id)]);
+        cmd.args(["--label", &format!("crosslink-issue={id}")]);
     }
     cmd.args(["--memory", &memory_limit]);
 
@@ -369,16 +367,16 @@ pub fn start(
         let fixup_dir = worktree_abs.join(".crosslink").join("container-git-fixup");
         std::fs::create_dir_all(&fixup_dir).context("Failed to create git fixup dir")?;
 
-        let container_workspace = format!("/workspaces/{}", worktree_slug);
-        let container_gitdir = format!("/repo/.git/worktrees/{}", worktree_slug);
+        let container_workspace = format!("/workspaces/{worktree_slug}");
+        let container_gitdir = format!("/repo/.git/worktrees/{worktree_slug}");
 
         // Override the worktree's .git file → point to container-side gitdir
         let override_dot_git = fixup_dir.join("dot-git");
-        std::fs::write(&override_dot_git, format!("gitdir: {}\n", container_gitdir))?;
+        std::fs::write(&override_dot_git, format!("gitdir: {container_gitdir}\n"))?;
 
         // Override the gitdir back-pointer → point to container-side worktree
         let override_gitdir = fixup_dir.join("gitdir");
-        std::fs::write(&override_gitdir, format!("{}/.git\n", container_workspace))?;
+        std::fs::write(&override_gitdir, format!("{container_workspace}/.git\n"))?;
 
         // Mount overrides (shadows originals inside container only)
         cmd.args([
@@ -417,7 +415,7 @@ pub fn start(
     ]);
 
     // Environment
-    cmd.args(["-e", &format!("AGENT_ID={}", agent_id)]);
+    cmd.args(["-e", &format!("AGENT_ID={agent_id}")]);
     cmd.args(["-e", "CLAUDE_CONFIG_DIR=/home/agent/.claude"]);
 
     // Pass host UID/GID so the entrypoint can remap the agent user to match,
@@ -427,7 +425,7 @@ pub fn start(
             let uid = String::from_utf8_lossy(&uid_output.stdout)
                 .trim()
                 .to_string();
-            cmd.args(["-e", &format!("HOST_UID={}", uid)]);
+            cmd.args(["-e", &format!("HOST_UID={uid}")]);
         }
     }
     if let Ok(gid_output) = Command::new("id").arg("-g").output() {
@@ -435,7 +433,7 @@ pub fn start(
             let gid = String::from_utf8_lossy(&gid_output.stdout)
                 .trim()
                 .to_string();
-            cmd.args(["-e", &format!("HOST_GID={}", gid)]);
+            cmd.args(["-e", &format!("HOST_GID={gid}")]);
         }
     }
 
@@ -472,18 +470,9 @@ pub fn start(
     println!();
     println!("Task container started.");
     println!("  Check status: crosslink container ps");
-    println!(
-        "  View logs:    crosslink container logs {}",
-        container_name
-    );
-    println!(
-        "  Shell in:     crosslink container shell {}",
-        container_name
-    );
-    println!(
-        "  Stop:         crosslink container stop {}",
-        container_name
-    );
+    println!("  View logs:    crosslink container logs {container_name}");
+    println!("  Shell in:     crosslink container shell {container_name}");
+    println!("  Stop:         crosslink container stop {container_name}");
 
     Ok(())
 }
@@ -499,7 +488,7 @@ pub fn ps() -> Result<()> {
             "ps",
             "-a",
             "--filter",
-            &format!("label={}", LABEL_AGENT),
+            &format!("label={LABEL_AGENT}"),
             "--format",
             "table {{.Names}}\t{{.Status}}\t{{.Label \"crosslink-task\"}}\t{{.Label \"crosslink-issue\"}}",
         ])
@@ -514,7 +503,7 @@ pub fn ps() -> Result<()> {
     if stdout.trim().is_empty() || stdout.lines().count() <= 1 {
         println!("No crosslink task containers found.");
     } else {
-        print!("{}", stdout);
+        print!("{stdout}");
     }
     Ok(())
 }
@@ -536,10 +525,7 @@ pub fn logs(name: &str, follow: bool, tail: Option<u32>) -> Result<()> {
 
     let status = cmd.status().context("Failed to read container logs")?;
     if !status.success() {
-        bail!(
-            "Failed to read logs for container '{}'. Does it exist?",
-            name
-        );
+        bail!("Failed to read logs for container '{name}'. Does it exist?");
     }
     Ok(())
 }
@@ -550,14 +536,14 @@ pub fn stop(name: &str) -> Result<()> {
         bail!("Docker is not available.");
     }
 
-    println!("Stopping container: {}", name);
+    println!("Stopping container: {name}");
     let status = Command::new("docker")
         .args(["stop", name])
         .status()
         .context("Failed to stop container")?;
 
     if !status.success() {
-        bail!("Failed to stop container '{}'", name);
+        bail!("Failed to stop container '{name}'");
     }
     println!("Container stopped.");
     Ok(())
@@ -569,14 +555,14 @@ pub fn rm(name: &str) -> Result<()> {
         bail!("Docker is not available.");
     }
 
-    println!("Removing container: {}", name);
+    println!("Removing container: {name}");
     let status = Command::new("docker")
         .args(["rm", name])
         .status()
         .context("Failed to remove container")?;
 
     if !status.success() {
-        bail!("Failed to remove container '{}'", name);
+        bail!("Failed to remove container '{name}'");
     }
     println!("Container removed.");
     Ok(())
@@ -588,7 +574,7 @@ pub fn kill(name: &str) -> Result<()> {
         bail!("Docker is not available.");
     }
 
-    println!("Stopping and removing container: {}", name);
+    println!("Stopping and removing container: {name}");
     // INTENTIONAL: stop may fail if container is already stopped — rm -f below handles that
     let _ = Command::new("docker").args(["stop", name]).status();
     let status = Command::new("docker")
@@ -597,7 +583,7 @@ pub fn kill(name: &str) -> Result<()> {
         .context("Failed to remove container")?;
 
     if !status.success() {
-        bail!("Failed to remove container '{}'", name);
+        bail!("Failed to remove container '{name}'");
     }
     println!("Container removed.");
     Ok(())
@@ -627,18 +613,18 @@ pub fn snapshot(name: &str, tag: Option<&str>) -> Result<()> {
     }
 
     let tag = tag.unwrap_or("cached");
-    let image = format!("{}:{}", IMAGE_NAME, tag);
+    let image = format!("{IMAGE_NAME}:{tag}");
 
-    println!("Snapshotting container '{}' as '{}'...", name, image);
+    println!("Snapshotting container '{name}' as '{image}'...");
     let status = Command::new("docker")
         .args(["commit", name, &image])
         .status()
         .context("Failed to snapshot container")?;
 
     if !status.success() {
-        bail!("Failed to snapshot container '{}'", name);
+        bail!("Failed to snapshot container '{name}'");
     }
-    println!("Snapshot saved: {}", image);
-    println!("Use with: crosslink container start --image {}", image);
+    println!("Snapshot saved: {image}");
+    println!("Use with: crosslink container start --image {image}");
     Ok(())
 }

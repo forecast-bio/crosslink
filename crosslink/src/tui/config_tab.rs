@@ -218,22 +218,18 @@ impl ConfigTab {
     fn load_config(&mut self) {
         self.config_entries.clear();
 
-        let resolved = match config::read_config_layered(&self.crosslink_dir) {
-            Ok(r) => r,
-            Err(_) => {
-                // Fallback: no config
-                return;
-            }
+        let Ok(resolved) = config::read_config_layered(&self.crosslink_dir) else {
+            // Fallback: no config
+            return;
         };
 
-        let defaults = match serde_json::from_str::<serde_json::Value>(
-            crate::commands::init::HOOK_CONFIG_JSON,
-        ) {
-            Ok(d) => d,
-            Err(_) => return,
+        let Ok(defaults) =
+            serde_json::from_str::<serde_json::Value>(crate::commands::init::HOOK_CONFIG_JSON)
+        else {
+            return;
         };
 
-        for entry in REGISTRY.iter() {
+        for entry in REGISTRY {
             let current = resolved.merged.get(entry.key);
             let default = defaults.get(entry.key);
             let source = resolved
@@ -243,9 +239,7 @@ impl ConfigTab {
                 .unwrap_or(Source::Default);
             let is_default = current == default;
 
-            let value_str = current
-                .map(format_json_value)
-                .unwrap_or_else(|| "(unset)".into());
+            let value_str = current.map_or_else(|| "(unset)".into(), format_json_value);
 
             let team_value = if source == Source::Local {
                 resolved.team.get(entry.key).map(format_json_value)
@@ -302,10 +296,7 @@ impl ConfigTab {
                 }
                 ConfigType::Enum(options) => {
                     let current_idx = options.iter().position(|o| *o == entry.value);
-                    let next = match current_idx {
-                        Some(i) => (i + 1) % options.len(),
-                        None => 0,
-                    };
+                    let next = current_idx.map_or(0, |i| (i + 1) % options.len());
                     options[next].to_string()
                 }
                 _ => return,
@@ -333,7 +324,7 @@ impl ConfigTab {
                 if let Some(serde_json::Value::Array(arr)) = resolved.merged.get(&entry.key) {
                     self.array_items = arr
                         .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                         .collect();
                 } else {
                     self.array_items = Vec::new();
@@ -505,17 +496,15 @@ impl ConfigTab {
 
         // ── Configuration (hot-swappable first, then setup-time) (REQ-9) ──
         lines.push(section_header("Configuration (hot-swappable)"));
-        let mut config_line_to_entry: Vec<usize> = Vec::new();
         let mut entry_idx = 0;
 
         // Hot-swappable keys first
-        for (i, ce) in self.config_entries.iter().enumerate() {
+        for ce in &self.config_entries {
             if !ce.hot_swappable {
                 continue;
             }
             let is_focused = entry_idx == self.config_cursor;
-            lines.push(self.render_config_entry(ce, is_focused));
-            config_line_to_entry.push(i);
+            lines.push(Self::render_config_entry(ce, is_focused));
             entry_idx += 1;
         }
 
@@ -523,13 +512,12 @@ impl ConfigTab {
         lines.push(section_header("Configuration (setup-time)"));
 
         // Setup-time keys
-        for (i, ce) in self.config_entries.iter().enumerate() {
+        for ce in &self.config_entries {
             if ce.hot_swappable {
                 continue;
             }
             let is_focused = entry_idx == self.config_cursor;
-            lines.push(self.render_config_entry(ce, is_focused));
-            config_line_to_entry.push(i);
+            lines.push(Self::render_config_entry(ce, is_focused));
             entry_idx += 1;
         }
 
@@ -584,31 +572,36 @@ impl ConfigTab {
         frame.render_widget(para, chunks[0]);
 
         // Help pane — description of focused key (REQ-8)
-        let help_lines = if let Some(entry) = self.current_config_entry() {
-            let valid = match entry.config_type {
-                ConfigType::Bool => "Valid: true, false".to_string(),
-                ConfigType::Enum(opts) => format!("Valid: {}", opts.join(", ")),
-                ConfigType::StringArray => "Type: string array (Enter to edit list)".to_string(),
-                ConfigType::Map => "Type: map (use CLI to edit)".to_string(),
-                ConfigType::String => "Type: string".to_string(),
-                ConfigType::Integer => "Type: integer".to_string(),
-            };
-            vec![
-                Line::from(Span::styled(
-                    format!(" {} — {}", entry.key, entry.description),
-                    Style::default().fg(Color::White),
-                )),
-                Line::from(Span::styled(
-                    format!(" {}", valid),
+        let help_lines = self.current_config_entry().map_or_else(
+            || {
+                vec![Line::from(Span::styled(
+                    " Select a config key to see details",
                     Style::default().fg(Color::DarkGray),
-                )),
-            ]
-        } else {
-            vec![Line::from(Span::styled(
-                " Select a config key to see details",
-                Style::default().fg(Color::DarkGray),
-            ))]
-        };
+                ))]
+            },
+            |entry| {
+                let valid = match entry.config_type {
+                    ConfigType::Bool => "Valid: true, false".to_string(),
+                    ConfigType::Enum(opts) => format!("Valid: {}", opts.join(", ")),
+                    ConfigType::StringArray => {
+                        "Type: string array (Enter to edit list)".to_string()
+                    }
+                    ConfigType::Map => "Type: map (use CLI to edit)".to_string(),
+                    ConfigType::String => "Type: string".to_string(),
+                    ConfigType::Integer => "Type: integer".to_string(),
+                };
+                vec![
+                    Line::from(Span::styled(
+                        format!(" {} — {}", entry.key, entry.description),
+                        Style::default().fg(Color::White),
+                    )),
+                    Line::from(Span::styled(
+                        format!(" {valid}"),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            },
+        );
 
         let help_para = Paragraph::new(help_lines).block(
             Block::default()
@@ -622,8 +615,8 @@ impl ConfigTab {
         frame.render_widget(help_para, chunks[1]);
     }
 
-    fn render_config_entry(&self, ce: &ConfigEntry, focused: bool) -> Line<'static> {
-        let marker = if !ce.is_default { "*" } else { " " };
+    fn render_config_entry(ce: &ConfigEntry, focused: bool) -> Line<'static> {
+        let marker = if ce.is_default { " " } else { "*" };
         let source_badge = match ce.source {
             Source::Default => "[default]",
             Source::Team => "[team]",
@@ -665,7 +658,7 @@ impl ConfigTab {
         // Show override info (REQ-7)
         if let Some(ref team_val) = ce.team_value {
             spans.push(Span::styled(
-                format!(" (overrides: {})", team_val),
+                format!(" (overrides: {team_val})"),
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -1021,8 +1014,7 @@ impl ConfigTab {
             .config_entries
             .iter()
             .find(|e| e.key == self.array_key)
-            .map(|e| e.source)
-            .unwrap_or(Source::Team);
+            .map_or(Source::Team, |e| e.source);
 
         let config_file = match source {
             Source::Local => self.crosslink_dir.join("hook-config.local.json"),
@@ -1069,7 +1061,7 @@ impl ConfigTab {
 }
 
 impl Tab for ConfigTab {
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Config"
     }
 
@@ -1119,9 +1111,8 @@ fn load_config_sync_data(crosslink_dir: &Path) -> ConfigSyncResult {
         all_events: Vec::new(),
     };
 
-    let sync = match SyncManager::new(crosslink_dir) {
-        Ok(s) => s,
-        Err(_) => return result,
+    let Ok(sync) = SyncManager::new(crosslink_dir) else {
+        return result;
     };
 
     result.hub_initialized = sync.is_initialized();
@@ -1209,7 +1200,7 @@ fn format_json_value(v: &serde_json::Value) -> String {
         serde_json::Value::Array(arr) => {
             let items: Vec<String> = arr
                 .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                 .collect();
             format!("[{}]", items.join(", "))
         }

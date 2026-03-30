@@ -18,7 +18,8 @@ pub fn run(
         .join(".claude");
     match command {
         WorkflowCommands::Diff { section, check } => {
-            diff(crosslink_dir, &claude_dir, section.as_deref(), check)
+            diff(crosslink_dir, &claude_dir, section.as_deref(), check);
+            Ok(())
         }
         WorkflowCommands::Trail { id, kind, json } => {
             let db = get_db()?;
@@ -52,29 +53,26 @@ enum CompareResult {
 
 /// Compare a deployed file against its embedded default.
 fn compare_file(deployed_path: &Path, default_content: &str) -> CompareResult {
-    match fs::read_to_string(deployed_path) {
-        Ok(content) => {
-            if content == default_content {
-                CompareResult::Matches
-            } else {
-                let diff_lines = content
-                    .lines()
-                    .zip(default_content.lines())
-                    .filter(|(a, b)| a != b)
-                    .count();
-                let len_diff = content
-                    .lines()
-                    .count()
-                    .abs_diff(default_content.lines().count());
-                let total_diff = diff_lines + len_diff;
-                CompareResult::Customized(format!("customized ({} lines differ)", total_diff))
-            }
+    fs::read_to_string(deployed_path).map_or(CompareResult::Missing, |content| {
+        if content == default_content {
+            CompareResult::Matches
+        } else {
+            let diff_lines = content
+                .lines()
+                .zip(default_content.lines())
+                .filter(|(a, b)| a != b)
+                .count();
+            let len_diff = content
+                .lines()
+                .count()
+                .abs_diff(default_content.lines().count());
+            let total_diff = diff_lines + len_diff;
+            CompareResult::Customized(format!("customized ({total_diff} lines differ)"))
         }
-        Err(_) => CompareResult::Missing,
-    }
+    })
 }
 
-/// Format a CompareResult as a display string.
+/// Format a `CompareResult` as a display string.
 fn compare_display(result: &CompareResult) -> &str {
     match result {
         CompareResult::Matches => "matches default",
@@ -94,12 +92,7 @@ fn has_custom_marker(deployed_path: &Path) -> bool {
 ///
 /// When `check` is true, operates in CI mode: exits 0 if all drifted files are
 /// marked with `# crosslink:custom`, exits 1 with a summary otherwise.
-pub fn diff(
-    crosslink_dir: &Path,
-    claude_dir: &Path,
-    section: Option<&str>,
-    check: bool,
-) -> Result<()> {
+pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, check: bool) {
     let show_all = section.is_none();
     let mut drifted: Vec<String> = Vec::new();
 
@@ -160,7 +153,7 @@ pub fn diff(
             let local_path = rules_local_dir.join(filename);
             if local_path.exists() {
                 if !check {
-                    println!("  rules/{}: overridden by rules.local/", filename);
+                    println!("  rules/{filename}: overridden by rules.local/");
                 }
                 // Don't flag drift for files that have a local override
                 continue;
@@ -172,7 +165,7 @@ pub fn diff(
             }
             if let CompareResult::Customized(_) = result {
                 if check && !has_custom_marker(&path) {
-                    drifted.push(format!(".crosslink/rules/{}", filename));
+                    drifted.push(format!(".crosslink/rules/{filename}"));
                 }
             }
         }
@@ -182,10 +175,10 @@ pub fn diff(
                 init::RULE_FILES.iter().map(|(f, _)| *f).collect();
             if let Ok(entries) = std::fs::read_dir(&rules_local_dir) {
                 let mut local_only: Vec<_> = entries
-                    .filter_map(|e| e.ok())
+                    .filter_map(std::result::Result::ok)
                     .filter(|e| !standard_files.contains(e.file_name().to_str().unwrap_or("")))
                     .collect();
-                local_only.sort_by_key(|e| e.file_name());
+                local_only.sort_by_key(std::fs::DirEntry::file_name);
                 for entry in &local_only {
                     let name = entry.file_name();
                     if !check {
@@ -213,7 +206,7 @@ pub fn diff(
             }
             if let CompareResult::Customized(_) = result {
                 if check && !has_custom_marker(&path) {
-                    drifted.push(format!(".claude/hooks/{}", filename));
+                    drifted.push(format!(".claude/hooks/{filename}"));
                 }
             }
         }
@@ -232,22 +225,18 @@ pub fn diff(
                 if drifted.len() == 1 { "" } else { "s" }
             );
             for path in &drifted {
-                println!("  {}", path);
+                println!("  {path}");
             }
             println!();
             println!(
-                "These files differ from crosslink defaults and are not marked with '{}'.",
-                CUSTOM_MARKER
+                "These files differ from crosslink defaults and are not marked with '{CUSTOM_MARKER}'."
             );
             println!(
-                "Run 'crosslink workflow diff' for details, or add '{}' to acknowledge.",
-                CUSTOM_MARKER
+                "Run 'crosslink workflow diff' for details, or add '{CUSTOM_MARKER}' to acknowledge."
             );
             std::process::exit(1);
         }
     }
-
-    Ok(())
 }
 
 /// `crosslink workflow trail <id>` — show chronological comment trail for an issue.
@@ -256,7 +245,7 @@ pub fn trail(db: &Database, id: i64, kind_filter: Option<&str>, json: bool) -> R
 
     let comments = db.get_comments(id)?;
     let filtered: Vec<_> = if let Some(kinds) = kind_filter {
-        let kinds: Vec<&str> = kinds.split(',').map(|s| s.trim()).collect();
+        let kinds: Vec<&str> = kinds.split(',').map(str::trim).collect();
         comments
             .into_iter()
             .filter(|c| kinds.contains(&c.kind.as_str()))
@@ -272,8 +261,8 @@ pub fn trail(db: &Database, id: i64, kind_filter: Option<&str>, json: bool) -> R
         println!();
         for comment in &filtered {
             let intervention_info = match (&comment.trigger_type, &comment.intervention_context) {
-                (Some(trigger), Some(ctx)) => format!(" trigger={} ctx=\"{}\"", trigger, ctx),
-                (Some(trigger), None) => format!(" trigger={}", trigger),
+                (Some(trigger), Some(ctx)) => format!(" trigger={trigger} ctx=\"{ctx}\""),
+                (Some(trigger), None) => format!(" trigger={trigger}"),
                 _ => String::new(),
             };
             println!(
@@ -382,7 +371,7 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Should not error
-        diff(&crosslink_dir, &claude_dir, None, false).unwrap();
+        diff(&crosslink_dir, &claude_dir, None, false);
     }
 
     #[test]
@@ -417,7 +406,7 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Should not error — just prints customized status
-        diff(&crosslink_dir, &claude_dir, Some("rules"), false).unwrap();
+        diff(&crosslink_dir, &claude_dir, Some("rules"), false);
     }
 
     #[test]
@@ -444,9 +433,9 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Each section should work independently
-        diff(&crosslink_dir, &claude_dir, Some("tracking"), false).unwrap();
-        diff(&crosslink_dir, &claude_dir, Some("hooks"), false).unwrap();
-        diff(&crosslink_dir, &claude_dir, Some("languages"), false).unwrap();
+        diff(&crosslink_dir, &claude_dir, Some("tracking"), false);
+        diff(&crosslink_dir, &claude_dir, Some("hooks"), false);
+        diff(&crosslink_dir, &claude_dir, Some("languages"), false);
     }
 
     #[test]
@@ -498,7 +487,7 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // All files match defaults, so --check should pass (exit 0)
-        diff(&crosslink_dir, &claude_dir, None, true).unwrap();
+        diff(&crosslink_dir, &claude_dir, None, true);
     }
 
     #[test]
@@ -533,7 +522,7 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Should pass because the file is marked as custom
-        diff(&crosslink_dir, &claude_dir, Some("rules"), true).unwrap();
+        diff(&crosslink_dir, &claude_dir, Some("rules"), true);
     }
 
     #[test]

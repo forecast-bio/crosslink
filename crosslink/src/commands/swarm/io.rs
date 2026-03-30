@@ -14,8 +14,8 @@ pub(super) fn read_hub_json<T: serde::de::DeserializeOwned>(
 ) -> Result<T> {
     let full = sync.cache_path().join(path);
     let content =
-        std::fs::read_to_string(&full).with_context(|| format!("Failed to read {}", path))?;
-    serde_json::from_str(&content).with_context(|| format!("Failed to parse {}", path))
+        std::fs::read_to_string(&full).with_context(|| format!("Failed to read {path}"))?;
+    serde_json::from_str(&content).with_context(|| format!("Failed to parse {path}"))
 }
 
 /// Write a JSON file to the hub cache directory (does NOT commit).
@@ -29,7 +29,7 @@ pub(super) fn write_hub_json<T: Serialize>(
         std::fs::create_dir_all(parent)?;
     }
     let content = serde_json::to_string_pretty(value)?;
-    std::fs::write(&full, content).with_context(|| format!("Failed to write {}", path))
+    std::fs::write(&full, content).with_context(|| format!("Failed to write {path}"))
 }
 
 /// Stage multiple files and commit.
@@ -59,7 +59,7 @@ pub(super) fn commit_hub_files(sync: &SyncManager, paths: &[&str], message: &str
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("nothing to commit") {
-            bail!("git commit failed: {}", stderr);
+            bail!("git commit failed: {stderr}");
         }
     }
     Ok(())
@@ -84,7 +84,7 @@ pub(super) fn load_plan_and_phases(crosslink_dir: &Path) -> Result<LoadedPlan> {
     for phase_name in &plan.phases {
         let path = ctx.phase_path(phase_name);
         let phase: PhaseDefinition = read_hub_json(&sync, &path)
-            .with_context(|| format!("Failed to load phase: {}", phase_name))?;
+            .with_context(|| format!("Failed to load phase: {phase_name}"))?;
         phases.push((path, phase));
     }
 
@@ -106,7 +106,7 @@ pub(super) fn save_plan_and_phases(
         write_hub_json(sync, path, phase)?;
         paths.push(path.clone());
     }
-    let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
+    let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     commit_hub_files(sync, &path_refs, message)?;
     Ok(())
 }
@@ -132,7 +132,7 @@ pub(super) fn load_phase(
         if slug == phase_slug {
             let path = ctx.phase_path(name);
             let phase: PhaseDefinition = read_hub_json(sync, &path)
-                .with_context(|| format!("Phase file missing for '{}'", name))?;
+                .with_context(|| format!("Phase file missing for '{name}'"))?;
             return Ok((phase, path));
         }
     }
@@ -154,7 +154,7 @@ pub(super) fn check_dependencies(sync: &SyncManager, phase: &PhaseDefinition) ->
     for dep_name in &phase.depends_on {
         let dep_file = ctx.phase_path(dep_name);
         let dep: PhaseDefinition = read_hub_json(sync, &dep_file)
-            .with_context(|| format!("Dependency phase '{}' not found", dep_name))?;
+            .with_context(|| format!("Dependency phase '{dep_name}' not found"))?;
         if dep.status != PhaseStatus::Completed {
             bail!(
                 "Dependency '{}' is {} — must be completed before launching this phase",

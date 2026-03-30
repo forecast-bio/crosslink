@@ -57,7 +57,7 @@ pub struct BoundaryConfig {
 }
 
 /// Result of applying trust model to a finding
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TriageResult {
     /// Finding is valid and should be reported
     Valid,
@@ -74,6 +74,10 @@ pub enum TriageResult {
 /// Load trust configuration from `.crosslink/swarm.toml`.
 ///
 /// Returns a default configuration if the file does not exist.
+///
+/// # Errors
+///
+/// Returns an error if the config file exists but cannot be read or parsed.
 pub fn load_trust_config(crosslink_dir: &Path) -> Result<TrustConfig> {
     let config_path = crosslink_dir.join("swarm.toml");
     if !config_path.exists() {
@@ -89,6 +93,7 @@ pub fn load_trust_config(crosslink_dir: &Path) -> Result<TrustConfig> {
 /// Check if a finding matches any ignore pattern (case-insensitive substring match).
 ///
 /// Returns `ByDesign` if the finding title matches an ignore pattern, `Valid` otherwise.
+#[must_use]
 pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> TriageResult {
     let title_lower = title.to_lowercase();
     let description_lower = description.to_lowercase();
@@ -98,7 +103,7 @@ pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> T
         if title_lower.contains(&pattern.to_lowercase()) {
             return TriageResult::ByDesign {
                 reason: if config.ignore.reason.is_empty() {
-                    format!("matched ignore pattern: {}", pattern)
+                    format!("matched ignore pattern: {pattern}")
                 } else {
                     config.ignore.reason.clone()
                 },
@@ -115,8 +120,7 @@ pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> T
                 original_severity: "high".to_string(),
                 new_severity: "low".to_string(),
                 reason: format!(
-                    "finding relates to internal boundary '{}' which has implicit trust",
-                    boundary
+                    "finding relates to internal boundary '{boundary}' which has implicit trust"
                 ),
             };
         }
@@ -129,6 +133,7 @@ pub fn triage_finding(config: &TrustConfig, title: &str, description: &str) -> T
 ///
 /// Each finding is a `(title, description, severity)` tuple. Returns each finding
 /// annotated with its `TriageResult`. Findings are never silently dropped.
+#[must_use]
 pub fn apply_trust_model(
     config: &TrustConfig,
     findings: Vec<(String, String, String)>,
@@ -143,6 +148,7 @@ pub fn apply_trust_model(
 }
 
 /// Generate a sensible default config for common trust models.
+#[must_use]
 pub fn generate_default_config(model: &str) -> TrustConfig {
     match model {
         "local-only" => TrustConfig {
@@ -197,6 +203,10 @@ pub fn generate_default_config(model: &str) -> TrustConfig {
 }
 
 /// Write a default `swarm.toml` configuration for the given trust model.
+///
+/// # Errors
+///
+/// Returns an error if serialization or file writing fails.
 pub fn write_default_config(crosslink_dir: &Path, model: &str) -> Result<()> {
     let config = generate_default_config(model);
     let contents =

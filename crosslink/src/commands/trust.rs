@@ -18,7 +18,7 @@ pub fn run(command: TrustCommands, crosslink_dir: &Path) -> Result<()> {
 }
 
 /// Metadata for a trust approval decision, stored in `trust/approvals/<agent-id>.json`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrustApproval {
     pub agent_id: String,
     pub principal: String,
@@ -27,7 +27,7 @@ pub struct TrustApproval {
 }
 
 /// Metadata for a trust revocation, stored in `trust/approvals/<agent-id>.json`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrustRevocation {
     pub agent_id: String,
     pub principal: String,
@@ -50,11 +50,10 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     let pubkey_path = cache
         .join("trust")
         .join("keys")
-        .join(format!("{}.pub", agent_id));
+        .join(format!("{agent_id}.pub"));
     if !pubkey_path.exists() {
         bail!(
-            "No published key for agent '{}'. The agent must run `crosslink agent init` first.",
-            agent_id
+            "No published key for agent '{agent_id}'. The agent must run `crosslink agent init` first."
         );
     }
     let public_key = crate::signing::read_public_key(&pubkey_path)?;
@@ -63,9 +62,9 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     let signers_path = cache.join("trust").join("allowed_signers");
     let mut signers = AllowedSigners::load(&signers_path)?;
 
-    let principal = format!("{}@crosslink", agent_id);
+    let principal = format!("{agent_id}@crosslink");
     if signers.is_trusted(&principal) {
-        println!("Agent '{}' is already approved.", agent_id);
+        println!("Agent '{agent_id}' is already approved.");
         return Ok(());
     }
 
@@ -92,23 +91,20 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     };
     let approvals_dir = cache.join("trust").join("approvals");
     std::fs::create_dir_all(&approvals_dir)?;
-    let approval_path = approvals_dir.join(format!("{}.json", agent_id));
+    let approval_path = approvals_dir.join(format!("{agent_id}.json"));
     std::fs::write(&approval_path, serde_json::to_string_pretty(&approval)?)?;
 
     // Commit and push
     commit_trust_change(
         cache,
         crosslink_dir,
-        &format!("trust: approve agent '{}'", agent_id),
+        &format!("trust: approve agent '{agent_id}'"),
     )?;
 
     if let Some(fp) = driver_fp {
-        println!(
-            "Approved agent '{}' (principal: {}, approved by: {})",
-            agent_id, principal, fp
-        );
+        println!("Approved agent '{agent_id}' (principal: {principal}, approved by: {fp})");
     } else {
-        println!("Approved agent '{}' (principal: {})", agent_id, principal);
+        println!("Approved agent '{agent_id}' (principal: {principal})");
     }
     Ok(())
 }
@@ -124,9 +120,9 @@ pub fn revoke(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     let signers_path = cache.join("trust").join("allowed_signers");
     let mut signers = AllowedSigners::load(&signers_path)?;
 
-    let principal = format!("{}@crosslink", agent_id);
+    let principal = format!("{agent_id}@crosslink");
     if !signers.remove_by_principal(&principal) {
-        println!("Agent '{}' is not in the trust list.", agent_id);
+        println!("Agent '{agent_id}' is not in the trust list.");
         return Ok(());
     }
 
@@ -142,16 +138,16 @@ pub fn revoke(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     };
     let approvals_dir = cache.join("trust").join("approvals");
     std::fs::create_dir_all(&approvals_dir)?;
-    let approval_path = approvals_dir.join(format!("{}.json", agent_id));
+    let approval_path = approvals_dir.join(format!("{agent_id}.json"));
     std::fs::write(&approval_path, serde_json::to_string_pretty(&revocation)?)?;
 
     commit_trust_change(
         cache,
         crosslink_dir,
-        &format!("trust: revoke agent '{}'", agent_id),
+        &format!("trust: revoke agent '{agent_id}'"),
     )?;
 
-    println!("Revoked trust for agent '{}'", agent_id);
+    println!("Revoked trust for agent '{agent_id}'");
     Ok(())
 }
 
@@ -215,7 +211,7 @@ pub fn pending(crosslink_dir: &Path) -> Result<()> {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
-        let principal = format!("{}@crosslink", agent_id);
+        let principal = format!("{agent_id}@crosslink");
 
         if !signers.is_trusted(&principal) {
             if !found {
@@ -225,7 +221,7 @@ pub fn pending(crosslink_dir: &Path) -> Result<()> {
             // Read fingerprint if possible
             let fp = crate::signing::get_key_fingerprint(&path)
                 .unwrap_or_else(|_| "unknown".to_string());
-            println!("  {} ({})", agent_id, fp);
+            println!("  {agent_id} ({fp})");
         }
     }
 
@@ -244,17 +240,17 @@ pub fn check(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     }
     let cache = sync.cache_path();
 
-    let principal = format!("{}@crosslink", agent_id);
+    let principal = format!("{agent_id}@crosslink");
     let signers_path = cache.join("trust").join("allowed_signers");
     let signers = AllowedSigners::load(&signers_path)?;
 
     let has_published_key = cache
         .join("trust")
         .join("keys")
-        .join(format!("{}.pub", agent_id))
+        .join(format!("{agent_id}.pub"))
         .exists();
 
-    println!("Agent: {}", agent_id);
+    println!("Agent: {agent_id}");
     println!(
         "  Key published: {}",
         if has_published_key { "yes" } else { "no" }
@@ -303,7 +299,7 @@ fn commit_trust_change_impl(
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.contains("nothing to commit") {
-                anyhow::bail!("git {:?} failed: {}", args, stderr);
+                anyhow::bail!("git {args:?} failed: {stderr}");
             }
         }
         Ok(())
@@ -344,15 +340,15 @@ pub fn publish_agent_key(crosslink_dir: &Path, agent_id: &str, public_key: &str)
     let keys_dir = cache.join("trust").join("keys");
     std::fs::create_dir_all(&keys_dir)?;
 
-    let path = keys_dir.join(format!("{}.pub", agent_id));
-    std::fs::write(&path, format!("{}\n", public_key))?;
+    let path = keys_dir.join(format!("{agent_id}.pub"));
+    std::fs::write(&path, format!("{public_key}\n"))?;
 
     // Use unsigned commit for key publishing — signing may not be
     // configured yet during agent init bootstrap.
     commit_trust_change_unsigned(
         cache,
         crosslink_dir,
-        &format!("trust: publish key for agent '{}'", agent_id),
+        &format!("trust: publish key for agent '{agent_id}'"),
     )?;
 
     Ok(())

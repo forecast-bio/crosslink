@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 /// Extract the body content after frontmatter.
+#[must_use]
 pub fn extract_body(content: &str) -> &str {
     let trimmed = content.trim_start();
     if !trimmed.starts_with("---") {
@@ -8,20 +9,19 @@ pub fn extract_body(content: &str) -> &str {
     }
     let after_first = &trimmed[3..];
     let after_first = after_first.trim_start_matches(['\r', '\n']);
-    if let Some(end_idx) = after_first.find("\n---") {
+    after_first.find("\n---").map_or(content, |end_idx| {
         let after_closing = &after_first[end_idx + 4..];
         // Skip the line ending after the closing --- (handles both \r\n and \n)
         after_closing
             .strip_prefix("\r\n")
             .or_else(|| after_closing.strip_prefix('\n'))
             .unwrap_or(after_closing)
-    } else {
-        content
-    }
+    })
 }
 
 /// Parse a heading line and return its level (1-6) and text.
 /// Returns None if the line is not a markdown heading.
+#[must_use]
 pub fn parse_heading(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim_end();
     if !trimmed.starts_with('#') {
@@ -40,8 +40,12 @@ pub fn parse_heading(line: &str) -> Option<(usize, &str)> {
 }
 
 /// Find the line range of a section identified by its heading text.
-/// Returns (heading_line_idx, section_end_line_idx) where end is exclusive.
+///
+/// Returns (`heading_line_idx`, `section_end_line_idx`) where end is exclusive.
 /// The section extends from the heading line to the next heading of equal or higher level, or EOF.
+///
+/// # Errors
+/// Returns an error if the heading is not found in the given lines.
 pub fn find_section_range(lines: &[&str], heading: &str) -> Result<(usize, usize)> {
     // Normalize the heading query: strip leading '#' chars if the user included them
     let query = heading.trim();
@@ -70,7 +74,7 @@ pub fn find_section_range(lines: &[&str], heading: &str) -> Result<(usize, usize
     }
 
     let start = heading_idx
-        .ok_or_else(|| anyhow::anyhow!("Section heading '{}' not found in the page", heading))?;
+        .ok_or_else(|| anyhow::anyhow!("Section heading '{heading}' not found in the page"))?;
 
     // Find the end: next heading of equal or higher (lower number) level
     let mut end = lines.len();
@@ -88,6 +92,9 @@ pub fn find_section_range(lines: &[&str], heading: &str) -> Result<(usize, usize
 
 /// Replace the content of a section (everything between the heading and the next same-or-higher-level heading).
 /// The heading line itself is preserved.
+///
+/// # Errors
+/// Returns an error if the section heading is not found.
 pub fn replace_section_content(body: &str, heading: &str, new_content: &str) -> Result<String> {
     let lines: Vec<&str> = body.lines().collect();
     let (start, end) = find_section_range(&lines, heading)?;
@@ -119,6 +126,9 @@ pub fn replace_section_content(body: &str, heading: &str, new_content: &str) -> 
 }
 
 /// Append content to the end of a section (before the next same-or-higher-level heading).
+///
+/// # Errors
+/// Returns an error if the section heading is not found.
 pub fn append_to_section_content(body: &str, heading: &str, new_content: &str) -> Result<String> {
     let lines: Vec<&str> = body.lines().collect();
     let (_, end) = find_section_range(&lines, heading)?;

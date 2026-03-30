@@ -1,7 +1,7 @@
-//! Migration commands for converting between local SQLite and shared JSON.
+//! Migration commands for converting between local `SQLite` and shared JSON.
 //!
-//! - `migrate-to-shared`: Export all SQLite issues to JSON on the coordination branch.
-//! - `migrate-from-shared`: Import JSON issues from the coordination branch into SQLite.
+//! - `migrate-to-shared`: Export all `SQLite` issues to JSON on the coordination branch.
+//! - `migrate-from-shared`: Import JSON issues from the coordination branch into `SQLite`.
 
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -18,7 +18,7 @@ use crate::issue_file::{
 };
 use crate::sync::SyncManager;
 
-/// `crosslink migrate-to-shared` — export local SQLite issues to shared JSON.
+/// `crosslink migrate-to-shared` — export local `SQLite` issues to shared JSON.
 ///
 /// Reads all issues, comments, labels, dependencies, relations, milestones
 /// from the local database and writes them as JSON files on the coordination branch.
@@ -39,15 +39,14 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
 
     // Check if there are already issue files on the coordination branch
     let existing_count = std::fs::read_dir(&issues_dir)?
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
         .count();
     if existing_count > 0 {
         bail!(
-            "Coordination branch already has {} issue file(s). \
+            "Coordination branch already has {existing_count} issue file(s). \
              Migration would overwrite them. Aborting.\n\
-             Use 'crosslink migrate-from-shared' to import instead.",
-            existing_count
+             Use 'crosslink migrate-from-shared' to import instead."
         );
     }
 
@@ -151,7 +150,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
             time_entries: vec![],
         };
 
-        let path = issues_dir.join(format!("{}.json", uuid));
+        let path = issues_dir.join(format!("{uuid}.json"));
         write_issue_file(&path, &issue_file)?;
         files_written += 1;
     }
@@ -181,7 +180,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
                 created_at: ms.created_at,
                 closed_at: ms.closed_at,
             };
-            write_milestone_file(&milestones_dir.join(format!("{}.json", uuid)), &entry)?;
+            write_milestone_file(&milestones_dir.join(format!("{uuid}.json")), &entry)?;
         }
     }
 
@@ -223,7 +222,7 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// `crosslink migrate-from-shared` — import shared JSON issues into local SQLite.
+/// `crosslink migrate-from-shared` — import shared JSON issues into local `SQLite`.
 ///
 /// Fetches the coordination branch and hydrates all issues into the local database.
 pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
@@ -237,7 +236,7 @@ pub fn from_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
     // Count issue files
     let issue_count = if issues_dir.exists() {
         std::fs::read_dir(&issues_dir)?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
             .count()
     } else {
@@ -295,10 +294,10 @@ fn git_in_dir(dir: &Path, args: &[&str]) -> Result<std::process::Output> {
         .current_dir(dir)
         .args(args)
         .output()
-        .with_context(|| format!("Failed to run git {:?}", args))?;
+        .with_context(|| format!("Failed to run git {args:?}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git {:?} failed: {}", args, stderr);
+        anyhow::bail!("git {args:?} failed: {stderr}");
     }
     Ok(output)
 }

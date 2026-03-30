@@ -23,7 +23,7 @@ pub fn run(
     }
 }
 
-/// Load the current agent_id from .crosslink/agent.json (best-effort).
+/// Load the current `agent_id` from `.crosslink/agent.json` (best-effort).
 fn load_agent_id(crosslink_dir: &std::path::Path) -> Option<String> {
     crate::identity::AgentConfig::load(crosslink_dir)
         .ok()
@@ -53,7 +53,7 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
             if !notes.is_empty() {
                 println!("Handoff notes:");
                 for line in notes.lines() {
-                    println!("  {}", line);
+                    println!("  {line}");
                 }
                 println!();
             }
@@ -61,15 +61,14 @@ pub fn start(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     }
 
     let id = db.start_session_with_agent(agent_id.as_deref())?;
-    println!("Session #{} started.", id);
+    println!("Session #{id} started.");
     Ok(())
 }
 
 pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
-        Some(s) => s,
-        None => bail!("No active session"),
+    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+        bail!("No active session");
     };
 
     // Auto-release lock on the active issue in multi-agent mode
@@ -120,21 +119,18 @@ pub fn end(db: &Database, notes: Option<&str>, crosslink_dir: &std::path::Path) 
 
 pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
-        Some(s) => s,
-        None => {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "active": false
-                    }))?
-                );
-            } else {
-                println!("No active session. Use 'crosslink session start' to begin.");
-            }
-            return Ok(());
+    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "active": false
+                }))?
+            );
+        } else {
+            println!("No active session. Use 'crosslink session start' to begin.");
         }
+        return Ok(());
     };
 
     let duration = Utc::now() - session.started_at;
@@ -185,10 +181,10 @@ pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Res
     }
 
     if let Some(ref action) = session.last_action {
-        println!("Last action: {}", action);
+        println!("Last action: {action}");
     }
 
-    println!("Duration: {} minutes", minutes);
+    println!("Duration: {minutes} minutes");
 
     // Session activity summary — shows the value crosslink is providing
     let since = session.started_at.to_rfc3339();
@@ -218,14 +214,12 @@ pub fn status(db: &Database, crosslink_dir: &std::path::Path, json: bool) -> Res
 
 pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
-        Some(s) => s,
-        None => bail!("No active session. Use 'crosslink session start' first."),
+    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+        bail!("No active session. Use 'crosslink session start' first.");
     };
 
-    let issue = match db.get_issue(issue_id)? {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(issue_id)),
+    let Some(issue) = db.get_issue(issue_id)? else {
+        bail!("Issue {} not found", format_issue_id(issue_id));
     };
 
     // Check lock status (handles auto-steal of stale locks if configured)
@@ -267,18 +261,17 @@ pub fn work(db: &Database, issue_id: i64, crosslink_dir: &std::path::Path) -> Re
 
 pub fn action(db: &Database, text: &str, crosslink_dir: &std::path::Path) -> Result<()> {
     let agent_id = load_agent_id(crosslink_dir);
-    let session = match db.get_current_session_for_agent(agent_id.as_deref())? {
-        Some(s) => s,
-        None => bail!("No active session. Use 'crosslink session start' first."),
+    let Some(session) = db.get_current_session_for_agent(agent_id.as_deref())? else {
+        bail!("No active session. Use 'crosslink session start' first.");
     };
 
     db.set_session_action(session.id, text)?;
-    println!("Action recorded: {}", text);
+    println!("Action recorded: {text}");
 
     // Auto-comment on the active issue if one is set.
     // Use SharedWriter when available so comments sync to the hub (#438).
     if let Some(issue_id) = session.active_issue_id {
-        let comment_text = format!("[action] {}", text);
+        let comment_text = format!("[action] {text}");
         match crate::shared_writer::SharedWriter::new(crosslink_dir) {
             Ok(Some(w)) => {
                 if let Err(e) = w.add_comment(db, issue_id, &comment_text, "note") {
@@ -301,7 +294,7 @@ pub fn last_handoff(db: &Database, crosslink_dir: &std::path::Path) -> Result<()
         Some(session) => {
             if let Some(notes) = &session.handoff_notes {
                 if !notes.is_empty() {
-                    println!("{}", notes);
+                    println!("{notes}");
                     return Ok(());
                 }
             }

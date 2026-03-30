@@ -98,10 +98,10 @@ pub fn dispatch(
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
         }
-        KickoffCommands::Status { agent } => match agent {
-            None => pipeline_status_overview(crosslink_dir, json),
-            Some(ref id) => status(crosslink_dir, id),
-        },
+        KickoffCommands::Status { agent } => agent.as_ref().map_or_else(
+            || pipeline_status_overview(crosslink_dir, json),
+            |id| status(crosslink_dir, id),
+        ),
         KickoffCommands::Logs { agent, lines } => logs(crosslink_dir, &agent, lines),
         KickoffCommands::Stop { agent, force } => stop(crosslink_dir, &agent, force),
         KickoffCommands::Plan {
@@ -178,10 +178,10 @@ pub fn dispatch(
             doc,
             do_plan,
             do_run,
-            verify,
-            model,
-            timeout,
-            container,
+            &verify,
+            &model,
+            &timeout,
+            &container,
             issue,
             dry_run,
             skip_permissions,
@@ -203,10 +203,10 @@ fn dispatch_launch(
     doc: Option<PathBuf>,
     do_plan: bool,
     do_run: bool,
-    verify: String,
-    model: String,
-    timeout: String,
-    container: String,
+    verify: &str,
+    model: &str,
+    timeout: &str,
+    container: &str,
     issue: Option<i64>,
     dry_run: bool,
     skip_permissions: bool,
@@ -222,13 +222,13 @@ fn dispatch_launch(
             .with_context(|| format!("Failed to read design doc: {}", doc_path.display()))?;
         let design_doc = super::design_doc::parse_design_doc(&content);
         for warning in super::design_doc::validate_design_doc(&design_doc) {
-            eprintln!("Warning: {}", warning);
+            eprintln!("Warning: {warning}");
         }
         let plan_opts = PlanOpts {
             doc: &design_doc,
             doc_path: Some(&doc_path),
-            model: &model,
-            timeout: parse_duration(&timeout)?,
+            model,
+            timeout: parse_duration(timeout)?,
             dry_run,
             issue,
             quiet,
@@ -237,16 +237,15 @@ fn dispatch_launch(
     }
 
     if do_run {
-        let doc_path = match doc {
-            Some(ref p) => p,
-            None => bail!("--run requires a design document or description"),
+        let Some(ref doc_path) = doc else {
+            bail!("--run requires a design document or description");
         };
 
         let content = std::fs::read_to_string(doc_path)
             .with_context(|| format!("Failed to read design doc: {}", doc_path.display()))?;
         let parsed = super::design_doc::parse_design_doc(&content);
         for warning in super::design_doc::validate_design_doc(&parsed) {
-            eprintln!("Warning: {}", warning);
+            eprintln!("Warning: {warning}");
         }
 
         let description = if parsed.title.is_empty() {
@@ -263,11 +262,11 @@ fn dispatch_launch(
         let opts = KickoffOpts {
             description: &description,
             issue,
-            container: parse_container_mode(&container)?,
-            verify: parse_verify_level(&verify)?,
-            model: &model,
+            container: parse_container_mode(container)?,
+            verify: parse_verify_level(verify)?,
+            model,
             image: types::DEFAULT_AGENT_IMAGE,
-            timeout: parse_duration(&timeout)?,
+            timeout: parse_duration(timeout)?,
             dry_run,
             branch: None,
             quiet,
@@ -414,53 +413,55 @@ fn pipeline_status_overview(crosslink_dir: &Path, json: bool) -> Result<()> {
 
         let stage = &state.stage;
 
-        let plan_display = if let Some(plan) = state.plans.last() {
-            let age = if let Some(ref ts) = plan.completed_at {
-                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
-                    let elapsed =
-                        chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
-                    let mins = elapsed.num_minutes();
-                    if mins < 60 {
-                        format!(" ({}m)", mins)
-                    } else {
-                        format!(" ({}h)", mins / 60)
-                    }
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            };
-            format!("{}{}", plan.status, age)
-        } else {
-            "\u{2014}".to_string()
-        };
+        let plan_display = state.plans.last().map_or_else(
+            || "\u{2014}".to_string(),
+            |plan| {
+                let age = plan.completed_at.as_ref().map_or_else(String::new, |ts| {
+                    chrono::DateTime::parse_from_rfc3339(ts).map_or_else(
+                        |_| String::new(),
+                        |dt| {
+                            let elapsed = chrono::Utc::now()
+                                .signed_duration_since(dt.with_timezone(&chrono::Utc));
+                            let mins = elapsed.num_minutes();
+                            if mins < 60 {
+                                format!(" ({mins}m)")
+                            } else {
+                                format!(" ({}h)", mins / 60)
+                            }
+                        },
+                    )
+                });
+                format!("{}{}", plan.status, age)
+            },
+        );
 
-        let gaps_display = if let Some(plan) = state.plans.last() {
-            if plan.status == "done" {
-                format!("{}/{}", plan.blocking_gaps, plan.advisory_gaps)
-            } else {
-                "\u{2014}".to_string()
-            }
-        } else {
-            "\u{2014}".to_string()
-        };
-
-        let run_display = if let Some(run) = state.runs.last() {
-            // Cross-reference with live agents
-            let live = agents.iter().find(|a| a.id == run.agent_id);
-            if let Some(agent) = live {
-                if agent.session.is_some() {
-                    format!("{} ({})", run.agent_id, agent.status)
+        let gaps_display = state.plans.last().map_or_else(
+            || "\u{2014}".to_string(),
+            |plan| {
+                if plan.status == "done" {
+                    format!("{}/{}", plan.blocking_gaps, plan.advisory_gaps)
                 } else {
-                    format!("{} ({})", run.agent_id, run.status)
+                    "\u{2014}".to_string()
                 }
-            } else {
-                format!("{} ({})", run.agent_id, run.status)
-            }
-        } else {
-            "\u{2014}".to_string()
-        };
+            },
+        );
+
+        let run_display = state.runs.last().map_or_else(
+            || "\u{2014}".to_string(),
+            |run| {
+                let live = agents.iter().find(|a| a.id == run.agent_id);
+                live.map_or_else(
+                    || format!("{} ({})", run.agent_id, run.status),
+                    |agent| {
+                        if agent.session.is_some() {
+                            format!("{} ({})", run.agent_id, agent.status)
+                        } else {
+                            format!("{} ({})", run.agent_id, run.status)
+                        }
+                    },
+                )
+            },
+        );
 
         println!(
             "{:<34} {:<12} {:<14} {:<8} {}",

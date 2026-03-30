@@ -11,7 +11,7 @@ use crate::external::{
 use crate::issue_file::IssueFile;
 use crate::utils::format_issue_id;
 
-/// Get an ExternalIssueReader for the given repo value.
+/// Get an `ExternalIssueReader` for the given repo value.
 fn get_reader(
     crosslink_dir: &Path,
     repo_value: &str,
@@ -54,7 +54,7 @@ pub fn list(
     }
 
     if !quiet {
-        println!("--- Results from {} ---\n", label_str);
+        println!("--- Results from {label_str} ---\n");
     }
 
     if issues.is_empty() {
@@ -65,8 +65,7 @@ pub fn list(
         for issue in &issues {
             let id_str = issue
                 .display_id
-                .map(format_issue_id)
-                .unwrap_or_else(|| "?".to_string());
+                .map_or_else(|| "?".to_string(), format_issue_id);
             let status_display = format!("[{}]", issue.status);
             let date = issue.created_at.format("%Y-%m-%d");
             println!(
@@ -104,12 +103,12 @@ pub fn search(
     }
 
     if !quiet {
-        println!("--- Results from {} ---\n", label);
+        println!("--- Results from {label} ---\n");
     }
 
     if results.is_empty() {
         if !quiet {
-            println!("No issues found matching '{}'", query);
+            println!("No issues found matching '{query}'");
         }
     } else {
         if !quiet {
@@ -118,8 +117,7 @@ pub fn search(
         for issue in &results {
             let id_str = issue
                 .display_id
-                .map(format_issue_id)
-                .unwrap_or_else(|| "?".to_string());
+                .map_or_else(|| "?".to_string(), format_issue_id);
             let status_marker = if issue.status == crate::models::IssueStatus::Closed {
                 "✓"
             } else {
@@ -182,13 +180,12 @@ pub fn show(
     }
 
     if !quiet {
-        println!("--- Results from {} ---\n", label);
+        println!("--- Results from {label} ---\n");
     }
 
     let id_str = issue
         .display_id
-        .map(format_issue_id)
-        .unwrap_or_else(|| "?".to_string());
+        .map_or_else(|| "?".to_string(), format_issue_id);
 
     println!("Issue {}: {}", id_str, issue.title);
     println!("Status: {}", issue.status);
@@ -212,7 +209,7 @@ pub fn show(
         if !desc.is_empty() {
             println!("\nDescription:");
             for line in desc.lines() {
-                println!("  {}", line);
+                println!("  {line}");
             }
         }
     }
@@ -221,16 +218,16 @@ pub fn show(
     if !issue.comments.is_empty() {
         println!("\nComments:");
         for comment in &issue.comments {
-            let kind_prefix = if comment.kind != "note" {
-                format!("[{}] ", comment.kind)
-            } else {
+            let kind_prefix = if comment.kind == "note" {
                 String::new()
+            } else {
+                format!("[{}] ", comment.kind)
             };
             let intervention_suffix = match (&comment.trigger_type, &comment.intervention_context) {
                 (Some(trigger), Some(ctx)) => {
-                    format!(" (trigger: {}, context: {})", trigger, ctx)
+                    format!(" (trigger: {trigger}, context: {ctx})")
                 }
-                (Some(trigger), None) => format!(" (trigger: {})", trigger),
+                (Some(trigger), None) => format!(" (trigger: {trigger})"),
                 _ => String::new(),
             };
             println!(
@@ -244,7 +241,7 @@ pub fn show(
     }
 
     if !issue.blockers.is_empty() {
-        let blocker_strs: Vec<String> = issue.blockers.iter().map(|b| b.to_string()).collect();
+        let blocker_strs: Vec<String> = issue.blockers.iter().map(ToString::to_string).collect();
         println!("\nBlocked by: {}", blocker_strs.join(", "));
     }
 

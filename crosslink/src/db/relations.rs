@@ -7,33 +7,37 @@ use super::helpers::issue_from_row;
 use crate::models::Issue;
 
 impl Database {
-    // Dependencies
-    pub fn add_dependency(&self, blocked_id: i64, blocker_id: i64) -> Result<bool> {
-        let blocked_id = self.resolve_id(blocked_id);
+    /// Add a dependency between two issues (blocker blocks target).
+    ///
+    /// # Errors
+    /// Returns an error if an issue would block itself, a circular dependency
+    /// would be created, or the database operation fails.
+    pub fn add_dependency(&self, target_id: i64, blocker_id: i64) -> Result<bool> {
+        let target_id = self.resolve_id(target_id);
         let blocker_id = self.resolve_id(blocker_id);
         // Prevent self-blocking
-        if blocked_id == blocker_id {
+        if target_id == blocker_id {
             anyhow::bail!("An issue cannot block itself");
         }
 
         // Check for circular dependencies before inserting
-        if self.would_create_cycle(blocked_id, blocker_id)? {
+        if self.would_create_cycle(target_id, blocker_id)? {
             anyhow::bail!("Adding this dependency would create a circular dependency chain");
         }
 
         let result = self.conn.execute(
             "INSERT OR IGNORE INTO dependencies (blocker_id, blocked_id) VALUES (?1, ?2)",
-            params![blocker_id, blocked_id],
+            params![blocker_id, target_id],
         )?;
         Ok(result > 0)
     }
 
-    /// Check if adding blocker_id -> blocked_id would create a cycle.
-    /// A cycle exists if blocked_id can already reach blocker_id through existing dependencies.
-    fn would_create_cycle(&self, blocked_id: i64, blocker_id: i64) -> Result<bool> {
-        // If blocked_id can reach blocker_id, then adding blocker_id -> blocked_id creates a cycle
+    /// Check if adding `blocker_id` -> `target_id` would create a cycle.
+    /// A cycle exists if `target_id` can already reach `blocker_id` through existing dependencies.
+    fn would_create_cycle(&self, target_id: i64, blocker_id: i64) -> Result<bool> {
+        // If target_id can reach blocker_id, then adding blocker_id -> target_id creates a cycle
         let mut visited = std::collections::HashSet::new();
-        let mut stack = vec![blocked_id];
+        let mut stack = vec![target_id];
 
         while let Some(current) = stack.pop() {
             if current == blocker_id {
@@ -54,20 +58,27 @@ impl Database {
         Ok(false)
     }
 
-    pub fn remove_dependency(&self, blocked_id: i64, blocker_id: i64) -> Result<bool> {
-        let blocked_id = self.resolve_id(blocked_id);
-        let blocker_id = self.resolve_id(blocker_id);
+    /// Remove a dependency between two issues.
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails.
+    pub fn remove_dependency(&self, target_id: i64, blocker_id: i64) -> Result<bool> {
+        let resolved_target = self.resolve_id(target_id);
+        let resolved_blocker = self.resolve_id(blocker_id);
         let rows = self.conn.execute(
             "DELETE FROM dependencies WHERE blocker_id = ?1 AND blocked_id = ?2",
-            params![blocker_id, blocked_id],
+            params![resolved_blocker, resolved_target],
         )?;
         Ok(rows > 0)
     }
 
     /// Fetch blocker counts for all given issue IDs in a single query.
     ///
-    /// Returns a map from issue_id to the number of blockers.
+    /// Returns a map from `issue_id` to the number of blockers.
     /// Issues with no blockers are included with count 0.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_blocker_counts_batch(
         &self,
         issue_ids: &[i64],
@@ -81,8 +92,7 @@ impl Database {
 
         let placeholders: String = issue_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!(
-            "SELECT blocked_id, COUNT(*) FROM dependencies WHERE blocked_id IN ({}) GROUP BY blocked_id",
-            placeholders
+            "SELECT blocked_id, COUNT(*) FROM dependencies WHERE blocked_id IN ({placeholders}) GROUP BY blocked_id"
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(issue_ids.iter()), |row| {
@@ -90,11 +100,15 @@ impl Database {
         })?;
         for row in rows {
             let (issue_id, count) = row?;
-            result.insert(issue_id, count as usize);
+            result.insert(issue_id, usize::try_from(count).unwrap_or(0));
         }
         Ok(result)
     }
 
+    /// Get the list of blocker issue IDs for the given issue.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_blockers(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
@@ -106,6 +120,10 @@ impl Database {
         Ok(blockers)
     }
 
+    /// Get the list of issue IDs that the given issue is blocking.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_blocking(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self
@@ -117,16 +135,20 @@ impl Database {
         Ok(blocking)
     }
 
+    /// List all open issues that have at least one open blocker.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn list_blocked_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
-            r#"
+            r"
             SELECT DISTINCT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at
             FROM issues i
             JOIN dependencies d ON i.id = d.blocked_id
             JOIN issues blocker ON d.blocker_id = blocker.id
             WHERE i.status = 'open' AND blocker.status = 'open'
             ORDER BY i.id
-            "#,
+            ",
         )?;
 
         let issues = stmt
@@ -136,9 +158,13 @@ impl Database {
         Ok(issues)
     }
 
+    /// List all open issues that have no open blockers.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn list_ready_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
-            r#"
+            r"
             SELECT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at
             FROM issues i
             WHERE i.status = 'open'
@@ -148,7 +174,7 @@ impl Database {
                 WHERE d.blocked_id = i.id AND blocker.status = 'open'
             )
             ORDER BY i.id
-            "#,
+            ",
         )?;
 
         let issues = stmt
@@ -158,7 +184,11 @@ impl Database {
         Ok(issues)
     }
 
-    // Relations (bidirectional)
+    /// Add a bidirectional relation between two issues.
+    ///
+    /// # Errors
+    /// Returns an error if an issue is related to itself or the database
+    /// operation fails.
     pub fn add_relation(&self, issue_id_1: i64, issue_id_2: i64) -> Result<bool> {
         let issue_id_1 = self.resolve_id(issue_id_1);
         let issue_id_2 = self.resolve_id(issue_id_2);
@@ -179,6 +209,10 @@ impl Database {
         Ok(result > 0)
     }
 
+    /// Remove a bidirectional relation between two issues.
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails.
     pub fn remove_relation(&self, issue_id_1: i64, issue_id_2: i64) -> Result<bool> {
         let issue_id_1 = self.resolve_id(issue_id_1);
         let issue_id_2 = self.resolve_id(issue_id_2);
@@ -194,10 +228,14 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Get all issues related to the given issue (both directions).
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_related_issues(&self, issue_id: i64) -> Result<Vec<Issue>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(
-            r#"
+            r"
             SELECT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at
             FROM issues i
             WHERE i.id IN (
@@ -206,7 +244,7 @@ impl Database {
                 SELECT issue_id_1 FROM relations WHERE issue_id_2 = ?1
             )
             ORDER BY i.id
-            "#,
+            ",
         )?;
 
         let issues = stmt
@@ -217,6 +255,9 @@ impl Database {
     }
 
     /// Get related issue IDs (both directions of the relation).
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn get_related_issue_ids(&self, issue_id: i64) -> Result<Vec<i64>> {
         let issue_id = self.resolve_id(issue_id);
         let mut stmt = self.conn.prepare(

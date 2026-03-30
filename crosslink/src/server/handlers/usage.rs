@@ -28,6 +28,10 @@ use crate::server::{
 ///
 /// Supports optional query parameters: `agent_id`, `session_id`, `model`,
 /// `from`, `to` (ISO 8601 timestamps), and `limit`.
+///
+/// # Errors
+///
+/// Returns an error if the database query fails.
 pub async fn list_usage(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageListQuery>,
@@ -45,6 +49,8 @@ pub async fn list_usage(
         )
         .map_err(|e| internal_error("Failed to list token usage", e))?;
 
+    drop(db);
+
     let total = items.len();
     Ok(Json(TokenUsageListResponse { items, total }))
 }
@@ -53,6 +59,10 @@ pub async fn list_usage(
 ///
 /// Body: `CreateTokenUsageRequest` JSON.
 /// Returns the created `TokenUsage` record.
+///
+/// # Errors
+///
+/// Returns an error if inserting or retrieving the token usage record fails.
 pub async fn create_usage(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenUsageRequest>,
@@ -77,12 +87,18 @@ pub async fn create_usage(
         .map_err(|e| internal_error("Failed to fetch new token usage", e))?
         .ok_or_else(|| internal_error("Token usage created but not found", format!("id={id}")))?;
 
+    drop(db);
+
     Ok((StatusCode::CREATED, Json(usage)))
 }
 
 /// `GET /api/v1/usage/summary` — aggregated usage grouped by agent and model.
 ///
 /// Supports optional query parameters: `agent_id`, `from`, `to`.
+///
+/// # Errors
+///
+/// Returns an error if the database aggregation query fails.
 pub async fn usage_summary(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageSummaryQuery>,
@@ -96,6 +112,8 @@ pub async fn usage_summary(
             params.to.as_deref(),
         )
         .map_err(|e| internal_error("Failed to get usage summary", e))?;
+
+    drop(db);
 
     let total_input_tokens: i64 = items.iter().map(|r| r.total_input_tokens).sum();
     let total_output_tokens: i64 = items.iter().map(|r| r.total_output_tokens).sum();

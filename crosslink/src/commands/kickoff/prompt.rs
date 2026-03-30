@@ -1,4 +1,6 @@
 // E-ana tablet — kickoff prompt: prompt building for kickoff agents
+use std::fmt::Write;
+
 use super::helpers::verify_level_name;
 use super::types::*;
 
@@ -10,39 +12,40 @@ pub(crate) fn build_test_lint_instructions(
     let mut section = String::new();
 
     if let Some(test_cmd) = &conventions.test_command {
-        section.push_str(&format!("10. **Run tests**: `{}`\n", test_cmd));
+        let _ = writeln!(section, "10. **Run tests**: `{test_cmd}`");
     } else {
         section.push_str("10. **Run the project's test suite** to verify changes\n");
     }
 
-    if !conventions.lint_commands.is_empty() {
+    if conventions.lint_commands.is_empty() {
+        section.push_str("11. **Run lint and format checks** before committing\n");
+    } else {
         let cmds: Vec<_> = conventions
             .lint_commands
             .iter()
-            .map(|c| format!("`{}`", c))
+            .map(|c| format!("`{c}`"))
             .collect();
-        section.push_str(&format!(
-            "11. **Run lint/format checks**: {}\n",
+        let _ = writeln!(
+            section,
+            "11. **Run lint/format checks**: {}",
             cmds.join(", ")
-        ));
-    } else {
-        section.push_str("11. **Run lint and format checks** before committing\n");
+        );
     }
 
-    section.push_str(&format!(
+    let _ = write!(
+        section,
         r#"12. **Document results**: `crosslink comment {issue_id} "Result: <summary>" --kind result`
 13. Use `/commit` to commit the work when implementation is complete
 14. Review the diff and fix any issues found
 15. Use `/commit` again after any fixes
 "#,
-        issue_id = issue_id,
-    ));
+    );
 
     section
 }
 
 /// Build the CI verification section of the prompt.
-pub(crate) fn build_ci_verification_section() -> &'static str {
+pub(crate) const fn build_ci_verification_section() -> &'static str {
     r#"
 ### CI Verification
 
@@ -66,8 +69,8 @@ pub(crate) fn build_ci_verification_section() -> &'static str {
 }
 
 /// Build the adversarial self-review section of the prompt.
-pub(crate) fn build_adversarial_review_section() -> &'static str {
-    r#"
+pub(crate) const fn build_adversarial_review_section() -> &'static str {
+    r"
 ### Adversarial Self-Review
 
 18. Before marking done, perform a thorough self-review of all changes:
@@ -83,14 +86,14 @@ pub(crate) fn build_adversarial_review_section() -> &'static str {
     - Public API changes have appropriate documentation
     - Use `/commit` after any fixes from the review.
     - Push again if fixes were made: `git push`
-"#
+"
 }
 
 /// Build the reporting and validation section of the prompt.
 ///
 /// Instructs the agent to validate acceptance criteria, capture timing and
 /// metrics, and write a structured `.kickoff-report.json`.
-pub(crate) fn build_reporting_section() -> &'static str {
+pub(crate) const fn build_reporting_section() -> &'static str {
     r#"
 ### Spec Validation & Reporting
 
@@ -159,7 +162,7 @@ Write this file as the second-to-last step, just before writing `DONE` to `.kick
 }
 
 /// Build the final steps section of the prompt.
-pub(crate) fn build_final_steps_section() -> &'static str {
+pub(crate) const fn build_final_steps_section() -> &'static str {
     r#"
 ### Final Steps
 
@@ -324,13 +327,7 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
                     .get("risk")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                section.push_str(&format!(
-                    "{}. {} ({}, risk: {})\n",
-                    i + 1,
-                    title,
-                    scope,
-                    risk
-                ));
+                let _ = writeln!(section, "{}. {} ({}, risk: {})", i + 1, title, scope, risk);
             }
             section.push('\n');
         }
@@ -349,7 +346,7 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
                     .get("assumption")
                     .and_then(|v| v.as_str())
                     .unwrap_or("(no detail)");
-                section.push_str(&format!("- **{}**: {}\n", about, text));
+                let _ = writeln!(section, "- **{about}**: {text}");
             }
             section.push('\n');
         }
@@ -368,7 +365,7 @@ fn build_plan_context_section(plan_path: &std::path::Path) -> Option<String> {
                     .get("detail")
                     .and_then(|v| v.as_str())
                     .unwrap_or("(no detail)");
-                section.push_str(&format!("- {}\n", detail));
+                let _ = writeln!(section, "- {detail}");
             }
             section.push('\n');
         }
@@ -422,7 +419,7 @@ pub(crate) fn build_allowed_tools(
     let project_tools: Vec<&str> = conventions
         .allowed_tools
         .iter()
-        .map(|s| s.as_str())
+        .map(String::as_str)
         .collect();
     tools.extend(project_tools);
 

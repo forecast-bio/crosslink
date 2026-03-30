@@ -11,7 +11,7 @@ use std::time::Duration;
 pub const DEFAULT_AGENT_IMAGE: &str = "ghcr.io/forecast-bio/crosslink-agent:latest";
 
 /// Container runtime for agent execution.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerMode {
     /// Run as a local process (tmux session with claude CLI).
     None,
@@ -22,7 +22,7 @@ pub enum ContainerMode {
 }
 
 /// Post-implementation verification level.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyLevel {
     /// Local tests and self-review checklist only.
     Local,
@@ -33,7 +33,7 @@ pub enum VerifyLevel {
 }
 
 /// A single acceptance criterion extracted from a design document.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Criterion {
     pub id: String,
     pub text: String,
@@ -42,7 +42,7 @@ pub struct Criterion {
 }
 
 /// Machine-readable acceptance criteria file (`.kickoff-criteria.json`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CriteriaFile {
     pub source_doc: String,
     pub extracted_at: String,
@@ -79,7 +79,7 @@ pub struct KickoffOpts<'a> {
 }
 
 /// A single criterion verdict in the validation report.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CriterionVerdict {
     pub id: String,
     pub verdict: String,
@@ -87,7 +87,7 @@ pub struct CriterionVerdict {
 }
 
 /// Summary counts in the validation report.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReportSummary {
     pub total: usize,
     pub pass: usize,
@@ -98,7 +98,7 @@ pub struct ReportSummary {
 }
 
 /// Timing and metrics for a single phase of agent work.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PhaseTiming {
     pub duration_s: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,7 +126,7 @@ pub struct PhaseTiming {
 }
 
 /// Phase-level timing breakdown for a kickoff run.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PhaseTimings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exploration: Option<PhaseTiming>,
@@ -146,7 +146,7 @@ pub struct PhaseTimings {
 ///
 /// Phase 3 fields (`validated_at`, `criteria`, `summary`) are always required.
 /// Phase 4 fields are optional with serde defaults for backward compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct KickoffReport {
     // Phase 3 fields (backward compat — always present)
     pub validated_at: String,
@@ -177,7 +177,7 @@ pub struct KickoffReport {
 }
 
 /// Output format for the kickoff report command.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportFormat {
     /// Human-readable table with symbols.
     Table,
@@ -297,10 +297,7 @@ pub fn parse_container_mode(s: &str) -> Result<ContainerMode> {
         "none" | "local" => Ok(ContainerMode::None),
         "docker" => Ok(ContainerMode::Docker),
         "podman" => Ok(ContainerMode::Podman),
-        _ => bail!(
-            "Unknown container runtime '{}'. Use: none, docker, podman",
-            s
-        ),
+        _ => bail!("Unknown container runtime '{s}'. Use: none, docker, podman"),
     }
 }
 
@@ -310,10 +307,7 @@ pub fn parse_verify_level(s: &str) -> Result<VerifyLevel> {
         "local" => Ok(VerifyLevel::Local),
         "ci" => Ok(VerifyLevel::Ci),
         "thorough" => Ok(VerifyLevel::Thorough),
-        _ => bail!(
-            "Unknown verification level '{}'. Use: local, ci, thorough",
-            s
-        ),
+        _ => bail!("Unknown verification level '{s}'. Use: local, ci, thorough"),
     }
 }
 
@@ -324,20 +318,16 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
         bail!("Empty duration string");
     }
 
-    let (num_str, unit) = if let Some(n) = s.strip_suffix('h') {
-        (n, 'h')
-    } else if let Some(n) = s.strip_suffix('m') {
-        (n, 'm')
-    } else if let Some(n) = s.strip_suffix('s') {
-        (n, 's')
-    } else {
-        // Bare number defaults to seconds
-        (s, 's')
-    };
+    let (num_str, unit) = s
+        .strip_suffix('h')
+        .map(|n| (n, 'h'))
+        .or_else(|| s.strip_suffix('m').map(|n| (n, 'm')))
+        .or_else(|| s.strip_suffix('s').map(|n| (n, 's')))
+        .unwrap_or((s, 's'));
 
     let value: u64 = num_str
         .parse()
-        .with_context(|| format!("Invalid duration number: '{}'", num_str))?;
+        .with_context(|| format!("Invalid duration number: '{num_str}'"))?;
 
     let secs = match unit {
         'h' => value * 3600,
@@ -359,9 +349,8 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
 /// timeout, and the elapsed wall-clock time exceeds the configured timeout.
 pub(super) fn is_timed_out(wt_path: &Path) -> bool {
     let meta_path = wt_path.join(".kickoff-metadata.json");
-    let content = match std::fs::read_to_string(&meta_path) {
-        Ok(c) => c,
-        Err(_) => return false,
+    let Ok(content) = std::fs::read_to_string(&meta_path) else {
+        return false;
     };
     let meta: KickoffMetadata = match serde_json::from_str(&content) {
         Ok(m) => m,

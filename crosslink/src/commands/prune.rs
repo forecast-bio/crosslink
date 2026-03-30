@@ -49,7 +49,7 @@ fn count_commits(cache_dir: &Path) -> Result<usize> {
     let count_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
     count_str
         .parse::<usize>()
-        .with_context(|| format!("Failed to parse commit count: {:?}", count_str))
+        .with_context(|| format!("Failed to parse commit count: {count_str:?}"))
 }
 
 /// Remove stale data files from the hub branch cache.
@@ -66,7 +66,7 @@ fn remove_stale_hub_data(cache_dir: &Path) -> Result<Vec<String>> {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                removed.push(format!("heartbeats/{}", name));
+                removed.push(format!("heartbeats/{name}"));
                 std::fs::remove_file(entry.path())?;
             }
         }
@@ -94,7 +94,7 @@ fn remove_stale_hub_data(cache_dir: &Path) -> Result<Vec<String>> {
 
             if !has_events {
                 let agent_name = entry.file_name().to_string_lossy().to_string();
-                removed.push(format!("agents/{}/", agent_name));
+                removed.push(format!("agents/{agent_name}/"));
                 std::fs::remove_dir_all(&agent_dir)?;
             }
         }
@@ -192,8 +192,7 @@ fn squash_branch(
                 &tree_hash,
                 "-m",
                 &format!(
-                    "prune: squash {} history to current state\n\nSquashed {} commit(s).",
-                    branch, commits_before
+                    "prune: squash {branch} history to current state\n\nSquashed {commits_before} commit(s)."
                 ),
             ])
             .output()
@@ -211,7 +210,7 @@ fn squash_branch(
         // 4. Update the branch ref to the new root commit
         git_in_dir(
             cache_dir,
-            &["update-ref", &format!("refs/heads/{}", branch), &new_head],
+            &["update-ref", &format!("refs/heads/{branch}"), &new_head],
         )?;
 
         // 5. Reset HEAD to the new commit
@@ -221,17 +220,14 @@ fn squash_branch(
     } else {
         // Keep last N commits: rewrite history preserving recent commits.
         // Find the base commit (Nth from HEAD)
-        let base_ref = format!("HEAD~{}", keep_commits);
+        let base_ref = format!("HEAD~{keep_commits}");
         let base_hash_output = git_in_dir(cache_dir, &["rev-parse", &base_ref])?;
         let base_hash = String::from_utf8_lossy(&base_hash_output.stdout)
             .trim()
             .to_string();
 
         // Get the tree at the base commit
-        let tree_output = git_in_dir(
-            cache_dir,
-            &["rev-parse", &format!("{}^{{tree}}", base_hash)],
-        )?;
+        let tree_output = git_in_dir(cache_dir, &["rev-parse", &format!("{base_hash}^{{tree}}")])?;
         let tree_hash = String::from_utf8_lossy(&tree_output.stdout)
             .trim()
             .to_string();
@@ -273,7 +269,7 @@ fn squash_branch(
         git_in_dir(cache_dir, &["reset", "--hard", &new_base])?;
 
         // Get list of commits to replay (oldest first)
-        let range = format!("{}..{}", base_hash, tip_hash);
+        let range = format!("{base_hash}..{tip_hash}");
         let log_output = git_in_dir(cache_dir, &["rev-list", "--reverse", &range])?;
         let log_text = String::from_utf8_lossy(&log_output.stdout)
             .trim()
@@ -292,7 +288,7 @@ fn squash_branch(
             .to_string();
         git_in_dir(
             cache_dir,
-            &["update-ref", &format!("refs/heads/{}", branch), &new_tip],
+            &["update-ref", &format!("refs/heads/{branch}"), &new_tip],
         )?;
         git_in_dir(cache_dir, &["checkout", branch])?;
 
@@ -300,7 +296,7 @@ fn squash_branch(
     };
 
     // Force-push the rewritten branch
-    let refspec = format!("{}:{}", branch, branch);
+    let refspec = format!("{branch}:{branch}");
     git_in_dir(cache_dir, &["push", "--force", remote, &refspec])?;
 
     Ok(BranchStats {
@@ -429,7 +425,7 @@ pub fn run(crosslink_dir: &Path, opts: &PruneOpts, json: bool) -> Result<()> {
             stale_removed.len()
         );
         for item in &stale_removed {
-            println!("    {}", item);
+            println!("    {item}");
         }
     }
 

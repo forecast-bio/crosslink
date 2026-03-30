@@ -28,11 +28,17 @@ use crate::server::{
 /// `GET /api/v1/sessions/current` — return the active (not yet ended) session.
 ///
 /// Accepts an optional `?agent_id=` query param to scope to a specific agent.
+///
+/// # Errors
+///
+/// Returns an error if no active session is found or the database query fails.
 pub async fn get_current_session(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<
+        std::collections::HashMap<String, String, std::hash::RandomState>,
+    >,
 ) -> Result<Json<SessionResponse>, (StatusCode, Json<ApiError>)> {
-    let agent_id = params.get("agent_id").map(|s| s.as_str());
+    let agent_id = params.get("agent_id").map(std::string::String::as_str);
     let db = state.db().await;
 
     let session = db
@@ -40,6 +46,7 @@ pub async fn get_current_session(
         .map_err(|e| internal_error("Failed to query current session", e))?
         .ok_or_else(|| not_found("No active session found"))?;
 
+    drop(db);
     Ok(Json(SessionResponse { session }))
 }
 
@@ -48,6 +55,10 @@ pub async fn get_current_session(
 /// Body: `{"agent_id": "<optional>"}`.
 ///
 /// Returns the newly created session.
+///
+/// # Errors
+///
+/// Returns an error if creating or fetching the new session fails.
 pub async fn start_session(
     State(state): State<AppState>,
     Json(body): Json<StartSessionRequest>,
@@ -67,6 +78,7 @@ pub async fn start_session(
             internal_error("Session created but not found", format!("id={session_id}"))
         })?;
 
+    drop(db);
     Ok(Json(SessionResponse { session }))
 }
 
@@ -75,12 +87,18 @@ pub async fn start_session(
 /// Body: `{"notes": "<optional handoff notes>"}`.
 ///
 /// To end a session scoped to a specific agent, pass `?agent_id=` as a query param.
+///
+/// # Errors
+///
+/// Returns an error if no active session is found or ending it fails.
 pub async fn end_session(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<
+        std::collections::HashMap<String, String, std::hash::RandomState>,
+    >,
     Json(body): Json<EndSessionRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let agent_id = params.get("agent_id").map(|s| s.as_str());
+    let agent_id = params.get("agent_id").map(std::string::String::as_str);
     let db = state.db().await;
 
     // Find the current active session so we know its ID.
@@ -93,6 +111,7 @@ pub async fn end_session(
         .end_session(session.id, body.notes.as_deref())
         .map_err(|e| internal_error("Failed to end session", e))?;
 
+    drop(db);
     if !ended {
         return Err(bad_request(format!(
             "Session {} could not be ended (already ended?)",
@@ -107,6 +126,10 @@ pub async fn end_session(
 ///
 /// `:id` is the crosslink issue ID to mark as the current work item.
 /// Accepts an optional `?agent_id=` query param to scope to a specific agent's session.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found, no active session exists, or the update fails.
 pub async fn work_on_issue(
     State(state): State<AppState>,
     Path(issue_id): Path<i64>,
@@ -122,7 +145,7 @@ pub async fn work_on_issue(
         .is_some();
 
     if !issue_exists {
-        return Err(not_found(format!("Issue {} not found", issue_id)));
+        return Err(not_found(format!("Issue {issue_id} not found")));
     }
 
     // Find the current session.
@@ -135,6 +158,7 @@ pub async fn work_on_issue(
         .set_session_issue(session.id, issue_id)
         .map_err(|e| internal_error("Failed to update session issue", e))?;
 
+    drop(db);
     if !updated {
         return Err(internal_error("set_session_issue returned false", ""));
     }

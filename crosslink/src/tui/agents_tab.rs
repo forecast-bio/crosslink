@@ -95,11 +95,11 @@ pub struct AgentsTab {
     loading: bool,
     /// Receiver for background load results.
     load_rx: Option<mpsc::Receiver<AgentsLoadResult>>,
-    /// TableState for agents view scroll-to-follow.
+    /// `TableState` for agents view scroll-to-follow.
     agents_table_state: RefCell<TableState>,
-    /// TableState for locks view scroll-to-follow.
+    /// `TableState` for locks view scroll-to-follow.
     locks_table_state: RefCell<TableState>,
-    /// TableState for trust view scroll-to-follow.
+    /// `TableState` for trust view scroll-to-follow.
     trust_table_state: RefCell<TableState>,
 }
 
@@ -241,7 +241,6 @@ impl AgentsTab {
                 self.view_mode = AgentViewMode::Locks;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -262,7 +261,6 @@ impl AgentsTab {
                 self.view_mode = AgentViewMode::Trust;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             KeyCode::Esc => {
                 self.view_mode = AgentViewMode::Agents;
                 TabAction::Consumed
@@ -284,12 +282,7 @@ impl AgentsTab {
                 self.trust_selected = self.trust_selected.saturating_sub(1);
                 TabAction::Consumed
             }
-            KeyCode::Char('v') => {
-                self.view_mode = AgentViewMode::Agents;
-                TabAction::Consumed
-            }
-            KeyCode::Char('r') => TabAction::NotHandled,
-            KeyCode::Esc => {
+            KeyCode::Char('v') | KeyCode::Esc => {
                 self.view_mode = AgentViewMode::Agents;
                 TabAction::Consumed
             }
@@ -396,13 +389,11 @@ impl AgentsTab {
 
                     let active = agent
                         .active_issue
-                        .map(|id| format!("#{id}"))
-                        .unwrap_or_else(|| "—".to_string());
+                        .map_or_else(|| "—".to_string(), |id| format!("#{id}"));
 
                     let lock = agent
                         .lock_issue
-                        .map(|id| format!("● #{id}"))
-                        .unwrap_or_else(|| "—".to_string());
+                        .map_or_else(|| "—".to_string(), |id| format!("● #{id}"));
 
                     let branch = truncate_str(agent.branch.as_deref().unwrap_or("—"), 22);
 
@@ -655,10 +646,7 @@ impl AgentsTab {
     }
 
     fn render_detail(&self, frame: &mut Frame, area: Rect) {
-        let detail = match &self.detail {
-            Some(d) => d,
-            None => return,
-        };
+        let Some(detail) = &self.detail else { return };
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -808,7 +796,7 @@ impl AgentsTab {
 }
 
 impl Tab for AgentsTab {
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Agents"
     }
 
@@ -961,7 +949,7 @@ fn build_agent_rows_static(
                 machine_id: None,
             });
         row.lock_issue = Some(issue_id);
-        row.branch = lock.branch.clone();
+        row.branch.clone_from(&lock.branch);
     }
 
     for row in agents.values_mut() {

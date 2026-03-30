@@ -39,19 +39,12 @@ pub(crate) fn build_plan_prompt(
     issue_id: Option<i64>,
     plan_copy_target: Option<&std::path::Path>,
 ) -> String {
-    let issue_line = match issue_id {
-        Some(id) => format!("- **Issue**: #{}\n", id),
-        None => String::new(),
-    };
+    let issue_line = issue_id.map_or_else(String::new, |id| format!("- **Issue**: #{id}\n"));
 
     let mut prompt = format!(
-        r#"# KICKOFF PLAN: Gap Analysis — {}
-
-## Context
-
-{}- **Mode**: Read-only analysis (no code changes)
-
-"#,
+        "# KICKOFF PLAN: Gap Analysis — {}\n\n\
+         ## Context\n\n\
+         {}- **Mode**: Read-only analysis (no code changes)\n\n",
         doc.title, issue_line,
     );
 
@@ -126,10 +119,12 @@ Write a JSON file `.kickoff-plan.json` with exactly this structure:
 
     // Add plan copy instruction if we know the target path
     if let Some(target) = plan_copy_target {
-        prompt.push_str(&format!(
-            "2. Copy `.kickoff-plan.json` to `{}` so the plan is discoverable alongside the design doc\n",
+        use std::fmt::Write as _;
+        let _ = writeln!(
+            prompt,
+            "2. Copy `.kickoff-plan.json` to `{}` so the plan is discoverable alongside the design doc",
             target.display()
-        ));
+        );
         prompt.push_str("3. Write the word `DONE` to `.kickoff-status`\n");
     } else {
         prompt.push_str("2. Write the word `DONE` to `.kickoff-status`\n");
@@ -149,14 +144,14 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     }
 
     // 1. Pre-flight: validate all required external commands
-    let preflight = if !opts.dry_run {
+    let preflight = if opts.dry_run {
+        None
+    } else {
         Some(preflight_check(
             &ContainerMode::None,
             &VerifyLevel::Local,
             crosslink_dir,
         )?)
-    } else {
-        None
     };
 
     let root = repo_root()?;
@@ -199,22 +194,21 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     if let Some(doc_path) = opts.doc_path {
         let _ = super::pipeline::mark_planning(
             doc_path,
-            &format!("driver--{}", slug),
+            &format!("driver--{slug}"),
             &worktree_dir.to_string_lossy(),
         );
     }
 
     // Dry run: print and exit
     if opts.dry_run {
-        let parent_id = AgentConfig::load(crosslink_dir)?
-            .map(|c| c.agent_id)
-            .unwrap_or_else(|| "driver".to_string());
-        let agent_id = format!("{}--{}", parent_id, slug);
-        println!("{}", prompt);
+        let parent_id =
+            AgentConfig::load(crosslink_dir)?.map_or_else(|| "driver".to_string(), |c| c.agent_id);
+        let agent_id = format!("{parent_id}--{slug}");
+        println!("{prompt}");
         println!("---");
         println!("Worktree: {}", worktree_dir.display());
-        println!("Branch:   {}", branch_name);
-        println!("Agent:    {}", agent_id);
+        println!("Branch:   {branch_name}");
+        println!("Agent:    {agent_id}");
         return Ok(());
     }
 
@@ -283,22 +277,22 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
     }
 
     // 9. Report
-    if !opts.quiet {
+    if opts.quiet {
+        println!("{session_name}");
+    } else {
         println!("Plan analysis agent launched (read-only mode).");
         println!();
         println!("  Worktree: {}", worktree_dir.display());
-        println!("  Branch:   {}", branch_name);
+        println!("  Branch:   {branch_name}");
         if let Some(id) = issue_id {
-            println!("  Issue:    #{}", id);
+            println!("  Issue:    #{id}");
         }
-        println!("  Agent:    {}", agent_id);
-        println!("  Session:  {}", session_name);
+        println!("  Agent:    {agent_id}");
+        println!("  Session:  {session_name}");
         println!();
-        println!("  Approve trust:  tmux attach -t {}", session_name);
-        println!("  Check status:   crosslink kickoff status {}", agent_id);
-        println!("  View report:    crosslink kickoff show-plan {}", agent_id);
-    } else {
-        println!("{}", session_name);
+        println!("  Approve trust:  tmux attach -t {session_name}");
+        println!("  Check status:   crosslink kickoff status {agent_id}");
+        println!("  View report:    crosslink kickoff show-plan {agent_id}");
     }
 
     Ok(())
@@ -337,11 +331,7 @@ pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
         } else {
             "still running".to_string()
         };
-        bail!(
-            "No gap report found yet for '{}'. Agent status: {}",
-            agent,
-            status
-        );
+        bail!("No gap report found yet for '{agent}'. Agent status: {status}");
     }
 
     let content =
@@ -355,7 +345,7 @@ pub fn show_plan(crosslink_dir: &Path, agent: &str) -> Result<()> {
         );
     } else {
         // Not valid JSON — print raw
-        print!("{}", content);
+        print!("{content}");
     }
 
     Ok(())

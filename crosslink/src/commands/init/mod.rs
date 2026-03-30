@@ -119,7 +119,7 @@ impl InitUI {
             print!("  {} {}... ", "●".cyan(), label);
             io::stdout().flush().ok();
         } else {
-            print!("{}... ", label);
+            print!("{label}... ");
         }
     }
 
@@ -131,7 +131,7 @@ impl InitUI {
             }
         } else {
             match detail {
-                Some(d) => println!("done ({})", d),
+                Some(d) => println!("done ({d})"),
                 None => println!("done"),
             }
         }
@@ -146,7 +146,7 @@ impl InitUI {
                 what.dark_grey()
             );
         } else {
-            println!("Created {}", what);
+            println!("Created {what}");
         }
     }
 
@@ -154,7 +154,7 @@ impl InitUI {
         if self.is_tty {
             println!("  {} {}", "–".dark_grey(), msg.dark_grey());
         } else {
-            println!("{}", msg);
+            println!("{msg}");
         }
     }
 
@@ -162,7 +162,7 @@ impl InitUI {
         if self.is_tty {
             println!("  {} {}", "⚠".yellow(), msg.yellow());
         } else {
-            println!("Warning: {}", msg);
+            println!("Warning: {msg}");
         }
     }
 
@@ -170,7 +170,7 @@ impl InitUI {
         if self.is_tty {
             println!("    {}", msg.dark_grey());
         } else {
-            println!("  {}", msg);
+            println!("  {msg}");
         }
     }
 
@@ -270,20 +270,19 @@ fn populate_agent_tool_commands(config_path: &Path, project_root: &Path) -> Resu
     let raw = fs::read_to_string(config_path)?;
     let mut config: serde_json::Value = serde_json::from_str(&raw)?;
 
-    let overrides = match config.get_mut("agent_overrides") {
-        Some(serde_json::Value::Object(m)) => m,
-        _ => return Ok(()),
+    let Some(serde_json::Value::Object(overrides)) = config.get_mut("agent_overrides") else {
+        return Ok(());
     };
 
     // Only populate if arrays are empty (don't overwrite manual config)
     let lint_empty = overrides
         .get("agent_lint_commands")
         .and_then(|v| v.as_array())
-        .is_none_or(|a| a.is_empty());
+        .is_none_or(Vec::is_empty);
     let test_empty = overrides
         .get("agent_test_commands")
         .and_then(|v| v.as_array())
-        .is_none_or(|a| a.is_empty());
+        .is_none_or(Vec::is_empty);
 
     if !lint_empty && !test_empty {
         return Ok(()); // Both already configured
@@ -291,25 +290,27 @@ fn populate_agent_tool_commands(config_path: &Path, project_root: &Path) -> Resu
 
     let conv = super::kickoff::detect_conventions(project_root);
 
-    let mut changed = false;
-
-    if lint_empty && !conv.lint_commands.is_empty() {
+    let changed = if lint_empty && !conv.lint_commands.is_empty() {
         overrides.insert(
             "agent_lint_commands".to_string(),
             serde_json::json!(conv.lint_commands),
         );
-        changed = true;
-    }
+        true
+    } else {
+        false
+    };
 
-    if test_empty {
-        if let Some(ref test_cmd) = conv.test_command {
+    let changed = if test_empty {
+        conv.test_command.as_ref().map_or(changed, |test_cmd| {
             overrides.insert(
                 "agent_test_commands".to_string(),
                 serde_json::json!([test_cmd]),
             );
-            changed = true;
-        }
-    }
+            true
+        })
+    } else {
+        changed
+    };
 
     if changed {
         let output = serde_json::to_string_pretty(&config)?;
@@ -325,20 +326,38 @@ fn populate_agent_tool_commands(config_path: &Path, project_root: &Path) -> Resu
 /// substitution but *before* the `allowedTools` merge — this ensures user
 /// tool additions don't produce false "user-modified" signals in the manifest.
 fn managed_files(python_prefix: &str) -> Vec<(String, String)> {
-    let mut files: Vec<(String, String)> = Vec::new();
-
-    // Hook files
-    files.push((".claude/hooks/prompt-guard.py".into(), PROMPT_GUARD_PY.into()));
-    files.push((".claude/hooks/post-edit-check.py".into(), POST_EDIT_CHECK_PY.into()));
-    files.push((".claude/hooks/session-start.py".into(), SESSION_START_PY.into()));
-    files.push((".claude/hooks/pre-web-check.py".into(), PRE_WEB_CHECK_PY.into()));
-    files.push((".claude/hooks/work-check.py".into(), WORK_CHECK_PY.into()));
-    files.push((".claude/hooks/crosslink_config.py".into(), CROSSLINK_CONFIG_PY.into()));
-    files.push((".claude/hooks/heartbeat.py".into(), HEARTBEAT_PY.into()));
-
-    // MCP servers
-    files.push((".claude/mcp/safe-fetch-server.py".into(), SAFE_FETCH_SERVER_PY.into()));
-    files.push((".claude/mcp/knowledge-server.py".into(), KNOWLEDGE_SERVER_PY.into()));
+    let mut files: Vec<(String, String)> = vec![
+        (
+            ".claude/hooks/prompt-guard.py".into(),
+            PROMPT_GUARD_PY.into(),
+        ),
+        (
+            ".claude/hooks/post-edit-check.py".into(),
+            POST_EDIT_CHECK_PY.into(),
+        ),
+        (
+            ".claude/hooks/session-start.py".into(),
+            SESSION_START_PY.into(),
+        ),
+        (
+            ".claude/hooks/pre-web-check.py".into(),
+            PRE_WEB_CHECK_PY.into(),
+        ),
+        (".claude/hooks/work-check.py".into(), WORK_CHECK_PY.into()),
+        (
+            ".claude/hooks/crosslink_config.py".into(),
+            CROSSLINK_CONFIG_PY.into(),
+        ),
+        (".claude/hooks/heartbeat.py".into(), HEARTBEAT_PY.into()),
+        (
+            ".claude/mcp/safe-fetch-server.py".into(),
+            SAFE_FETCH_SERVER_PY.into(),
+        ),
+        (
+            ".claude/mcp/knowledge-server.py".into(),
+            KNOWLEDGE_SERVER_PY.into(),
+        ),
+    ];
 
     // Command files (auto-discovered by build.rs)
     for (filename, content) in COMMAND_FILES {
@@ -374,10 +393,10 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
     }
 
     // Detect Python prefix (needed for settings.json template)
-    let prefix = opts
-        .python_prefix
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| detect_python_prefix(path));
+    let prefix = opts.python_prefix.map_or_else(
+        || detect_python_prefix(path),
+        std::string::ToString::to_string,
+    );
 
     let template_files = managed_files(&prefix);
     let old_manifest = read_manifest(&crosslink_dir);
@@ -416,11 +435,8 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         match old_files.get(rel_path) {
             Some(entry) => {
                 let current_hash = sha256_file(&abs_path)?;
-                let action = classify_update(
-                    &entry.sha256,
-                    current_hash.as_deref(),
-                    &new_template_hash,
-                );
+                let action =
+                    classify_update(&entry.sha256, current_hash.as_deref(), &new_template_hash);
 
                 match action {
                     UpdateAction::UpToDate => up_to_date.push(rel_path.clone()),
@@ -529,8 +545,7 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             if let Some(parent) = abs_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::write(&abs_path, content)
-                .with_context(|| format!("Failed to write {rel_path}"))?;
+            fs::write(&abs_path, content).with_context(|| format!("Failed to write {rel_path}"))?;
         }
     }
 
@@ -545,8 +560,7 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             if let Some(parent) = abs_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::write(&abs_path, content)
-                .with_context(|| format!("Failed to write {rel_path}"))?;
+            fs::write(&abs_path, content).with_context(|| format!("Failed to write {rel_path}"))?;
         }
     }
 
@@ -561,9 +575,7 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
                 continue;
             }
 
-            print!(
-                "  Overwrite {rel_path} with new template? (user changes will be lost) [y/N] "
-            );
+            print!("  Overwrite {rel_path} with new template? (user changes will be lost) [y/N] ");
             io::stdout().flush().ok();
 
             let mut answer = String::new();
@@ -735,7 +747,7 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             apply_tui_choices(&mut config, &choices)?;
             let output = serde_json::to_string_pretty(&config)
                 .context("Failed to serialize hook-config.json")?;
-            fs::write(&config_path, format!("{}\n", output))
+            fs::write(&config_path, format!("{output}\n"))
                 .context("Failed to write hook-config.json")?;
             ui.step_created("hook-config.json");
             Some(choices)
@@ -788,7 +800,7 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
 
         for (filename, content) in RULE_FILES {
             fs::write(rules_dir.join(filename), content)
-                .with_context(|| format!("Failed to write {}", filename))?;
+                .with_context(|| format!("Failed to write {filename}"))?;
         }
 
         if force && rules_exist {
@@ -806,9 +818,10 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
     }
 
     // Detect or use provided Python prefix (needed for settings.json and cpitd install)
-    let prefix = python_prefix
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| detect_python_prefix(path));
+    let prefix = python_prefix.map_or_else(
+        || detect_python_prefix(path),
+        std::string::ToString::to_string,
+    );
 
     // Create .claude directory and hooks (or update if force)
     if !claude_exists || force {
@@ -844,7 +857,7 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         fs::create_dir_all(&commands_dir).context("Failed to create .claude/commands directory")?;
         for (filename, content) in COMMAND_FILES {
             fs::write(commands_dir.join(filename), content)
-                .with_context(|| format!("Failed to write {}", filename))?;
+                .with_context(|| format!("Failed to write {filename}"))?;
         }
 
         let warnings =
@@ -879,7 +892,7 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             Err(e) => {
                 // Finish the step_start line, then show warning below
                 println!();
-                ui.warn(&format!("Could not auto-install cpitd: {}", e));
+                ui.warn(&format!("Could not auto-install cpitd: {e}"));
                 ui.detail("You can install it manually: pip install cpitd");
             }
         }
@@ -1546,7 +1559,6 @@ mod tests {
                 ..test_opts(false)
             },
         )
-
         .unwrap();
 
         let content = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
@@ -2095,7 +2107,10 @@ mod tests {
         // Hashes should be the same (same templates), but timestamp may differ
         let m1: serde_json::Value = serde_json::from_str(&first).unwrap();
         let m2: serde_json::Value = serde_json::from_str(&second).unwrap();
-        assert_eq!(m1["files"], m2["files"], "File hashes should be identical across force re-inits");
+        assert_eq!(
+            m1["files"], m2["files"],
+            "File hashes should be identical across force re-inits"
+        );
     }
 
     #[test]
@@ -2281,11 +2296,7 @@ mod tests {
         ];
         for hook in &hook_files {
             let key = format!(".claude/hooks/{hook}");
-            assert!(
-                files.contains_key(&key),
-                "Manifest should track {}",
-                key
-            );
+            assert!(files.contains_key(&key), "Manifest should track {}", key);
         }
 
         // Should track MCP servers
@@ -2309,8 +2320,7 @@ mod tests {
 
         let manifest_content =
             fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
-        let manifest: manifest::InitManifest =
-            serde_json::from_str(&manifest_content).unwrap();
+        let manifest: manifest::InitManifest = serde_json::from_str(&manifest_content).unwrap();
 
         // Hook files should have hash matching on-disk content
         let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
@@ -2318,8 +2328,7 @@ mod tests {
         let expected_hash = sha256_hex(&on_disk);
 
         assert_eq!(
-            manifest.files[".claude/hooks/prompt-guard.py"].sha256,
-            expected_hash,
+            manifest.files[".claude/hooks/prompt-guard.py"].sha256, expected_hash,
             "Manifest hash should match on-disk file for non-merged files"
         );
     }

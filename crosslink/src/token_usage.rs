@@ -34,10 +34,10 @@ pub struct ParsedUsage {
 /// Model pricing per million tokens (input, output).
 /// Based on publicly available Anthropic pricing as of 2025.
 struct ModelPricing {
-    input_per_mtok: f64,
-    output_per_mtok: f64,
-    cache_read_per_mtok: f64,
-    cache_creation_per_mtok: f64,
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_creation: f64,
 }
 
 fn get_pricing(model: &str) -> Option<ModelPricing> {
@@ -45,24 +45,24 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
     let m = model.to_lowercase();
     if m.contains("opus") {
         Some(ModelPricing {
-            input_per_mtok: 15.0,
-            output_per_mtok: 75.0,
-            cache_read_per_mtok: 1.5,
-            cache_creation_per_mtok: 18.75,
+            input: 15.0,
+            output: 75.0,
+            cache_read: 1.5,
+            cache_creation: 18.75,
         })
     } else if m.contains("sonnet") {
         Some(ModelPricing {
-            input_per_mtok: 3.0,
-            output_per_mtok: 15.0,
-            cache_read_per_mtok: 0.3,
-            cache_creation_per_mtok: 3.75,
+            input: 3.0,
+            output: 15.0,
+            cache_read: 0.3,
+            cache_creation: 3.75,
         })
     } else if m.contains("haiku") {
         Some(ModelPricing {
-            input_per_mtok: 0.80,
-            output_per_mtok: 4.0,
-            cache_read_per_mtok: 0.08,
-            cache_creation_per_mtok: 1.0,
+            input: 0.80,
+            output: 4.0,
+            cache_read: 0.08,
+            cache_creation: 1.0,
         })
     } else {
         None
@@ -70,6 +70,7 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
 }
 
 /// Estimate cost in USD for a token usage record.
+#[must_use]
 pub fn estimate_cost(
     model: &str,
     input_tokens: i64,
@@ -78,16 +79,21 @@ pub fn estimate_cost(
     cache_creation_tokens: Option<i64>,
 ) -> Option<f64> {
     let pricing = get_pricing(model)?;
-    let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input_per_mtok;
-    let output_cost = (output_tokens as f64 / 1_000_000.0) * pricing.output_per_mtok;
+    #[allow(clippy::cast_precision_loss)] // token counts are well within f64 mantissa range
+    let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input;
+    #[allow(clippy::cast_precision_loss)]
+    let output_cost = (output_tokens as f64 / 1_000_000.0) * pricing.output;
+    #[allow(clippy::cast_precision_loss)]
     let cache_read_cost =
-        (cache_read_tokens.unwrap_or(0) as f64 / 1_000_000.0) * pricing.cache_read_per_mtok;
+        (cache_read_tokens.unwrap_or(0) as f64 / 1_000_000.0) * pricing.cache_read;
+    #[allow(clippy::cast_precision_loss)]
     let cache_creation_cost =
-        (cache_creation_tokens.unwrap_or(0) as f64 / 1_000_000.0) * pricing.cache_creation_per_mtok;
+        (cache_creation_tokens.unwrap_or(0) as f64 / 1_000_000.0) * pricing.cache_creation;
     Some(input_cost + output_cost + cache_read_cost + cache_creation_cost)
 }
 
 /// Parse a raw Claude API usage block into a `ParsedUsage`.
+#[must_use]
 pub fn parse_api_usage(
     raw: &RawTokenUsage,
     agent_id: &str,

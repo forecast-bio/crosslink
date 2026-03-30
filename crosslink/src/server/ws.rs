@@ -56,12 +56,13 @@ pub enum WsEvent {
 
 impl WsEvent {
     /// Returns the channel name for this event (used to filter subscriptions).
-    pub fn channel(&self) -> &'static str {
+    #[must_use]
+    pub const fn channel(&self) -> &'static str {
         match self {
-            WsEvent::Heartbeat(_) | WsEvent::AgentStatus(_) => "agents",
-            WsEvent::IssueUpdated(_) => "issues",
-            WsEvent::LockChanged(_) => "locks",
-            WsEvent::ExecutionProgress(_) => "execution",
+            Self::Heartbeat(_) | Self::AgentStatus(_) => "agents",
+            Self::IssueUpdated(_) => "issues",
+            Self::LockChanged(_) => "locks",
+            Self::ExecutionProgress(_) => "execution",
         }
     }
 
@@ -73,6 +74,10 @@ impl WsEvent {
 
     /// Serialize this event to a `serde_json::Value` for embedding in a
     /// `WsEnvelope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails.
     pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
         serde_json::to_value(self)
     }
@@ -98,6 +103,7 @@ pub struct WsEnvelope {
 ///
 /// Returns `(Sender, Receiver)`.  The `Sender` is stored in `AppState`;
 /// each new WebSocket client subscribes from it.
+#[must_use]
 pub fn channel() -> (broadcast::Sender<WsEvent>, broadcast::Receiver<WsEvent>) {
     broadcast::channel(BROADCAST_CAPACITY)
 }

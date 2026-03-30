@@ -44,8 +44,7 @@ async fn auth_middleware(
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|token| token == state.auth_token)
-        .unwrap_or(false);
+        .is_some_and(|token| token == state.auth_token);
 
     if authorized {
         Ok(next.run(request).await)
@@ -62,6 +61,10 @@ async fn auth_middleware(
 ///
 /// The filesystem watcher is started as a background task and broadcasts
 /// heartbeat events to all connected WebSocket clients.
+///
+/// # Errors
+///
+/// Returns an error if the server fails to bind or encounters a runtime error.
 pub async fn run(
     port: u16,
     dashboard_dir: Option<PathBuf>,
@@ -97,9 +100,9 @@ pub async fn run(
         .layer(cors);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    println!("crosslink serve: listening on http://{}", addr);
-    println!("  API:       http://{}/api/v1/health", addr);
-    println!("  WebSocket: ws://{}/ws", addr);
+    println!("crosslink serve: listening on http://{addr}");
+    println!("  API:       http://{addr}/api/v1/health");
+    println!("  WebSocket: ws://{addr}/ws");
     println!("  Auth:      Bearer {}", state.auth_token);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

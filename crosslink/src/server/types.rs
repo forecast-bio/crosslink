@@ -232,7 +232,7 @@ pub struct EndSessionRequest {
 /// The issue ID is taken from the URL path parameter.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkOnIssueRequest {
-    /// Optional: agent_id to scope the session lookup.
+    /// Optional: `agent_id` to scope the session lookup.
     #[serde(default)]
     pub agent_id: Option<String>,
 }
@@ -606,9 +606,9 @@ pub struct ExecutionStatus {
     pub progress_percent: f64,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
-    /// Map from stage_id → StageStatus.
+    /// Map from `stage_id` → `StageStatus`.
     pub stage_statuses: std::collections::HashMap<String, StageStatus>,
-    /// Map from stage_id → agent_id for running stages.
+    /// Map from `stage_id` → `agent_id` for running stages.
     pub stage_agents: std::collections::HashMap<String, String>,
 }
 
@@ -622,7 +622,7 @@ pub struct ExecutionStatus {
 /// discriminated union: `WsMessage` in `dashboard/src/lib/types.ts`.
 /// Discriminant for WebSocket event types.
 ///
-/// Used as the `type` field in all WsEvent structs so the event type is
+/// Used as the `type` field in all `WsEvent` structs so the event type is
 /// derived from the enum variant rather than a hand-written string literal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

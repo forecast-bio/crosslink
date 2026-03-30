@@ -51,10 +51,8 @@ const GITIGNORE_MANAGED_SECTION: &str = "\
 pub(super) fn write_root_gitignore(project_root: &Path) -> Result<()> {
     let gitignore_path = project_root.join(".gitignore");
 
-    let managed_block = format!(
-        "{}\n{}{}\n",
-        GITIGNORE_SECTION_START, GITIGNORE_MANAGED_SECTION, GITIGNORE_SECTION_END
-    );
+    let managed_block =
+        format!("{GITIGNORE_SECTION_START}\n{GITIGNORE_MANAGED_SECTION}{GITIGNORE_SECTION_END}\n");
 
     let existing = fs::read_to_string(&gitignore_path).unwrap_or_default();
 
@@ -67,7 +65,7 @@ pub(super) fn write_root_gitignore(project_root: &Path) -> Result<()> {
         let after = &existing[end_pos + GITIGNORE_SECTION_END.len()..];
         // Strip leading newline from `after` so we don't accumulate blank lines
         let after = after.strip_prefix('\n').unwrap_or(after);
-        format!("{}{}{}", before, managed_block, after)
+        format!("{before}{managed_block}{after}")
     } else {
         // Append new section (with a blank separator if file has content)
         if existing.is_empty() {
@@ -78,7 +76,7 @@ pub(super) fn write_root_gitignore(project_root: &Path) -> Result<()> {
             } else {
                 "\n\n"
             };
-            format!("{}{}{}", existing, separator, managed_block)
+            format!("{existing}{separator}{managed_block}")
         }
     };
 
@@ -132,8 +130,7 @@ pub(super) fn write_mcp_json_merged(mcp_path: &Path) -> Result<Vec<String>> {
     for (key, value) in src_servers {
         if dest_map.contains_key(key) {
             warnings.push(format!(
-                "Warning: overwriting existing mcpServers entry \"{}\" with crosslink default",
-                key
+                "Warning: overwriting existing mcpServers entry \"{key}\" with crosslink default"
             ));
         }
         dest_map.insert(key.clone(), value.clone());

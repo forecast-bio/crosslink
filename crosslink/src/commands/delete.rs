@@ -7,9 +7,8 @@ use crate::utils::format_issue_id;
 
 pub fn run(db: &Database, writer: Option<&SharedWriter>, id: i64, force: bool) -> Result<()> {
     // Check if issue exists first
-    let issue = match db.get_issue(id)? {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(id)),
+    let Some(issue) = db.get_issue(id)? else {
+        bail!("Issue {} not found", format_issue_id(id));
     };
 
     if !force {

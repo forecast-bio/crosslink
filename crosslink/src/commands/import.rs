@@ -71,8 +71,7 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
                 "  Imported: {} -> {} {}",
                 issue
                     .display_id
-                    .map(format_issue_id)
-                    .unwrap_or_else(|| issue.uuid.to_string()),
+                    .map_or_else(|| issue.uuid.to_string(), format_issue_id),
                 format_issue_id(new_id),
                 issue.title
             );
@@ -105,7 +104,7 @@ fn import_issue_files(db: &Database, issues: &[IssueFile], input_path: &Path) ->
         Ok(issues.len())
     })?;
 
-    println!("Successfully imported {} issues", count);
+    println!("Successfully imported {count} issues");
     Ok(())
 }
 
@@ -137,7 +136,7 @@ fn import_legacy(db: &Database, data: &ExportData, input_path: &Path) -> Result<
         Ok(data.issues.len())
     })?;
 
-    println!("Successfully imported {} issues", count);
+    println!("Successfully imported {count} issues");
     Ok(())
 }
 

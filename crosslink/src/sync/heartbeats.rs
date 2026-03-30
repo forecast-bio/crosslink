@@ -10,7 +10,11 @@ impl SyncManager {
     /// Write and optionally push a heartbeat file for this agent.
     ///
     /// Acquires the hub write lock to prevent races with concurrent git
-    /// operations (fetch, write_commit_push) in the same cache worktree.
+    /// operations (fetch, `write_commit_push`) in the same cache worktree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the heartbeat file cannot be written or pushed.
     pub fn push_heartbeat(&self, agent: &AgentConfig, active_issue_id: Option<i64>) -> Result<()> {
         // Acquire the hub write lock to serialize with other cache mutations (#352)
         let _lock_guard = self.acquire_lock()?;
@@ -32,7 +36,7 @@ impl SyncManager {
         std::fs::write(&path, json)?;
 
         // Stage the heartbeat file
-        self.git_in_cache(&["add", &format!("heartbeats/{}", filename)])?;
+        self.git_in_cache(&["add", &format!("heartbeats/{filename}")])?;
 
         // Commit (may fail if nothing changed, that's fine)
         let msg = format!(
@@ -69,7 +73,7 @@ impl SyncManager {
                     .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
                     .is_err()
                 {
-                    self.hub_health_check()?;
+                    self.hub_health_check();
                     self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
                 }
                 if let Err(retry_err) = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]) {
@@ -85,6 +89,10 @@ impl SyncManager {
     }
 
     /// Read all heartbeat files from the V1 cache (`heartbeats/` directory).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the heartbeats directory cannot be read.
     pub fn read_heartbeats(&self) -> Result<Vec<Heartbeat>> {
         let dir = self.cache_dir.join("heartbeats");
         if !dir.exists() {
@@ -94,7 +102,7 @@ impl SyncManager {
         for entry in std::fs::read_dir(&dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map(|e| e == "json").unwrap_or(false) {
+            if path.extension().is_some_and(|e| e == "json") {
                 let content = std::fs::read_to_string(&path)?;
                 if let Ok(hb) = serde_json::from_str::<Heartbeat>(&content) {
                     heartbeats.push(hb);
@@ -109,6 +117,10 @@ impl SyncManager {
     /// V2 heartbeat files use `timestamp` (RFC 3339) instead of `last_heartbeat`,
     /// and may lack `active_issue_id` / `machine_id`. This method converts them
     /// into the common `Heartbeat` struct.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the agents directory cannot be read.
     pub fn read_heartbeats_v2(&self) -> Result<Vec<Heartbeat>> {
         let agents_dir = self.cache_dir.join("agents");
         if !agents_dir.exists() {
@@ -125,30 +137,28 @@ impl SyncManager {
             if !hb_path.exists() {
                 continue;
             }
-            let content = match std::fs::read_to_string(&hb_path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let Ok(content) = std::fs::read_to_string(&hb_path) else {
+                continue;
             };
             // Try native Heartbeat format first, then V2 JSON format
             if let Ok(hb) = serde_json::from_str::<Heartbeat>(&content) {
                 heartbeats.push(hb);
             } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                let timestamp = match val
+                let Some(timestamp) = val
                     .get("timestamp")
                     .and_then(|t| t.as_str())
                     .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                     .map(|dt| dt.with_timezone(&Utc))
-                {
-                    Some(ts) => ts,
-                    None => {
-                        tracing::warn!(
-                            "corrupt or missing timestamp in heartbeat for agent '{}', skipping",
-                            agent_id
-                        );
-                        continue;
-                    }
+                else {
+                    tracing::warn!(
+                        "corrupt or missing timestamp in heartbeat for agent '{}', skipping",
+                        agent_id
+                    );
+                    continue;
                 };
-                let active_issue_id = val.get("active_issue_id").and_then(|v| v.as_i64());
+                let active_issue_id = val
+                    .get("active_issue_id")
+                    .and_then(serde_json::Value::as_i64);
                 let machine_id = val
                     .get("machine_id")
                     .and_then(|v| v.as_str())
@@ -169,12 +179,17 @@ impl SyncManager {
     ///
     /// V1: reads `heartbeats/*.json`
     /// V2: reads `agents/*/heartbeat.json`, merged with any V1 heartbeats
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if heartbeat files cannot be read.
     pub fn read_heartbeats_auto(&self) -> Result<Vec<Heartbeat>> {
+        use std::collections::HashMap;
+
         let mut heartbeats = self.read_heartbeats()?;
         if self.is_v2_layout() {
             let v2 = self.read_heartbeats_v2()?;
             // Merge V2 heartbeats, preferring the one with the most recent timestamp
-            use std::collections::HashMap;
             let mut by_agent: HashMap<String, Heartbeat> = HashMap::new();
             for hb in heartbeats.into_iter().chain(v2) {
                 by_agent
@@ -195,17 +210,21 @@ impl SyncManager {
     ///
     /// Creates `agents/{agent_id}/heartbeat.json` with an initial heartbeat.
     /// Returns `Ok(true)` if the directory was created, `Ok(false)` if it already existed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory or heartbeat file cannot be created.
     pub fn ensure_agent_dir(&self, agent_id: &str) -> Result<bool> {
         if !self.create_agent_dir_files(agent_id)? {
             return Ok(false);
         }
 
         // Stage and commit
-        self.git_in_cache(&["add", &format!("agents/{}/heartbeat.json", agent_id)])?;
+        self.git_in_cache(&["add", &format!("agents/{agent_id}/heartbeat.json")])?;
         self.git_in_cache(&[
             "commit",
             "-m",
-            &format!("bootstrap: initialize agent directory for {}", agent_id),
+            &format!("bootstrap: initialize agent directory for {agent_id}"),
         ])?;
 
         // Push with retry on rebase conflict
@@ -228,12 +247,12 @@ impl SyncManager {
                                 .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
                                 .is_err()
                             {
-                                self.hub_health_check()?;
+                                self.hub_health_check();
                                 self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
                             }
                             continue;
                         }
-                        bail!("Push failed after 3 retries for agent dir {}", agent_id);
+                        bail!("Push failed after 3 retries for agent dir {agent_id}");
                     }
                     return Err(e);
                 }
@@ -253,7 +272,7 @@ impl SyncManager {
         }
 
         std::fs::create_dir_all(&agents_dir)
-            .with_context(|| format!("Failed to create agent directory for {}", agent_id))?;
+            .with_context(|| format!("Failed to create agent directory for {agent_id}"))?;
 
         // Write initial heartbeat
         let heartbeat = serde_json::json!({
