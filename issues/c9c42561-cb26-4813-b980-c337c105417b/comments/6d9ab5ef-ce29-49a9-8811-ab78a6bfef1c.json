@@ -1,0 +1,10 @@
+{
+  "uuid": "6d9ab5ef-ce29-49a9-8811-ab78a6bfef1c",
+  "issue_uuid": "c9c42561-cb26-4813-b980-c337c105417b",
+  "author": "maxine--basel",
+  "content": "Created v070-release knowledge page documenting the QA audit scope, hub-write-lock bug root cause, smoke test regression patterns (bearer auth, agent init, milestone sync, priority enum), and architectural changes. Tagged release, postmortem.",
+  "created_at": "2026-03-31T21:44:29.638481Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAdC4O295iOM7v0Tu5csMYmyHzYwkOtfKBX6yfEJ0yD91+JIMAzROT27Zdq0RkZbRL/+WLXYAmkTszFYR7c486Ag=="
+}
