@@ -1,0 +1,10 @@
+{
+  "uuid": "dc757b45-3834-4713-9851-29e6e3b67a1b",
+  "issue_uuid": "c9c42561-cb26-4813-b980-c337c105417b",
+  "author": "maxine--basel",
+  "content": "Updated command-taxonomy: added 'Setup and Upgrades' section with init, init --update, and init --defaults. Preserved existing 'Commands You Rarely Need' section.",
+  "created_at": "2026-03-31T21:42:39.136802Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA0Z5mhJR6kwzX2zTJOo7dRzcjtQjBPYFodQG6NrPVjAjs3Uy+d2uYQMrT1oy7WDEVg99hA0N/OYgab3kFR/ROAg=="
+}
