@@ -7,13 +7,13 @@ use crate::utils::is_windows_reserved_name;
 
 /// Machine-local agent identity. Lives at `.crosslink/agent.json`.
 /// This file is gitignored — each machine has its own.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentConfig {
     pub agent_id: String,
     pub machine_id: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// Path to SSH private key, relative to .crosslink/ (e.g. "keys/agent_ed25519").
+    /// Path to SSH private key, relative to .crosslink/ (e.g. "`keys/agent_ed25519`").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_key_path: Option<String>,
     /// SSH public key fingerprint (e.g. "SHA256:...").
@@ -26,6 +26,10 @@ pub struct AgentConfig {
 
 impl AgentConfig {
     /// Load from the .crosslink directory. Returns None if agent.json doesn't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file exists but cannot be read, parsed, or fails validation.
     pub fn load(crosslink_dir: &Path) -> Result<Option<Self>> {
         let path = crosslink_dir.join("agent.json");
         if !path.exists() {
@@ -33,19 +37,23 @@ impl AgentConfig {
         }
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        let config: AgentConfig = serde_json::from_str(&content)
+        let config: Self = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse {}", path.display()))?;
         config.validate()?;
         Ok(Some(config))
     }
 
     /// Create and write a new agent config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the agent ID fails validation or the config file cannot be written.
     pub fn init(crosslink_dir: &Path, agent_id: &str, description: Option<&str>) -> Result<Self> {
         let machine_id = detect_hostname();
-        let config = AgentConfig {
+        let config = Self {
             agent_id: agent_id.to_string(),
             machine_id,
-            description: description.map(|s| s.to_string()),
+            description: description.map(std::string::ToString::to_string),
             ssh_key_path: None,
             ssh_fingerprint: None,
             ssh_public_key: None,
@@ -62,6 +70,7 @@ impl AgentConfig {
     ///
     /// Uses a stable hash of the crosslink directory path so each worktree
     /// gets a consistent anonymous identity without collisions.
+    #[must_use]
     pub fn anonymous(crosslink_dir: &Path) -> Self {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -69,9 +78,10 @@ impl AgentConfig {
         let mut hasher = DefaultHasher::new();
         crosslink_dir.hash(&mut hasher);
         let hash = hasher.finish();
-        let short = format!("{:08x}", hash as u32);
-        AgentConfig {
-            agent_id: format!("anon-{}", short),
+        let truncated: u32 = (hash & 0xFFFF_FFFF) as u32;
+        let short = format!("{truncated:08x}");
+        Self {
+            agent_id: format!("anon-{short}"),
             machine_id: detect_hostname(),
             description: Some("Anonymous agent (pre-init)".to_string()),
             ssh_key_path: None,
@@ -130,6 +140,7 @@ fn detect_hostname() -> String {
 /// Resolve the current driver's SSH key fingerprint from `.crosslink/driver-key.pub`.
 ///
 /// Returns `None` if the driver key file doesn't exist or the fingerprint can't be computed.
+#[must_use]
 pub fn resolve_driver_fingerprint(crosslink_dir: &Path) -> Option<String> {
     let driver_pub = crosslink_dir.join("driver-key.pub");
     if !driver_pub.exists() {

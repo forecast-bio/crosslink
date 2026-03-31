@@ -45,8 +45,7 @@ export function KnowledgeDetail() {
     if (!page) return;
     setSaving(true);
     try {
-      const updated = await knowledgeApi.create({
-        slug: page.slug,
+      const updated = await knowledgeApi.update(page.slug, {
         title: editTitle.trim() || page.title,
         content: editContent,
         tags: editTags

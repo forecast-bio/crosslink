@@ -2,7 +2,7 @@
 //!
 //! `SharedWriter` wraps a `SyncManager` and `AgentConfig` to provide
 //! write operations that persist issue data as JSON on the coordination
-//! branch and then update local SQLite. In single-agent mode (no
+//! branch and then update local `SQLite`. In single-agent mode (no
 //! `agent.json`), `SharedWriter::new()` returns `None` and all commands
 //! fall back to direct `Database` writes.
 

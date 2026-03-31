@@ -8,24 +8,11 @@
 use axum::{extract::State, http::StatusCode, response::Json};
 
 use crate::server::{
+    errors::internal_error,
     state::AppState,
     types::{ApiError, SyncActionResponse, SyncStatusResponse},
 };
 use crate::sync::SyncManager;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
 
 /// Try to construct a `SyncManager` from the shared crosslink dir.
 fn sync_manager(state: &AppState) -> Result<SyncManager, (StatusCode, Json<ApiError>)> {
@@ -38,6 +25,11 @@ fn sync_manager(state: &AppState) -> Result<SyncManager, (StatusCode, Json<ApiEr
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/sync/status` — return hub initialization state, remote, and lock counts.
+///
+/// # Errors
+///
+/// Returns an error if the sync manager cannot be initialized or lock
+/// data cannot be read.
 pub async fn sync_status(
     State(state): State<AppState>,
 ) -> Result<Json<SyncStatusResponse>, (StatusCode, Json<ApiError>)> {
@@ -53,9 +45,9 @@ pub async fn sync_status(
             .map_err(|e| internal_error("Failed to read locks", e))?;
         let active = locks.locks.len();
 
-        let stale = sm.find_stale_locks_with_age().map(|v| v.len()).unwrap_or(0);
+        let stale_count = sm.find_stale_locks_with_age().map(|v| v.len()).unwrap_or(0);
 
-        (active, stale)
+        (active, stale_count)
     } else {
         (0, 0)
     };
@@ -81,6 +73,10 @@ pub async fn sync_status(
 }
 
 /// `POST /api/v1/sync/fetch` — fetch the latest hub state from remote.
+///
+/// # Errors
+///
+/// Returns an error if the hub is not initialized or the fetch operation fails.
 pub async fn sync_fetch(
     State(state): State<AppState>,
 ) -> Result<Json<SyncActionResponse>, (StatusCode, Json<ApiError>)> {
@@ -110,6 +106,10 @@ pub async fn sync_fetch(
 /// `POST /api/v1/sync/push` — push local hub state to remote.
 ///
 /// Commits any uncommitted changes in the hub cache and pushes to the remote.
+///
+/// # Errors
+///
+/// Returns an error if the hub is not initialized or the push operation fails.
 pub async fn sync_push(
     State(state): State<AppState>,
 ) -> Result<Json<SyncActionResponse>, (StatusCode, Json<ApiError>)> {
@@ -173,8 +173,7 @@ fn push_hub_cache(sm: &SyncManager) -> anyhow::Result<()> {
         if stderr.contains("Could not resolve host")
             || stderr.contains("Could not read from remote")
         {
-            // Offline — local state is fine
-            return Ok(());
+            anyhow::bail!("Remote unreachable: {}", stderr.trim());
         }
 
         if (stderr.contains("rejected") || stderr.contains("non-fast-forward")) && attempt < 2 {
@@ -186,7 +185,7 @@ fn push_hub_cache(sm: &SyncManager) -> anyhow::Result<()> {
             continue;
         }
 
-        anyhow::bail!("Push failed: {}", stderr);
+        anyhow::bail!("Push failed: {stderr}");
     }
 
     Ok(())
@@ -392,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_internal_error_helper() {
-        let (status, json) = super::internal_error("sync failed", "some error");
+        let (status, json) = crate::server::errors::internal_error("sync failed", "some error");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "sync failed");
         assert_eq!(json.detail.as_deref(), Some("some error"));

@@ -13,43 +13,13 @@ use axum::{
 };
 
 use crate::server::{
+    errors::{bad_request, internal_error, not_found},
     state::AppState,
-    types::{ApiError, EndSessionRequest, OkResponse, SessionResponse, StartSessionRequest},
+    types::{
+        ApiError, EndSessionRequest, OkResponse, SessionResponse, StartSessionRequest,
+        WorkOnIssueRequest,
+    },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
-
-fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiError {
-            error: "not found".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
-
-fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ApiError {
-            error: "bad request".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -58,18 +28,25 @@ fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
 /// `GET /api/v1/sessions/current` — return the active (not yet ended) session.
 ///
 /// Accepts an optional `?agent_id=` query param to scope to a specific agent.
+///
+/// # Errors
+///
+/// Returns an error if no active session is found or the database query fails.
 pub async fn get_current_session(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<
+        std::collections::HashMap<String, String, std::hash::RandomState>,
+    >,
 ) -> Result<Json<SessionResponse>, (StatusCode, Json<ApiError>)> {
-    let agent_id = params.get("agent_id").map(|s| s.as_str());
-    let db = state.db();
+    let agent_id = params.get("agent_id").map(std::string::String::as_str);
+    let db = state.db().await;
 
     let session = db
         .get_current_session_for_agent(agent_id)
         .map_err(|e| internal_error("Failed to query current session", e))?
         .ok_or_else(|| not_found("No active session found"))?;
 
+    drop(db);
     Ok(Json(SessionResponse { session }))
 }
 
@@ -78,11 +55,15 @@ pub async fn get_current_session(
 /// Body: `{"agent_id": "<optional>"}`.
 ///
 /// Returns the newly created session.
+///
+/// # Errors
+///
+/// Returns an error if creating or fetching the new session fails.
 pub async fn start_session(
     State(state): State<AppState>,
     Json(body): Json<StartSessionRequest>,
 ) -> Result<Json<SessionResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let agent_id_ref = body.agent_id.as_deref();
     let session_id = db
@@ -97,6 +78,7 @@ pub async fn start_session(
             internal_error("Session created but not found", format!("id={session_id}"))
         })?;
 
+    drop(db);
     Ok(Json(SessionResponse { session }))
 }
 
@@ -105,13 +87,19 @@ pub async fn start_session(
 /// Body: `{"notes": "<optional handoff notes>"}`.
 ///
 /// To end a session scoped to a specific agent, pass `?agent_id=` as a query param.
+///
+/// # Errors
+///
+/// Returns an error if no active session is found or ending it fails.
 pub async fn end_session(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<
+        std::collections::HashMap<String, String, std::hash::RandomState>,
+    >,
     Json(body): Json<EndSessionRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let agent_id = params.get("agent_id").map(|s| s.as_str());
-    let db = state.db();
+    let agent_id = params.get("agent_id").map(std::string::String::as_str);
+    let db = state.db().await;
 
     // Find the current active session so we know its ID.
     let session = db
@@ -123,6 +111,7 @@ pub async fn end_session(
         .end_session(session.id, body.notes.as_deref())
         .map_err(|e| internal_error("Failed to end session", e))?;
 
+    drop(db);
     if !ended {
         return Err(bad_request(format!(
             "Session {} could not be ended (already ended?)",
@@ -137,13 +126,17 @@ pub async fn end_session(
 ///
 /// `:id` is the crosslink issue ID to mark as the current work item.
 /// Accepts an optional `?agent_id=` query param to scope to a specific agent's session.
+///
+/// # Errors
+///
+/// Returns an error if the issue is not found, no active session exists, or the update fails.
 pub async fn work_on_issue(
     State(state): State<AppState>,
     Path(issue_id): Path<i64>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Query(params): axum::extract::Query<WorkOnIssueRequest>,
 ) -> Result<Json<OkResponse>, (StatusCode, Json<ApiError>)> {
-    let agent_id = params.get("agent_id").map(|s| s.as_str());
-    let db = state.db();
+    let agent_id = params.agent_id.as_deref();
+    let db = state.db().await;
 
     // Verify the issue exists before updating the session.
     let issue_exists = db
@@ -152,7 +145,7 @@ pub async fn work_on_issue(
         .is_some();
 
     if !issue_exists {
-        return Err(not_found(format!("Issue {} not found", issue_id)));
+        return Err(not_found(format!("Issue {issue_id} not found")));
     }
 
     // Find the current session.
@@ -165,6 +158,7 @@ pub async fn work_on_issue(
         .set_session_issue(session.id, issue_id)
         .map_err(|e| internal_error("Failed to update session issue", e))?;
 
+    drop(db);
     if !updated {
         return Err(internal_error("set_session_issue returned false", ""));
     }
@@ -416,15 +410,15 @@ mod tests {
 
     #[test]
     fn test_helper_functions() {
-        let (status, json) = super::internal_error("ctx", "err");
+        let (status, json) = crate::server::errors::internal_error("ctx", "err");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
 
-        let (status, json) = super::not_found("gone");
+        let (status, json) = crate::server::errors::not_found("gone");
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json.detail.as_deref(), Some("gone"));
 
-        let (status, json) = super::bad_request("invalid");
+        let (status, json) = crate::server::errors::bad_request("invalid");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(json.detail.as_deref(), Some("invalid"));
     }

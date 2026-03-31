@@ -53,12 +53,9 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
 
     for phase_name in &plan.phases {
         let phase_file = ctx.phase_path(phase_name);
-        let phase: PhaseDefinition = match read_hub_json(&sync, &phase_file) {
-            Ok(p) => p,
-            Err(_) => {
-                println!("  {} (definition missing)", phase_name);
-                continue;
-            }
+        let Ok(phase) = read_hub_json::<PhaseDefinition>(&sync, &phase_file) else {
+            println!("  {phase_name} (definition missing)");
+            continue;
         };
 
         let resolved = resolve_agents(&phase, root);
@@ -84,27 +81,25 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
             })
             .count();
 
-        let gate_info = if let Some(ref gate) = phase.gate {
+        let gate_info = phase.gate.as_ref().map_or_else(String::new, |gate| {
             if gate.status == "passed" {
                 let tests = gate
                     .tests_total
-                    .map(|t| format!(", {} tests", t))
+                    .map(|t| format!(", {t} tests"))
                     .unwrap_or_default();
-                format!(", gate passed{}", tests)
+                format!(", gate passed{tests}")
             } else {
                 format!(", gate {}", gate.status)
             }
-        } else {
-            String::new()
-        };
+        });
 
         let extra = if completed > 0 || failed > 0 {
             let mut parts = Vec::new();
             if completed > 0 {
-                parts.push(format!("{} completed", completed));
+                parts.push(format!("{completed} completed"));
             }
             if failed > 0 {
-                parts.push(format!("{} failed", failed));
+                parts.push(format!("{failed} failed"));
             }
             format!(", {}", parts.join(", "))
         } else {
@@ -205,10 +200,10 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
     if let Some(slug) = active_phase_slug {
         println!("Next steps:");
         if has_planned {
-            println!("  crosslink swarm launch {}", slug);
+            println!("  crosslink swarm launch {slug}");
         }
         if has_failed {
-            println!("  crosslink swarm launch {} --retry-failed", slug);
+            println!("  crosslink swarm launch {slug} --retry-failed");
         }
         if has_running {
             println!("  (waiting for running agents to complete)");
@@ -217,8 +212,8 @@ pub fn status(crosslink_dir: &Path, json: bool) -> Result<()> {
             println!("  (merge completed agents, then gate)");
         }
         if all_merged && !has_running && !has_planned {
-            println!("  crosslink swarm gate {}", slug);
-            println!("  crosslink swarm checkpoint {}", slug);
+            println!("  crosslink swarm gate {slug}");
+            println!("  crosslink swarm checkpoint {slug}");
         }
     } else if completed_phases == plan.phases.len() {
         println!(
@@ -291,14 +286,14 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
     // kickoff::run derives the session name from slugify(description), which may
     // differ from the agent slug (e.g. "req-1-add-login" vs "add-login").
     if let Ok(output) = std::process::Command::new("tmux")
-        .args(["list-sessions", "-F", "#{session_name}"])
+        .args(["list-sessions", "-F", concat!("#", "{session_name}")])
         .output()
     {
         if output.status.success() {
             let sessions = String::from_utf8_lossy(&output.stdout);
             for session in sessions.lines() {
                 if session.contains(slug) {
-                    return format!("running (tmux: {})", session);
+                    return format!("running (tmux: {session})");
                 }
             }
         }
@@ -312,7 +307,7 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
 /// Check if a branch has been merged into the default branch (main/master).
 pub(super) fn is_branch_merged(repo_root: &Path, slug: &str) -> bool {
     // Try common branch naming patterns for swarm agents
-    for branch in &[slug.to_string(), format!("swarm/{}", slug)] {
+    for branch in &[slug.to_string(), format!("swarm/{slug}")] {
         let output = std::process::Command::new("git")
             .current_dir(repo_root)
             .args(["branch", "--merged", "HEAD", "--list", branch])
@@ -331,7 +326,7 @@ pub(super) fn is_branch_merged(repo_root: &Path, slug: &str) -> bool {
 
 /// Check if a branch exists locally (even without a worktree).
 pub(super) fn branch_exists(repo_root: &Path, slug: &str) -> bool {
-    for branch in &[slug.to_string(), format!("swarm/{}", slug)] {
+    for branch in &[slug.to_string(), format!("swarm/{slug}")] {
         let output = std::process::Command::new("git")
             .current_dir(repo_root)
             .args(["rev-parse", "--verify", branch])

@@ -9,16 +9,14 @@ use ratatui::{
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
-use super::{Tab, TabAction};
+use super::{Tab, TabAction, HIGHLIGHT_BG};
 use crate::knowledge::{self, KnowledgeManager, PageFrontmatter, PageInfo};
-
-/// Background color for highlighted/selected rows (256-color palette, dark gray).
-const HIGHLIGHT_BG: Color = Color::Indexed(236);
 
 /// Which sub-view is active within the Knowledge tab.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ViewMode {
+enum KnowledgeViewMode {
     /// Page list with table.
     List,
     /// Full-page reader with rendered markdown.
@@ -28,7 +26,7 @@ enum ViewMode {
 /// The Knowledge tab — browse and read knowledge pages.
 pub struct KnowledgeTab {
     crosslink_dir: PathBuf,
-    view_mode: ViewMode,
+    view_mode: KnowledgeViewMode,
     /// All pages loaded from the knowledge manager.
     all_pages: Vec<PageInfo>,
     /// Filtered pages currently displayed.
@@ -36,7 +34,7 @@ pub struct KnowledgeTab {
     selected: usize,
     /// All unique tags gathered from pages, sorted. First entry is "all".
     available_tags: Vec<String>,
-    /// Current tag filter index into available_tags. 0 = "all".
+    /// Current tag filter index into `available_tags`. 0 = "all".
     tag_filter_idx: usize,
     /// Search query string (filters in list view).
     search_query: String,
@@ -56,15 +54,19 @@ pub struct KnowledgeTab {
     status_msg: String,
     /// Error message if data load failed.
     error_msg: Option<String>,
-    /// TableState for list view scroll-to-follow.
+    /// `TableState` for list view scroll-to-follow.
     list_table_state: RefCell<TableState>,
+    /// Receiver for background sync results.
+    sync_rx: Option<mpsc::Receiver<Option<String>>>,
+    /// Whether a background sync is in progress.
+    syncing: bool,
 }
 
 impl KnowledgeTab {
     pub fn new(crosslink_dir: &Path) -> Self {
         let mut tab = KnowledgeTab {
             crosslink_dir: crosslink_dir.to_path_buf(),
-            view_mode: ViewMode::List,
+            view_mode: KnowledgeViewMode::List,
             all_pages: Vec::new(),
             filtered_pages: Vec::new(),
             selected: 0,
@@ -80,6 +82,8 @@ impl KnowledgeTab {
             status_msg: String::new(),
             error_msg: None,
             list_table_state: RefCell::new(TableState::default()),
+            sync_rx: None,
+            syncing: false,
         };
         tab.refresh();
         tab
@@ -104,9 +108,8 @@ impl KnowledgeTab {
             return;
         }
 
-        // INTENTIONAL: sync is best-effort — TUI shows cached knowledge pages if offline
-        let _ = km.sync();
-
+        // Load pages from cache immediately (non-blocking).
+        // Background sync (git fetch) runs separately to avoid blocking the main thread.
         match km.list_pages() {
             Ok(pages) => {
                 self.all_pages = pages;
@@ -118,6 +121,35 @@ impl KnowledgeTab {
                 self.error_msg = Some(format!("Failed to list pages: {e}"));
             }
         }
+
+        // Start background sync (git fetch) without blocking the UI
+        self.start_background_sync();
+    }
+
+    /// Spawn a background thread to run knowledge sync (git fetch) without blocking the UI.
+    fn start_background_sync(&mut self) {
+        if self.syncing {
+            return;
+        }
+        self.syncing = true;
+        let (tx, rx) = mpsc::channel();
+        self.sync_rx = Some(rx);
+        let crosslink_dir = self.crosslink_dir.clone();
+
+        std::thread::spawn(move || {
+            let result = match KnowledgeManager::new(&crosslink_dir) {
+                Ok(km) => {
+                    // INTENTIONAL: sync is best-effort — TUI shows cached pages if offline
+                    match km.sync() {
+                        Ok(_) => None,
+                        Err(e) => Some(e.to_string()),
+                    }
+                }
+                Err(e) => Some(e.to_string()),
+            };
+            // INTENTIONAL: send failure means the receiver was dropped — TUI is shutting down
+            let _ = tx.send(result);
+        });
     }
 
     fn collect_tags(&mut self) {
@@ -136,29 +168,46 @@ impl KnowledgeTab {
     }
 
     fn apply_filters(&mut self) {
-        let mut pages = self.all_pages.clone();
+        let active_tag = if self.tag_filter_idx > 0 {
+            self.available_tags.get(self.tag_filter_idx)
+        } else {
+            None
+        };
 
-        // Tag filter
-        if self.tag_filter_idx > 0 {
-            if let Some(tag) = self.available_tags.get(self.tag_filter_idx) {
-                pages.retain(|p| p.frontmatter.tags.contains(tag));
-            }
-        }
+        let query = if self.search_query.is_empty() {
+            None
+        } else {
+            Some(self.search_query.to_lowercase())
+        };
 
-        // Search filter
-        if !self.search_query.is_empty() {
-            let query = self.search_query.to_lowercase();
-            pages.retain(|p| {
-                p.slug.to_lowercase().contains(&query)
-                    || p.frontmatter.title.to_lowercase().contains(&query)
-                    || p.frontmatter
-                        .tags
-                        .iter()
-                        .any(|t| t.to_lowercase().contains(&query))
-            });
-        }
-
-        self.filtered_pages = pages;
+        // Build filtered pages list
+        self.filtered_pages = self
+            .all_pages
+            .iter()
+            .filter(|p| {
+                // Tag filter
+                if let Some(tag) = &active_tag {
+                    if !p.frontmatter.tags.contains(tag) {
+                        return false;
+                    }
+                }
+                // Search filter
+                if let Some(ref q) = query {
+                    if !p.slug.to_lowercase().contains(q)
+                        && !p.frontmatter.title.to_lowercase().contains(q)
+                        && !p
+                            .frontmatter
+                            .tags
+                            .iter()
+                            .any(|t| t.to_lowercase().contains(q))
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
 
         // Clamp selection
         if self.filtered_pages.is_empty() {
@@ -169,9 +218,8 @@ impl KnowledgeTab {
     }
 
     fn load_page(&mut self, slug: &str) {
-        let km = match KnowledgeManager::new(&self.crosslink_dir) {
-            Ok(km) => km,
-            Err(_) => return,
+        let Ok(km) = KnowledgeManager::new(&self.crosslink_dir) else {
+            return;
         };
 
         match km.read_page(slug) {
@@ -180,7 +228,7 @@ impl KnowledgeTab {
                 self.reader_content = Some(content);
                 self.reader_slug = Some(slug.to_string());
                 self.reader_scroll = 0;
-                self.view_mode = ViewMode::Reader;
+                self.view_mode = KnowledgeViewMode::Reader;
             }
             Err(e) => {
                 self.error_msg = Some(format!("Failed to read page: {e}"));
@@ -257,7 +305,6 @@ impl KnowledgeTab {
                 self.searching = true;
                 TabAction::Consumed
             }
-            KeyCode::Char('r') => TabAction::NotHandled,
             _ => TabAction::NotHandled,
         }
     }
@@ -265,7 +312,7 @@ impl KnowledgeTab {
     fn handle_reader_key(&mut self, key: KeyEvent) -> TabAction {
         match key.code {
             KeyCode::Esc => {
-                self.view_mode = ViewMode::List;
+                self.view_mode = KnowledgeViewMode::List;
                 self.reader_content = None;
                 self.reader_frontmatter = None;
                 self.reader_slug = None;
@@ -331,8 +378,7 @@ impl KnowledgeTab {
         let tag_label = self
             .available_tags
             .get(self.tag_filter_idx)
-            .map(|s| s.as_str())
-            .unwrap_or("all");
+            .map_or("all", String::as_str);
 
         let search_display = if self.searching {
             format!("  Search: {}_", self.search_query)
@@ -447,9 +493,8 @@ impl KnowledgeTab {
     }
 
     fn render_reader(&self, frame: &mut Frame, area: Rect) {
-        let content = match &self.reader_content {
-            Some(c) => c,
-            None => return,
+        let Some(content) = &self.reader_content else {
+            return;
         };
 
         let slug = self.reader_slug.as_deref().unwrap_or("unknown");
@@ -459,8 +504,7 @@ impl KnowledgeTab {
         let title = self
             .reader_frontmatter
             .as_ref()
-            .map(|fm| fm.title.as_str())
-            .unwrap_or(slug);
+            .map_or(slug, |fm| fm.title.as_str());
 
         lines.push(Line::from(Span::styled(
             format!(" {slug} \u{2014} {title}"),
@@ -609,27 +653,47 @@ impl KnowledgeTab {
 }
 
 impl Tab for KnowledgeTab {
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Knowledge"
     }
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         match self.view_mode {
-            ViewMode::List => self.render_list(frame, area),
-            ViewMode::Reader => self.render_reader(frame, area),
+            KnowledgeViewMode::List => self.render_list(frame, area),
+            KnowledgeViewMode::Reader => self.render_reader(frame, area),
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> TabAction {
         match self.view_mode {
-            ViewMode::List => self.handle_list_key(key),
-            ViewMode::Reader => self.handle_reader_key(key),
+            KnowledgeViewMode::List => self.handle_list_key(key),
+            KnowledgeViewMode::Reader => self.handle_reader_key(key),
         }
     }
 
     // Data is loaded eagerly in new() and refreshed on 'r' keypress.
     fn on_enter(&mut self) {}
     fn on_leave(&mut self) {}
+
+    fn poll_updates(&mut self) {
+        let result = self.sync_rx.as_ref().and_then(|rx| rx.try_recv().ok());
+        if let Some(sync_error) = result {
+            self.syncing = false;
+            self.sync_rx = None;
+            // If sync succeeded, reload pages from cache to pick up any new content
+            if sync_error.is_none() {
+                let km = KnowledgeManager::new(&self.crosslink_dir).ok();
+                if let Some(km) = km {
+                    if let Ok(pages) = km.list_pages() {
+                        self.all_pages = pages;
+                        self.collect_tags();
+                        self.apply_filters();
+                        self.status_msg = format!("{} pages", self.all_pages.len());
+                    }
+                }
+            }
+        }
+    }
 
     fn force_refresh(&mut self) {
         self.refresh();
@@ -646,12 +710,10 @@ fn strip_frontmatter(content: &str) -> &str {
     }
     let after_first = &trimmed[3..];
     let after_first = after_first.trim_start_matches(['\r', '\n']);
-    if let Some(end_idx) = after_first.find("\n---") {
+    after_first.find("\n---").map_or(content, |end_idx| {
         let remainder = &after_first[end_idx + 4..];
         remainder.trim_start_matches(['\r', '\n'])
-    } else {
-        content
-    }
+    })
 }
 
 /// Render markdown body text into styled Lines for the TUI.
@@ -932,18 +994,17 @@ fn is_numbered_list(s: &str) -> bool {
 
 /// Split a numbered list line into the number part and content.
 fn split_numbered_list(s: &str) -> (&str, &str) {
-    if let Some(dot_pos) = s.find(". ") {
+    s.find(". ").map_or(("", s), |dot_pos| {
         (&s[..=dot_pos], s[dot_pos + 2..].trim_start())
-    } else {
-        ("", s)
-    }
+    })
 }
 
 /// Format a date string (YYYY-MM-DD) as a relative time (e.g. "3d ago").
 fn format_relative_date(date_str: &str) -> String {
     let today = chrono::Utc::now().date_naive();
-    match chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-        Ok(date) => {
+    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_or_else(
+        |_| date_str.to_string(),
+        |date| {
             let days = (today - date).num_days();
             if days < 0 {
                 date_str.to_string()
@@ -958,23 +1019,17 @@ fn format_relative_date(date_str: &str) -> String {
             } else {
                 date_str.to_string()
             }
-        }
-        Err(_) => date_str.to_string(),
-    }
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::KeyCode;
 
-    fn make_key(code: KeyCode) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers: KeyModifiers::empty(),
-            kind: KeyEventKind::Press,
-            state: KeyEventState::empty(),
-        }
+    fn make_key(code: KeyCode) -> crossterm::event::KeyEvent {
+        super::super::make_test_key(code)
     }
 
     fn make_page(slug: &str, title: &str, tags: &[&str], updated: &str) -> PageInfo {
@@ -1036,7 +1091,7 @@ mod tests {
     #[test]
     fn test_initial_view_mode() {
         let tab = make_tab_empty();
-        assert_eq!(tab.view_mode, ViewMode::List);
+        assert_eq!(tab.view_mode, KnowledgeViewMode::List);
     }
 
     #[test]
@@ -1079,9 +1134,9 @@ mod tests {
         // Set reader content manually since we can't call KnowledgeManager
         tab.reader_content = Some("# Test\nSome content.".to_string());
         tab.reader_slug = Some("ratatui-basics".to_string());
-        tab.view_mode = ViewMode::Reader;
+        tab.view_mode = KnowledgeViewMode::Reader;
 
-        assert_eq!(tab.view_mode, ViewMode::Reader);
+        assert_eq!(tab.view_mode, KnowledgeViewMode::Reader);
         assert!(tab.reader_content.is_some());
     }
 
@@ -1090,10 +1145,10 @@ mod tests {
         let mut tab = make_tab_with_pages();
         tab.reader_content = Some("content".to_string());
         tab.reader_slug = Some("test".to_string());
-        tab.view_mode = ViewMode::Reader;
+        tab.view_mode = KnowledgeViewMode::Reader;
 
         tab.handle_reader_key(make_key(KeyCode::Esc));
-        assert_eq!(tab.view_mode, ViewMode::List);
+        assert_eq!(tab.view_mode, KnowledgeViewMode::List);
         assert!(tab.reader_content.is_none());
         assert!(tab.reader_slug.is_none());
     }
@@ -1194,7 +1249,7 @@ mod tests {
     #[test]
     fn test_reader_scroll() {
         let mut tab = make_tab_with_pages();
-        tab.view_mode = ViewMode::Reader;
+        tab.view_mode = KnowledgeViewMode::Reader;
         tab.reader_content = Some("content".to_string());
         // Simulate a render having computed a max scroll value.
         tab.reader_max_scroll.set(100);
@@ -1225,7 +1280,7 @@ mod tests {
     #[test]
     fn test_reader_scroll_clamps_at_bottom() {
         let mut tab = make_tab_with_pages();
-        tab.view_mode = ViewMode::Reader;
+        tab.view_mode = KnowledgeViewMode::Reader;
         tab.reader_content = Some("short".to_string());
         tab.reader_max_scroll.set(5);
 
@@ -1264,7 +1319,7 @@ mod tests {
     #[test]
     fn test_render_reader_no_panic() {
         let mut tab = make_tab_with_pages();
-        tab.view_mode = ViewMode::Reader;
+        tab.view_mode = KnowledgeViewMode::Reader;
         tab.reader_slug = Some("test".to_string());
         tab.reader_frontmatter = Some(PageFrontmatter {
             title: "Test Page".to_string(),

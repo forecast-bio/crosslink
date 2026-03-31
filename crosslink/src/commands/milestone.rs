@@ -30,10 +30,10 @@ pub fn create(
 ) -> Result<()> {
     if let Some(sw) = shared {
         let id = sw.create_milestone(db, name, description)?;
-        println!("Created milestone #{}: {}", id, name);
+        println!("Created milestone #{id}: {name}");
     } else {
         let id = db.create_milestone(name, description)?;
-        println!("Created milestone #{}: {}", id, name);
+        println!("Created milestone #{id}: {name}");
     }
     Ok(())
 }
@@ -49,14 +49,21 @@ pub fn list(db: &Database, status: Option<&str>) -> Result<()> {
     for m in milestones {
         let issues = db.get_milestone_issues(m.id)?;
         let total = issues.len();
-        let closed = issues.iter().filter(|i| i.status == "closed").count();
+        let closed = issues
+            .iter()
+            .filter(|i| i.status == crate::models::IssueStatus::Closed)
+            .count();
         let progress = if total > 0 {
-            format!("{}/{}", closed, total)
+            format!("{closed}/{total}")
         } else {
             "0/0".to_string()
         };
 
-        let status_marker = if m.status == "closed" { "✓" } else { " " };
+        let status_marker = if m.status == crate::models::IssueStatus::Closed {
+            "✓"
+        } else {
+            " "
+        };
         println!("#{:<3} [{}] {} ({})", m.id, status_marker, m.name, progress);
     }
 
@@ -64,9 +71,8 @@ pub fn list(db: &Database, status: Option<&str>) -> Result<()> {
 }
 
 pub fn show(db: &Database, id: i64) -> Result<()> {
-    let m = match db.get_milestone(id)? {
-        Some(m) => m,
-        None => bail!("Milestone #{} not found", id),
+    let Some(m) = db.get_milestone(id)? else {
+        bail!("Milestone #{id} not found");
     };
     println!("Milestone #{}: {}", m.id, m.name);
     println!("Status: {}", m.status);
@@ -80,21 +86,28 @@ pub fn show(db: &Database, id: i64) -> Result<()> {
         if !desc.is_empty() {
             println!("\nDescription:");
             for line in desc.lines() {
-                println!("  {}", line);
+                println!("  {line}");
             }
         }
     }
 
     let issues = db.get_milestone_issues(id)?;
     let total = issues.len();
-    let closed = issues.iter().filter(|i| i.status == "closed").count();
+    let closed = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Closed)
+        .count();
 
-    println!("\nProgress: {}/{} issues closed", closed, total);
+    println!("\nProgress: {closed}/{total} issues closed");
 
     if !issues.is_empty() {
         println!("\nIssues:");
         for issue in issues {
-            let status_marker = if issue.status == "closed" { "✓" } else { " " };
+            let status_marker = if issue.status == crate::models::IssueStatus::Closed {
+                "✓"
+            } else {
+                " "
+            };
             println!(
                 "  {:<5} [{}] {:8} {}",
                 format_issue_id(issue.id),
@@ -116,7 +129,7 @@ pub fn add(
 ) -> Result<()> {
     let milestone = db.get_milestone(milestone_id)?;
     if milestone.is_none() {
-        bail!("Milestone #{} not found", milestone_id);
+        bail!("Milestone #{milestone_id} not found");
     }
 
     // Validate issue IDs and collect the ones that exist
@@ -198,11 +211,11 @@ pub fn remove(
 pub fn close(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
     if let Some(sw) = shared {
         sw.close_milestone(db, id)?;
-        println!("Closed milestone #{}", id);
+        println!("Closed milestone #{id}");
     } else if db.close_milestone(id)? {
-        println!("Closed milestone #{}", id);
+        println!("Closed milestone #{id}");
     } else {
-        println!("Milestone #{} not found", id);
+        println!("Milestone #{id} not found");
     }
 
     Ok(())
@@ -211,11 +224,11 @@ pub fn close(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()
 pub fn delete(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<()> {
     if let Some(sw) = shared {
         sw.delete_milestone(db, id)?;
-        println!("Deleted milestone #{}", id);
+        println!("Deleted milestone #{id}");
     } else if db.delete_milestone(id)? {
-        println!("Deleted milestone #{}", id);
+        println!("Deleted milestone #{id}");
     } else {
-        println!("Milestone #{} not found", id);
+        println!("Milestone #{id} not found");
     }
 
     Ok(())
@@ -225,10 +238,9 @@ pub fn delete(db: &Database, shared: Option<&SharedWriter>, id: i64) -> Result<(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)
@@ -348,7 +360,10 @@ mod tests {
         show(&db, milestone_id).unwrap();
         let issues = db.get_milestone_issues(milestone_id).unwrap();
         assert_eq!(issues.len(), 2);
-        let closed_count = issues.iter().filter(|i| i.status == "closed").count();
+        let closed_count = issues
+            .iter()
+            .filter(|i| i.status == crate::models::IssueStatus::Closed)
+            .count();
         assert_eq!(closed_count, 1, "1 of 2 issues should be closed");
     }
 

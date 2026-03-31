@@ -20,16 +20,41 @@ use std::time::Duration;
 /// Uses `Connection: close` so the server closes the socket after responding,
 /// which avoids having to handle chunked transfer-encoding or keep-alive.
 fn http_request(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    http_request_with_auth(port, method, path, body, None)
+}
+
+fn authed_request(h: &SmokeHarness, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    http_request_with_auth(
+        h.server_port.expect("server not started"),
+        method,
+        path,
+        body,
+        h.auth_token.as_deref(),
+    )
+}
+
+fn http_request_with_auth(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    auth_token: Option<&str>,
+) -> (u16, String) {
     let mut stream =
         TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Failed to connect to server");
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
     let body_str = body.unwrap_or("");
+    let auth_header = match auth_token {
+        Some(token) => format!("Authorization: Bearer {token}\r\n"),
+        None => String::new(),
+    };
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
 Host: 127.0.0.1:{port}\r\n\
 Content-Type: application/json\r\n\
+{auth_header}\
 Content-Length: {len}\r\n\
 Connection: close\r\n\
 \r\n\
@@ -175,10 +200,10 @@ fn test_health_endpoint() {
 #[test]
 fn test_api_create_issue() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     let payload = r#"{"title": "Test issue via API", "priority": "high"}"#;
-    let (status, body) = http_request(port, "POST", "/api/v1/issues", Some(payload));
+    let (status, body) = authed_request(&h, "POST", "/api/v1/issues", Some(payload));
     assert!(
         status == 200 || status == 201,
         "Create issue should return 200 or 201, got {}",
@@ -202,9 +227,9 @@ fn test_api_get_issue() {
     // Create an issue via CLI so we have something to fetch.
     h.run_ok(&["issue", "create", "CLI-created issue", "-p", "medium"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/issues/1", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/issues/1", None);
     assert_eq!(status, 200, "GET issue should return 200");
 
     let json = parse_json(&body);
@@ -226,9 +251,9 @@ fn test_api_list_issues() {
     h.run_ok(&["issue", "create", "Issue Beta"]);
     h.run_ok(&["issue", "create", "Issue Gamma"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/issues", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/issues", None);
     assert_eq!(status, 200);
 
     let json = parse_json(&body);
@@ -248,22 +273,22 @@ fn test_api_update_issue() {
     let mut h = SmokeHarness::new();
     h.run_ok(&["issue", "create", "Original title"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let payload = r#"{"title": "Updated title", "priority": "critical"}"#;
-    let (status, body) = http_request(port, "PATCH", "/api/v1/issues/1", Some(payload));
+    let payload = r#"{"title": "Updated title", "priority": "high"}"#;
+    let (status, body) = authed_request(&h, "PATCH", "/api/v1/issues/1", Some(payload));
     assert_eq!(status, 200, "PATCH should return 200");
 
     let json = parse_json(&body);
     assert_eq!(json["title"], "Updated title");
-    assert_eq!(json["priority"], "critical");
+    assert_eq!(json["priority"], "high");
 
     // Verify the update persisted by fetching the issue again.
-    let (status2, body2) = http_request(port, "GET", "/api/v1/issues/1", None);
+    let (status2, body2) = authed_request(&h, "GET", "/api/v1/issues/1", None);
     assert_eq!(status2, 200);
     let json2 = parse_json(&body2);
     assert_eq!(json2["title"], "Updated title");
-    assert_eq!(json2["priority"], "critical");
+    assert_eq!(json2["priority"], "high");
 }
 
 #[test]
@@ -271,20 +296,20 @@ fn test_api_delete_issue() {
     let mut h = SmokeHarness::new();
     h.run_ok(&["issue", "create", "Doomed issue"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Verify it exists first.
-    let (status, _) = http_request(port, "GET", "/api/v1/issues/1", None);
+    let (status, _) = authed_request(&h, "GET", "/api/v1/issues/1", None);
     assert_eq!(status, 200);
 
     // Delete it.
-    let (status, body) = http_request(port, "DELETE", "/api/v1/issues/1", None);
+    let (status, body) = authed_request(&h, "DELETE", "/api/v1/issues/1", None);
     assert_eq!(status, 200, "DELETE should return 200");
     let json = parse_json(&body);
     assert_eq!(json["ok"], true);
 
     // Verify it's gone.
-    let (status, _) = http_request(port, "GET", "/api/v1/issues/1", None);
+    let (status, _) = authed_request(&h, "GET", "/api/v1/issues/1", None);
     assert_eq!(status, 404, "Deleted issue should return 404");
 }
 
@@ -293,27 +318,27 @@ fn test_api_close_reopen() {
     let mut h = SmokeHarness::new();
     h.run_ok(&["issue", "create", "Close-reopen test"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Close the issue.
-    let (status, body) = http_request(port, "POST", "/api/v1/issues/1/close", None);
+    let (status, body) = authed_request(&h, "POST", "/api/v1/issues/1/close", None);
     assert_eq!(status, 200, "Close should return 200");
     let json = parse_json(&body);
     assert_eq!(json["status"], "closed");
 
     // Verify via GET.
-    let (_, body) = http_request(port, "GET", "/api/v1/issues/1", None);
+    let (_, body) = authed_request(&h, "GET", "/api/v1/issues/1", None);
     let json = parse_json(&body);
     assert_eq!(json["status"], "closed");
 
     // Reopen.
-    let (status, body) = http_request(port, "POST", "/api/v1/issues/1/reopen", None);
+    let (status, body) = authed_request(&h, "POST", "/api/v1/issues/1/reopen", None);
     assert_eq!(status, 200, "Reopen should return 200");
     let json = parse_json(&body);
     assert_eq!(json["status"], "open");
 
     // Verify via GET again.
-    let (_, body) = http_request(port, "GET", "/api/v1/issues/1", None);
+    let (_, body) = authed_request(&h, "GET", "/api/v1/issues/1", None);
     let json = parse_json(&body);
     assert_eq!(json["status"], "open");
 }
@@ -325,9 +350,9 @@ fn test_api_close_reopen() {
 #[test]
 fn test_api_404_unknown() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, _) = http_request(port, "GET", "/api/v1/nonexistent", None);
+    let (status, _) = authed_request(&h, "GET", "/api/v1/nonexistent", None);
     assert_eq!(
         status, 404,
         "Unknown API path should return 404, got {}",
@@ -338,9 +363,9 @@ fn test_api_404_unknown() {
 #[test]
 fn test_api_issue_not_found() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/issues/99999", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/issues/99999", None);
     assert_eq!(status, 404, "Non-existent issue should return 404");
 
     let json = parse_json(&body);
@@ -350,11 +375,11 @@ fn test_api_issue_not_found() {
 #[test]
 fn test_api_invalid_json() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Send garbage JSON to the create issue endpoint.
-    let (status, _) = http_request(
-        port,
+    let (status, _) = authed_request(
+        &h,
         "POST",
         "/api/v1/issues",
         Some("this is not valid json{{{"),
@@ -373,10 +398,10 @@ fn test_api_invalid_json() {
 #[test]
 fn test_api_sessions() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Before starting a session, current session should be 404.
-    let (status, _) = http_request(port, "GET", "/api/v1/sessions/current", None);
+    let (status, _) = authed_request(&h, "GET", "/api/v1/sessions/current", None);
     assert_eq!(
         status, 404,
         "No session should exist initially, got {}",
@@ -384,7 +409,7 @@ fn test_api_sessions() {
     );
 
     // Start a session.
-    let (status, body) = http_request(port, "POST", "/api/v1/sessions/start", Some("{}"));
+    let (status, body) = authed_request(&h, "POST", "/api/v1/sessions/start", Some("{}"));
     assert_eq!(status, 200, "Start session should return 200");
     let json = parse_json(&body);
     assert!(json["id"].as_i64().is_some(), "Session should have an id");
@@ -394,14 +419,14 @@ fn test_api_sessions() {
     );
 
     // Get current session.
-    let (status, body) = http_request(port, "GET", "/api/v1/sessions/current", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/sessions/current", None);
     assert_eq!(status, 200, "Current session should now exist");
     let json = parse_json(&body);
     assert!(json["id"].as_i64().is_some());
 
     // End the session.
-    let (status, body) = http_request(
-        port,
+    let (status, body) = authed_request(
+        &h,
         "POST",
         "/api/v1/sessions/end",
         Some(r#"{"notes": "smoke test done"}"#),
@@ -411,7 +436,7 @@ fn test_api_sessions() {
     assert_eq!(json["ok"], true);
 
     // After ending, current session should be 404 again.
-    let (status, _) = http_request(port, "GET", "/api/v1/sessions/current", None);
+    let (status, _) = authed_request(&h, "GET", "/api/v1/sessions/current", None);
     assert_eq!(
         status, 404,
         "After ending session, current should be 404, got {}",
@@ -426,17 +451,17 @@ fn test_api_sessions() {
 #[test]
 fn test_api_milestones() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // List milestones (should be empty initially).
-    let (status, body) = http_request(port, "GET", "/api/v1/milestones", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/milestones", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["total"], 0);
 
     // Create a milestone.
     let payload = r#"{"name": "v1.0", "description": "First release"}"#;
-    let (status, body) = http_request(port, "POST", "/api/v1/milestones", Some(payload));
+    let (status, body) = authed_request(&h, "POST", "/api/v1/milestones", Some(payload));
     assert_eq!(status, 200, "Create milestone should return 200");
     let created = parse_json(&body);
     assert_eq!(created["name"], "v1.0");
@@ -444,13 +469,13 @@ fn test_api_milestones() {
     let ms_id = created["id"].as_i64().expect("Milestone should have id");
 
     // List milestones (should have 1).
-    let (status, body) = http_request(port, "GET", "/api/v1/milestones", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/milestones", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["total"], 1);
 
     // Get by ID.
-    let (status, body) = http_request(port, "GET", &format!("/api/v1/milestones/{}", ms_id), None);
+    let (status, body) = authed_request(&h, "GET", &format!("/api/v1/milestones/{}", ms_id), None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["name"], "v1.0");
@@ -471,10 +496,10 @@ fn test_api_search() {
     h.run_ok(&["issue", "create", "Dashboard layout update"]);
     h.run_ok(&["issue", "create", "Authentication refactor"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Search for "authentication" — should find 2 issues.
-    let (status, body) = http_request(port, "GET", "/api/v1/search?q=authentication", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/search?q=authentication", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     let total = json["total"].as_u64().unwrap_or(0);
@@ -505,9 +530,9 @@ fn test_api_search() {
 #[test]
 fn test_api_config() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/config", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/config", None);
     assert_eq!(status, 200, "GET config should return 200");
 
     let json = parse_json(&body);
@@ -542,9 +567,9 @@ fn test_api_config() {
 #[test]
 fn test_api_sync_status() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/sync/status", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/sync/status", None);
     assert_eq!(status, 200, "GET sync/status should return 200");
 
     let json = parse_json(&body);
@@ -623,11 +648,11 @@ Sec-WebSocket-Version: 13\r\n\
 #[test]
 fn test_api_create_issue_with_description() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     let payload =
         r#"{"title": "Described issue", "description": "This is the details", "priority": "low"}"#;
-    let (status, body) = http_request(port, "POST", "/api/v1/issues", Some(payload));
+    let (status, body) = authed_request(&h, "POST", "/api/v1/issues", Some(payload));
     assert!(status == 200 || status == 201);
 
     let json = parse_json(&body);
@@ -639,10 +664,10 @@ fn test_api_create_issue_with_description() {
 #[test]
 fn test_api_create_issue_default_priority() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     let payload = r#"{"title": "Default priority issue"}"#;
-    let (status, body) = http_request(port, "POST", "/api/v1/issues", Some(payload));
+    let (status, body) = authed_request(&h, "POST", "/api/v1/issues", Some(payload));
     assert!(status == 200 || status == 201);
 
     let json = parse_json(&body);
@@ -655,37 +680,37 @@ fn test_api_create_issue_default_priority() {
 #[test]
 fn test_api_update_nonexistent_issue() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     let payload = r#"{"title": "New title"}"#;
-    let (status, _) = http_request(port, "PATCH", "/api/v1/issues/99999", Some(payload));
+    let (status, _) = authed_request(&h, "PATCH", "/api/v1/issues/99999", Some(payload));
     assert_eq!(status, 404, "Updating non-existent issue should return 404");
 }
 
 #[test]
 fn test_api_delete_nonexistent_issue() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, _) = http_request(port, "DELETE", "/api/v1/issues/99999", None);
+    let (status, _) = authed_request(&h, "DELETE", "/api/v1/issues/99999", None);
     assert_eq!(status, 404, "Deleting non-existent issue should return 404");
 }
 
 #[test]
 fn test_api_close_nonexistent_issue() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, _) = http_request(port, "POST", "/api/v1/issues/99999/close", None);
+    let (status, _) = authed_request(&h, "POST", "/api/v1/issues/99999/close", None);
     assert_eq!(status, 404, "Closing non-existent issue should return 404");
 }
 
 #[test]
 fn test_api_list_issues_empty() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/issues", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/issues", None);
     assert_eq!(status, 200);
 
     let json = parse_json(&body);
@@ -701,10 +726,10 @@ fn test_api_issues_blocked_and_ready() {
     h.run_ok(&["issue", "create", "Ready issue"]);
     h.run_ok(&["issue", "create", "Another ready issue"]);
 
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Both should appear in the "ready" list (no blockers).
-    let (status, body) = http_request(port, "GET", "/api/v1/issues/ready", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/issues/ready", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     let total = json["total"].as_u64().unwrap_or(0);
@@ -715,7 +740,7 @@ fn test_api_issues_blocked_and_ready() {
     );
 
     // Blocked list should be empty (no dependencies set).
-    let (status, body) = http_request(port, "GET", "/api/v1/issues/blocked", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/issues/blocked", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["total"], 0, "No issues should be blocked initially");
@@ -724,9 +749,9 @@ fn test_api_issues_blocked_and_ready() {
 #[test]
 fn test_api_milestone_not_found() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/milestones/99999", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/milestones/99999", None);
     assert_eq!(status, 404);
 
     let json = parse_json(&body);
@@ -736,10 +761,10 @@ fn test_api_milestone_not_found() {
 #[test]
 fn test_api_search_empty_query() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
     // Empty query should return 400.
-    let (status, _) = http_request(port, "GET", "/api/v1/search?q=", None);
+    let (status, _) = authed_request(&h, "GET", "/api/v1/search?q=", None);
     assert_eq!(
         status, 400,
         "Empty search query should return 400, got {}",
@@ -750,9 +775,9 @@ fn test_api_search_empty_query() {
 #[test]
 fn test_api_search_no_results() {
     let mut h = SmokeHarness::new();
-    let port = h.start_server();
+    let _port = h.start_server();
 
-    let (status, body) = http_request(port, "GET", "/api/v1/search?q=xyznonexistent", None);
+    let (status, body) = authed_request(&h, "GET", "/api/v1/search?q=xyznonexistent", None);
     assert_eq!(status, 200);
     let json = parse_json(&body);
     assert_eq!(json["total"], 0);

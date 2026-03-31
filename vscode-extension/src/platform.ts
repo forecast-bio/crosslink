@@ -14,10 +14,15 @@ export interface PlatformInfo {
     requiresChmod: boolean;
 }
 
+let _cachedPlatformInfo: PlatformInfo | null = null;
+
 /**
  * Detects the current OS and architecture to select the correct binary.
+ * Result is cached since platform info never changes during a process lifetime.
  */
 export function detectPlatform(): PlatformInfo {
+    if (_cachedPlatformInfo) return _cachedPlatformInfo;
+
     const platform = os.platform() as Platform;
     const arch = os.arch() as Architecture;
 
@@ -35,12 +40,13 @@ export function detectPlatform(): PlatformInfo {
     const binaryName = getBinaryName(platform, arch);
     const requiresChmod = platform !== 'win32';
 
-    return {
+    _cachedPlatformInfo = {
         platform,
         arch,
         binaryName,
         requiresChmod,
     };
+    return _cachedPlatformInfo;
 }
 
 /**

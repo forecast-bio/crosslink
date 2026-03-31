@@ -67,8 +67,8 @@ pub struct CompactIssue {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub status: String,
-    pub priority: String,
+    pub status: crate::models::IssueStatus,
+    pub priority: crate::models::Priority,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_uuid: Option<Uuid>,
     pub created_by: String,
@@ -123,6 +123,10 @@ fn checkpoint_dir(cache_dir: &Path) -> std::path::PathBuf {
 }
 
 /// Read checkpoint state from disk. Returns default if missing.
+///
+/// # Errors
+///
+/// Returns an error if the checkpoint file exists but cannot be read or parsed.
 pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
     let path = checkpoint_dir(cache_dir).join(CHECKPOINT_FILE);
     if !path.exists() {
@@ -135,6 +139,10 @@ pub fn read_checkpoint(cache_dir: &Path) -> Result<CheckpointState> {
 }
 
 /// Write checkpoint state to disk (pretty-printed JSON).
+///
+/// # Errors
+///
+/// Returns an error if the checkpoint directory cannot be created or the file cannot be written.
 pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()> {
     let dir = checkpoint_dir(cache_dir);
     std::fs::create_dir_all(&dir)
@@ -148,6 +156,10 @@ pub fn write_checkpoint(cache_dir: &Path, state: &CheckpointState) -> Result<()>
 ///
 /// Reads from the checkpoint state's embedded `watermark` field (atomic).
 /// Falls back to the legacy `watermark.json` file for migration.
+///
+/// # Errors
+///
+/// Returns an error if checkpoint or watermark files cannot be read or parsed.
 pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
     // Prefer the watermark embedded in checkpoint state (atomic with state).
     let state = read_checkpoint(cache_dir)?;
@@ -172,7 +184,8 @@ pub fn read_watermark(cache_dir: &Path) -> Result<Option<OrderingKey>> {
 /// Reads the current checkpoint, sets the watermark, and writes both
 /// in a single atomic file operation. This prevents inconsistent state
 /// if a crash occurs between writes.
-pub fn write_watermark(cache_dir: &Path, key: &OrderingKey) -> Result<()> {
+#[cfg(test)]
+pub(crate) fn write_watermark(cache_dir: &Path, key: &OrderingKey) -> Result<()> {
     let mut state = read_checkpoint(cache_dir)?;
     state.watermark = Some(key.clone());
     write_checkpoint(cache_dir, &state)
@@ -215,8 +228,8 @@ mod tests {
                 display_id: Some(1),
                 title: "Test".to_string(),
                 description: None,
-                status: "open".to_string(),
-                priority: "medium".to_string(),
+                status: crate::models::IssueStatus::Open,
+                priority: crate::models::Priority::Medium,
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
                 created_at: Utc::now(),
@@ -311,8 +324,8 @@ mod tests {
             display_id: Some(1),
             title: "Test".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "high".to_string(),
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::High,
             parent_uuid: None,
             created_by: "agent-1".to_string(),
             created_at: Utc::now(),

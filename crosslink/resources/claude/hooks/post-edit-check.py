@@ -162,6 +162,23 @@ def run_linter(file_path, max_errors=10):
                             if len(errors) >= max_errors:
                                 break
 
+        elif ext in ('.sh', '.bash'):
+            # Shell: run shellcheck
+            try:
+                result = subprocess.run(
+                    ['shellcheck', '-f', 'gcc', file_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                for line in result.stdout.split('\n'):
+                    if line.strip():
+                        errors.append(line.strip()[:100])
+                        if len(errors) >= max_errors:
+                            break
+            except FileNotFoundError:
+                pass  # shellcheck not installed
+
         elif ext in ('.ex', '.exs', '.heex'):
             # Elixir: run mix format --check-formatted, then mix credo --strict if available
             project_root = find_project_root(file_path, ['mix.exs'])
@@ -274,6 +291,13 @@ def find_test_files(file_path, project_root):
         test_patterns = [
             os.path.join(os.path.dirname(file_path), f'{name_without_ext}_test.go'),
         ]
+    elif ext in ('.sh', '.bash'):
+        test_patterns = [
+            os.path.join(project_root, 'test', '**', f'{name_without_ext}.bats'),
+            os.path.join(project_root, 'tests', '**', f'{name_without_ext}.bats'),
+            os.path.join(project_root, 'test', '**', f'test_{name_without_ext}.sh'),
+            os.path.join(project_root, 'tests', '**', f'test_{name_without_ext}.sh'),
+        ]
     elif ext in ('.ex', '.exs'):
         test_patterns = [
             os.path.join(project_root, 'test', '**', f'{name_without_ext}_test.exs'),
@@ -293,7 +317,7 @@ def get_test_reminder(file_path, project_root):
         return None  # Editing a test file, no reminder needed
 
     ext = os.path.splitext(file_path)[1]
-    code_extensions = ('.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.ex', '.exs', '.heex')
+    code_extensions = ('.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.sh', '.bash', '.ex', '.exs', '.heex')
 
     if ext not in code_extensions:
         return None
@@ -336,6 +360,11 @@ def get_test_reminder(file_path, project_root):
             test_cmd = 'npm test'
     elif ext == '.go' and project_root:
         test_cmd = 'go test ./...'
+    elif ext in ('.sh', '.bash') and project_root:
+        # Check for bats test framework
+        bats_dir = os.path.join(project_root, 'test')
+        if os.path.isdir(bats_dir) and any(f.endswith('.bats') for f in os.listdir(bats_dir)):
+            test_cmd = 'bats test/'
     elif ext in ('.ex', '.exs', '.heex') and project_root:
         if os.path.exists(os.path.join(project_root, 'mix.exs')):
             test_cmd = 'mix test'
@@ -368,7 +397,7 @@ def main():
     code_extensions = (
         '.rs', '.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.java',
         '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.swift',
-        '.kt', '.scala', '.zig', '.odin', '.ex', '.exs', '.heex'
+        '.kt', '.scala', '.zig', '.odin', '.sh', '.bash', '.ex', '.exs', '.heex'
     )
 
     if not any(file_path.endswith(ext) for ext in code_extensions):

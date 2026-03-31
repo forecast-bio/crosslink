@@ -1,6 +1,7 @@
 use super::*;
 use crate::identity::AgentConfig;
 use crate::locks::{Heartbeat, Keyring, LocksFile};
+use crate::sync::LockMode;
 use chrono::Utc;
 use std::path::Path;
 use std::process::Command;
@@ -223,7 +224,7 @@ fn test_find_stale_locks_with_stale() {
     // Create a lock
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "5".to_string(),
+        5i64,
         crate::locks::Lock {
             agent_id: "worker-1".to_string(),
             branch: None,
@@ -258,7 +259,7 @@ fn test_find_stale_locks_with_fresh_heartbeat() {
     // Create a lock
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "5".to_string(),
+        5i64,
         crate::locks::Lock {
             agent_id: "worker-1".to_string(),
             branch: None,
@@ -1183,7 +1184,7 @@ fn test_find_stale_locks_with_age_stale_lock_no_heartbeat() {
     let old_time = Utc::now() - chrono::Duration::hours(2);
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "42".to_string(),
+        42i64,
         crate::locks::Lock {
             agent_id: "stale-agent".to_string(),
             branch: None,
@@ -1219,7 +1220,7 @@ fn test_find_stale_locks_with_age_fresh_heartbeat_not_stale() {
 
     let mut locks_map = std::collections::HashMap::new();
     locks_map.insert(
-        "10".to_string(),
+        10i64,
         crate::locks::Lock {
             agent_id: "fresh-agent".to_string(),
             branch: None,
@@ -1500,11 +1501,15 @@ fn test_claim_and_release_lock() {
     let agent = make_agent("test-agent");
 
     // Claim lock on issue 1
-    let claimed = manager.claim_lock(&agent, 1, None, false).unwrap();
+    let claimed = manager
+        .claim_lock(&agent, 1, None, LockMode::Normal)
+        .unwrap();
     assert!(claimed);
 
     // Claiming again for same agent should return false (already held by self)
-    let claimed_again = manager.claim_lock(&agent, 1, None, false).unwrap();
+    let claimed_again = manager
+        .claim_lock(&agent, 1, None, LockMode::Normal)
+        .unwrap();
     assert!(!claimed_again);
 
     // Check lock is set
@@ -1512,7 +1517,7 @@ fn test_claim_and_release_lock() {
     assert!(locks.is_locked(1));
 
     // Release lock
-    let released = manager.release_lock(&agent, 1, false).unwrap();
+    let released = manager.release_lock(&agent, 1, LockMode::Normal).unwrap();
     assert!(released);
 
     // Check lock is gone
@@ -1530,7 +1535,7 @@ fn test_release_lock_not_locked_returns_false() {
     let agent = make_agent("test-agent");
 
     // No lock exists -> returns false
-    let released = manager.release_lock(&agent, 999, false).unwrap();
+    let released = manager.release_lock(&agent, 999, LockMode::Normal).unwrap();
     assert!(!released);
 }
 
@@ -1545,10 +1550,12 @@ fn test_claim_lock_already_locked_by_other_fails() {
     let agent2 = make_agent("agent-2");
 
     // Agent 1 claims
-    manager.claim_lock(&agent1, 5, None, false).unwrap();
+    manager
+        .claim_lock(&agent1, 5, None, LockMode::Normal)
+        .unwrap();
 
     // Agent 2 tries to claim without force -> error
-    let result = manager.claim_lock(&agent2, 5, None, false);
+    let result = manager.claim_lock(&agent2, 5, None, LockMode::Normal);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -1566,10 +1573,14 @@ fn test_claim_lock_force_steals() {
     let agent1 = make_agent("agent-1");
     let agent2 = make_agent("agent-2");
 
-    manager.claim_lock(&agent1, 7, None, false).unwrap();
+    manager
+        .claim_lock(&agent1, 7, None, LockMode::Normal)
+        .unwrap();
 
     // Agent 2 steals with force=true
-    let stolen = manager.claim_lock(&agent2, 7, None, true).unwrap();
+    let stolen = manager
+        .claim_lock(&agent2, 7, None, LockMode::Steal)
+        .unwrap();
     assert!(stolen);
 
     let locks = manager.read_locks().unwrap();
@@ -1587,10 +1598,12 @@ fn test_release_lock_by_different_agent_fails() {
     let agent1 = make_agent("agent-1");
     let agent2 = make_agent("agent-2");
 
-    manager.claim_lock(&agent1, 3, None, false).unwrap();
+    manager
+        .claim_lock(&agent1, 3, None, LockMode::Normal)
+        .unwrap();
 
     // Agent 2 tries to release without force -> error
-    let result = manager.release_lock(&agent2, 3, false);
+    let result = manager.release_lock(&agent2, 3, LockMode::Normal);
     assert!(result.is_err());
 }
 
@@ -1604,10 +1617,12 @@ fn test_release_lock_by_different_agent_with_force() {
     let agent1 = make_agent("agent-1");
     let agent2 = make_agent("agent-2");
 
-    manager.claim_lock(&agent1, 4, None, false).unwrap();
+    manager
+        .claim_lock(&agent1, 4, None, LockMode::Normal)
+        .unwrap();
 
     // Agent 2 force-releases
-    let released = manager.release_lock(&agent2, 4, true).unwrap();
+    let released = manager.release_lock(&agent2, 4, LockMode::Steal).unwrap();
     assert!(released);
 }
 
@@ -1620,7 +1635,7 @@ fn test_claim_lock_with_branch() {
 
     let agent = make_agent("test-agent");
     manager
-        .claim_lock(&agent, 6, Some("feature/test"), false)
+        .claim_lock(&agent, 6, Some("feature/test"), LockMode::Normal)
         .unwrap();
 
     let locks = manager.read_locks().unwrap();
@@ -2004,8 +2019,8 @@ fn test_verify_entry_signatures_unsigned_comments() {
         display_id: Some(1),
         title: "Test issue".to_string(),
         description: None,
-        status: "open".to_string(),
-        priority: "medium".to_string(),
+        status: crate::models::IssueStatus::Open,
+        priority: crate::models::Priority::Medium,
         parent_uuid: None,
         created_by: "test-agent".to_string(),
         created_at: Utc::now(),
@@ -2070,8 +2085,8 @@ fn test_verify_entry_signatures_with_fake_signature_no_allowed_signers() {
         display_id: Some(2),
         title: "Signed issue".to_string(),
         description: None,
-        status: "open".to_string(),
-        priority: "medium".to_string(),
+        status: crate::models::IssueStatus::Open,
+        priority: crate::models::Priority::Medium,
         parent_uuid: None,
         created_by: "test-agent".to_string(),
         created_at: Utc::now(),
@@ -2757,4 +2772,147 @@ fn test_push_heartbeat_second_call_nothing_to_commit() {
     // Second call with same content - nothing to commit, should still succeed
     // (exercises the "nothing to commit" early return)
     manager.push_heartbeat(&agent, None).unwrap();
+}
+
+// ------------------------------------------------------------------
+// #362: read_heartbeats_v2 should skip corrupt timestamps
+// ------------------------------------------------------------------
+
+#[test]
+fn test_read_heartbeats_v2_skips_corrupt_timestamp() {
+    let dir = tempdir().unwrap();
+    let crosslink_dir = dir.path().join(".crosslink");
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+    let agent_dir = cache_dir.join("agents").join("corrupt-agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+
+    // Write V2 format with a corrupt timestamp
+    let heartbeat = serde_json::json!({
+        "agent_id": "corrupt-agent",
+        "timestamp": "not-a-valid-timestamp",
+        "status": "active"
+    });
+    std::fs::write(
+        agent_dir.join("heartbeat.json"),
+        serde_json::to_string_pretty(&heartbeat).unwrap(),
+    )
+    .unwrap();
+
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    let heartbeats = manager.read_heartbeats_v2().unwrap();
+    // Should skip the corrupt entry instead of falling back to Utc::now()
+    assert!(heartbeats.is_empty());
+}
+
+#[test]
+fn test_read_heartbeats_v2_skips_missing_timestamp_field() {
+    let dir = tempdir().unwrap();
+    let crosslink_dir = dir.path().join(".crosslink");
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+    let agent_dir = cache_dir.join("agents").join("no-ts-agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+
+    // Write V2 format without a timestamp field
+    let heartbeat = serde_json::json!({
+        "agent_id": "no-ts-agent",
+        "status": "active"
+    });
+    std::fs::write(
+        agent_dir.join("heartbeat.json"),
+        serde_json::to_string_pretty(&heartbeat).unwrap(),
+    )
+    .unwrap();
+
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    let heartbeats = manager.read_heartbeats_v2().unwrap();
+    assert!(heartbeats.is_empty());
+}
+
+// ------------------------------------------------------------------
+// #350/#355: parse_v2_heartbeat_timestamp helper via stale lock detection
+// ------------------------------------------------------------------
+
+#[test]
+fn test_find_stale_locks_v2_uses_helper() {
+    let dir = tempdir().unwrap();
+    let crosslink_dir = dir.path().join(".crosslink");
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+
+    // Set up V2 layout
+    let meta_dir = cache_dir.join("meta");
+    std::fs::create_dir_all(&meta_dir).unwrap();
+    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
+
+    // Create V2 lock file
+    let locks_dir = cache_dir.join("locks");
+    std::fs::create_dir_all(&locks_dir).unwrap();
+    let lock_v2 = serde_json::json!({
+        "issue_id": 10,
+        "agent_id": "fresh-agent",
+        "branch": null,
+        "claimed_at": Utc::now().to_rfc3339(),
+        "signed_by": null
+    });
+    std::fs::write(
+        locks_dir.join("10.json"),
+        serde_json::to_string(&lock_v2).unwrap(),
+    )
+    .unwrap();
+
+    // Create a fresh heartbeat for the agent
+    let agent_dir = cache_dir.join("agents").join("fresh-agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let hb = serde_json::json!({
+        "timestamp": Utc::now().to_rfc3339()
+    });
+    std::fs::write(
+        agent_dir.join("heartbeat.json"),
+        serde_json::to_string(&hb).unwrap(),
+    )
+    .unwrap();
+
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    let stale = manager
+        .find_stale_locks_v2(chrono::Duration::minutes(30))
+        .unwrap();
+    // Fresh heartbeat — should NOT be stale
+    assert!(stale.is_empty());
+}
+
+// ------------------------------------------------------------------
+// #364: LockMode enum replaces bool force parameter
+// ------------------------------------------------------------------
+
+#[test]
+fn test_lock_mode_enum_in_claim_and_release() {
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    manager.init_cache().unwrap();
+
+    let agent1 = make_agent("lm-agent-1");
+    let agent2 = make_agent("lm-agent-2");
+
+    // Normal claim
+    assert!(manager
+        .claim_lock(&agent1, 100, None, LockMode::Normal)
+        .unwrap());
+
+    // Normal claim by another agent should fail
+    assert!(manager
+        .claim_lock(&agent2, 100, None, LockMode::Normal)
+        .is_err());
+
+    // Steal should succeed
+    assert!(manager
+        .claim_lock(&agent2, 100, None, LockMode::Steal)
+        .unwrap());
+
+    // Normal release by wrong agent should fail
+    assert!(manager
+        .release_lock(&agent1, 100, LockMode::Normal)
+        .is_err());
+
+    // Steal release should succeed
+    assert!(manager.release_lock(&agent1, 100, LockMode::Steal).unwrap());
 }

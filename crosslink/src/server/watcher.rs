@@ -32,6 +32,7 @@ const POLL_INTERVAL_SECS: u64 = 30;
 /// | < 5 min        | Active  |
 /// | 5 – 30 min     | Idle    |
 /// | > 30 min       | Stale   |
+#[must_use]
 pub fn status_from_heartbeat(heartbeat: &Heartbeat) -> AgentStatus {
     let age = Utc::now() - heartbeat.last_heartbeat;
     if age < Duration::minutes(5) {
@@ -124,8 +125,14 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
     loop {
         tokio::select! {
             // Filesystem change notification.
-            Some(()) = notify_rx.recv() => {
-                diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+            result = notify_rx.recv() => {
+                match result {
+                    Some(()) => {
+                        diff_and_broadcast(&sync, &mut last_state, &mut last_statuses, &tx);
+                    }
+                    // Channel closed — all senders dropped, stop the loop.
+                    None => break,
+                }
             }
 
             // Fallback poll every 30 seconds.
@@ -170,13 +177,12 @@ fn diff_and_broadcast(
     for (agent_id, hb) in &current_state {
         let is_new_or_updated = last_state
             .get(agent_id)
-            .map(|prev| prev.last_heartbeat != hb.last_heartbeat)
-            .unwrap_or(true);
+            .is_none_or(|prev| prev.last_heartbeat != hb.last_heartbeat);
 
         if is_new_or_updated {
             // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
             let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
-                event_type: "heartbeat",
+                event_type: crate::server::types::WsEventType::Heartbeat,
                 agent_id: agent_id.clone(),
                 timestamp: hb.last_heartbeat,
                 active_issue_id: hb.active_issue_id,
@@ -184,15 +190,12 @@ fn diff_and_broadcast(
 
             // Broadcast agent_status only when the derived status changes.
             let new_status = status_from_heartbeat(hb);
-            let status_changed = last_statuses
-                .get(agent_id)
-                .map(|prev| prev != &new_status)
-                .unwrap_or(true);
+            let status_changed = last_statuses.get(agent_id) != Some(&new_status);
 
             if status_changed {
                 // INTENTIONAL: broadcast failure is harmless when no WebSocket subscribers are connected
                 let _ = tx.send(WsEvent::AgentStatus(WsAgentStatusEvent {
-                    event_type: "agent_status",
+                    event_type: crate::server::types::WsEventType::AgentStatus,
                     agent_id: agent_id.clone(),
                     status: new_status.clone(),
                 }));
@@ -503,14 +506,14 @@ mod tests {
             let is_new = !last_state.contains_key(agent_id);
             if is_new {
                 let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
-                    event_type: "heartbeat",
+                    event_type: crate::server::types::WsEventType::Heartbeat,
                     agent_id: agent_id.clone(),
                     timestamp: hb.last_heartbeat,
                     active_issue_id: hb.active_issue_id,
                 }));
                 let new_status = status_from_heartbeat(hb);
                 let _ = tx.send(WsEvent::AgentStatus(WsAgentStatusEvent {
-                    event_type: "agent_status",
+                    event_type: crate::server::types::WsEventType::AgentStatus,
                     agent_id: agent_id.clone(),
                     status: new_status.clone(),
                 }));
@@ -551,7 +554,7 @@ mod tests {
                 .unwrap_or(true);
             if is_new_or_updated {
                 let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
-                    event_type: "heartbeat",
+                    event_type: crate::server::types::WsEventType::Heartbeat,
                     agent_id: agent_id.clone(),
                     timestamp: hb.last_heartbeat,
                     active_issue_id: hb.active_issue_id,

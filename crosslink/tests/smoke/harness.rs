@@ -39,6 +39,8 @@ pub struct SmokeHarness {
     pub crosslink_bin: PathBuf,
     server_handle: Option<Child>,
     pub server_port: Option<u16>,
+    /// Bearer token for server API authentication.  Populated by `start_server()`.
+    pub auth_token: Option<String>,
     pub agent_id: String,
     /// Path to a bare git repo used as the shared remote.  `None` for bare
     /// harnesses and harnesses that don't need coordination.
@@ -143,6 +145,7 @@ impl SmokeHarness {
             crosslink_bin: bin,
             server_handle: None,
             server_port: None,
+            auth_token: None,
             agent_id: "smoke-primary".to_string(),
             bare_remote,
             _remote_dir: Some(remote_dir),
@@ -161,6 +164,7 @@ impl SmokeHarness {
             crosslink_bin: bin,
             server_handle: None,
             server_port: None,
+            auth_token: None,
             agent_id: "smoke-bare".to_string(),
             bare_remote: None,
             _remote_dir: None,
@@ -240,13 +244,31 @@ impl SmokeHarness {
         };
         // The listener is dropped, freeing the port for the server.
 
-        let child = Command::new(&self.crosslink_bin)
+        let mut child = Command::new(&self.crosslink_bin)
             .current_dir(self.temp_dir.path())
             .args(["serve", "--port", &port.to_string()])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn crosslink serve");
+
+        // Read stdout in a background thread to capture the auth token.
+        // The server prints "Auth:      Bearer <token>" on startup.
+        let stdout = child
+            .stdout
+            .take()
+            .expect("failed to capture server stdout");
+        let (token_tx, token_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                if let Some(token) = line.strip_prefix("  Auth:      Bearer ") {
+                    let _ = token_tx.send(token.trim().to_string());
+                }
+            }
+        });
 
         self.server_handle = Some(child);
         self.server_port = Some(port);
@@ -272,6 +294,9 @@ impl SmokeHarness {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
+
+        // Capture the auth token (should be available by now since the server is ready)
+        self.auth_token = token_rx.recv_timeout(Duration::from_secs(2)).ok();
 
         port
     }
@@ -372,6 +397,7 @@ impl SmokeHarness {
             crosslink_bin: bin,
             server_handle: None,
             server_port: None,
+            auth_token: None,
             agent_id: agent_id.to_string(),
             bare_remote: Some(remote_path.clone()),
             _remote_dir: None, // The remote TempDir is owned by the original harness

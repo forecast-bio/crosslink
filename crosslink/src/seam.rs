@@ -80,6 +80,10 @@ const COUPLING_THRESHOLD: usize = 3;
 
 /// Detect seams in the repository at `repo_root` and return up to
 /// `max_partitions` non-overlapping partitions of source files.
+///
+/// # Errors
+///
+/// Returns an error if the repository cannot be read or parsed.
 pub fn detect_seams(repo_root: &Path, max_partitions: usize) -> Result<Vec<Partition>> {
     let max_partitions = max_partitions.max(1);
 
@@ -95,11 +99,11 @@ pub fn detect_seams(repo_root: &Path, max_partitions: usize) -> Result<Vec<Parti
     // 3. Fallback to directory-based splitting when we got fewer than 2
     //    partitions from module detection.
     if partitions.len() < 2 {
-        partitions = directory_based_partitions(repo_root, &all_files)?;
+        partitions = directory_based_partitions(repo_root, &all_files);
     }
 
     // 4. Ensure every source file is assigned (catch stragglers).
-    partitions = ensure_complete_coverage(partitions, &all_files);
+    partitions = ensure_complete_coverage(partitions, &all_files, repo_root);
 
     // 5. Git-coupling analysis: merge partitions whose files are tightly
     //    coupled according to commit history.
@@ -159,8 +163,7 @@ fn walk_dir(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 fn is_source_file(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|ext| SOURCE_EXTENSIONS.contains(&ext))
-        .unwrap_or(false)
+        .is_some_and(|ext| SOURCE_EXTENSIONS.contains(&ext))
 }
 
 // ---------------------------------------------------------------------------
@@ -169,10 +172,7 @@ fn is_source_file(path: &Path) -> bool {
 
 fn count_lines(root: &Path, file: &Path) -> usize {
     let full = root.join(file);
-    match std::fs::read_to_string(&full) {
-        Ok(contents) => contents.lines().count(),
-        Err(_) => 0,
-    }
+    std::fs::read_to_string(&full).map_or(0, |contents| contents.lines().count())
 }
 
 fn count_lines_many(root: &Path, files: &[PathBuf]) -> usize {
@@ -242,7 +242,7 @@ fn detect_module_boundaries(root: &Path, all_files: &[PathBuf]) -> Result<Vec<Pa
 
         // Create a partition per module.
         for (mod_name, files) in &mod_map {
-            let label = format!("{}::{}", crate_label, mod_name);
+            let label = format!("{crate_label}::{mod_name}");
             partitions.push(make_partition(root, label, files.clone()));
         }
 
@@ -256,7 +256,7 @@ fn detect_module_boundaries(root: &Path, all_files: &[PathBuf]) -> Result<Vec<Pa
         if !unclaimed.is_empty() {
             partitions.push(make_partition(
                 root,
-                format!("{}::_root", crate_label),
+                format!("{crate_label}::_root"),
                 unclaimed,
             ));
         }
@@ -274,7 +274,8 @@ fn find_cargo_tomls(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(results)
 }
 
-fn find_cargo_tomls_recurse(_root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+#[allow(clippy::only_used_in_recursion)]
+fn find_cargo_tomls_recurse(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     let ct = dir.join("Cargo.toml");
     if ct.is_file() {
         out.push(dir.to_path_buf());
@@ -285,7 +286,7 @@ fn find_cargo_tomls_recurse(_root: &Path, dir: &Path, out: &mut Vec<PathBuf>) ->
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if path.is_dir() && !IGNORED_DIRS.contains(&name_str.as_ref()) {
-                find_cargo_tomls_recurse(_root, &path, out)?;
+                find_cargo_tomls_recurse(root, &path, out)?;
             }
         }
     }
@@ -351,7 +352,7 @@ fn find_mod_files(
     // The module can be:
     //   src/<mod_name>.rs
     //   src/<mod_name>/mod.rs  (and everything under src/<mod_name>/)
-    let single_file = src_rel.join(format!("{}.rs", mod_name));
+    let single_file = src_rel.join(format!("{mod_name}.rs"));
     let dir_prefix = src_rel.join(mod_name);
 
     let mut files: Vec<PathBuf> = Vec::new();
@@ -369,16 +370,15 @@ fn find_mod_files(
 // Directory-based fallback
 // ---------------------------------------------------------------------------
 
-fn directory_based_partitions(root: &Path, all_files: &[PathBuf]) -> Result<Vec<Partition>> {
+fn directory_based_partitions(root: &Path, all_files: &[PathBuf]) -> Vec<Partition> {
     // Group files by their first path component (top-level directory).
     let mut groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for f in all_files {
-        let key = f
-            .components()
-            .next()
-            .map(|c| c.as_os_str().to_string_lossy().to_string())
-            .unwrap_or_else(|| "_root".to_string());
+        let key = f.components().next().map_or_else(
+            || "_root".to_string(),
+            |c| c.as_os_str().to_string_lossy().to_string(),
+        );
 
         // If the file is directly in root (only one component), group as _root.
         if f.components().count() == 1 {
@@ -397,7 +397,7 @@ fn directory_based_partitions(root: &Path, all_files: &[PathBuf]) -> Result<Vec<
         .collect();
 
     partitions.sort_by(|a, b| a.label.cmp(&b.label));
-    Ok(partitions)
+    partitions
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +408,7 @@ fn directory_based_partitions(root: &Path, all_files: &[PathBuf]) -> Result<Vec<
 fn ensure_complete_coverage(
     mut partitions: Vec<Partition>,
     all_files: &[PathBuf],
+    repo_root: &Path,
 ) -> Vec<Partition> {
     let assigned: HashSet<PathBuf> = partitions
         .iter()
@@ -421,13 +422,11 @@ fn ensure_complete_coverage(
         .collect();
 
     if !missing.is_empty() {
-        // We don't have root here, so line_count will be approximate (0).
-        // The caller can recompute if needed, but in practice the main entry
-        // point recomputes after coupling.  For now, store 0.
+        let line_count = count_lines_many(repo_root, &missing);
         partitions.push(Partition {
             label: "_uncategorized".to_string(),
             files: missing,
-            line_count: 0,
+            line_count,
         });
     }
 
@@ -521,6 +520,14 @@ fn record_pairs(files: &[PathBuf], counts: &mut HashMap<(PathBuf, PathBuf), usiz
 /// Merge partitions when coupling data shows that files across two partitions
 /// are tightly linked.
 fn apply_coupling(mut partitions: Vec<Partition>, coupling: &CouplingMap) -> Vec<Partition> {
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+
     if coupling.is_empty() {
         return partitions;
     }
@@ -555,14 +562,6 @@ fn apply_coupling(mut partitions: Vec<Partition>, coupling: &CouplingMap) -> Vec
     // Use a simple union-find to track merges.
     let n = partitions.len();
     let mut parent: Vec<usize> = (0..n).collect();
-
-    fn find(parent: &mut [usize], mut x: usize) -> usize {
-        while parent[x] != x {
-            parent[x] = parent[parent[x]];
-            x = parent[x];
-        }
-        x
-    }
 
     // Sort merges by vote count descending.
     let mut merges: Vec<((usize, usize), usize)> = merge_votes.into_iter().collect();
@@ -619,10 +618,10 @@ fn apply_coupling(mut partitions: Vec<Partition>, coupling: &CouplingMap) -> Vec
 // Size-based adjustment
 // ---------------------------------------------------------------------------
 
-fn adjust_sizes(mut partitions: Vec<Partition>) -> Vec<Partition> {
+fn adjust_sizes(partitions: Vec<Partition>) -> Vec<Partition> {
     // 1. Split large partitions.
     let mut split_result: Vec<Partition> = Vec::new();
-    for part in partitions.drain(..) {
+    for part in partitions {
         if part.line_count > MAX_PARTITION_LINES && part.files.len() > 1 {
             split_result.extend(split_partition(part));
         } else {
@@ -914,7 +913,7 @@ mod inline_mod {
             ("benches/bench.rs", "fn bench() {}"),
         ]);
         let files = collect_source_files(repo.path()).unwrap();
-        let parts = directory_based_partitions(repo.path(), &files).unwrap();
+        let parts = directory_based_partitions(repo.path(), &files);
 
         // Should have partitions for src, tests, benches.
         let labels: Vec<&str> = parts.iter().map(|p| p.label.as_str()).collect();
@@ -1199,7 +1198,7 @@ mod inline_mod {
             ("sub/helper.rs", "fn help() {}"),
         ]);
         let files = collect_source_files(repo.path()).unwrap();
-        let parts = directory_based_partitions(repo.path(), &files).unwrap();
+        let parts = directory_based_partitions(repo.path(), &files);
         let labels: Vec<&str> = parts.iter().map(|p| p.label.as_str()).collect();
         assert!(
             labels.contains(&"_root"),
@@ -1761,13 +1760,14 @@ mod inline_mod {
     /// de-duplicates when files appear in multiple partitions.
     #[test]
     fn test_ensure_complete_coverage_adds_uncategorized() {
+        let tmp = tempfile::tempdir().unwrap();
         let partitions = vec![Partition {
             label: "known".to_string(),
             files: vec![PathBuf::from("a.rs")],
             line_count: 10,
         }];
         let all_files = vec![PathBuf::from("a.rs"), PathBuf::from("missing.rs")];
-        let result = ensure_complete_coverage(partitions, &all_files);
+        let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
         let labels: Vec<&str> = result.iter().map(|p| p.label.as_str()).collect();
         assert!(labels.contains(&"_uncategorized"));
         let uncat = result.iter().find(|p| p.label == "_uncategorized").unwrap();
@@ -1776,6 +1776,7 @@ mod inline_mod {
 
     #[test]
     fn test_ensure_complete_coverage_deduplicates() {
+        let tmp = tempfile::tempdir().unwrap();
         // a.rs appears in both partitions.
         let partitions = vec![
             Partition {
@@ -1794,7 +1795,7 @@ mod inline_mod {
             PathBuf::from("b.rs"),
             PathBuf::from("c.rs"),
         ];
-        let result = ensure_complete_coverage(partitions, &all_files);
+        let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
         let mut all_files_in_result: Vec<PathBuf> = result
             .iter()
             .flat_map(|p| p.files.iter().cloned())
@@ -1807,6 +1808,7 @@ mod inline_mod {
 
     #[test]
     fn test_ensure_complete_coverage_removes_empty_partitions() {
+        let tmp = tempfile::tempdir().unwrap();
         // After dedup, if a partition ends up empty it should be removed.
         let partitions = vec![
             Partition {
@@ -1821,7 +1823,7 @@ mod inline_mod {
             },
         ];
         let all_files = vec![PathBuf::from("a.rs")];
-        let result = ensure_complete_coverage(partitions, &all_files);
+        let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
         // "empty_after_dedup" should be removed.
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].label, "first");

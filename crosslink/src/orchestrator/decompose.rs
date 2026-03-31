@@ -10,9 +10,9 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::orchestrator::models::{LlmDecomposeResponse, StoredPlan};
-use crate::server::types::{
-    OrchestratorPhase, OrchestratorPlan, OrchestratorStage, OrchestratorTask,
+use crate::orchestrator::models::{
+    LlmDecomposeResponse, OrchestratorPhase, OrchestratorPlan, OrchestratorStage, OrchestratorTask,
+    StoredPlan,
 };
 
 // ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ use crate::server::types::{
 // ---------------------------------------------------------------------------
 
 /// Build the system prompt instructing the LLM to decompose a design document.
-fn build_system_prompt() -> &'static str {
+const fn build_system_prompt() -> &'static str {
     concat!(
         "You are a software architecture decomposition engine. ",
         "Your task is to analyze a design document and produce a structured ",
@@ -153,7 +153,7 @@ fn extract_json_block(text: &str) -> Result<String> {
 
     // Strip markdown code fences if present
     let cleaned = if trimmed.starts_with("```") {
-        let start = trimmed.find('\n').map(|i| i + 1).unwrap_or(0);
+        let start = trimmed.find('\n').map_or(0, |i| i + 1);
         let end = trimmed.rfind("```").unwrap_or(trimmed.len());
         &trimmed[start..end]
     } else {
@@ -251,12 +251,11 @@ fn transform_to_plan(response: LlmDecomposeResponse, slug: &str) -> Orchestrator
 // Plan storage
 // ---------------------------------------------------------------------------
 
-/// Directory within `.crosslink/` where orchestrator plans are stored.
-const PLANS_DIR: &str = "orchestrator";
+use crate::orchestrator::models::ORCHESTRATOR_DIR;
 
 /// Ensure the orchestrator storage directory exists.
 fn ensure_plans_dir(crosslink_dir: &Path) -> Result<PathBuf> {
-    let dir = crosslink_dir.join(PLANS_DIR);
+    let dir = crosslink_dir.join(ORCHESTRATOR_DIR);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create orchestrator directory: {}", dir.display()))?;
     Ok(dir)
@@ -287,8 +286,12 @@ fn store_plan(
 }
 
 /// Load a stored plan from disk by its ID.
+///
+/// # Errors
+///
+/// Returns an error if the plan file cannot be read or parsed.
 pub fn load_plan(crosslink_dir: &Path, plan_id: &str) -> Result<StoredPlan> {
-    let dir = crosslink_dir.join(PLANS_DIR);
+    let dir = crosslink_dir.join(ORCHESTRATOR_DIR);
     let path = dir.join(format!("{plan_id}.json"));
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("Plan not found: {}", path.display()))?;
@@ -296,8 +299,12 @@ pub fn load_plan(crosslink_dir: &Path, plan_id: &str) -> Result<StoredPlan> {
 }
 
 /// List all stored plan IDs.
+///
+/// # Errors
+///
+/// Returns an error if the orchestrator directory cannot be read.
 pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
-    let dir = crosslink_dir.join(PLANS_DIR);
+    let dir = crosslink_dir.join(ORCHESTRATOR_DIR);
     if !dir.exists() {
         return Ok(vec![]);
     }
@@ -326,6 +333,11 @@ pub fn list_plans(crosslink_dir: &Path) -> Result<Vec<String>> {
 /// 3. Transforms it into an `OrchestratorPlan`
 /// 4. Stores the plan on disk
 /// 5. Returns the plan
+///
+/// # Errors
+///
+/// Returns an error if the document is empty, the LLM call fails, or
+/// plan storage fails.
 pub async fn decompose_document(
     crosslink_dir: &Path,
     document: &str,
@@ -786,12 +798,12 @@ mod tests {
         };
 
         // The orchestrator directory should not exist yet
-        assert!(!crosslink_dir.join(PLANS_DIR).exists());
+        assert!(!crosslink_dir.join(ORCHESTRATOR_DIR).exists());
 
         store_plan(crosslink_dir, &plan, "content").unwrap();
 
         // Now it should exist
-        assert!(crosslink_dir.join(PLANS_DIR).exists());
+        assert!(crosslink_dir.join(ORCHESTRATOR_DIR).exists());
     }
 
     #[test]
@@ -800,7 +812,7 @@ mod tests {
         let crosslink_dir = dir.path();
 
         // Create the orchestrator directory
-        let orch_dir = crosslink_dir.join(PLANS_DIR);
+        let orch_dir = crosslink_dir.join(ORCHESTRATOR_DIR);
         std::fs::create_dir_all(&orch_dir).unwrap();
 
         // Write a json file and a non-json file
@@ -816,7 +828,7 @@ mod tests {
     fn test_load_plan_corrupt_json() {
         let dir = tempfile::tempdir().unwrap();
         let crosslink_dir = dir.path();
-        let orch_dir = crosslink_dir.join(PLANS_DIR);
+        let orch_dir = crosslink_dir.join(ORCHESTRATOR_DIR);
         std::fs::create_dir_all(&orch_dir).unwrap();
         std::fs::write(orch_dir.join("bad.json"), "not valid json!").unwrap();
 

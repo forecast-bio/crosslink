@@ -10,17 +10,15 @@ use crate::utils::format_issue_id;
 /// Check if intervention tracking is enabled in hook-config.json.
 fn is_intervention_tracking_enabled(crosslink_dir: &Path) -> bool {
     let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return true, // default: enabled
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return true; // default: enabled
     };
-    let parsed: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return true,
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return true;
     };
     parsed
         .get("intervention_tracking")
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(true)
 }
 
@@ -40,8 +38,7 @@ pub fn run(
 
     if !validate_trigger_type(trigger_type) {
         bail!(
-            "Unknown trigger type '{}'. Valid types: tool_rejected, tool_blocked, redirect, context_provided, manual_action, question_answered",
-            trigger_type
+            "Unknown trigger type '{trigger_type}'. Valid types: tool_rejected, tool_blocked, redirect, context_provided, manual_action, question_answered"
         );
     }
 

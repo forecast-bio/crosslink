@@ -77,8 +77,7 @@ pub fn init(
         Ok(None) => {} // No existing config, proceed normally
         Err(e) => {
             println!(
-                "Warning: Existing agent.json is malformed ({}). Overwriting with new config.",
-                e
+                "Warning: Existing agent.json is malformed ({e}). Overwriting with new config."
             );
         }
     }
@@ -90,7 +89,7 @@ pub fn init(
         match signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
             Ok(keypair) => {
                 // Store relative path from .crosslink/
-                let rel_path = format!("keys/{}_ed25519", agent_id);
+                let rel_path = format!("keys/{agent_id}_ed25519");
                 config.ssh_key_path = Some(rel_path);
                 config.ssh_fingerprint = Some(keypair.fingerprint.clone());
                 config.ssh_public_key = Some(keypair.public_key.clone());
@@ -106,7 +105,7 @@ pub fn init(
                 if let Err(e) =
                     super::trust::publish_agent_key(crosslink_dir, agent_id, &keypair.public_key)
                 {
-                    println!("  Note: Could not publish key to hub: {}", e);
+                    println!("  Note: Could not publish key to hub: {e}");
                     println!("  Key will be auto-published on next `crosslink sync`.");
                 }
 
@@ -120,7 +119,7 @@ pub fn init(
                 }
             }
             Err(e) => {
-                println!("  Warning: Could not generate SSH key: {}", e);
+                println!("  Warning: Could not generate SSH key: {e}");
                 println!("  Signing will be unavailable. Use --no-key to suppress this warning.");
             }
         }
@@ -130,16 +129,13 @@ pub fn init(
     println!("  ID:      {}", config.agent_id);
     println!("  Machine: {}", config.machine_id);
     if let Some(desc) = &config.description {
-        println!("  Description: {}", desc);
+        println!("  Description: {desc}");
     }
     if config.ssh_fingerprint.is_some() {
         println!("  Signing: enabled");
     }
     println!();
-    println!(
-        "Ask your driver to approve this agent with `crosslink trust approve {}`",
-        agent_id
-    );
+    println!("Ask your driver to approve this agent with `crosslink trust approve {agent_id}`");
     Ok(())
 }
 
@@ -155,10 +151,7 @@ fn prompt(session: &str, message: &str, submit: bool) -> Result<()> {
         .context("tmux not found — is it installed?")?;
 
     if !check.status.success() {
-        bail!(
-            "tmux session '{}' not found. Check `tmux list-sessions`.",
-            session
-        );
+        bail!("tmux session '{session}' not found. Check `tmux list-sessions`.");
     }
 
     // Write prompt to a temp file to avoid shell escaping issues
@@ -213,7 +206,7 @@ fn prompt(session: &str, message: &str, submit: bool) -> Result<()> {
         }
     }
 
-    println!("Prompt sent to session '{}'", session);
+    println!("Prompt sent to session '{session}'");
     Ok(())
 }
 
@@ -260,11 +253,7 @@ pub fn bootstrap(
         }
         let existing_url = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if existing_url != repo_url {
-            bail!(
-                "Remote mismatch: existing origin is '{}', expected '{}'",
-                existing_url,
-                repo_url
-            );
+            bail!("Remote mismatch: existing origin is '{existing_url}', expected '{repo_url}'");
         }
     }
 
@@ -300,10 +289,10 @@ pub fn bootstrap(
         let keys_dir = crosslink_dir.join("keys");
         match signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
             Ok(keypair) => {
-                let rel_path = format!("keys/{}_ed25519", agent_id);
+                let rel_path = format!("keys/{agent_id}_ed25519");
                 config.ssh_key_path = Some(rel_path);
-                config.ssh_fingerprint = Some(keypair.fingerprint.clone());
-                config.ssh_public_key = Some(keypair.public_key.clone());
+                config.ssh_fingerprint = Some(keypair.fingerprint);
+                config.ssh_public_key = Some(keypair.public_key);
 
                 // Re-write agent.json with key info
                 let path = crosslink_dir.join("agent.json");
@@ -311,7 +300,7 @@ pub fn bootstrap(
                 std::fs::write(&path, json)?;
             }
             Err(e) => {
-                println!("  Warning: Could not generate SSH key: {}", e);
+                println!("  Warning: Could not generate SSH key: {e}");
                 println!("  Signing will be unavailable.");
             }
         }
@@ -348,11 +337,11 @@ pub fn bootstrap(
         Ok(())
     };
 
-    git_in_cache(&["add", &format!("agents/{}/", agent_id)])?;
+    git_in_cache(&["add", &format!("agents/{agent_id}/")])?;
     git_in_cache(&[
         "commit",
         "-m",
-        &format!("bootstrap: register agent '{}'", agent_id),
+        &format!("bootstrap: register agent '{agent_id}'"),
     ])?;
 
     let remote = crate::sync::read_tracker_remote(&crosslink_dir);
@@ -377,7 +366,7 @@ pub fn bootstrap(
     // the chicken-and-egg where signing is required for the publish commit)
     if let Some(pub_key) = &config.ssh_public_key {
         if let Err(e) = super::trust::publish_agent_key(&crosslink_dir, agent_id, pub_key) {
-            println!("  Note: Could not publish key to hub: {}", e);
+            println!("  Note: Could not publish key to hub: {e}");
             println!("  Key will be auto-published on next `crosslink sync`.");
         }
     }
@@ -396,10 +385,7 @@ pub fn bootstrap(
     }
     println!("  Repo path: {}", target_dir.display());
     println!();
-    println!(
-        "Ask your driver to approve this agent with `crosslink trust approve {}`",
-        agent_id
-    );
+    println!("Ask your driver to approve this agent with `crosslink trust approve {agent_id}`");
 
     Ok(())
 }
@@ -411,7 +397,7 @@ pub fn status(crosslink_dir: &Path) -> Result<()> {
             println!("Agent: {}", config.agent_id);
             println!("Machine: {}", config.machine_id);
             if let Some(desc) = &config.description {
-                println!("Description: {}", desc);
+                println!("Description: {desc}");
             }
             if config.ssh_fingerprint.is_some() {
                 println!("Signing: enabled");

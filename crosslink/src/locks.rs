@@ -4,8 +4,37 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Custom serde for `HashMap`<i64, V> that serializes keys as strings for JSON
+/// backward compatibility (locks.json uses string keys on disk).
+mod string_key_map {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<V: Serialize, S: Serializer>(
+        map: &HashMap<i64, V>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let string_map: HashMap<String, &V> = map.iter().map(|(k, v)| (k.to_string(), v)).collect();
+        string_map.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, V: Deserialize<'de>, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<HashMap<i64, V>, D::Error> {
+        let string_map: HashMap<String, V> = HashMap::deserialize(deserializer)?;
+        string_map
+            .into_iter()
+            .map(|(k, v)| {
+                k.parse::<i64>()
+                    .map(|id| (id, v))
+                    .map_err(|_| serde::de::Error::custom(format!("invalid lock key: {k}")))
+            })
+            .collect()
+    }
+}
+
 /// A single issue lock entry in locks.json.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Lock {
     pub agent_id: String,
     #[serde(default)]
@@ -15,13 +44,13 @@ pub struct Lock {
 }
 
 /// Settings embedded in locks.json.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LockSettings {
     #[serde(default = "default_stale_timeout")]
     pub stale_lock_timeout_minutes: u64,
 }
 
-fn default_stale_timeout() -> u64 {
+const fn default_stale_timeout() -> u64 {
     60
 }
 
@@ -34,61 +63,74 @@ impl Default for LockSettings {
 }
 
 /// The top-level locks.json structure.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocksFile {
     pub version: u32,
-    /// Map from issue ID (as string) to Lock.
-    pub locks: HashMap<String, Lock>,
+    /// Map from issue ID to Lock.
+    #[serde(with = "string_key_map")]
+    pub locks: HashMap<i64, Lock>,
     #[serde(default)]
     pub settings: LockSettings,
 }
 
 impl LocksFile {
     /// Load and parse a locks.json file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed as valid JSON.
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        let locks: LocksFile = serde_json::from_str(&content)
+        let locks: Self = serde_json::from_str(&content)
             .with_context(|| format!("Failed to parse {}", path.display()))?;
         Ok(locks)
     }
 
     /// Save to a file using atomic write (temp + rename) to prevent corruption.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be serialized or written atomically.
     pub fn save(&self, path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(self)?;
         crate::utils::atomic_write(path, json.as_bytes())
     }
 
     /// Check if a specific issue is locked.
+    #[must_use]
     pub fn is_locked(&self, issue_id: i64) -> bool {
-        self.locks.contains_key(&issue_id.to_string())
+        self.locks.contains_key(&issue_id)
     }
 
     /// Get the lock for a specific issue.
+    #[must_use]
     pub fn get_lock(&self, issue_id: i64) -> Option<&Lock> {
-        self.locks.get(&issue_id.to_string())
+        self.locks.get(&issue_id)
     }
 
     /// Check if an issue is locked by a specific agent.
+    #[must_use]
     pub fn is_locked_by(&self, issue_id: i64, agent_id: &str) -> bool {
         self.locks
-            .get(&issue_id.to_string())
-            .map(|l| l.agent_id == agent_id)
-            .unwrap_or(false)
+            .get(&issue_id)
+            .is_some_and(|l| l.agent_id == agent_id)
     }
 
     /// List all issue IDs locked by a specific agent.
+    #[must_use]
     pub fn agent_locks(&self, agent_id: &str) -> Vec<i64> {
         self.locks
             .iter()
             .filter(|(_, lock)| lock.agent_id == agent_id)
-            .filter_map(|(id, _)| id.parse().ok())
+            .map(|(id, _)| *id)
             .collect()
     }
 
     /// Create an empty locks file.
+    #[must_use]
     pub fn empty() -> Self {
-        LocksFile {
+        Self {
             version: 1,
             locks: HashMap::new(),
             settings: LockSettings::default(),
@@ -96,8 +138,8 @@ impl LocksFile {
     }
 }
 
-/// Heartbeat file for an agent (lives at heartbeats/{agent_id}.json).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Heartbeat file for an agent (lives at `heartbeats/{agent_id}.json`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Heartbeat {
     pub agent_id: String,
     pub last_heartbeat: DateTime<Utc>,
@@ -106,13 +148,17 @@ pub struct Heartbeat {
 }
 
 /// Trust keyring — list of trusted GPG key fingerprints.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Keyring {
     pub trusted_fingerprints: Vec<String>,
 }
 
 impl Keyring {
     /// Load and parse a keyring.json file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed as valid JSON.
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -121,6 +167,7 @@ impl Keyring {
     }
 
     /// Check if a fingerprint is trusted.
+    #[must_use]
     pub fn is_trusted(&self, fingerprint: &str) -> bool {
         self.trusted_fingerprints.iter().any(|f| f == fingerprint)
     }
@@ -143,9 +190,9 @@ mod tests {
 
     fn sample_locks_file() -> LocksFile {
         let mut locks = HashMap::new();
-        locks.insert("5".to_string(), sample_lock());
+        locks.insert(5, sample_lock());
         locks.insert(
-            "8".to_string(),
+            8,
             Lock {
                 agent_id: "worker-2".to_string(),
                 branch: Some("fix/api-timeout".to_string()),
@@ -358,7 +405,7 @@ mod tests {
         ) {
             let mut locks = HashMap::new();
             locks.insert(
-                id1.to_string(),
+                id1,
                 Lock {
                     agent_id: agent1.clone(),
                     branch: None,
@@ -367,7 +414,7 @@ mod tests {
                 },
             );
             locks.insert(
-                id2.to_string(),
+                id2,
                 Lock {
                     agent_id: agent2.clone(),
                     branch: Some("branch".to_string()),

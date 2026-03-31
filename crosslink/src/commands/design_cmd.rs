@@ -37,16 +37,16 @@ pub fn run(
     let mut args_parts = Vec::new();
 
     if let Some(slug) = continue_slug {
-        args_parts.push(format!("--continue {}", slug));
+        args_parts.push(format!("--continue {slug}"));
     } else if let Some(desc) = description {
-        args_parts.push(format!("\"{}\"", desc));
+        args_parts.push(format!("\"{desc}\""));
     }
 
     if let Some(id) = issue {
-        args_parts.push(format!("--issue {}", id));
+        args_parts.push(format!("--issue {id}"));
     }
     if let Some(id) = gh_issue {
-        args_parts.push(format!("--gh-issue {}", id));
+        args_parts.push(format!("--gh-issue {id}"));
     }
 
     let arguments = args_parts.join(" ");
@@ -61,7 +61,7 @@ pub fn run(
     let full_prompt = if arguments.is_empty() {
         prompt_body.to_string()
     } else {
-        format!("ARGUMENTS: {}\n\n{}", arguments, prompt_body)
+        format!("ARGUMENTS: {arguments}\n\n{prompt_body}")
     };
 
     // 6. Launch foreground Claude session
@@ -89,12 +89,10 @@ fn strip_frontmatter(content: &str) -> &str {
     }
 
     // Find the closing --- (skip the opening one)
-    if let Some(end) = content[3..].find("\n---") {
+    content[3..].find("\n---").map_or(content, |end| {
         let after_frontmatter = &content[3 + end + 4..];
         after_frontmatter.trim_start_matches('\n')
-    } else {
-        content
-    }
+    })
 }
 
 #[cfg(test)]

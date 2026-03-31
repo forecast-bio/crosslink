@@ -1,10 +1,11 @@
 use super::core::{parse_inline_array, split_kv_or_bare, unquote, yaml_escape};
 use super::edit::{
     append_to_section_content, extract_body, find_section_range, parse_heading,
-    replace_section_content, truncate,
+    replace_section_content,
 };
 use super::search::group_matches;
 use super::*;
+use crate::utils::truncate;
 use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
@@ -1215,7 +1216,7 @@ fn test_serialize_frontmatter_sources_without_accessed_at() {
     };
 
     let serialized = serialize_frontmatter(&fm);
-    assert!(serialized.contains("url: https://example.com"));
+    assert!(serialized.contains("url: \"https://example.com\""));
     assert!(!serialized.contains("accessed_at"));
 }
 
@@ -1504,7 +1505,7 @@ fn test_serialize_frontmatter_multiple_contributors() {
         updated: "2026-01-01".to_string(),
     };
     let serialized = serialize_frontmatter(&fm);
-    assert!(serialized.contains("contributors: [alice, bob, carol]"));
+    assert!(serialized.contains(r#"contributors: ["alice", "bob", "carol"]"#));
 }
 
 #[test]
@@ -1522,7 +1523,7 @@ fn test_serialize_frontmatter_multiple_tags() {
         updated: "2026-01-01".to_string(),
     };
     let serialized = serialize_frontmatter(&fm);
-    assert!(serialized.contains("tags: [rust, async, testing]"));
+    assert!(serialized.contains(r#"tags: ["rust", "async", "testing"]"#));
 }
 
 #[test]
@@ -1600,7 +1601,31 @@ fn test_parse_frontmatter_sources_empty_bracket() {
 
 #[test]
 fn test_has_conflict_markers_all_on_same_line() {
+    // All three markers on the same line is NOT a real git conflict — git
+    // always places each marker on its own line. The previous implementation
+    // used naive `contains()` which would false-positive on this (#418).
     let content = "<<<<<<< =======  >>>>>>>\n";
+    assert!(!has_conflict_markers(content));
+}
+
+#[test]
+fn test_has_conflict_markers_mid_line_not_detected() {
+    // Markers that appear mid-line (not at line start) should not trigger.
+    let content = "This is a line with <<<<<<< in it\nand ======= here\nand >>>>>>> there\n";
+    assert!(!has_conflict_markers(content));
+}
+
+#[test]
+fn test_has_conflict_markers_out_of_order() {
+    // Markers in wrong order (separator before opening) should not trigger.
+    let content = "=======\n<<<<<<< HEAD\n>>>>>>> branch\n";
+    assert!(!has_conflict_markers(content));
+}
+
+#[test]
+fn test_has_conflict_markers_valid_sequence() {
+    // Proper git conflict marker sequence should be detected.
+    let content = "before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\nafter\n";
     assert!(has_conflict_markers(content));
 }
 
@@ -1620,6 +1645,32 @@ fn test_split_kv_or_bare_key_with_spaces() {
 fn test_split_kv_or_bare_empty_value() {
     let result = split_kv_or_bare("tags: ");
     assert_eq!(result, Some(("tags", "")));
+}
+
+#[test]
+fn test_parse_inline_array_comma_in_quoted_value() {
+    // A comma inside double quotes should not split the value (#431).
+    let result = parse_inline_array("[\"last, first\", \"plain\"]");
+    assert_eq!(
+        result,
+        Some(vec!["last, first".to_string(), "plain".to_string()])
+    );
+}
+
+#[test]
+fn test_serialize_parse_roundtrip_comma_in_tag() {
+    // Tags containing commas must survive a serialize→parse roundtrip (#431).
+    let fm = PageFrontmatter {
+        title: "Test".to_string(),
+        tags: vec!["rust, systems".to_string(), "plain".to_string()],
+        sources: vec![],
+        contributors: vec![],
+        created: "2026-01-01".to_string(),
+        updated: "2026-01-01".to_string(),
+    };
+    let serialized = serialize_frontmatter(&fm);
+    let parsed = parse_frontmatter(&serialized).unwrap();
+    assert_eq!(parsed.tags, fm.tags);
 }
 
 #[test]
@@ -1855,6 +1906,70 @@ second remote
     assert!(resolved.contains("first remote"));
     assert!(resolved.contains("second local"));
     assert!(resolved.contains("second remote"));
+    assert_eq!(resolved.matches("<!-- MERGE CONFLICT:").count(), 2);
+}
+
+// --- Mid-sequence conflict resolution failure tests (#420) ---
+
+#[test]
+fn test_resolve_accept_both_missing_separator() {
+    // Opening marker appears but the separator (=======) is never reached.
+    // The content after <<<<<<< should be preserved as orphaned "ours" content.
+    let content = "before\n<<<<<<< HEAD\norphaned content\n>>>>>>> branch\n";
+    let resolved = resolve_accept_both(content);
+    // The >>>>>>> without a preceding ======= leaves us in InOurs state.
+    // The >>>>>>> marker is treated as ours content since we haven't seen =======.
+    assert!(resolved.contains("before"));
+    assert!(resolved.contains("orphaned content"));
+}
+
+#[test]
+fn test_resolve_accept_both_nested_opening_markers() {
+    // Two opening markers in sequence without a separator between them.
+    // The second <<<<<<< should be treated as content within the ours section.
+    let content = "\
+<<<<<<< HEAD
+ours line 1
+<<<<<<< HEAD
+ours line 2
+=======
+theirs
+>>>>>>> branch
+";
+    let resolved = resolve_accept_both(content);
+    assert!(!has_conflict_markers(&resolved));
+    assert!(resolved.contains("ours line 1"));
+    assert!(resolved.contains("theirs"));
+}
+
+#[test]
+fn test_resolve_accept_both_separator_without_opening() {
+    // A separator line without a preceding opening marker should be
+    // passed through as normal content (it's in Outside state).
+    let content = "normal\n=======\nmore normal\n";
+    let resolved = resolve_accept_both(content);
+    assert_eq!(resolved, content);
+}
+
+#[test]
+fn test_resolve_accept_both_interleaved_normal_and_conflict() {
+    // Verify that normal content between two conflict blocks is preserved.
+    let content = "\
+<<<<<<< HEAD
+first ours
+=======
+first theirs
+>>>>>>> branch
+middle content is preserved
+<<<<<<< HEAD
+second ours
+=======
+second theirs
+>>>>>>> branch
+";
+    let resolved = resolve_accept_both(content);
+    assert!(resolved.contains("middle content is preserved"));
+    assert!(!has_conflict_markers(&resolved));
     assert_eq!(resolved.matches("<!-- MERGE CONFLICT:").count(), 2);
 }
 
@@ -3140,7 +3255,7 @@ fn test_serialize_frontmatter_source_with_accessed_at() {
         updated: "2026-01-01".to_string(),
     };
     let s = serialize_frontmatter(&fm);
-    assert!(s.contains("accessed_at: 2026-03-01"));
+    assert!(s.contains("accessed_at: \"2026-03-01\""));
 }
 
 #[test]

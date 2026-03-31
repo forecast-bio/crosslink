@@ -21,6 +21,11 @@ use crate::sync::SyncManager;
 
 // Hub cache write lock is in sync/cache.rs — acquired via self.sync.acquire_lock()
 
+/// Comment kind for intervention comments.
+pub(super) const KIND_INTERVENTION: &str = "intervention";
+/// SSH signing namespace for crosslink comments.
+pub(super) const SIGNING_NAMESPACE: &str = "crosslink-comment";
+
 /// Content to write in a single atomic commit-push operation.
 pub(super) struct WriteSet {
     /// Files to write: (relative path in cache, serialized content).
@@ -37,7 +42,7 @@ pub(super) const MAX_RETRIES: usize = 3;
 /// Maximum time to wait for lock confirmation compaction (design doc section 8).
 pub(super) const LOCK_CONFIRM_TIMEOUT_SECS: u64 = 30;
 
-/// Outcome of a write_commit_push operation.
+/// Outcome of a `write_commit_push` operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PushOutcome {
     /// Commit was pushed to remote successfully.
@@ -49,7 +54,7 @@ pub(super) enum PushOutcome {
 /// Write-side coordinator for multi-agent shared issue tracking.
 ///
 /// Handles: generate UUID -> claim display ID -> write JSON -> commit ->
-/// push (with rebase-retry) -> update local SQLite.
+/// push (with rebase-retry) -> update local `SQLite`.
 pub struct SharedWriter {
     pub(super) sync: SyncManager,
     pub(super) agent: AgentConfig,
@@ -59,37 +64,46 @@ pub struct SharedWriter {
 }
 
 impl SharedWriter {
-    /// Create a SharedWriter if multi-agent mode is configured.
+    /// Create a `SharedWriter` if multi-agent mode is configured.
     ///
     /// When `agent.json` exists, uses the configured identity with signing.
     /// When no `agent.json` exists but the hub branch is available, creates
     /// an anonymous writer that commits unsigned data to the coordination
     /// branch. Returns `None` only if the hub branch cannot be initialized.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the sync cache is not initialized or agent loading fails.
     pub fn new(crosslink_dir: &Path) -> Result<Option<Self>> {
-        let agent = match AgentConfig::load(crosslink_dir)? {
-            Some(a) => a,
-            None => {
-                // No agent configured -- try anonymous hub writes if hub exists
-                let sync = SyncManager::new(crosslink_dir)?;
-                if !sync.is_initialized() {
-                    // Only auto-initialize hub cache if the remote actually
-                    // exists. Without a remote there is nothing to sync with,
-                    // so fall back to direct SQLite writes.
-                    if !sync.remote_exists() {
-                        return Ok(None);
-                    }
-                    if sync.init_cache().is_err() {
-                        return Ok(None);
-                    }
-                    if !sync.is_initialized() {
-                        return Ok(None);
-                    }
+        let agent = if let Some(a) = AgentConfig::load(crosslink_dir)? {
+            a
+        } else {
+            // No agent configured -- try anonymous hub writes if hub exists
+            let sync = SyncManager::new(crosslink_dir)?;
+            if !sync.is_initialized() {
+                // Only auto-initialize hub cache if the remote actually
+                // exists. Without a remote there is nothing to sync with,
+                // so fall back to direct SQLite writes.
+                if !sync.remote_exists() {
+                    return Ok(None);
                 }
-                AgentConfig::anonymous(crosslink_dir)
+                if sync.init_cache().is_err() {
+                    return Ok(None);
+                }
+                if !sync.is_initialized() {
+                    return Ok(None);
+                }
             }
+            AgentConfig::anonymous(crosslink_dir)
         };
         let sync = SyncManager::new(crosslink_dir)?;
         if !sync.is_initialized() {
+            // If there's no remote, hub sync is impossible — fall back to
+            // direct SQLite writes. This covers local-only repos and test
+            // environments where no remote is configured.
+            if !sync.remote_exists() {
+                return Ok(None);
+            }
             bail!("Sync cache not initialized. Run `crosslink sync` first.");
         }
         let cache_dir = sync.cache_path().to_path_buf();
@@ -101,7 +115,7 @@ impl SharedWriter {
         // Initialize event sequence counter from existing log
         let event_seq = Cell::new(Self::read_max_event_seq(&cache_dir, &agent.agent_id));
 
-        Ok(Some(SharedWriter {
+        Ok(Some(Self {
             sync,
             agent,
             cache_dir,
@@ -121,28 +135,24 @@ impl SharedWriter {
         })
     }
 
-    /// Hydrate hub cache into SQLite with a single retry on failure.
+    /// Hydrate hub cache into `SQLite` with a single retry on failure.
     ///
     /// If the first attempt fails, prints a warning and retries once.
     /// If the retry also fails, warns the user to run `crosslink sync`
-    /// and returns `Ok(())` so the caller can continue gracefully.
-    pub fn hydrate_with_retry(&self, db: &Database) -> Result<()> {
+    /// so the caller can continue gracefully.
+    pub fn hydrate_with_retry(&self, db: &Database) {
         match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
-            Ok(_) => Ok(()),
+            Ok(_) => {}
             Err(first_err) => {
                 tracing::warn!(
                     "Warning: hydration failed ({}), retrying once...",
                     first_err
                 );
-                match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
-                    Ok(_) => Ok(()),
-                    Err(retry_err) => {
-                        tracing::warn!(
-                            "Warning: hydration retry failed ({}). Run `crosslink sync` to recover.",
-                            retry_err
-                        );
-                        Ok(())
-                    }
+                if let Err(retry_err) = crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
+                    tracing::warn!(
+                        "Warning: hydration retry failed ({}). Run `crosslink sync` to recover.",
+                        retry_err
+                    );
                 }
             }
         }
@@ -156,13 +166,15 @@ impl SharedWriter {
     /// Read the set of UUIDs that have already been promoted.
     pub(super) fn read_promoted_uuids(&self) -> HashSet<Uuid> {
         let path = self.promoted_uuids_path();
-        match std::fs::read_to_string(&path) {
-            Ok(content) => content
-                .lines()
-                .filter_map(|line| line.trim().parse::<Uuid>().ok())
-                .collect(),
-            Err(_) => HashSet::new(),
-        }
+        std::fs::read_to_string(&path).map_or_else(
+            |_| HashSet::new(),
+            |content| {
+                content
+                    .lines()
+                    .filter_map(|line| line.trim().parse::<Uuid>().ok())
+                    .collect()
+            },
+        )
     }
 
     /// Append promoted UUIDs to the tracking file.
@@ -175,7 +187,7 @@ impl SharedWriter {
             .open(&path)
             .with_context(|| format!("Failed to open promoted UUIDs file: {}", path.display()))?;
         for uuid in uuids {
-            writeln!(file, "{}", uuid)?;
+            writeln!(file, "{uuid}")?;
         }
         Ok(())
     }
@@ -188,13 +200,12 @@ impl SharedWriter {
 
     // ---- Event emission infrastructure ----
 
-    /// Read the max agent_seq from an existing event log.
+    /// Read the max `agent_seq` from an existing event log.
     pub(super) fn read_max_event_seq(cache_dir: &Path, agent_id: &str) -> u64 {
         let log_path = cache_dir.join("agents").join(agent_id).join("events.log");
-        match crate::events::read_events(&log_path) {
-            Ok(events) => events.iter().map(|e| e.agent_seq).max().unwrap_or(0),
-            Err(_) => 0,
-        }
+        crate::events::read_events(&log_path).map_or(0, |events| {
+            events.iter().map(|e| e.agent_seq).max().unwrap_or(0)
+        })
     }
 
     /// Get the next event sequence number and increment the counter.
@@ -219,7 +230,7 @@ impl SharedWriter {
             .sync
             .cache_path()
             .parent()
-            .unwrap_or(self.sync.cache_path());
+            .unwrap_or_else(|| self.sync.cache_path());
         let abs = crosslink_dir.join(rel);
         if abs.exists() {
             Some(abs)
@@ -273,6 +284,9 @@ impl SharedWriter {
         event: crate::events::Event,
         message: &str,
     ) -> Result<PushOutcome> {
+        // Serialize access to the hub cache via SyncManager's lock (#372)
+        let _lock_guard = self.sync.acquire_lock()?;
+
         let envelope = self.create_envelope(event);
         let log_path = self.event_log_path();
         crate::events::append_event(&log_path, &envelope)?;
@@ -361,7 +375,7 @@ impl SharedWriter {
                     .sync
                     .cache_path()
                     .parent()
-                    .unwrap_or(self.sync.cache_path());
+                    .unwrap_or_else(|| self.sync.cache_path());
                 let abs = crosslink_dir.join(rel);
                 (abs, fp.clone())
             }
@@ -378,38 +392,32 @@ impl SharedWriter {
             ("content", content),
         ]);
 
-        match crate::signing::sign_content(&key_path, &canonical, "crosslink-comment") {
-            Ok(sig) => (Some(fingerprint), Some(sig)),
-            Err(_) => (None, None),
-        }
+        crate::signing::sign_content(&key_path, &canonical, SIGNING_NAMESPACE)
+            .map_or((None, None), |sig| (Some(fingerprint), Some(sig)))
     }
 
-    /// Find all issue files in the cache with `display_id: null` created by this agent.
+    /// Scan all issue files from the cache, applying a filter predicate.
     ///
-    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
-    /// Skips issues whose UUIDs appear in the promoted-UUIDs tracking file to
-    /// prevent re-promotion loops (gh#313).
-    pub(super) fn find_offline_issues(&self) -> Result<Vec<IssueFile>> {
+    /// Supports both V1 (`issues/{uuid}.json`) and V2 (`issues/{uuid}/issue.json`)
+    /// layouts. Shared implementation used by `find_offline_issues` and
+    /// `load_issue_by_display_id`.
+    pub(super) fn scan_issues<F>(&self, mut filter: F) -> Result<Vec<IssueFile>>
+    where
+        F: FnMut(&IssueFile) -> bool,
+    {
         let issues_dir = self.cache_dir.join("issues");
-        let mut offline = Vec::new();
+        let mut results = Vec::new();
         if !issues_dir.exists() {
-            return Ok(offline);
+            return Ok(results);
         }
-
-        // Load the set of already-promoted UUIDs so we never re-promote them.
-        let promoted = self.read_promoted_uuids();
-
         for entry in std::fs::read_dir(&issues_dir)? {
             let entry = entry?;
             let path = entry.path();
             // V1: issues/{uuid}.json (flat file)
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Ok(issue) = read_issue_file(&path) {
-                    if issue.display_id.is_none()
-                        && issue.created_by == self.agent.agent_id
-                        && !promoted.contains(&issue.uuid)
-                    {
-                        offline.push(issue);
+                    if filter(&issue) {
+                        results.push(issue);
                     }
                 }
             }
@@ -418,16 +426,31 @@ impl SharedWriter {
                 let issue_file = path.join("issue.json");
                 if issue_file.exists() {
                     if let Ok(issue) = read_issue_file(&issue_file) {
-                        if issue.display_id.is_none()
-                            && issue.created_by == self.agent.agent_id
-                            && !promoted.contains(&issue.uuid)
-                        {
-                            offline.push(issue);
+                        if filter(&issue) {
+                            results.push(issue);
                         }
                     }
                 }
             }
         }
+        Ok(results)
+    }
+
+    /// Find all issue files in the cache with `display_id: null` created by this agent.
+    ///
+    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
+    /// Skips issues whose UUIDs appear in the promoted-UUIDs tracking file to
+    /// prevent re-promotion loops (gh#313).
+    pub(super) fn find_offline_issues(&self) -> Result<Vec<IssueFile>> {
+        // Load the set of already-promoted UUIDs so we never re-promote them.
+        let promoted = self.read_promoted_uuids();
+        let agent_id = self.agent.agent_id.clone();
+
+        let mut offline = self.scan_issues(|issue| {
+            issue.display_id.is_none()
+                && issue.created_by == agent_id
+                && !promoted.contains(&issue.uuid)
+        })?;
         // Sort by created_at for deterministic ID assignment
         offline.sort_by_key(|i| i.created_at);
         Ok(offline)
@@ -453,7 +476,7 @@ impl SharedWriter {
         Ok((id, counters))
     }
 
-    /// Load a milestone entry by display_id from per-file storage.
+    /// Load a milestone entry by `display_id` from per-file storage.
     pub(super) fn load_milestone_by_id(&self, display_id: i64) -> Result<MilestoneEntry> {
         let milestones_dir = self.cache_dir.join("meta").join("milestones");
         if milestones_dir.exists() {
@@ -470,7 +493,7 @@ impl SharedWriter {
                 }
             }
         }
-        bail!("Milestone #{} not found in shared cache", display_id)
+        bail!("Milestone #{display_id} not found in shared cache")
     }
 
     /// Read counters from the cache.
@@ -496,27 +519,27 @@ impl SharedWriter {
                 .join(uuid.to_string())
                 .join("issue.json")
         } else {
-            self.cache_dir.join("issues").join(format!("{}.json", uuid))
+            self.cache_dir.join("issues").join(format!("{uuid}.json"))
         }
     }
 
-    /// Relative path to an issue JSON file (for WriteSet entries and git staging).
+    /// Relative path to an issue JSON file (for `WriteSet` entries and git staging).
     ///
     /// V1: `issues/{uuid}.json`
     /// V2: `issues/{uuid}/issue.json`
     pub(super) fn issue_rel_path(&self, uuid: &Uuid) -> String {
         if self.layout_version() >= 2 {
-            format!("issues/{}/issue.json", uuid)
+            format!("issues/{uuid}/issue.json")
         } else {
-            format!("issues/{}.json", uuid)
+            format!("issues/{uuid}.json")
         }
     }
 
     /// Relative path to a comment JSON file (V2 layout only).
     ///
     /// `issues/{issue_uuid}/comments/{comment_uuid}.json`
-    pub(super) fn comment_rel_path(&self, issue_uuid: &Uuid, comment_uuid: &Uuid) -> String {
-        format!("issues/{}/comments/{}.json", issue_uuid, comment_uuid)
+    pub(super) fn comment_rel_path(issue_uuid: &Uuid, comment_uuid: &Uuid) -> String {
+        format!("issues/{issue_uuid}/comments/{comment_uuid}.json")
     }
 
     /// Load an issue JSON file by its display ID.
@@ -524,41 +547,18 @@ impl SharedWriter {
     /// Scans the issues directory for a file matching the display ID.
     /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
     pub(super) fn load_issue_by_display_id(&self, display_id: i64) -> Result<IssueFile> {
-        let issues_dir = self.cache_dir.join("issues");
-        for entry in std::fs::read_dir(&issues_dir)
-            .with_context(|| format!("Cannot read issues dir: {}", issues_dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            // V1: issues/{uuid}.json (flat file)
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(issue) = read_issue_file(&path) {
-                    if issue.display_id == Some(display_id) {
-                        return Ok(issue);
-                    }
-                }
-            }
-            // V2: issues/{uuid}/issue.json (directory per issue)
-            if path.is_dir() {
-                let issue_file = path.join("issue.json");
-                if issue_file.exists() {
-                    if let Ok(issue) = read_issue_file(&issue_file) {
-                        if issue.display_id == Some(display_id) {
-                            return Ok(issue);
-                        }
-                    }
-                }
-            }
-        }
-        bail!(
-            "Issue {} not found in shared cache",
-            crate::utils::format_issue_id(display_id)
-        )
+        let mut matches = self.scan_issues(|issue| issue.display_id == Some(display_id))?;
+        matches.pop().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Issue {} not found in shared cache",
+                crate::utils::format_issue_id(display_id)
+            )
+        })
     }
 
     /// Load an issue by ID, supporting both positive (real) and negative (offline) IDs.
     ///
-    /// For negative IDs, consults SQLite to resolve the UUID first.
+    /// For negative IDs, consults `SQLite` to resolve the UUID first.
     pub(super) fn load_issue_by_id(&self, id: i64, db: &Database) -> Result<IssueFile> {
         let resolved = db.resolve_id(id);
         if resolved >= 0 {
@@ -574,24 +574,23 @@ impl SharedWriter {
 
     /// Resolve an issue ID (positive or negative) to its UUID.
     ///
-    /// For positive IDs, scans issue files by display_id first, then falls
-    /// back to SQLite if the JSON cache doesn't have the issue (#427).
-    /// For negative IDs, looks up the UUID from SQLite.
+    /// For positive IDs, scans issue files by `display_id` first, then falls
+    /// back to `SQLite` if the JSON cache doesn't have the issue (#427).
+    /// For negative IDs, looks up the UUID from `SQLite`.
     pub(super) fn resolve_uuid(&self, id: i64, db: &Database) -> Result<Uuid> {
         // Resolve positive IDs to their local equivalent if needed.
         // Users type "1" meaning "the first issue" regardless of format.
         let resolved = db.resolve_id(id);
 
         if resolved >= 0 {
-            match self.load_issue_by_display_id(resolved) {
-                Ok(issue) => Ok(issue.uuid),
-                Err(_) => {
-                    // JSON cache miss — fall back to SQLite (#427)
-                    let uuid_str = db.get_issue_uuid_by_id(resolved)?;
-                    uuid_str.parse().with_context(|| {
-                        format!("Invalid UUID for issue #{} from SQLite fallback", resolved)
-                    })
-                }
+            if let Ok(issue) = self.load_issue_by_display_id(resolved) {
+                Ok(issue.uuid)
+            } else {
+                // JSON cache miss — fall back to SQLite (#427)
+                let uuid_str = db.get_issue_uuid_by_id(resolved)?;
+                uuid_str.parse().with_context(|| {
+                    format!("Invalid UUID for issue #{resolved} from SQLite fallback")
+                })
             }
         } else {
             let uuid_str = db.get_issue_uuid_by_id(resolved)?;
@@ -599,6 +598,50 @@ impl SharedWriter {
                 format!("Invalid UUID for local issue L{}", resolved.unsigned_abs())
             })
         }
+    }
+
+    /// Write files from a `WriteSet` to the cache directory and update counters.
+    fn apply_write_set(&self, write_set: &WriteSet) -> Result<()> {
+        if !write_set.use_git_rm {
+            for (rel_path, content) in &write_set.files {
+                // Validate JSON content before writing to prevent corruption
+                if std::path::Path::new(rel_path)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+                {
+                    if let Err(e) = serde_json::from_slice::<serde_json::Value>(content) {
+                        bail!("Refusing to write invalid JSON to hub cache: {rel_path} ({e})");
+                    }
+                }
+                let full = self.cache_dir.join(rel_path);
+                if let Some(parent) = full.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&full, content)?;
+
+                // Clean up stale V1 flat file when writing V2 directory
+                // format (#428). The sync-level cleanup_stale_layout_files()
+                // is the guarantee; this is opportunistic (#478).
+                if rel_path.ends_with("/issue.json") {
+                    if let Some(uuid_dir) = rel_path.strip_suffix("/issue.json") {
+                        let v1_path = self.cache_dir.join(format!("{uuid_dir}.json"));
+                        if v1_path.exists() {
+                            if let Err(e) = std::fs::remove_file(&v1_path) {
+                                tracing::warn!(
+                                    "stale V1 file {} could not be removed (sync cleanup will retry): {}",
+                                    v1_path.display(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ref c) = write_set.counters {
+            self.write_counters_to_cache(c)?;
+        }
+        Ok(())
     }
 
     /// Generate content, commit, and push with retry.
@@ -616,57 +659,13 @@ impl SharedWriter {
 
         for attempt in 0..MAX_RETRIES {
             // Recover from broken git states before attempting write (#454, #455, #456)
-            if let Err(e) = self.hub_health_check() {
-                tracing::warn!("hub health check failed (non-fatal): {}", e);
-            }
+            self.hub_health_check();
 
             // (Re-)generate content -- reads fresh counters/files after rebase
             let write_set = prepare(self)?;
 
-            // Write files to cache (skip for deletions -- files already removed)
-            if !write_set.use_git_rm {
-                for (rel_path, content) in &write_set.files {
-                    // Validate JSON content before writing to prevent corruption
-                    if rel_path.ends_with(".json") {
-                        if let Err(e) = serde_json::from_slice::<serde_json::Value>(content) {
-                            bail!(
-                                "Refusing to write invalid JSON to hub cache: {} ({})",
-                                rel_path,
-                                e
-                            );
-                        }
-                    }
-                    let full = self.cache_dir.join(rel_path);
-                    if let Some(parent) = full.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::write(&full, content)?;
-
-                    // Clean up stale V1 flat file when writing V2 directory
-                    // format (#428). The sync-level cleanup_stale_layout_files()
-                    // is the guarantee; this is opportunistic (#478).
-                    if rel_path.ends_with("/issue.json") {
-                        if let Some(uuid_dir) = rel_path.strip_suffix("/issue.json") {
-                            let v1_path = self.cache_dir.join(format!("{}.json", uuid_dir));
-                            if v1_path.exists() {
-                                if let Err(e) = std::fs::remove_file(&v1_path) {
-                                    // We just wrote to this same directory, so
-                                    // a removal failure here is unexpected.
-                                    // The sync-level cleanup will handle it.
-                                    tracing::warn!(
-                                        "stale V1 file {} could not be removed (sync cleanup will retry): {}",
-                                        v1_path.display(),
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if let Some(ref c) = write_set.counters {
-                self.write_counters_to_cache(c)?;
-            }
+            // Write files to cache and update counters
+            self.apply_write_set(&write_set)?;
 
             // Collect relative paths for staging
             let mut paths: Vec<String> = write_set.files.iter().map(|(p, _)| p.clone()).collect();
@@ -778,8 +777,8 @@ impl SharedWriter {
 
     /// Run hub health checks to recover from broken git states.
     /// Delegates to `SyncManager::hub_health_check` via the shared `sync` field.
-    pub(super) fn hub_health_check(&self) -> Result<()> {
-        self.sync.hub_health_check()
+    pub(super) fn hub_health_check(&self) {
+        self.sync.hub_health_check();
     }
 
     /// Run a git command in the cache worktree.
@@ -788,10 +787,10 @@ impl SharedWriter {
             .current_dir(&self.cache_dir)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?} in cache", args))?;
+            .with_context(|| format!("Failed to run git {args:?} in cache"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} in cache failed: {}", args, stderr);
+            bail!("git {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }
@@ -830,7 +829,7 @@ impl SharedWriter {
                 self.git_in_cache(&["reset", "--hard", &remote_ref])?;
             } else {
                 // Pull failed for non-conflict reason — health check + retry
-                self.hub_health_check()?;
+                self.hub_health_check();
                 self.git_in_cache(&["pull", "--rebase", remote, crate::sync::HUB_BRANCH])?;
             }
         }
@@ -850,9 +849,9 @@ impl SharedWriter {
         }
 
         // Must not be mid-rebase
-        let git_dir = self
-            .git_in_cache(&["rev-parse", "--git-dir"])
-            .map(|o| {
+        let git_dir = self.git_in_cache(&["rev-parse", "--git-dir"]).map_or_else(
+            |_| self.cache_dir.join(".git"),
+            |o| {
                 let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 let p = PathBuf::from(&raw);
                 if p.is_absolute() {
@@ -860,8 +859,8 @@ impl SharedWriter {
                 } else {
                     self.cache_dir.join(p)
                 }
-            })
-            .unwrap_or_else(|_| self.cache_dir.join(".git"));
+            },
+        );
 
         if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
             bail!("hub cache recovery failed: still in mid-rebase state");
@@ -873,19 +872,28 @@ impl SharedWriter {
     /// Run a git commit in the cache worktree, disabling signing when
     /// the agent has no SSH key (anonymous/pre-init mode).
     pub(super) fn git_commit_in_cache(&self, message: &str) -> Result<std::process::Output> {
+        self.git_commit_in_cache_with_args(&["-m", message])
+    }
+
+    /// Run a git commit with arbitrary args in the cache worktree,
+    /// disabling signing when the agent has no SSH key.
+    pub(super) fn git_commit_in_cache_with_args(
+        &self,
+        args: &[&str],
+    ) -> Result<std::process::Output> {
         let has_key = self.agent.ssh_key_path.is_some();
         let mut cmd = std::process::Command::new("git");
         cmd.current_dir(&self.cache_dir);
         if !has_key {
             cmd.args(["-c", "commit.gpgsign=false"]);
         }
-        cmd.args(["commit", "-m", message]);
+        cmd.arg("commit").args(args);
         let output = cmd
             .output()
-            .with_context(|| "Failed to run git commit in cache".to_string())?;
+            .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git commit in cache failed: {}", stderr);
+            bail!("git commit {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }

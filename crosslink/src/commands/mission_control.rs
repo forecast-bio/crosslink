@@ -37,10 +37,10 @@ fn discover_agents(crosslink_dir: &Path) -> Result<Vec<ActiveAgent>> {
     }
 
     let mut entries: Vec<_> = std::fs::read_dir(&worktrees_dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .collect();
-    entries.sort_by_key(|e| e.file_name());
+    entries.sort_by_key(std::fs::DirEntry::file_name);
 
     for entry in entries {
         let slug = entry.file_name().to_string_lossy().to_string();
@@ -56,7 +56,7 @@ fn discover_agents(crosslink_dir: &Path) -> Result<Vec<ActiveAgent>> {
         }
 
         // Check container runtimes
-        let container_name = format!("crosslink-agent-driver--{}", slug);
+        let container_name = format!("crosslink-agent-driver--{slug}");
         for runtime in &["docker", "podman"] {
             if !command_available(runtime) {
                 continue;
@@ -100,12 +100,11 @@ fn pane_command(agent: &ActiveAgent) -> String {
             // Refresh the pane every 2 seconds with the agent's latest output.
             // `capture-pane -p` dumps the visible content; the loop keeps it live.
             format!(
-                "while tmux has-session -t {} 2>/dev/null; do clear; tmux capture-pane -t {} -p -S -50; sleep 2; done; echo 'Session ended.'",
-                session, session
+                "while tmux has-session -t {session} 2>/dev/null; do clear; tmux capture-pane -t {session} -p -S -50; sleep 2; done; echo 'Session ended.'"
             )
         }
         AgentSource::Container { runtime, name } => {
-            format!("{} logs -f --tail 200 {}", runtime, name)
+            format!("{runtime} logs -f --tail 200 {name}")
         }
     }
 }
@@ -117,10 +116,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         "tiled" => "tiled",
         "even-horizontal" | "horizontal" => "even-horizontal",
         "even-vertical" | "vertical" => "even-vertical",
-        _ => bail!(
-            "Unknown layout '{}'. Use: tiled, even-horizontal, even-vertical",
-            layout
-        ),
+        _ => bail!("Unknown layout '{layout}'. Use: tiled, even-horizontal, even-vertical"),
     };
 
     if !command_available("tmux") {
@@ -142,8 +138,8 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
     );
     for a in &agents {
         let runtime = match &a.source {
-            AgentSource::Tmux(s) => format!("tmux:{}", s),
-            AgentSource::Container { runtime, name } => format!("{}:{}", runtime, name),
+            AgentSource::Tmux(s) => format!("tmux:{s}"),
+            AgentSource::Container { runtime, name } => format!("{runtime}:{name}"),
         };
         println!("  {} ({})", a.slug, runtime);
     }
@@ -187,7 +183,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         .args([
             "select-pane",
             "-t",
-            &format!("{}:0.0", MC_SESSION),
+            &format!("{MC_SESSION}:0.0"),
             "-T",
             &agents[0].slug,
         ])
@@ -200,7 +196,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
             .args([
                 "split-window",
                 "-t",
-                &format!("{}:0", MC_SESSION),
+                &format!("{MC_SESSION}:0"),
                 "bash",
                 "-c",
                 &cmd,
@@ -223,7 +219,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
             .args([
                 "select-pane",
                 "-t",
-                &format!("{}:0", MC_SESSION),
+                &format!("{MC_SESSION}:0"),
                 "-T",
                 &agent.slug,
             ])
@@ -235,7 +231,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         .args([
             "select-layout",
             "-t",
-            &format!("{}:0", MC_SESSION),
+            &format!("{MC_SESSION}:0"),
             tmux_layout,
         ])
         .output();
@@ -255,7 +251,7 @@ pub fn run(crosslink_dir: &Path, layout: &str) -> Result<()> {
         .output();
 
     println!("Mission control ready.");
-    println!("  tmux attach -t {}", MC_SESSION);
+    println!("  tmux attach -t {MC_SESSION}");
 
     // If we're not inside tmux already and have a terminal, attach automatically
     if std::env::var("TMUX").is_err() && std::io::stdout().is_terminal() {

@@ -40,8 +40,12 @@ pub const BROADCAST_CAPACITY: usize = 256;
 /// Each variant carries the concrete event struct defined in `types.rs`.
 /// `Clone` is required by `tokio::sync::broadcast`.
 ///
+/// Implements `Serialize` directly so callers can use `serde_json::to_value`
+/// or `serde_json::to_string` without manual dispatch.
+///
 /// All variants are used by their respective handlers.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
 pub enum WsEvent {
     Heartbeat(WsHeartbeatEvent),
     AgentStatus(WsAgentStatusEvent),
@@ -52,37 +56,30 @@ pub enum WsEvent {
 
 impl WsEvent {
     /// Returns the channel name for this event (used to filter subscriptions).
-    pub fn channel(&self) -> &'static str {
+    #[must_use]
+    pub const fn channel(&self) -> &'static str {
         match self {
-            WsEvent::Heartbeat(_) | WsEvent::AgentStatus(_) => "agents",
-            WsEvent::IssueUpdated(_) => "issues",
-            WsEvent::LockChanged(_) => "locks",
-            WsEvent::ExecutionProgress(_) => "execution",
+            Self::Heartbeat(_) | Self::AgentStatus(_) => "agents",
+            Self::IssueUpdated(_) => "issues",
+            Self::LockChanged(_) => "locks",
+            Self::ExecutionProgress(_) => "execution",
         }
     }
 
     /// Serialize this event to a JSON string.
     #[cfg(test)]
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        match self {
-            WsEvent::Heartbeat(e) => serde_json::to_string(e),
-            WsEvent::AgentStatus(e) => serde_json::to_string(e),
-            WsEvent::IssueUpdated(e) => serde_json::to_string(e),
-            WsEvent::LockChanged(e) => serde_json::to_string(e),
-            WsEvent::ExecutionProgress(e) => serde_json::to_string(e),
-        }
+        serde_json::to_string(self)
     }
 
     /// Serialize this event to a `serde_json::Value` for embedding in a
     /// `WsEnvelope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if serialization fails.
     pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
-        match self {
-            WsEvent::Heartbeat(e) => serde_json::to_value(e),
-            WsEvent::AgentStatus(e) => serde_json::to_value(e),
-            WsEvent::IssueUpdated(e) => serde_json::to_value(e),
-            WsEvent::LockChanged(e) => serde_json::to_value(e),
-            WsEvent::ExecutionProgress(e) => serde_json::to_value(e),
-        }
+        serde_json::to_value(self)
     }
 }
 
@@ -106,6 +103,7 @@ pub struct WsEnvelope {
 ///
 /// Returns `(Sender, Receiver)`.  The `Sender` is stored in `AppState`;
 /// each new WebSocket client subscribes from it.
+#[must_use]
 pub fn channel() -> (broadcast::Sender<WsEvent>, broadcast::Receiver<WsEvent>) {
     broadcast::channel(BROADCAST_CAPACITY)
 }
@@ -217,7 +215,7 @@ mod tests {
     #[test]
     fn test_ws_event_channel_heartbeat() {
         let ev = WsEvent::Heartbeat(WsHeartbeatEvent {
-            event_type: "heartbeat",
+            event_type: crate::server::types::WsEventType::Heartbeat,
             agent_id: "a1".to_string(),
             timestamp: Utc::now(),
             active_issue_id: None,
@@ -228,7 +226,7 @@ mod tests {
     #[test]
     fn test_ws_event_channel_agent_status() {
         let ev = WsEvent::AgentStatus(WsAgentStatusEvent {
-            event_type: "agent_status",
+            event_type: crate::server::types::WsEventType::AgentStatus,
             agent_id: "a1".to_string(),
             status: AgentStatus::Active,
         });
@@ -238,7 +236,7 @@ mod tests {
     #[test]
     fn test_ws_event_to_json_heartbeat() {
         let ev = WsEvent::Heartbeat(WsHeartbeatEvent {
-            event_type: "heartbeat",
+            event_type: crate::server::types::WsEventType::Heartbeat,
             agent_id: "worker-1".to_string(),
             timestamp: Utc::now(),
             active_issue_id: Some(42),
@@ -252,7 +250,7 @@ mod tests {
     #[test]
     fn test_ws_event_to_json_agent_status() {
         let ev = WsEvent::AgentStatus(WsAgentStatusEvent {
-            event_type: "agent_status",
+            event_type: crate::server::types::WsEventType::AgentStatus,
             agent_id: "worker-2".to_string(),
             status: AgentStatus::Idle,
         });
@@ -264,7 +262,7 @@ mod tests {
     #[test]
     fn test_ws_event_to_json_value_heartbeat() {
         let ev = WsEvent::Heartbeat(WsHeartbeatEvent {
-            event_type: "heartbeat",
+            event_type: crate::server::types::WsEventType::Heartbeat,
             agent_id: "worker-1".to_string(),
             timestamp: Utc::now(),
             active_issue_id: Some(42),
@@ -278,7 +276,7 @@ mod tests {
     #[test]
     fn test_ws_envelope_contains_seq_and_event_fields() {
         let ev = WsEvent::AgentStatus(WsAgentStatusEvent {
-            event_type: "agent_status",
+            event_type: crate::server::types::WsEventType::AgentStatus,
             agent_id: "worker-1".to_string(),
             status: AgentStatus::Active,
         });
@@ -298,7 +296,7 @@ mod tests {
     #[test]
     fn test_ws_envelope_seq_increments() {
         let ev = WsEvent::Heartbeat(WsHeartbeatEvent {
-            event_type: "heartbeat",
+            event_type: crate::server::types::WsEventType::Heartbeat,
             agent_id: "a1".to_string(),
             timestamp: Utc::now(),
             active_issue_id: None,
@@ -337,7 +335,7 @@ mod tests {
     #[test]
     fn test_ws_event_channel_issue_updated() {
         let ev = WsEvent::IssueUpdated(crate::server::types::WsIssueUpdatedEvent {
-            event_type: "issue_updated",
+            event_type: crate::server::types::WsEventType::IssueUpdated,
             issue_id: 1,
             field: "status".to_string(),
         });
@@ -347,7 +345,7 @@ mod tests {
     #[test]
     fn test_ws_event_channel_lock_changed() {
         let ev = WsEvent::LockChanged(crate::server::types::WsLockChangedEvent {
-            event_type: "lock_changed",
+            event_type: crate::server::types::WsEventType::LockChanged,
             issue_id: 1,
             action: crate::server::types::LockAction::Claimed,
             agent_id: "a1".to_string(),
@@ -358,7 +356,7 @@ mod tests {
     #[test]
     fn test_ws_event_channel_execution_progress() {
         let ev = WsEvent::ExecutionProgress(crate::server::types::WsExecutionProgressEvent {
-            event_type: "execution_progress",
+            event_type: crate::server::types::WsEventType::ExecutionProgress,
             plan_id: "p1".to_string(),
             phase_id: "ph1".to_string(),
             stage_id: "s1".to_string(),
@@ -371,7 +369,7 @@ mod tests {
     #[test]
     fn test_ws_event_to_json_issue_updated() {
         let ev = WsEvent::IssueUpdated(crate::server::types::WsIssueUpdatedEvent {
-            event_type: "issue_updated",
+            event_type: crate::server::types::WsEventType::IssueUpdated,
             issue_id: 42,
             field: "title".to_string(),
         });
@@ -384,7 +382,7 @@ mod tests {
     #[test]
     fn test_ws_event_to_json_lock_changed() {
         let ev = WsEvent::LockChanged(crate::server::types::WsLockChangedEvent {
-            event_type: "lock_changed",
+            event_type: crate::server::types::WsEventType::LockChanged,
             issue_id: 5,
             action: crate::server::types::LockAction::Released,
             agent_id: "bot".to_string(),
@@ -398,7 +396,7 @@ mod tests {
     #[test]
     fn test_ws_event_to_json_execution_progress() {
         let ev = WsEvent::ExecutionProgress(crate::server::types::WsExecutionProgressEvent {
-            event_type: "execution_progress",
+            event_type: crate::server::types::WsEventType::ExecutionProgress,
             plan_id: "p1".to_string(),
             phase_id: "ph1".to_string(),
             stage_id: "s1".to_string(),

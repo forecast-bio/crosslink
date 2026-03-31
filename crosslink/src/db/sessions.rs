@@ -15,6 +15,11 @@ impl Database {
         self.start_session_with_agent(None)
     }
 
+    /// Start a new session, optionally scoped to an agent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database insert fails.
     pub fn start_session_with_agent(&self, agent_id: Option<&str>) -> Result<i64> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -24,6 +29,11 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// End a session, recording optional handoff notes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails.
     pub fn end_session(&self, id: i64, notes: Option<&str>) -> Result<bool> {
         let now = Utc::now().to_rfc3339();
         let rows = self.conn.execute(
@@ -39,9 +49,13 @@ impl Database {
         self.get_current_session_for_agent(None)
     }
 
-    /// Get the current active session scoped to the given agent_id.
-    /// If agent_id is Some, only returns sessions belonging to that agent.
-    /// If agent_id is None, returns any active session (backward compat).
+    /// Get the current active session scoped to the given `agent_id`.
+    /// If `agent_id` is Some, only returns sessions belonging to that agent.
+    /// If `agent_id` is None, returns any active session (backward compat).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn get_current_session_for_agent(&self, agent_id: Option<&str>) -> Result<Option<Session>> {
         if let Some(aid) = agent_id {
             let mut stmt = self.conn.prepare(
@@ -62,9 +76,13 @@ impl Database {
         self.get_last_session_for_agent(None)
     }
 
-    /// Get the most recent ended session scoped to the given agent_id.
-    /// If agent_id is Some, only returns sessions belonging to that agent.
-    /// If agent_id is None, returns any ended session (backward compat).
+    /// Get the most recent ended session scoped to the given `agent_id`.
+    /// If `agent_id` is Some, only returns sessions belonging to that agent.
+    /// If `agent_id` is None, returns any ended session (backward compat).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn get_last_session_for_agent(&self, agent_id: Option<&str>) -> Result<Option<Session>> {
         if let Some(aid) = agent_id {
             let mut stmt = self.conn.prepare(
@@ -79,6 +97,11 @@ impl Database {
         }
     }
 
+    /// Set the active issue for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails.
     pub fn set_session_issue(&self, session_id: i64, issue_id: i64) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET active_issue_id = ?1 WHERE id = ?2",
@@ -87,6 +110,11 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Clear the active issue for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails.
     pub fn clear_session_issue(&self, session_id: i64) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET active_issue_id = NULL WHERE id = ?1",
@@ -95,6 +123,11 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Record the last action breadcrumb for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails.
     pub fn set_session_action(&self, session_id: i64, action: &str) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET last_action = ?1 WHERE id = ?2",
@@ -103,6 +136,11 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Update handoff notes for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails.
     pub fn update_session_notes(&self, session_id: i64, notes: &str) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET handoff_notes = ?1 WHERE id = ?2",
@@ -111,6 +149,11 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Retrieve all sessions that have handoff notes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
     pub fn get_all_sessions_with_notes(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE handoff_notes IS NOT NULL ORDER BY id",

@@ -29,7 +29,7 @@ export function Sessions() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(refresh, []);
+  useEffect(() => { refresh(); }, []);
 
   // Load the active issue when session changes
   useEffect(() => {
@@ -65,7 +65,7 @@ export function Sessions() {
   };
 
   const handleClearWork = async () => {
-    await sessionsApi.work(0).catch(() => null);
+    await sessionsApi.clearWork().catch(() => null);
     setWorkingOn(null);
     setCurrent((prev) => prev ? { ...prev, active_issue_id: null } : prev);
   };

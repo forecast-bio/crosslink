@@ -12,26 +12,13 @@ use axum::{
 };
 
 use crate::server::{
+    errors::internal_error,
     state::AppState,
     types::{
         ApiError, CreateTokenUsageRequest, TokenUsageListQuery, TokenUsageListResponse,
         TokenUsageSummaryQuery, TokenUsageSummaryResponse,
     },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -41,11 +28,15 @@ fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json
 ///
 /// Supports optional query parameters: `agent_id`, `session_id`, `model`,
 /// `from`, `to` (ISO 8601 timestamps), and `limit`.
+///
+/// # Errors
+///
+/// Returns an error if the database query fails.
 pub async fn list_usage(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageListQuery>,
 ) -> Result<Json<TokenUsageListResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let items = db
         .list_token_usage(
@@ -58,6 +49,8 @@ pub async fn list_usage(
         )
         .map_err(|e| internal_error("Failed to list token usage", e))?;
 
+    drop(db);
+
     let total = items.len();
     Ok(Json(TokenUsageListResponse { items, total }))
 }
@@ -66,11 +59,15 @@ pub async fn list_usage(
 ///
 /// Body: `CreateTokenUsageRequest` JSON.
 /// Returns the created `TokenUsage` record.
+///
+/// # Errors
+///
+/// Returns an error if inserting or retrieving the token usage record fails.
 pub async fn create_usage(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenUsageRequest>,
 ) -> Result<(StatusCode, Json<crate::models::TokenUsage>), (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let id = db
         .create_token_usage(
@@ -90,17 +87,23 @@ pub async fn create_usage(
         .map_err(|e| internal_error("Failed to fetch new token usage", e))?
         .ok_or_else(|| internal_error("Token usage created but not found", format!("id={id}")))?;
 
+    drop(db);
+
     Ok((StatusCode::CREATED, Json(usage)))
 }
 
 /// `GET /api/v1/usage/summary` — aggregated usage grouped by agent and model.
 ///
 /// Supports optional query parameters: `agent_id`, `from`, `to`.
+///
+/// # Errors
+///
+/// Returns an error if the database aggregation query fails.
 pub async fn usage_summary(
     State(state): State<AppState>,
     Query(params): Query<TokenUsageSummaryQuery>,
 ) -> Result<Json<TokenUsageSummaryResponse>, (StatusCode, Json<ApiError>)> {
-    let db = state.db();
+    let db = state.db().await;
 
     let items = db
         .get_usage_summary(
@@ -109,6 +112,8 @@ pub async fn usage_summary(
             params.to.as_deref(),
         )
         .map_err(|e| internal_error("Failed to get usage summary", e))?;
+
+    drop(db);
 
     let total_input_tokens: i64 = items.iter().map(|r| r.total_input_tokens).sum();
     let total_output_tokens: i64 = items.iter().map(|r| r.total_output_tokens).sum();
@@ -528,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_internal_error_helper() {
-        let (status, json) = super::internal_error("ctx", "detail msg");
+        let (status, json) = crate::server::errors::internal_error("ctx", "detail msg");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
         assert_eq!(json.detail.as_deref(), Some("detail msg"));

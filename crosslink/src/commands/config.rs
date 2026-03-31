@@ -18,192 +18,13 @@ use ratatui::{
     Frame, TerminalOptions, Viewport,
 };
 
-use crate::commands::init;
+// Re-export shared registry types so existing importers (tui, etc.) continue to work.
+use crate::commands::config_registry::WalkthroughCore;
+pub(crate) use crate::commands::config_registry::HOOK_CONFIG_JSON;
+pub use crate::commands::config_registry::{
+    find_registry_key, type_label, ConfigGroup, ConfigType, PRESET_SOLO, PRESET_TEAM, REGISTRY,
+};
 use crate::ConfigCommands;
-
-// ---------------------------------------------------------------------------
-// Config key registry — single source of truth (REQ-1)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigType {
-    Bool,
-    Enum(&'static [&'static str]),
-    String,
-    StringArray,
-    Integer,
-    Map,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigGroup {
-    Workflow,
-    Security,
-    Infrastructure,
-    Agents,
-}
-
-impl ConfigGroup {
-    pub fn label(self) -> &'static str {
-        match self {
-            ConfigGroup::Workflow => "Workflow",
-            ConfigGroup::Security => "Security",
-            ConfigGroup::Infrastructure => "Infrastructure",
-            ConfigGroup::Agents => "Agents",
-        }
-    }
-
-    pub fn all() -> &'static [ConfigGroup] {
-        &[
-            ConfigGroup::Workflow,
-            ConfigGroup::Security,
-            ConfigGroup::Infrastructure,
-            ConfigGroup::Agents,
-        ]
-    }
-}
-
-pub struct ConfigKey {
-    pub key: &'static str,
-    pub config_type: ConfigType,
-    pub description: &'static str,
-    pub group: ConfigGroup,
-    pub hot_swappable: bool,
-}
-
-pub static REGISTRY: &[ConfigKey] = &[
-    ConfigKey {
-        key: "tracking_mode",
-        config_type: ConfigType::Enum(&["strict", "normal", "relaxed"]),
-        description: "How aggressively issue tracking is enforced before code changes",
-        group: ConfigGroup::Workflow,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "intervention_tracking",
-        config_type: ConfigType::Bool,
-        description: "Log driver interventions for autonomy improvement",
-        group: ConfigGroup::Agents,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "cpitd_auto_install",
-        config_type: ConfigType::Bool,
-        description: "Automatically install cpitd (context-provider) during init",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: false,
-    },
-    ConfigKey {
-        key: "comment_discipline",
-        config_type: ConfigType::Enum(&["encouraged", "required", "relaxed"]),
-        description: "How strictly typed comments are enforced on issues",
-        group: ConfigGroup::Workflow,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "kickoff_verification",
-        config_type: ConfigType::Enum(&["local", "ci", "none"]),
-        description: "Verification mode for agent kickoff tasks",
-        group: ConfigGroup::Agents,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "signing_enforcement",
-        config_type: ConfigType::Enum(&["disabled", "audit", "enforced"]),
-        description: "SSH signature verification level for coordination branch",
-        group: ConfigGroup::Security,
-        hot_swappable: false,
-    },
-    ConfigKey {
-        key: "reminder_drift_threshold",
-        config_type: ConfigType::Enum(&["0", "3", "5", "10", "15"]),
-        description: "Prompts without crosslink usage before re-injecting reminder (0 = always)",
-        group: ConfigGroup::Workflow,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "auto_steal_stale_locks",
-        config_type: ConfigType::Enum(&["false", "2", "3", "5", "10"]),
-        description: "Auto-steal stale locks after N * stale_timeout minutes (false = disabled)",
-        group: ConfigGroup::Security,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "tracker_remote",
-        config_type: ConfigType::String,
-        description: "Git remote name for hub/knowledge branches (default: origin)",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: false,
-    },
-    ConfigKey {
-        key: "blocked_git_commands",
-        config_type: ConfigType::StringArray,
-        description: "Git mutation commands blocked in all tracking modes",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "gated_git_commands",
-        config_type: ConfigType::StringArray,
-        description: "Git commands allowed only with explicit user approval",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "allowed_bash_prefixes",
-        config_type: ConfigType::StringArray,
-        description: "Bash commands that bypass the issue-required check",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: true,
-    },
-    ConfigKey {
-        key: "external-cache-ttl",
-        config_type: ConfigType::Integer,
-        description: "TTL in seconds for cached external repo data (default: 300)",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: false,
-    },
-    ConfigKey {
-        key: "external-url-ttl",
-        config_type: ConfigType::Integer,
-        description: "TTL in seconds for cached URL resolution results (default: 86400)",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: false,
-    },
-    ConfigKey {
-        key: "repo-alias",
-        config_type: ConfigType::Map,
-        description: "Named aliases for external repositories (e.g. repo-alias.upstream)",
-        group: ConfigGroup::Infrastructure,
-        hot_swappable: false,
-    },
-];
-
-pub fn find_registry_key(key: &str) -> Option<&'static ConfigKey> {
-    if let Some(entry) = REGISTRY.iter().find(|k| k.key == key) {
-        return Some(entry);
-    }
-    if let Some(dot_pos) = key.find('.') {
-        let prefix = &key[..dot_pos];
-        if let Some(entry) = REGISTRY.iter().find(|k| k.key == prefix) {
-            if matches!(entry.config_type, ConfigType::Map) {
-                return Some(entry);
-            }
-        }
-    }
-    None
-}
-
-fn type_label(ct: ConfigType) -> &'static str {
-    match ct {
-        ConfigType::Bool => "bool",
-        ConfigType::Enum(_) => "enum",
-        ConfigType::String => "string",
-        ConfigType::StringArray => "string[]",
-        ConfigType::Integer => "integer",
-        ConfigType::Map => "map",
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Provenance-aware layered config loading (REQ-2)
@@ -217,11 +38,11 @@ pub enum Source {
 }
 
 impl Source {
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
-            Source::Default => "default",
-            Source::Team => "team",
-            Source::Local => "local",
+            Self::Default => "default",
+            Self::Team => "team",
+            Self::Local => "local",
         }
     }
 }
@@ -361,7 +182,7 @@ pub fn write_config_scoped(
 }
 
 fn read_defaults() -> Result<serde_json::Value> {
-    serde_json::from_str(init::HOOK_CONFIG_JSON).context("embedded hook-config.json is invalid")
+    serde_json::from_str(HOOK_CONFIG_JSON).context("embedded hook-config.json is invalid")
 }
 
 pub fn format_value(v: &serde_json::Value) -> String {
@@ -371,33 +192,13 @@ pub fn format_value(v: &serde_json::Value) -> String {
         serde_json::Value::Array(arr) => {
             let items: Vec<String> = arr
                 .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                 .collect();
             items.join(", ")
         }
         other => other.to_string(),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Preset definitions (REQ-4)
-// ---------------------------------------------------------------------------
-
-pub static PRESET_TEAM: &[(&str, &str)] = &[
-    ("tracking_mode", "strict"),
-    ("comment_discipline", "required"),
-    ("auto_steal_stale_locks", "3"),
-    ("kickoff_verification", "ci"),
-    ("signing_enforcement", "enforced"),
-];
-
-pub static PRESET_SOLO: &[(&str, &str)] = &[
-    ("tracking_mode", "relaxed"),
-    ("comment_discipline", "encouraged"),
-    ("auto_steal_stale_locks", "false"),
-    ("kickoff_verification", "local"),
-    ("signing_enforcement", "disabled"),
-];
 
 fn apply_preset(crosslink_dir: &Path, preset: &[(&str, &str)]) -> Result<()> {
     let mut config = read_team_config(crosslink_dir)?;
@@ -488,9 +289,7 @@ fn show(crosslink_dir: &Path) -> Result<()> {
             .get(entry.key)
             .copied()
             .unwrap_or(Source::Default);
-        let current_str = current
-            .map(format_value)
-            .unwrap_or_else(|| "(unset)".into());
+        let current_display = current.map_or_else(|| "(unset)".into(), format_value);
 
         // Check if local overrides team
         let team_val = resolved.team.get(entry.key);
@@ -527,10 +326,10 @@ fn show(crosslink_dir: &Path) -> Result<()> {
             let team_str = team_val.map(format_value).unwrap_or_default();
             println!(
                 "{} = {} (local — overrides: {})",
-                entry.key, current_str, team_str
+                entry.key, current_display, team_str
             );
         } else {
-            println!("{} = {} ({})", entry.key, current_str, source.label());
+            println!("{} = {} ({})", entry.key, current_display, source.label());
         }
     }
 
@@ -705,25 +504,21 @@ fn set(
         ConfigType::StringArray => {
             if let Some(item) = add {
                 let arr = config.get_mut(key).and_then(|v| v.as_array_mut());
-                match arr {
-                    Some(arr) => {
-                        let already = arr.iter().any(|v| v.as_str() == Some(item));
-                        if already {
-                            println!("\"{item}\" already in {key}");
-                        } else {
-                            arr.push(serde_json::Value::String(item.to_string()));
-                            write_config_scoped(crosslink_dir, &config, scope)?;
-                            println!("Added \"{item}\" to {key}");
-                        }
-                    }
-                    None => {
-                        // For local config, the array might not exist yet — create it
-                        config[key] = serde_json::Value::Array(vec![serde_json::Value::String(
-                            item.to_string(),
-                        )]);
+                if let Some(arr) = arr {
+                    let already = arr.iter().any(|v| v.as_str() == Some(item));
+                    if already {
+                        println!("\"{item}\" already in {key}");
+                    } else {
+                        arr.push(serde_json::Value::String(item.to_string()));
                         write_config_scoped(crosslink_dir, &config, scope)?;
                         println!("Added \"{item}\" to {key}");
                     }
+                } else {
+                    // For local config, the array might not exist yet — create it
+                    config[key] =
+                        serde_json::Value::Array(vec![serde_json::Value::String(item.to_string())]);
+                    write_config_scoped(crosslink_dir, &config, scope)?;
+                    println!("Added \"{item}\" to {key}");
                 }
             } else if let Some(item) = remove {
                 let arr = config[key]
@@ -767,13 +562,13 @@ fn list() -> Result<()> {
     println!("{sep}");
 
     for entry in REGISTRY {
-        let default_str = defaults
-            .get(entry.key)
-            .map(|v| match v {
+        let default_str = defaults.get(entry.key).map_or_else(
+            || "(none)".into(),
+            |v| match v {
                 serde_json::Value::Array(a) => format!("[{} items]", a.len()),
                 other => format_value(other),
-            })
-            .unwrap_or_else(|| "(none)".into());
+            },
+        );
 
         let hot = if entry.hot_swappable { " [hot]" } else { "" };
 
@@ -834,12 +629,8 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
 
         if current != default || local_val.is_some() {
             any_diff = true;
-            let def_str = default
-                .map(format_value)
-                .unwrap_or_else(|| "(unset)".into());
-            let team_str = team_val
-                .map(format_value)
-                .unwrap_or_else(|| "(unset)".into());
+            let def_str = default.map_or_else(|| "(unset)".into(), format_value);
+            let team_str = team_val.map_or_else(|| "(unset)".into(), format_value);
 
             if matches!(entry.config_type, ConfigType::StringArray) {
                 println!("{} (modified):", entry.key);
@@ -869,9 +660,7 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
                     entry.key, def_str, team_str, local_str
                 );
             } else {
-                let cur_str = current
-                    .map(format_value)
-                    .unwrap_or_else(|| "(unset)".into());
+                let cur_str = current.map_or_else(|| "(unset)".into(), format_value);
                 println!("{}: {} (default: {})", entry.key, cur_str, def_str);
             }
         }
@@ -887,224 +676,11 @@ fn diff(crosslink_dir: &Path) -> Result<()> {
 // Interactive config walkthrough (REQ-3)
 // ---------------------------------------------------------------------------
 
-struct WalkthroughApp {
-    /// Current screen: 0 = preset, 1..=4 = groups, 5 = confirm
-    screen: usize,
-    /// For preset screen: 0=Team, 1=Solo, 2=Custom
-    preset_selected: usize,
-    /// Per-group, per-key selected option index
-    /// group_selections[group_idx][key_idx_within_group] = selected_option
-    group_selections: Vec<Vec<usize>>,
-    /// Group names
-    group_names: Vec<&'static str>,
-    /// Keys per group (references into REGISTRY)
-    group_keys: Vec<Vec<usize>>,
-    /// Within a group screen, which key is focused
-    group_cursor: usize,
-    finished: bool,
-    cancelled: bool,
-}
+/// Config walkthrough — thin wrapper around shared `WalkthroughCore` (no extra screens).
+type WalkthroughApp = WalkthroughCore;
 
-impl WalkthroughApp {
-    fn new(current_config: &serde_json::Value) -> Self {
-        let groups = ConfigGroup::all();
-        let mut group_names = Vec::new();
-        let mut group_keys: Vec<Vec<usize>> = Vec::new();
-        let mut group_selections: Vec<Vec<usize>> = Vec::new();
-
-        for group in groups {
-            let mut keys_in_group = Vec::new();
-            let mut selections = Vec::new();
-
-            for (idx, entry) in REGISTRY.iter().enumerate() {
-                if entry.group == *group {
-                    // Skip arrays, maps, integers — they are advanced
-                    if matches!(
-                        entry.config_type,
-                        ConfigType::StringArray | ConfigType::Map | ConfigType::Integer
-                    ) {
-                        continue;
-                    }
-                    keys_in_group.push(idx);
-                    let current_val = current_config.get(entry.key);
-                    let sel = match entry.config_type {
-                        ConfigType::Bool => {
-                            let val = current_val.and_then(|v| v.as_bool()).unwrap_or(false);
-                            if val {
-                                0
-                            } else {
-                                1
-                            }
-                        }
-                        ConfigType::Enum(options) => {
-                            let val = current_val.and_then(|v| v.as_str()).unwrap_or("");
-                            options.iter().position(|o| *o == val).unwrap_or(0)
-                        }
-                        _ => 0,
-                    };
-                    selections.push(sel);
-                }
-            }
-
-            if !keys_in_group.is_empty() {
-                group_names.push(group.label());
-                group_keys.push(keys_in_group);
-                group_selections.push(selections);
-            }
-        }
-
-        Self {
-            screen: 0,
-            preset_selected: 2, // Custom by default
-            group_selections,
-            group_names,
-            group_keys,
-            group_cursor: 0,
-            finished: false,
-            cancelled: false,
-        }
-    }
-
-    fn total_screens(&self) -> usize {
-        // preset + groups + confirm
-        1 + self.group_names.len() + 1
-    }
-
-    fn is_preset_screen(&self) -> bool {
-        self.screen == 0
-    }
-
-    fn is_confirm_screen(&self) -> bool {
-        self.screen == self.total_screens() - 1
-    }
-
-    fn current_group_idx(&self) -> Option<usize> {
-        if self.screen >= 1 && self.screen < self.total_screens() - 1 {
-            Some(self.screen - 1)
-        } else {
-            None
-        }
-    }
-
-    fn options_for_key(&self, registry_idx: usize) -> Vec<&'static str> {
-        let entry = &REGISTRY[registry_idx];
-        match entry.config_type {
-            ConfigType::Bool => vec!["true", "false"],
-            ConfigType::Enum(opts) => opts.to_vec(),
-            ConfigType::String => vec!["(text)"],
-            _ => vec![],
-        }
-    }
-
-    fn move_up(&mut self) {
-        if self.is_preset_screen() {
-            self.preset_selected = self.preset_selected.saturating_sub(1);
-        } else if let Some(gi) = self.current_group_idx() {
-            self.group_cursor = self.group_cursor.saturating_sub(1);
-            let _ = gi; // cursor is per-screen, group_cursor is key focus
-        }
-    }
-
-    fn move_down(&mut self) {
-        if self.is_preset_screen() {
-            if self.preset_selected < 2 {
-                self.preset_selected += 1;
-            }
-        } else if let Some(gi) = self.current_group_idx() {
-            let max = self.group_keys[gi].len().saturating_sub(1);
-            if self.group_cursor < max {
-                self.group_cursor += 1;
-            }
-        }
-    }
-
-    fn cycle_value(&mut self) {
-        if let Some(gi) = self.current_group_idx() {
-            if self.group_cursor < self.group_keys[gi].len() {
-                let registry_idx = self.group_keys[gi][self.group_cursor];
-                let options = self.options_for_key(registry_idx);
-                if !options.is_empty() {
-                    let current = self.group_selections[gi][self.group_cursor];
-                    self.group_selections[gi][self.group_cursor] = (current + 1) % options.len();
-                }
-            }
-        }
-    }
-
-    fn confirm(&mut self) {
-        if self.is_confirm_screen() {
-            self.finished = true;
-        } else if self.is_preset_screen() {
-            if self.preset_selected < 2 {
-                // Team or Solo — apply preset values and skip to confirm
-                self.apply_preset_selections();
-                self.screen = self.total_screens() - 1;
-            } else {
-                self.screen = 1;
-                self.group_cursor = 0;
-            }
-        } else {
-            self.screen += 1;
-            self.group_cursor = 0;
-        }
-    }
-
-    fn go_back(&mut self) {
-        if self.screen > 0 {
-            if self.is_confirm_screen() && self.preset_selected < 2 {
-                // Came from preset directly
-                self.screen = 0;
-            } else {
-                self.screen -= 1;
-            }
-            self.group_cursor = 0;
-        }
-    }
-
-    fn apply_preset_selections(&mut self) {
-        let preset = if self.preset_selected == 0 {
-            PRESET_TEAM
-        } else {
-            PRESET_SOLO
-        };
-
-        for (key, value) in preset {
-            // Find which group/key this belongs to and set it
-            for (gi, keys) in self.group_keys.iter().enumerate() {
-                for (ki, &reg_idx) in keys.iter().enumerate() {
-                    if REGISTRY[reg_idx].key == *key {
-                        let options = self.options_for_key(reg_idx);
-                        if let Some(pos) = options.iter().position(|o| o == value) {
-                            self.group_selections[gi][ki] = pos;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn build_config(&self) -> HashMap<String, serde_json::Value> {
-        let mut result = HashMap::new();
-        for (gi, keys) in self.group_keys.iter().enumerate() {
-            for (ki, &reg_idx) in keys.iter().enumerate() {
-                let entry = &REGISTRY[reg_idx];
-                let options = self.options_for_key(reg_idx);
-                let selected = self.group_selections[gi][ki];
-                if selected < options.len() {
-                    let val_str = options[selected];
-                    let val = match entry.config_type {
-                        ConfigType::Bool => match val_str {
-                            "true" => serde_json::Value::Bool(true),
-                            _ => serde_json::Value::Bool(false),
-                        },
-                        _ => serde_json::Value::String(val_str.to_string()),
-                    };
-                    result.insert(entry.key.to_string(), val);
-                }
-            }
-        }
-        result
-    }
+fn new_walkthrough_app(current_config: &serde_json::Value) -> WalkthroughApp {
+    WalkthroughCore::new(current_config, 0)
 }
 
 fn draw_config_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
@@ -1131,17 +707,17 @@ fn draw_config_walkthrough(frame: &mut Frame, app: &WalkthroughApp) {
     // Progress indicator
     let total = app.total_screens();
     let progress_spans: Vec<Span> = (0..total)
-        .map(|i| {
-            if i < app.screen {
+        .map(|i| match i.cmp(&app.screen) {
+            std::cmp::Ordering::Less => {
                 Span::styled(" \u{25cf} ", Style::default().fg(Color::Green))
-            } else if i == app.screen {
-                Span::styled(
-                    " \u{25cf} ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else {
+            }
+            std::cmp::Ordering::Equal => Span::styled(
+                " \u{25cf} ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            std::cmp::Ordering::Greater => {
                 Span::styled(" \u{25cb} ", Style::default().fg(Color::DarkGray))
             }
         })
@@ -1273,7 +849,7 @@ fn draw_group_screen(
         .enumerate()
         .map(|(ki, &reg_idx)| {
             let entry = &REGISTRY[reg_idx];
-            let options = app.options_for_key(reg_idx);
+            let options = WalkthroughCore::options_for_key(reg_idx);
             let selected = app.group_selections[group_idx][ki];
             let val_str = if selected < options.len() {
                 options[selected]
@@ -1296,7 +872,7 @@ fn draw_group_screen(
                 Span::styled(marker, style),
                 Span::styled(format!("{:<30}", entry.key), style),
                 Span::styled(
-                    format!("[{}]", val_str),
+                    format!("[{val_str}]"),
                     if ki == app.group_cursor {
                         Style::default().fg(Color::Yellow)
                     } else {
@@ -1315,7 +891,7 @@ fn draw_group_screen(
     if app.group_cursor < keys.len() {
         let reg_idx = keys[app.group_cursor];
         let entry = &REGISTRY[reg_idx];
-        let options = app.options_for_key(reg_idx);
+        let options = WalkthroughCore::options_for_key(reg_idx);
         let valid = if options.len() > 1 {
             format!("  Valid: {}", options.join(", "))
         } else {
@@ -1353,7 +929,7 @@ fn draw_confirm_screen(
     area: Rect,
     progress_spans: Vec<Span>,
 ) {
-    let total_keys: usize = app.group_keys.iter().map(|k| k.len()).sum();
+    let total_keys: usize = app.group_keys.iter().map(Vec::len).sum();
 
     let chunks = Layout::vertical([
         Constraint::Length(1), // progress
@@ -1387,7 +963,7 @@ fn draw_confirm_screen(
         )));
         for (ki, &reg_idx) in keys.iter().enumerate() {
             let entry = &REGISTRY[reg_idx];
-            let options = app.options_for_key(reg_idx);
+            let options = WalkthroughCore::options_for_key(reg_idx);
             let selected = app.group_selections[gi][ki];
             let val_str = if selected < options.len() {
                 options[selected]
@@ -1423,7 +999,7 @@ fn draw_confirm_screen(
 
 fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
     let resolved = read_config_layered(crosslink_dir)?;
-    let mut app = WalkthroughApp::new(&resolved.merged);
+    let mut app = new_walkthrough_app(&resolved.merged);
 
     const WALKTHROUGH_HEIGHT: u16 = 24;
     enable_raw_mode().context("Failed to enable raw mode")?;
@@ -1448,17 +1024,17 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') if !app.is_confirm_screen() => app.move_up(),
                     KeyCode::Down | KeyCode::Char('j') if !app.is_confirm_screen() => {
-                        app.move_down()
+                        app.move_down();
                     }
                     KeyCode::Right if !app.is_preset_screen() && !app.is_confirm_screen() => {
-                        app.cycle_value()
+                        app.cycle_value();
                     }
                     KeyCode::Left if !app.is_preset_screen() && !app.is_confirm_screen() => {
                         // Cycle backwards
                         if let Some(gi) = app.current_group_idx() {
                             if app.group_cursor < app.group_keys[gi].len() {
                                 let reg_idx = app.group_keys[gi][app.group_cursor];
-                                let options = app.options_for_key(reg_idx);
+                                let options = WalkthroughCore::options_for_key(reg_idx);
                                 if !options.is_empty() {
                                     let current = app.group_selections[gi][app.group_cursor];
                                     app.group_selections[gi][app.group_cursor] = if current == 0 {

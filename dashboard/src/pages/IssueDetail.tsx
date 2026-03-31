@@ -8,17 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CommentThread } from "@/components/CommentThread";
-import { formatRelativeTime } from "@/lib/utils";
-import type { IssueDetail as IssueDetailType, CommentKind, IssuePriority } from "@/lib/types";
-
-function priorityVariant(p: IssuePriority) {
-  switch (p) {
-    case "critical": return "destructive" as const;
-    case "high": return "warning" as const;
-    case "medium": return "info" as const;
-    default: return "secondary" as const;
-  }
-}
+import { formatRelativeTime, priorityVariant } from "@/lib/utils";
+import type { IssueDetail as IssueDetailType, CommentKind } from "@/lib/types";
 
 export function IssueDetail() {
   const { id } = useParams<{ id: string }>();

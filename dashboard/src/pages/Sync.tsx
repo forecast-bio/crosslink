@@ -23,11 +23,13 @@ export function Sync() {
   const [allLocks, setAllLocks] = useState<LockEntry[]>([]);
   const [staleTimeoutMinutes, setStaleTimeoutMinutes] = useState(60);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<"fetch" | "push" | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const refresh = () => {
     setLoading(true);
+    setError(null);
     Promise.all([
       syncApi.status(),
       locksApi.list(),
@@ -41,22 +43,30 @@ export function Sync() {
         setStaleTimeoutMinutes(cfg.stale_lock_timeout_minutes);
         setLastRefresh(new Date());
       })
-      .catch(() => {})
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   };
 
-  useEffect(refresh, []);
+  useEffect(() => { refresh(); }, []);
 
   const handleFetch = async () => {
     setSyncing("fetch");
-    await syncApi.fetch().catch(() => {});
+    try {
+      await syncApi.fetch();
+    } catch (e) {
+      setError(String(e));
+    }
     setSyncing(null);
     refresh();
   };
 
   const handlePush = async () => {
     setSyncing("push");
-    await syncApi.push().catch(() => {});
+    try {
+      await syncApi.push();
+    } catch (e) {
+      setError(String(e));
+    }
     setSyncing(null);
     refresh();
   };
@@ -79,6 +89,10 @@ export function Sync() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <p className="text-destructive text-sm">{error}</p>
+      )}
 
       {/* Hub status + sync actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -44,6 +44,10 @@ struct GitCommit {
 /// For each agent's `events.log`, finds all git commits that modified the file,
 /// extracts the event lines added in each commit, and flags any where
 /// `|event_timestamp - commit_timestamp| > SKEW_THRESHOLD_SECS`.
+///
+/// # Errors
+///
+/// Returns an error if the agents directory cannot be read or git commands fail.
 pub fn detect_git_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
     let mut violations = Vec::new();
 
@@ -60,7 +64,7 @@ pub fn detect_git_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>
             continue;
         }
         let agent_id = entry.file_name().to_string_lossy().to_string();
-        let relative_log = format!("agents/{}/events.log", agent_id);
+        let relative_log = format!("agents/{agent_id}/events.log");
 
         let commits = get_commits_for_file(cache_dir, &relative_log)?;
         for commit in &commits {
@@ -85,6 +89,10 @@ pub fn detect_git_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>
 }
 
 /// Write skew violations to `checkpoint/skew_warnings.json`.
+///
+/// # Errors
+///
+/// Returns an error if the checkpoint directory cannot be created or the file cannot be written.
 pub fn write_skew_violations(cache_dir: &Path, violations: &[SkewViolation]) -> Result<()> {
     let dir = cache_dir.join("checkpoint");
     std::fs::create_dir_all(&dir)
@@ -95,6 +103,10 @@ pub fn write_skew_violations(cache_dir: &Path, violations: &[SkewViolation]) -> 
 }
 
 /// Read skew violations from `checkpoint/skew_warnings.json`.
+///
+/// # Errors
+///
+/// Returns an error if the file exists but cannot be read or parsed.
 pub fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
     let path = cache_dir.join("checkpoint").join("skew_warnings.json");
     if !path.exists() {
@@ -178,49 +190,43 @@ fn get_events_added_in_commit(
 fn describe_event(event: &Event) -> String {
     match event {
         Event::IssueCreated { uuid, title, .. } => {
-            format!("IssueCreated({}, {})", uuid, title)
+            format!("IssueCreated({uuid}, {title})")
         }
-        Event::IssueUpdated { uuid, .. } => format!("IssueUpdated({})", uuid),
+        Event::IssueUpdated { uuid, .. } => format!("IssueUpdated({uuid})"),
         Event::StatusChanged {
             uuid, new_status, ..
-        } => format!("StatusChanged({}, {})", uuid, new_status),
+        } => format!("StatusChanged({uuid}, {new_status})"),
         Event::LockClaimed {
             issue_display_id, ..
-        } => format!("LockClaimed(#{})", issue_display_id),
+        } => format!("LockClaimed(#{issue_display_id})"),
         Event::LockReleased { issue_display_id } => {
-            format!("LockReleased(#{})", issue_display_id)
+            format!("LockReleased(#{issue_display_id})")
         }
         Event::DependencyAdded {
             blocked_uuid,
             blocker_uuid,
-        } => format!(
-            "DependencyAdded({} blocked by {})",
-            blocked_uuid, blocker_uuid
-        ),
+        } => format!("DependencyAdded({blocked_uuid} blocked by {blocker_uuid})"),
         Event::DependencyRemoved {
             blocked_uuid,
             blocker_uuid,
-        } => format!(
-            "DependencyRemoved({} unblocked from {})",
-            blocked_uuid, blocker_uuid
-        ),
+        } => format!("DependencyRemoved({blocked_uuid} unblocked from {blocker_uuid})"),
         Event::RelationAdded { uuid_a, uuid_b } => {
-            format!("RelationAdded({}, {})", uuid_a, uuid_b)
+            format!("RelationAdded({uuid_a}, {uuid_b})")
         }
         Event::RelationRemoved { uuid_a, uuid_b } => {
-            format!("RelationRemoved({}, {})", uuid_a, uuid_b)
+            format!("RelationRemoved({uuid_a}, {uuid_b})")
         }
         Event::MilestoneAssigned { issue_uuid, .. } => {
-            format!("MilestoneAssigned({})", issue_uuid)
+            format!("MilestoneAssigned({issue_uuid})")
         }
         Event::LabelAdded {
             issue_uuid, label, ..
-        } => format!("LabelAdded({}, {})", issue_uuid, label),
+        } => format!("LabelAdded({issue_uuid}, {label})"),
         Event::LabelRemoved {
             issue_uuid, label, ..
-        } => format!("LabelRemoved({}, {})", issue_uuid, label),
+        } => format!("LabelRemoved({issue_uuid}, {label})"),
         Event::ParentChanged { issue_uuid, .. } => {
-            format!("ParentChanged({})", issue_uuid)
+            format!("ParentChanged({issue_uuid})")
         }
     }
 }

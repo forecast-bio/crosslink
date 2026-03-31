@@ -9,6 +9,7 @@ use crate::db::Database;
 use crate::issue_file::{CommentEntry, IssueFile, TimeEntry};
 use crate::models::Issue;
 use crate::utils::format_issue_id;
+use std::fmt::Write as _;
 
 // Legacy export types — kept for backward compatibility with `import` command.
 // NOTE: The import command still reads the old ExportData envelope format.
@@ -41,16 +42,15 @@ pub struct ExportData {
     pub issues: Vec<ExportedIssue>,
 }
 
-/// Build a pre-computed map of issue display_id -> UUID for consistent cross-references.
+/// Build a pre-computed map of issue `display_id` -> UUID for consistent cross-references.
 /// Issues without a stored UUID get a freshly generated one.
 fn build_uuid_map(db: &Database, issues: &[Issue]) -> Result<HashMap<i64, Uuid>> {
     let mut map = HashMap::new();
     for issue in issues {
         let (uuid_str, _) = db.get_issue_export_metadata(issue.id)?;
-        let uuid = match uuid_str {
-            Some(s) => Uuid::parse_str(&s).unwrap_or_else(|_| Uuid::new_v4()),
-            None => Uuid::new_v4(),
-        };
+        let uuid = uuid_str
+            .and_then(|s| Uuid::parse_str(&s).ok())
+            .unwrap_or_else(Uuid::new_v4);
         map.insert(issue.id, uuid);
     }
     Ok(map)
@@ -145,8 +145,8 @@ fn build_issue_file(
         display_id: Some(issue.id),
         title: issue.title.clone(),
         description: issue.description.clone(),
-        status: issue.status.clone(),
-        priority: issue.priority.clone(),
+        status: issue.status,
+        priority: issue.priority,
         parent_uuid,
         created_by: created_by.unwrap_or_else(|| "unknown".to_string()),
         created_at: issue.created_at,
@@ -172,15 +172,12 @@ pub fn run_json(db: &Database, output_path: Option<&str>) -> Result<()> {
 
     let json = serde_json::to_string_pretty(&issue_files)?;
 
-    match output_path {
-        Some(path) => {
-            fs::write(path, json).context("Failed to write export file")?;
-            println!("Exported {} issues to {}", issue_files.len(), path);
-        }
-        None => {
-            let mut stdout = io::stdout().lock();
-            writeln!(stdout, "{}", json)?;
-        }
+    if let Some(path) = output_path {
+        fs::write(path, json).context("Failed to write export file")?;
+        println!("Exported {} issues to {}", issue_files.len(), path);
+    } else {
+        let mut stdout = io::stdout().lock();
+        writeln!(stdout, "{json}")?;
     }
     Ok(())
 }
@@ -190,15 +187,25 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
     let mut md = String::new();
 
     md.push_str("# Crosslink Issues Export\n\n");
-    md.push_str(&format!(
-        "Exported: {}\n\n",
+    writeln!(
+        md,
+        "Exported: {}\n",
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-    ));
+    )?;
 
     // Group by status
-    let open: Vec<_> = issues.iter().filter(|i| i.status == "open").collect();
-    let closed: Vec<_> = issues.iter().filter(|i| i.status == "closed").collect();
-    let archived: Vec<_> = issues.iter().filter(|i| i.status == "archived").collect();
+    let open: Vec<_> = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Open)
+        .collect();
+    let closed: Vec<_> = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Closed)
+        .collect();
+    let archived: Vec<_> = issues
+        .iter()
+        .filter(|i| i.status == crate::models::IssueStatus::Archived)
+        .collect();
 
     if !open.is_empty() {
         md.push_str("## Open Issues\n\n");
@@ -221,52 +228,47 @@ pub fn run_markdown(db: &Database, output_path: Option<&str>) -> Result<()> {
         }
     }
 
-    match output_path {
-        Some(path) => {
-            fs::write(path, md).context("Failed to write export file")?;
-            println!("Exported {} issues to {}", issues.len(), path);
-        }
-        None => {
-            let mut stdout = io::stdout().lock();
-            writeln!(stdout, "{}", md)?;
-        }
+    if let Some(path) = output_path {
+        fs::write(path, md).context("Failed to write export file")?;
+        println!("Exported {} issues to {}", issues.len(), path);
+    } else {
+        let mut stdout = io::stdout().lock();
+        writeln!(stdout, "{md}")?;
     }
     Ok(())
 }
 
 fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
-    let checkbox = if issue.status == "closed" {
+    let checkbox = if issue.status == crate::models::IssueStatus::Closed {
         "[x]"
     } else {
         "[ ]"
     };
 
-    md.push_str(&format!(
-        "### {} {}: {}\n\n",
+    writeln!(
+        md,
+        "### {} {}: {}\n",
         checkbox,
         format_issue_id(issue.id),
         issue.title
-    ));
-    md.push_str(&format!("- **Priority:** {}\n", issue.priority));
-    md.push_str(&format!("- **Status:** {}\n", issue.status));
+    )?;
+    writeln!(md, "- **Priority:** {}", issue.priority)?;
+    writeln!(md, "- **Status:** {}", issue.status)?;
 
     if let Some(parent_id) = issue.parent_id {
-        md.push_str(&format!("- **Parent:** {}\n", format_issue_id(parent_id)));
+        writeln!(md, "- **Parent:** {}", format_issue_id(parent_id))?;
     }
 
     let labels = db.get_labels(issue.id)?;
     if !labels.is_empty() {
-        md.push_str(&format!("- **Labels:** {}\n", labels.join(", ")));
+        writeln!(md, "- **Labels:** {}", labels.join(", "))?;
     }
 
-    md.push_str(&format!(
-        "- **Created:** {}\n",
-        issue.created_at.format("%Y-%m-%d")
-    ));
+    writeln!(md, "- **Created:** {}", issue.created_at.format("%Y-%m-%d"))?;
 
     if let Some(ref desc) = issue.description {
         if !desc.is_empty() {
-            md.push_str(&format!("\n{}\n", desc));
+            writeln!(md, "\n{desc}")?;
         }
     }
 
@@ -274,11 +276,12 @@ fn write_issue_md(md: &mut String, db: &Database, issue: &Issue) -> Result<()> {
     if !comments.is_empty() {
         md.push_str("\n**Comments:**\n");
         for comment in comments {
-            md.push_str(&format!(
-                "- [{}] {}\n",
+            writeln!(
+                md,
+                "- [{}] {}",
                 comment.created_at.format("%Y-%m-%d %H:%M"),
                 comment.content
-            ));
+            )?;
         }
     }
 
@@ -291,10 +294,9 @@ mod tests {
     use super::*;
     use crate::issue_file::IssueFile;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

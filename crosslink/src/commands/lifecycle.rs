@@ -1,10 +1,20 @@
 use anyhow::{bail, Context, Result};
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
 use crate::db::Database;
 use crate::shared_writer::SharedWriter;
 use crate::utils::format_issue_id;
+
+/// Controls how much output a close operation produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    /// Print status messages to stdout.
+    Normal,
+    /// Suppress non-essential output (used by close-all and batch operations).
+    Quiet,
+}
 
 pub fn close(
     db: &Database,
@@ -13,7 +23,14 @@ pub fn close(
     update_changelog: bool,
     crosslink_dir: &Path,
 ) -> Result<()> {
-    close_inner(db, writer, id, update_changelog, crosslink_dir, false)
+    close_inner(
+        db,
+        writer,
+        id,
+        update_changelog,
+        crosslink_dir,
+        OutputMode::Normal,
+    )
 }
 
 pub fn close_quiet(
@@ -23,7 +40,14 @@ pub fn close_quiet(
     update_changelog: bool,
     crosslink_dir: &Path,
 ) -> Result<()> {
-    close_inner(db, writer, id, update_changelog, crosslink_dir, true)
+    close_inner(
+        db,
+        writer,
+        id,
+        update_changelog,
+        crosslink_dir,
+        OutputMode::Quiet,
+    )
 }
 
 fn close_inner(
@@ -32,13 +56,13 @@ fn close_inner(
     id: i64,
     update_changelog: bool,
     crosslink_dir: &Path,
-    quiet: bool,
+    output: OutputMode,
 ) -> Result<()> {
+    let quiet = output == OutputMode::Quiet;
     // Get issue details before closing
     let issue = db.get_issue(id)?;
-    let issue = match issue {
-        Some(i) => i,
-        None => bail!("Issue {} not found", format_issue_id(id)),
+    let Some(issue) = issue else {
+        bail!("Issue {} not found", format_issue_id(id));
     };
     let labels = db.get_labels(id)?;
 
@@ -58,7 +82,11 @@ fn close_inner(
     // Clear session active work item if this was the active issue
     // Prevents the cascade where closing the active issue leaves the session
     // without a work item, causing work-check hook to block all tool calls (#399)
-    if let Ok(Some(session)) = db.get_current_session_for_agent(None) {
+    let agent_id = crate::identity::AgentConfig::load(crosslink_dir)
+        .ok()
+        .flatten()
+        .map(|a| a.agent_id);
+    if let Ok(Some(session)) = db.get_current_session_for_agent(agent_id.as_deref()) {
         if session.active_issue_id == Some(id) {
             // INTENTIONAL: clearing stale session issue is best-effort — prevents work-check hook from blocking
             let _ = db.clear_session_issue(session.id);
@@ -66,62 +94,61 @@ fn close_inner(
     }
 
     // Auto-release lock in multi-agent mode
-    if let Ok(Some(agent)) = crate::identity::AgentConfig::load(crosslink_dir) {
-        if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
-            if sync.is_initialized() {
-                if sync.is_v2_layout() {
-                    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir)
-                    {
-                        match writer.release_lock_v2(id) {
-                            Ok(true) if !quiet => {
-                                println!("Released lock on issue {}", format_issue_id(id))
-                            }
-                            _ => {}
-                        }
-                    }
-                } else {
-                    match sync.release_lock(&agent, id, false) {
-                        Ok(true) if !quiet => {
-                            println!("Released lock on issue {}", format_issue_id(id))
-                        }
-                        _ => {}
-                    }
-                }
-            }
+    match crate::lock_check::try_release_lock(crosslink_dir, id) {
+        Ok(true) if !quiet => {
+            println!("Released lock on issue {}", format_issue_id(id));
         }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("Could not release lock on {}: {}", format_issue_id(id), e),
     }
 
     // Update changelog if requested
     if update_changelog {
-        let project_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
-        let changelog_path = project_root.join("CHANGELOG.md");
-
-        // Create CHANGELOG.md if it doesn't exist
-        if !changelog_path.exists() {
-            if let Err(e) = create_changelog(&changelog_path) {
-                tracing::warn!("Could not create CHANGELOG.md: {}", e);
-            } else {
-                println!("Created CHANGELOG.md");
-            }
-        }
-
-        if changelog_path.exists() {
-            let category = determine_changelog_category(&labels);
-            let entry = format!("- {} ({})\n", issue.title, format_issue_id(id));
-
-            if let Err(e) = append_to_changelog(&changelog_path, &category, &entry) {
-                tracing::warn!("Could not update CHANGELOG.md: {}", e);
-            } else if !quiet {
-                println!("Added to CHANGELOG.md under {}", category);
-            }
-        }
+        update_changelog_for_issue(crosslink_dir, &issue.title, id, &labels, quiet);
     }
 
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// CHANGELOG manipulation helpers (extracted from close_inner for #443)
+// ---------------------------------------------------------------------------
+
+/// Update the project CHANGELOG.md with an entry for a closed issue.
+/// Creates CHANGELOG.md if it doesn't exist. Best-effort: logs warnings on failure.
+fn update_changelog_for_issue(
+    crosslink_dir: &Path,
+    title: &str,
+    id: i64,
+    labels: &[String],
+    quiet: bool,
+) {
+    let project_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+    let changelog_path = project_root.join("CHANGELOG.md");
+
+    // Create CHANGELOG.md if it doesn't exist
+    if !changelog_path.exists() {
+        if let Err(e) = create_changelog(&changelog_path) {
+            tracing::warn!("Could not create CHANGELOG.md: {}", e);
+        } else if !quiet {
+            println!("Created CHANGELOG.md");
+        }
+    }
+
+    if changelog_path.exists() {
+        let category = determine_changelog_category(labels);
+        let entry = format!("- {} ({})\n", title, format_issue_id(id));
+
+        if let Err(e) = append_to_changelog(&changelog_path, &category, &entry) {
+            tracing::warn!("Could not update CHANGELOG.md: {}", e);
+        } else if !quiet {
+            println!("Added to CHANGELOG.md under {category}");
+        }
+    }
+}
+
 fn create_changelog(path: &Path) -> Result<()> {
-    let template = r#"# Changelog
+    let template = r"# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -134,7 +161,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 ### Changed
-"#;
+";
     fs::write(path, template).context("Failed to create CHANGELOG.md")?;
     Ok(())
 }
@@ -148,7 +175,7 @@ fn determine_changelog_category(labels: &[String]) -> String {
             "deprecated" => return "Deprecated".to_string(),
             "removed" => return "Removed".to_string(),
             "security" => return "Security".to_string(),
-            _ => continue,
+            _ => {}
         }
     }
     "Changed".to_string() // Default category
@@ -156,11 +183,11 @@ fn determine_changelog_category(labels: &[String]) -> String {
 
 fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
     let content = fs::read_to_string(path).context("Failed to read CHANGELOG.md")?;
-    let heading = format!("### {}", category);
+    let heading = format!("### {category}");
 
-    let new_content = if content.contains(&heading) {
+    let mut result = String::new();
+    if content.contains(&heading) {
         // Insert after the heading
-        let mut result = String::new();
         let mut found = false;
         for line in content.lines() {
             result.push_str(line);
@@ -170,28 +197,27 @@ fn append_to_changelog(path: &Path, category: &str, entry: &str) -> Result<()> {
                 found = true;
             }
         }
-        result
     } else {
         // Add new section after first ## heading (usually ## [Unreleased])
-        let mut result = String::new();
         let mut added = false;
         for line in content.lines() {
             result.push_str(line);
             result.push('\n');
             if !added && line.starts_with("## ") {
                 result.push('\n');
-                result.push_str(&format!("{}\n", heading));
+                let _ = writeln!(result, "{heading}");
                 result.push_str(entry);
                 added = true;
             }
         }
         if !added {
             // No ## heading found, append at end
-            result.push_str(&format!("\n{}\n", heading));
+            result.push('\n');
+            let _ = writeln!(result, "{heading}");
             result.push_str(entry);
         }
-        result
-    };
+    }
+    let new_content = result;
 
     fs::write(path, new_content).context("Failed to write CHANGELOG.md")?;
     Ok(())
@@ -220,7 +246,7 @@ pub fn close_all(
         }
     }
 
-    println!("Closed {} issue(s).", closed_count);
+    println!("Closed {closed_count} issue(s).");
     Ok(())
 }
 
@@ -240,10 +266,9 @@ pub fn reopen(db: &Database, writer: Option<&SharedWriter>, id: i64) -> Result<(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use tempfile::tempdir;
 
     fn setup_test_db() -> (Database, tempfile::TempDir) {
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("test.db");
         let db = Database::open(&db_path).unwrap();
         (db, dir)

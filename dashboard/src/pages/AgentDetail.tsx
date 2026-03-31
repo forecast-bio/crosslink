@@ -41,10 +41,12 @@ export function AgentDetail() {
   const [agent, setAgent] = useState<AgentDetailResponse | null>(null);
   const [kickoffReport, setKickoffReport] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
 
+    setError(null);
     agentsApi
       .get(id)
       .then((data) => {
@@ -54,7 +56,7 @@ export function AgentDetail() {
           setKickoffReport(data.kickoff_report);
         }
       })
-      .catch(() => {})
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
 
     // Fetch kickoff status separately (may have a fuller report)
@@ -63,11 +65,26 @@ export function AgentDetail() {
       .then((data) => {
         if (data.report) setKickoffReport(data.report);
       })
-      .catch(() => {});
+      .catch(() => {
+        // Non-critical: kickoff status may not exist for all agents
+      });
   }, [id]);
 
   if (loading && !agent) {
     return <div className="p-6 text-muted-foreground">Loading…</div>;
+  }
+
+  if (error && !agent) {
+    return (
+      <div className="p-6">
+        <p className="text-destructive text-sm">{error}</p>
+        <Link to="/agents">
+          <Button variant="ghost" size="sm" className="mt-2">
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back
+          </Button>
+        </Link>
+      </div>
+    );
   }
 
   if (!agent) {

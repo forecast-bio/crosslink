@@ -1,10 +1,12 @@
 use crate::issue_file::{
     read_counters, read_issue_file, write_counters, write_issue_file, IssueFile,
 };
+use crate::models::{IssueStatus, Priority};
 use crate::shared_writer::core::{
     PushOutcome, SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS, MAX_RETRIES,
 };
 use crate::shared_writer::locks::LockClaimResult;
+use crate::shared_writer::mutations::DescriptionUpdate;
 use crate::shared_writer::offline::{replace_local_refs, RewriteStats};
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -18,8 +20,8 @@ fn make_issue(display_id: i64, title: &str) -> IssueFile {
         display_id: Some(display_id),
         title: title.to_string(),
         description: None,
-        status: "open".to_string(),
-        priority: "medium".to_string(),
+        status: IssueStatus::Open,
+        priority: Priority::Medium,
         parent_uuid: None,
         created_by: "test-agent".to_string(),
         created_at: Utc::now(),
@@ -1048,7 +1050,7 @@ mod integration {
             .create_issue(&db, "Critical bug", None, "critical")
             .unwrap();
         let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.priority, "critical");
+        assert_eq!(issue.priority, Priority::Critical);
         drop(work_dir);
     }
 
@@ -1111,7 +1113,14 @@ mod integration {
             .create_issue(&db, "Old title", None, "medium")
             .unwrap();
         writer
-            .update_issue(&db, id, Some("New title"), None, None, None)
+            .update_issue(
+                &db,
+                id,
+                Some("New title"),
+                DescriptionUpdate::Unchanged,
+                None,
+                None,
+            )
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1129,11 +1138,18 @@ mod integration {
             .create_issue(&db, "Priority test", None, "low")
             .unwrap();
         writer
-            .update_issue(&db, id, None, None, None, Some("high"))
+            .update_issue(
+                &db,
+                id,
+                None,
+                DescriptionUpdate::Unchanged,
+                None,
+                Some("high"),
+            )
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.priority, "high");
+        assert_eq!(issue.priority, Priority::High);
         drop(work_dir);
     }
 
@@ -1145,7 +1161,14 @@ mod integration {
 
         let id = writer.create_issue(&db, "Desc test", None, "low").unwrap();
         writer
-            .update_issue(&db, id, None, Some(Some("Updated desc")), None, None)
+            .update_issue(
+                &db,
+                id,
+                None,
+                DescriptionUpdate::Set("Updated desc"),
+                None,
+                None,
+            )
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1163,7 +1186,7 @@ mod integration {
             .create_issue(&db, "Has desc", Some("initial desc"), "low")
             .unwrap();
         writer
-            .update_issue(&db, id, None, Some(None), None, None)
+            .update_issue(&db, id, None, DescriptionUpdate::Clear, None, None)
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1185,7 +1208,7 @@ mod integration {
         writer.close_issue(&db, id).unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.status, "closed");
+        assert_eq!(issue.status, IssueStatus::Closed);
         drop(work_dir);
     }
 
@@ -1202,7 +1225,7 @@ mod integration {
         writer.reopen_issue(&db, id).unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.status, "open");
+        assert_eq!(issue.status, IssueStatus::Open);
         drop(work_dir);
     }
 
@@ -1232,7 +1255,7 @@ mod integration {
             issue_after.closed_at.is_some(),
             "closed_at should be set after closing"
         );
-        assert_eq!(issue_after.status, "closed");
+        assert_eq!(issue_after.status, IssueStatus::Closed);
         drop(cache_dir);
         drop(work_dir);
     }
@@ -1637,7 +1660,7 @@ mod integration {
 
         // Read back and verify
         let entry = writer.load_milestone_by_id(ms_id).unwrap();
-        assert_eq!(entry.status, "closed");
+        assert_eq!(entry.status, IssueStatus::Closed);
         assert!(entry.closed_at.is_some());
         drop(work_dir);
     }
@@ -1771,7 +1794,7 @@ mod integration {
         assert!(issue.is_some());
         let issue = issue.unwrap();
         assert_eq!(issue.title, "Hydration test");
-        assert_eq!(issue.priority, "high");
+        assert_eq!(issue.priority, Priority::High);
         drop(work_dir);
     }
 
@@ -1790,7 +1813,7 @@ mod integration {
         crate::hydration::hydrate_to_sqlite(&cache_dir, &db).unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.status, "closed");
+        assert_eq!(issue.status, IssueStatus::Closed);
         drop(work_dir);
     }
 
@@ -1929,8 +1952,8 @@ mod integration {
             display_id: None,
             title: "Already promoted".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "low".to_string(),
+            status: IssueStatus::Open,
+            priority: Priority::Low,
             parent_uuid: None,
             created_by: "test-agent".to_string(),
             created_at: chrono::Utc::now(),
@@ -2031,7 +2054,14 @@ mod integration {
 
         // Update
         writer
-            .update_issue(&db, id, Some("Updated lifecycle"), None, None, Some("high"))
+            .update_issue(
+                &db,
+                id,
+                Some("Updated lifecycle"),
+                DescriptionUpdate::Unchanged,
+                None,
+                Some("high"),
+            )
             .unwrap();
 
         // Close
@@ -2040,8 +2070,8 @@ mod integration {
         // Verify final state
         let issue = db.get_issue(id).unwrap().unwrap();
         assert_eq!(issue.title, "Updated lifecycle");
-        assert_eq!(issue.priority, "high");
-        assert_eq!(issue.status, "closed");
+        assert_eq!(issue.priority, Priority::High);
+        assert_eq!(issue.status, IssueStatus::Closed);
 
         let labels = db.get_labels(id).unwrap();
         assert!(labels.contains(&"in-progress".to_string()));
@@ -2072,9 +2102,9 @@ mod integration {
         let i2 = db.get_issue(id2).unwrap().unwrap();
         let i3 = db.get_issue(id3).unwrap().unwrap();
 
-        assert_eq!(i1.status, "open");
-        assert_eq!(i2.status, "closed");
-        assert_eq!(i3.status, "open");
+        assert_eq!(i1.status, IssueStatus::Open);
+        assert_eq!(i2.status, IssueStatus::Closed);
+        assert_eq!(i3.status, IssueStatus::Open);
 
         let labels = db.get_labels(id1).unwrap();
         assert!(labels.contains(&"critical".to_string()));
@@ -2228,7 +2258,7 @@ mod integration {
             .unwrap();
         let loaded = writer.load_issue_by_id(id, &db).unwrap();
         assert_eq!(loaded.title, "Load by ID");
-        assert_eq!(loaded.status, "open");
+        assert_eq!(loaded.status, IssueStatus::Open);
         drop(work_dir);
     }
 
@@ -2873,8 +2903,8 @@ mod integration {
             display_id: None,
             title: "Offline issue".to_string(),
             description: None,
-            status: "open".to_string(),
-            priority: "medium".to_string(),
+            status: IssueStatus::Open,
+            priority: Priority::Medium,
             parent_uuid: None,
             created_by: "test-agent".to_string(),
             created_at: now,

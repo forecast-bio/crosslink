@@ -23,9 +23,9 @@ enum Annotation {
 impl std::fmt::Display for Annotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Annotation::Tmux(s) => write!(f, "tmux: {}", s),
-            Annotation::Docker(s) => write!(f, "docker: {}", s),
-            Annotation::Status(s) => write!(f, "{}", s),
+            Annotation::Tmux(s) => write!(f, "tmux: {s}"),
+            Annotation::Docker(s) => write!(f, "docker: {s}"),
+            Annotation::Status(s) => write!(f, "{s}"),
             Annotation::Orphan => write!(f, "orphan"),
         }
     }
@@ -68,7 +68,7 @@ pub fn graph(crosslink_dir: &Path, all: bool, json: bool, quiet: bool) -> Result
 
     // Phase 1: Collect refs
     let agents = discover_agents(crosslink_dir).unwrap_or_default();
-    let base_branches = discover_base_branches()?;
+    let base_branches = discover_base_branches();
 
     // Collect feature branches from agents (with worktrees)
     let mut nodes: Vec<BranchNode> = Vec::new();
@@ -93,7 +93,7 @@ pub fn graph(crosslink_dir: &Path, all: bool, json: bool, quiet: bool) -> Result
         }
 
         let annotation = agent_annotation(agent);
-        if let Some(node) = build_branch_node(&branch, &base_branches, annotation)? {
+        if let Some(node) = build_branch_node(&branch, &base_branches, annotation) {
             nodes.push(node);
         }
     }
@@ -103,7 +103,7 @@ pub fn graph(crosslink_dir: &Path, all: bool, json: bool, quiet: bool) -> Result
         let orphans = find_orphan_branches(&agents)?;
         for orphan_branch in orphans {
             if let Some(node) =
-                build_branch_node(&orphan_branch, &base_branches, Annotation::Orphan)?
+                build_branch_node(&orphan_branch, &base_branches, Annotation::Orphan)
             {
                 // Skip if we already have this branch from agent discovery
                 if !nodes.iter().any(|n| n.branch_name == orphan_branch) {
@@ -129,7 +129,7 @@ pub fn graph(crosslink_dir: &Path, all: bool, json: bool, quiet: bool) -> Result
 }
 
 /// Determine which base branches exist locally.
-fn discover_base_branches() -> Result<Vec<String>> {
+fn discover_base_branches() -> Vec<String> {
     let mut bases = Vec::new();
     for name in &["develop", "main"] {
         if ref_exists(name) {
@@ -140,7 +140,7 @@ fn discover_base_branches() -> Result<Vec<String>> {
     if bases.is_empty() {
         bases.push("HEAD".to_string());
     }
-    Ok(bases)
+    bases
 }
 
 /// Check if a git ref exists.
@@ -171,7 +171,7 @@ fn agent_branch_name(agent: &AgentInfo) -> Option<String> {
                 .file_name()?
                 .to_str()?
                 .to_string();
-            Some(format!("feature/{}", dir_name))
+            Some(format!("feature/{dir_name}"))
         } else {
             Some(branch)
         }
@@ -182,25 +182,24 @@ fn agent_branch_name(agent: &AgentInfo) -> Option<String> {
 
 /// Determine the annotation for an agent.
 fn agent_annotation(agent: &AgentInfo) -> Annotation {
-    if let Some(ref session) = agent.session {
-        Annotation::Tmux(session.clone())
-    } else if let Some(ref container) = agent.docker {
-        Annotation::Docker(container.clone())
-    } else {
-        Annotation::Status(agent.status.clone())
-    }
+    agent.session.as_ref().map_or_else(
+        || {
+            agent.docker.as_ref().map_or_else(
+                || Annotation::Status(agent.status.clone()),
+                |container| Annotation::Docker(container.clone()),
+            )
+        },
+        |session| Annotation::Tmux(session.clone()),
+    )
 }
 
-/// Build a BranchNode for a given branch by computing its fork point relative to base branches.
+/// Build a `BranchNode` for a given branch by computing its fork point relative to base branches.
 fn build_branch_node(
     branch: &str,
     base_branches: &[String],
     annotation: Annotation,
-) -> Result<Option<BranchNode>> {
-    let tip = match git_rev_parse(branch) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
+) -> Option<BranchNode> {
+    let tip = git_rev_parse(branch)?;
 
     // Find fork point against each base, pick the closest (most recent) one
     let mut best: Option<(String, String, usize)> = None; // (base, fork_point, count)
@@ -225,17 +224,14 @@ fn build_branch_node(
     }
 
     let Some((base_branch, fork_point, intermediate_count)) = best else {
-        eprintln!(
-            "warning: cannot determine fork point for '{}', skipping",
-            branch
-        );
-        return Ok(None);
+        eprintln!("warning: cannot determine fork point for '{branch}', skipping");
+        return None;
     };
 
     // Check if this branch has been merged back into its base
     let merged = git_is_ancestor(&tip, &base_branch);
 
-    Ok(Some(BranchNode {
+    Some(BranchNode {
         branch_name: branch.to_string(),
         fork_point,
         base_branch,
@@ -243,7 +239,7 @@ fn build_branch_node(
         intermediate_count,
         annotation,
         merged,
-    }))
+    })
 }
 
 /// Find `feature/*` branches that have no associated worktree agent (orphans).
@@ -326,7 +322,7 @@ fn git_is_ancestor(commit: &str, branch: &str) -> bool {
 
 /// Run `git rev-list --count <from>..<to>` and return the count.
 fn git_rev_list_count(from: &str, to: &str) -> Option<usize> {
-    let range = format!("{}..{}", from, to);
+    let range = format!("{from}..{to}");
     let output = Command::new("git")
         .args(["rev-list", "--count", &range])
         .output()
@@ -373,7 +369,7 @@ fn render_ascii(base_branches: &[String], nodes: &[BranchNode], term_width: usiz
     if nodes.is_empty() {
         // REQ-7: show base branches only
         for (i, base) in base_branches.iter().enumerate() {
-            println!("  * {}", base);
+            println!("  * {base}");
             if i < base_branches.len() - 1 {
                 println!("  |");
             }
@@ -417,14 +413,14 @@ fn render_ascii(base_branches: &[String], nodes: &[BranchNode], term_width: usiz
                 let merged_tag = if branch.merged { " ✓merged" } else { "" };
                 let tip_line = format!("{} [{}]{}", branch.branch_name, label, merged_tag);
                 let tip_display = truncate_str(&tip_line, label_max);
-                println!("  | * {}", tip_display);
+                println!("  | * {tip_display}");
                 // Draw fork junction
                 println!("  |/");
             }
         }
 
         // Draw the base branch itself
-        println!("  * {}", base);
+        println!("  * {base}");
 
         // Draw connector to next base (if any)
         if i < base_branches.len() - 1 {

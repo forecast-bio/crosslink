@@ -20,7 +20,7 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
     // Check if daemon is already running
     if let Some(pid) = read_pid(&pid_file) {
         if is_process_running(pid) {
-            println!("Daemon already running (PID {})", pid);
+            println!("Daemon already running (PID {pid})");
             return Ok(());
         }
         fs::remove_file(&pid_file).with_context(|| {
@@ -55,7 +55,7 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
     // Write PID file
     fs::write(&pid_file, pid.to_string()).context("Failed to write PID file")?;
 
-    println!("Daemon started (PID {})", pid);
+    println!("Daemon started (PID {pid})");
     println!("Log file: {}", log_file.display());
     Ok(())
 }
@@ -63,12 +63,9 @@ pub fn start(crosslink_dir: &Path) -> Result<()> {
 pub fn stop(crosslink_dir: &Path) -> Result<()> {
     let pid_file = crosslink_dir.join("daemon.pid");
 
-    let pid = match read_pid(&pid_file) {
-        Some(p) => p,
-        None => {
-            println!("Daemon not running (no PID file)");
-            return Ok(());
-        }
+    let Some(pid) = read_pid(&pid_file) else {
+        println!("Daemon not running (no PID file)");
+        return Ok(());
     };
 
     if !is_process_running(pid) {
@@ -83,26 +80,22 @@ pub fn stop(crosslink_dir: &Path) -> Result<()> {
     // Remove PID file
     fs::remove_file(&pid_file).ok();
 
-    println!("Daemon stopped (PID {})", pid);
+    println!("Daemon stopped (PID {pid})");
     Ok(())
 }
 
-pub fn status(crosslink_dir: &Path) -> Result<()> {
+pub fn status(crosslink_dir: &Path) {
     let pid_file = crosslink_dir.join("daemon.pid");
 
-    match read_pid(&pid_file) {
-        Some(pid) => {
-            if is_process_running(pid) {
-                println!("Daemon running (PID {})", pid);
-            } else {
-                println!("Daemon not running (stale PID file)");
-            }
+    if let Some(pid) = read_pid(&pid_file) {
+        if is_process_running(pid) {
+            println!("Daemon running (PID {pid})");
+        } else {
+            println!("Daemon not running (stale PID file)");
         }
-        None => {
-            println!("Daemon not running");
-        }
+    } else {
+        println!("Daemon not running");
     }
-    Ok(())
 }
 
 pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
@@ -119,7 +112,7 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
 
     println!("Daemon starting...");
     println!("Watching: {}", crosslink_dir.display());
-    println!("Flush interval: {} seconds", FLUSH_INTERVAL_SECS);
+    println!("Flush interval: {FLUSH_INTERVAL_SECS} seconds");
 
     // Heartbeat counter: push every 5 cycles (5 * 30s = 2.5 min)
     let mut heartbeat_counter: u64 = 0;
@@ -176,7 +169,6 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
                 }
                 Ok(_) => {
                     // Data received (unexpected, but continue)
-                    continue;
                 }
             }
         }

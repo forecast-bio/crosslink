@@ -46,25 +46,36 @@ pub struct Dag {
     forward: HashMap<String, HashSet<String>>,
     /// Reverse edges: `stage_id → set of stages it depends on`.
     reverse: HashMap<String, HashSet<String>>,
+    /// Cached topological sort result. Computed once after construction since
+    /// the graph structure (nodes/edges) never changes — only statuses do (#485).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cached_topo_order: Option<Vec<String>>,
 }
 
 impl Dag {
     /// Create an empty DAG.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
             forward: HashMap::new(),
             reverse: HashMap::new(),
+            cached_topo_order: None,
         }
     }
 
     /// Build a DAG from a list of nodes. Returns an error if any dependency
     /// references a node that doesn't exist, or if the graph contains a cycle.
-    pub fn from_nodes(nodes: Vec<DagNode>) -> Result<Self> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if duplicate stage IDs exist, a dependency references
+    /// a nonexistent node, or the graph contains a cycle.
+    pub fn from_nodes(nodes: &[DagNode]) -> Result<Self> {
         let mut dag = Self::new();
 
         // Insert all nodes first so we can validate edges.
-        for node in &nodes {
+        for node in nodes {
             if dag.nodes.contains_key(&node.id) {
                 bail!("Duplicate stage ID: {}", node.id);
             }
@@ -74,7 +85,7 @@ impl Dag {
         }
 
         // Add edges.
-        for node in &nodes {
+        for node in nodes {
             for dep in &node.depends_on {
                 if !dag.nodes.contains_key(dep) {
                     bail!(
@@ -94,15 +105,15 @@ impl Dag {
             }
         }
 
-        // Validate acyclicity.
-        if dag.has_cycle() {
-            bail!("Dependency graph contains a cycle");
-        }
+        // Validate acyclicity and cache topological order (#485).
+        let topo = dag.topological_sort()?;
+        dag.cached_topo_order = Some(topo);
 
         Ok(dag)
     }
 
     /// Return a reference to the node with the given ID, if it exists.
+    #[must_use]
     pub fn get(&self, id: &str) -> Option<&DagNode> {
         self.nodes.get(id)
     }
@@ -113,49 +124,51 @@ impl Dag {
     }
 
     /// Return all node IDs.
+    #[must_use]
     pub fn node_ids(&self) -> Vec<String> {
         self.nodes.keys().cloned().collect()
     }
 
     /// Return all nodes.
-    pub fn nodes(&self) -> &HashMap<String, DagNode> {
+    #[must_use]
+    pub const fn nodes(&self) -> &HashMap<String, DagNode> {
         &self.nodes
     }
 
     /// Total number of stages.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
     /// Whether the DAG is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
     /// Return stage IDs that are ready to execute: status is `Pending` and all
-    /// dependencies have status `Done`.
+    /// dependencies have a terminal status (`Done` or `Skipped`).
+    #[must_use]
     pub fn ready_nodes(&self) -> Vec<String> {
         self.nodes
             .iter()
             .filter(|(_, node)| node.status == StageStatus::Pending)
             .filter(|(id, _)| {
-                self.reverse
-                    .get(*id)
-                    .map(|deps| {
-                        deps.iter().all(|dep_id| {
-                            self.nodes
-                                .get(dep_id)
-                                .map(|d| d.status == StageStatus::Done)
-                                .unwrap_or(false)
+                self.reverse.get(*id).is_none_or(|deps| {
+                    deps.iter().all(|dep_id| {
+                        self.nodes.get(dep_id).is_some_and(|d| {
+                            matches!(d.status, StageStatus::Done | StageStatus::Skipped)
                         })
                     })
-                    .unwrap_or(true)
+                })
             })
             .map(|(id, _)| id.clone())
             .collect()
     }
 
     /// Return stage IDs that are currently running.
+    #[must_use]
     pub fn running_nodes(&self) -> Vec<String> {
         self.nodes
             .iter()
@@ -165,6 +178,7 @@ impl Dag {
     }
 
     /// Return stage IDs with the given status.
+    #[must_use]
     pub fn nodes_with_status(&self, status: &StageStatus) -> Vec<String> {
         self.nodes
             .iter()
@@ -174,11 +188,15 @@ impl Dag {
     }
 
     /// Mark a stage as running.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found or is not in `Pending` status.
     pub fn mark_running(&mut self, id: &str, agent_id: &str) -> Result<()> {
         let node = self
             .nodes
             .get_mut(id)
-            .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Stage '{id}' not found"))?;
         if node.status != StageStatus::Pending {
             bail!(
                 "Cannot mark '{}' as running — current status is {:?}",
@@ -193,11 +211,15 @@ impl Dag {
 
     /// Mark a stage as done. Returns the list of stage IDs that are now
     /// newly unblocked (all their dependencies are done and they are pending).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found or is not in `Running` status.
     pub fn mark_done(&mut self, id: &str) -> Result<Vec<String>> {
         let node = self
             .nodes
             .get_mut(id)
-            .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Stage '{id}' not found"))?;
         if node.status != StageStatus::Running {
             bail!(
                 "Cannot mark '{}' as done — current status is {:?}",
@@ -207,7 +229,14 @@ impl Dag {
         }
         node.status = StageStatus::Done;
 
-        // Find newly unblocked dependents.
+        Ok(self.find_newly_unblocked(id))
+    }
+
+    /// Find dependents of `id` that are now unblocked (all deps terminal and node pending).
+    ///
+    /// Shared by `mark_done` and `mark_skipped_and_unblock` to avoid duplicating
+    /// the unblocking logic (#483).
+    fn find_newly_unblocked(&self, id: &str) -> Vec<String> {
         let dependents = self.forward.get(id).cloned().unwrap_or_default();
         let mut newly_ready = Vec::new();
         for dep_id in dependents {
@@ -215,59 +244,96 @@ impl Dag {
                 if dep_node.status != StageStatus::Pending {
                     continue;
                 }
-                let all_deps_done = self
-                    .reverse
-                    .get(&dep_id)
-                    .map(|deps| {
-                        deps.iter().all(|d| {
-                            self.nodes
-                                .get(d)
-                                .map(|n| n.status == StageStatus::Done)
-                                .unwrap_or(false)
+                let all_deps_terminal = self.reverse.get(&dep_id).is_none_or(|deps| {
+                    deps.iter().all(|d| {
+                        self.nodes.get(d).is_some_and(|n| {
+                            matches!(n.status, StageStatus::Done | StageStatus::Skipped)
                         })
                     })
-                    .unwrap_or(true);
-                if all_deps_done {
+                });
+                if all_deps_terminal {
                     newly_ready.push(dep_id);
                 }
             }
         }
-
-        Ok(newly_ready)
+        newly_ready
     }
 
-    /// Mark a stage as failed.
+    /// Mark a stage as skipped and return newly-unblocked dependents.
+    ///
+    /// Combines `mark_skipped` with the same unblocking logic used by `mark_done`
+    /// so callers don't need to reimplement it (#483).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found or the status transition is invalid.
+    pub fn mark_skipped_and_unblock(&mut self, id: &str) -> Result<Vec<String>> {
+        self.mark_skipped(id)?;
+        Ok(self.find_newly_unblocked(id))
+    }
+
+    /// Mark a stage as failed. Valid from `Pending` or `Running`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found or is not in `Pending`/`Running` status.
     pub fn mark_failed(&mut self, id: &str) -> Result<()> {
         let node = self
             .nodes
             .get_mut(id)
-            .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Stage '{id}' not found"))?;
+        if !matches!(node.status, StageStatus::Pending | StageStatus::Running) {
+            bail!(
+                "Cannot mark '{}' as failed — current status is {:?}, must be Pending or Running",
+                id,
+                node.status
+            );
+        }
         node.status = StageStatus::Failed;
         Ok(())
     }
 
-    /// Mark a stage as skipped.
+    /// Mark a stage as skipped. Valid from `Pending` or `Failed`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found or is not in `Pending`/`Failed` status.
     pub fn mark_skipped(&mut self, id: &str) -> Result<()> {
         let node = self
             .nodes
             .get_mut(id)
-            .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Stage '{id}' not found"))?;
+        if !matches!(node.status, StageStatus::Pending | StageStatus::Failed) {
+            bail!(
+                "Cannot mark '{}' as skipped — current status is {:?}, must be Pending or Failed",
+                id,
+                node.status
+            );
+        }
         node.status = StageStatus::Skipped;
         Ok(())
     }
 
     /// Assign a crosslink issue ID to a stage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stage is not found.
     pub fn set_issue_id(&mut self, stage_id: &str, issue_id: i64) -> Result<()> {
         let node = self
             .nodes
             .get_mut(stage_id)
-            .ok_or_else(|| anyhow::anyhow!("Stage '{}' not found", stage_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Stage '{stage_id}' not found"))?;
         node.issue_id = Some(issue_id);
         Ok(())
     }
 
     /// Produce a topological ordering of all stages (Kahn's algorithm).
     /// Returns an error if the graph has a cycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the graph contains a cycle.
     pub fn topological_sort(&self) -> Result<Vec<String>> {
         let mut in_degree: HashMap<&str, usize> = HashMap::new();
         for id in self.nodes.keys() {
@@ -286,9 +352,9 @@ impl Dag {
         }
 
         // Sort the initial queue for deterministic output.
-        let mut sorted_start: Vec<String> = queue.drain(..).collect();
+        let mut sorted_start: Vec<String> = queue.into_iter().collect();
         sorted_start.sort();
-        queue.extend(sorted_start);
+        let mut queue: VecDeque<String> = sorted_start.into_iter().collect();
 
         let mut order = Vec::with_capacity(self.nodes.len());
         while let Some(id) = queue.pop_front() {
@@ -319,7 +385,8 @@ impl Dag {
     }
 
     /// Check whether the graph contains a cycle (DFS-based).
-    pub fn has_cycle(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn has_cycle(&self) -> bool {
         #[derive(Clone, Copy, PartialEq)]
         enum Color {
             White,
@@ -367,6 +434,7 @@ impl Dag {
     }
 
     /// Return the IDs of stages that directly depend on the given stage.
+    #[must_use]
     pub fn dependents(&self, id: &str) -> Vec<String> {
         self.forward
             .get(id)
@@ -375,6 +443,7 @@ impl Dag {
     }
 
     /// Return the IDs of stages that the given stage depends on.
+    #[must_use]
     pub fn dependencies(&self, id: &str) -> Vec<String> {
         self.reverse
             .get(id)
@@ -383,6 +452,7 @@ impl Dag {
     }
 
     /// Calculate progress: fraction of nodes that are done (0.0–1.0).
+    #[must_use]
     pub fn progress(&self) -> f64 {
         if self.nodes.is_empty() {
             return 1.0;
@@ -392,10 +462,16 @@ impl Dag {
             .values()
             .filter(|n| n.status == StageStatus::Done || n.status == StageStatus::Skipped)
             .count();
-        done as f64 / self.nodes.len() as f64
+        let total = self.nodes.len();
+        // Practical DAG sizes are well within u32 range; truncate_as avoids
+        // the clippy::cast_precision_loss lint on 64-bit targets.
+        let done_u32 = u32::try_from(done).unwrap_or(u32::MAX);
+        let total_u32 = u32::try_from(total).unwrap_or(u32::MAX);
+        f64::from(done_u32) / f64::from(total_u32)
     }
 
     /// Check if all stages are in a terminal state (done, failed, or skipped).
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.nodes.values().all(|n| {
             matches!(
@@ -406,22 +482,30 @@ impl Dag {
     }
 
     /// Check if any stage has failed.
+    #[must_use]
     pub fn has_failures(&self) -> bool {
         self.nodes.values().any(|n| n.status == StageStatus::Failed)
     }
 
     /// Return all stages grouped by phase ID, preserving topological order within each phase.
+    ///
+    /// Uses the cached topological sort computed at construction time (#485).
+    #[must_use]
     pub fn stages_by_phase(&self) -> HashMap<String, Vec<String>> {
         let mut by_phase: HashMap<String, Vec<String>> = HashMap::new();
-        // Use topological order for consistent ordering.
-        if let Ok(order) = self.topological_sort() {
+        // Use cached topological order for consistent ordering without recomputation.
+        let order = self
+            .cached_topo_order
+            .clone()
+            .or_else(|| self.topological_sort().ok());
+        if let Some(order) = order {
             for id in order {
                 if let Some(node) = self.nodes.get(&id) {
                     by_phase.entry(node.phase_id.clone()).or_default().push(id);
                 }
             }
         } else {
-            // Fallback: arbitrary order.
+            // Fallback: arbitrary order (should not happen for valid DAGs).
             for (id, node) in &self.nodes {
                 by_phase
                     .entry(node.phase_id.clone())
@@ -432,7 +516,8 @@ impl Dag {
         by_phase
     }
 
-    /// Build a map from stage_id → StageStatus for all nodes.
+    /// Build a map from `stage_id` → `StageStatus` for all nodes.
+    #[must_use]
     pub fn status_map(&self) -> HashMap<String, StageStatus> {
         self.nodes
             .iter()
@@ -440,7 +525,8 @@ impl Dag {
             .collect()
     }
 
-    /// Build a map from stage_id → agent_id for all running stages.
+    /// Build a map from `stage_id` → `agent_id` for all running stages.
+    #[must_use]
     pub fn agent_map(&self) -> HashMap<String, String> {
         self.nodes
             .iter()
@@ -483,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_single_node_no_deps() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert_eq!(dag.len(), 1);
         assert_eq!(dag.ready_nodes(), vec!["a"]);
         assert!(!dag.is_complete());
@@ -491,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_linear_chain() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["b"]),
@@ -504,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_diamond_dag() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -524,31 +610,36 @@ mod tests {
 
     #[test]
     fn test_cycle_detection() {
-        let result = Dag::from_nodes(vec![
+        let result = Dag::from_nodes(&vec![
             make_node("a", "p1", &["b"]),
             make_node("b", "p1", &["a"]),
         ]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cycle"));
+        let err_msg = result.unwrap_err().to_string().to_lowercase();
+        assert!(
+            err_msg.contains("cycle"),
+            "Expected 'cycle' in error: {}",
+            err_msg
+        );
     }
 
     #[test]
     fn test_missing_dependency() {
-        let result = Dag::from_nodes(vec![make_node("a", "p1", &["nonexistent"])]);
+        let result = Dag::from_nodes(&vec![make_node("a", "p1", &["nonexistent"])]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("does not exist"));
     }
 
     #[test]
     fn test_duplicate_id() {
-        let result = Dag::from_nodes(vec![make_node("a", "p1", &[]), make_node("a", "p1", &[])]);
+        let result = Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("a", "p1", &[])]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Duplicate"));
     }
 
     #[test]
     fn test_mark_running_and_done() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -575,7 +666,7 @@ mod tests {
 
     #[test]
     fn test_mark_failed() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
         ])
@@ -591,7 +682,7 @@ mod tests {
 
     #[test]
     fn test_mark_skipped() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         dag.mark_skipped("a").unwrap();
         assert!(dag.is_complete());
         assert_eq!(dag.progress(), 1.0);
@@ -599,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_progress_tracking() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -620,27 +711,27 @@ mod tests {
 
     #[test]
     fn test_cannot_mark_done_if_not_running() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(dag.mark_done("a").is_err());
     }
 
     #[test]
     fn test_cannot_mark_running_if_not_pending() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         dag.mark_running("a", "agent-1").unwrap();
         assert!(dag.mark_running("a", "agent-2").is_err());
     }
 
     #[test]
     fn test_set_issue_id() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         dag.set_issue_id("a", 42).unwrap();
         assert_eq!(dag.get("a").unwrap().issue_id, Some(42));
     }
 
     #[test]
     fn test_dependents_and_dependencies() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -656,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_stages_by_phase() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p2", &[]),
@@ -671,7 +762,7 @@ mod tests {
     #[test]
     fn test_status_and_agent_maps() {
         let mut dag =
-            Dag::from_nodes(vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+            Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
 
         dag.mark_running("a", "agent-1").unwrap();
 
@@ -687,7 +778,7 @@ mod tests {
     #[test]
     fn test_complex_multi_phase_dag() {
         // Simulates the web dashboard phases: 1 → (2 || 3) → 4 → 6
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("1a", "p1", &[]),
             make_node("1b", "p1", &[]),
             make_node("2a", "p2", &["1a", "1b"]),
@@ -714,7 +805,7 @@ mod tests {
 
     #[test]
     fn test_serialization_round_trip() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
         ])
@@ -730,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_three_node_cycle_detection() {
-        let result = Dag::from_nodes(vec![
+        let result = Dag::from_nodes(&vec![
             make_node("a", "p1", &["c"]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["b"]),
@@ -740,14 +831,14 @@ mod tests {
 
     #[test]
     fn test_self_loop_detection() {
-        let result = Dag::from_nodes(vec![make_node("a", "p1", &["a"])]);
+        let result = Dag::from_nodes(&vec![make_node("a", "p1", &["a"])]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_no_false_cycle_on_diamond() {
         // Diamond is NOT a cycle
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -762,7 +853,7 @@ mod tests {
         let nodes: Vec<DagNode> = (0..10)
             .map(|i| make_node(&format!("n{}", i), "p1", &[]))
             .collect();
-        let dag = Dag::from_nodes(nodes).unwrap();
+        let dag = Dag::from_nodes(&nodes).unwrap();
         assert_eq!(dag.ready_nodes().len(), 10);
     }
 
@@ -775,19 +866,19 @@ mod tests {
 
     #[test]
     fn test_is_empty_false_with_nodes() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(!dag.is_empty());
     }
 
     #[test]
     fn test_has_failures_false_when_clean() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(!dag.has_failures());
     }
 
     #[test]
     fn test_nodes_with_status() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -815,7 +906,7 @@ mod tests {
 
     #[test]
     fn test_mark_running_nonexistent_node() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_running("nonexistent", "agent-1");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -823,7 +914,7 @@ mod tests {
 
     #[test]
     fn test_mark_done_nonexistent_node() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_done("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -831,7 +922,7 @@ mod tests {
 
     #[test]
     fn test_mark_failed_nonexistent_node() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_failed("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -839,7 +930,7 @@ mod tests {
 
     #[test]
     fn test_mark_skipped_nonexistent_node() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_skipped("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -847,7 +938,7 @@ mod tests {
 
     #[test]
     fn test_set_issue_id_nonexistent_node() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         let result = dag.set_issue_id("nonexistent", 42);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -855,40 +946,40 @@ mod tests {
 
     #[test]
     fn test_dependents_nonexistent_node() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(dag.dependents("nonexistent").is_empty());
     }
 
     #[test]
     fn test_dependencies_nonexistent_node() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(dag.dependencies("nonexistent").is_empty());
     }
 
     #[test]
     fn test_get_returns_none_for_missing() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(dag.get("nonexistent").is_none());
         assert!(dag.get("a").is_some());
     }
 
     #[test]
     fn test_get_mut_returns_none_for_missing() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(dag.get_mut("nonexistent").is_none());
         assert!(dag.get_mut("a").is_some());
     }
 
     #[test]
     fn test_get_mut_modifies_node() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         dag.get_mut("a").unwrap().title = "Modified".to_string();
         assert_eq!(dag.get("a").unwrap().title, "Modified");
     }
 
     #[test]
     fn test_node_ids_returns_all_ids() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("x", "p1", &[]),
             make_node("y", "p1", &[]),
             make_node("z", "p1", &[]),
@@ -902,7 +993,7 @@ mod tests {
     #[test]
     fn test_nodes_returns_all_nodes() {
         let dag =
-            Dag::from_nodes(vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+            Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
         let nodes = dag.nodes();
         assert_eq!(nodes.len(), 2);
         assert!(nodes.contains_key("a"));
@@ -911,13 +1002,13 @@ mod tests {
 
     #[test]
     fn test_running_nodes_empty_when_none_running() {
-        let dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         assert!(dag.running_nodes().is_empty());
     }
 
     #[test]
     fn test_ready_nodes_blocked_by_running_dep() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
         ])
@@ -930,7 +1021,7 @@ mod tests {
 
     #[test]
     fn test_ready_nodes_blocked_by_failed_dep() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
         ])
@@ -943,7 +1034,7 @@ mod tests {
 
     #[test]
     fn test_mark_done_no_dependents_returns_empty() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         dag.mark_running("a", "agent-1").unwrap();
         let unblocked = dag.mark_done("a").unwrap();
         assert!(unblocked.is_empty());
@@ -951,7 +1042,7 @@ mod tests {
 
     #[test]
     fn test_mark_done_dependent_not_pending_not_unblocked() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
         ])
@@ -968,7 +1059,7 @@ mod tests {
 
     #[test]
     fn test_progress_with_mixed_terminal_states() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -985,7 +1076,7 @@ mod tests {
 
     #[test]
     fn test_is_complete_with_all_terminal_states() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -1002,7 +1093,7 @@ mod tests {
 
     #[test]
     fn test_is_complete_false_with_running() {
-        let mut dag = Dag::from_nodes(vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
         dag.mark_running("a", "agent-1").unwrap();
         assert!(!dag.is_complete());
     }
@@ -1022,7 +1113,7 @@ mod tests {
 
     #[test]
     fn test_stages_by_phase_multiple_phases() {
-        let dag = Dag::from_nodes(vec![
+        let dag = Dag::from_nodes(&vec![
             make_node("a", "phase-1", &[]),
             make_node("b", "phase-1", &["a"]),
             make_node("c", "phase-2", &[]),
@@ -1045,7 +1136,7 @@ mod tests {
 
     #[test]
     fn test_agent_map_only_includes_agents() {
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -1062,7 +1153,7 @@ mod tests {
     #[test]
     fn test_status_map_all_nodes() {
         let mut dag =
-            Dag::from_nodes(vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+            Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
 
         dag.mark_running("a", "agent-1").unwrap();
         dag.mark_done("a").unwrap();
@@ -1076,7 +1167,7 @@ mod tests {
     #[test]
     fn test_mark_done_diamond_partial_unblock() {
         // d depends on both b and c. Completing b should NOT unblock d.
-        let mut dag = Dag::from_nodes(vec![
+        let mut dag = Dag::from_nodes(&vec![
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),

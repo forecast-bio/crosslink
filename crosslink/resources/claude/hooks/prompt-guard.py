@@ -9,7 +9,6 @@ import json
 import sys
 import os
 import io
-import subprocess
 import hashlib
 from datetime import datetime
 
@@ -91,6 +90,7 @@ def load_all_rules(crosslink_dir):
         'swift.md': 'Swift', 'kotlin.md': 'Kotlin', 'scala.md': 'Scala',
         'zig.md': 'Zig', 'odin.md': 'Odin',
         'elixir.md': 'Elixir', 'elixir-phoenix.md': 'Elixir/Phoenix',
+        'shell.md': 'Shell',
         'web.md': 'Web',
     }
 
@@ -161,6 +161,8 @@ def detect_languages():
         '.ex': 'Elixir',
         '.exs': 'Elixir',
         '.heex': 'Elixir/Phoenix',
+        '.sh': 'Shell',
+        '.bash': 'Shell',
     }
 
     found = set()
@@ -180,6 +182,7 @@ def detect_languages():
         'composer.json': 'PHP',
         'Package.swift': 'Swift',
         'mix.exs': 'Elixir',
+        '.shellcheckrc': 'Shell',
     }
 
     # Check cwd and immediate subdirs for config files
@@ -303,26 +306,10 @@ def get_lock_file_hash(lock_path):
     """Get a hash of the lock file for cache invalidation."""
     try:
         mtime = os.path.getmtime(lock_path)
-        return hashlib.md5(f"{lock_path}:{mtime}".encode()).hexdigest()[:12]
+        return hashlib.sha256(f"{lock_path}:{mtime}".encode()).hexdigest()[:12]
     except OSError:
         return None
 
-
-def run_command(cmd, timeout=5):
-    """Run a command and return output, or None on failure."""
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            shell=True
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, OSError, Exception):
-        pass
-    return None
 
 
 def get_dependencies(max_deps=30):

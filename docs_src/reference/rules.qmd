@@ -107,6 +107,7 @@ Available language rules:
 | `zig.md` | Zig |
 | `odin.md` | Odin |
 | `elixir.md` | Elixir |
+| `shell.md` | Shell/Bash |
 
 You can edit these files to add project-specific language conventions, or remove files for languages not used in your project to reduce noise.
 

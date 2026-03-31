@@ -21,18 +21,13 @@ pub fn cleanup(
 ) -> Result<()> {
     let agents = discover_agents(crosslink_dir)?;
 
-    // Classify each agent
-    let candidates: Vec<(AgentInfo, CleanupClass)> = agents
+    // Classify and separate active agents from removable ones
+    let (active, removable): (Vec<_>, Vec<_>) = agents
         .into_iter()
         .map(|a| {
             let class = classify_agent(&a);
             (a, class)
         })
-        .collect();
-
-    // Separate active agents (never cleaned) from removable ones
-    let (active, removable): (Vec<_>, Vec<_>) = candidates
-        .into_iter()
         .partition(|(_, class)| *class == CleanupClass::Active);
 
     // Without --force, only clean Done agents (not Stale)
@@ -114,7 +109,7 @@ pub fn cleanup(
                 let class_label = match class {
                     CleanupClass::Done => "DONE  ",
                     CleanupClass::Stale => "STALE ",
-                    _ => "      ",
+                    CleanupClass::Active => "      ",
                 };
                 let wt_display = if agent.worktree.is_empty() {
                     "-".to_string()
@@ -128,12 +123,11 @@ pub fn cleanup(
                 let session_info = agent
                     .session
                     .as_deref()
-                    .map(|s| format!("tmux: {}", s))
-                    .unwrap_or_else(|| "tmux: exited".to_string());
+                    .map_or_else(|| "tmux: exited".to_string(), |s| format!("tmux: {s}"));
                 let docker_info = agent
                     .docker
                     .as_deref()
-                    .map(|d| format!("  docker: {}", d))
+                    .map(|d| format!("  docker: {d}"))
                     .unwrap_or_default();
                 println!(
                     "  {}  {:<40} worktree: {:<30} {}{}",
@@ -169,12 +163,12 @@ pub fn cleanup(
             let tmux_count = to_clean.iter().filter(|(a, _)| a.session.is_some()).count();
             let docker_count = to_clean.iter().filter(|(a, _)| a.docker.is_some()).count();
             println!();
-            print!("Would remove {} worktree(s)", wt_count);
+            print!("Would remove {wt_count} worktree(s)");
             if tmux_count > 0 {
-                print!(", kill {} tmux session(s)", tmux_count);
+                print!(", kill {tmux_count} tmux session(s)");
             }
             if docker_count > 0 {
-                print!(", remove {} container(s)", docker_count);
+                print!(", remove {docker_count} container(s)");
             }
             println!(".");
             println!("Run without --dry-run to proceed.");
@@ -206,7 +200,7 @@ pub fn cleanup(
                 Ok(o) if o.status.success() => {
                     result.tmux_killed = true;
                     if !json_output {
-                        println!("  Killed tmux session: {}", session_name);
+                        println!("  Killed tmux session: {session_name}");
                     }
                 }
                 Ok(o) => {
@@ -234,7 +228,7 @@ pub fn cleanup(
                         if o.status.success() {
                             result.container_removed = true;
                             if !json_output {
-                                println!("  Removed {} container: {}", runtime, container_name);
+                                println!("  Removed {runtime} container: {container_name}");
                             }
                             break;
                         }
@@ -256,7 +250,7 @@ pub fn cleanup(
                         .and_then(|n| n.to_str())
                         .unwrap_or(&agent.worktree);
                     if !json_output {
-                        println!("  Removed worktree: {}", wt_display);
+                        println!("  Removed worktree: {wt_display}");
                     }
                 }
                 Ok(o) => {
@@ -266,7 +260,7 @@ pub fn cleanup(
                     result.error = Some(msg);
                 }
                 Err(e) => {
-                    let msg = format!("git worktree remove error: {}", e);
+                    let msg = format!("git worktree remove error: {e}");
                     tracing::warn!("{}", msg);
                     result.error = Some(msg);
                 }
@@ -288,16 +282,16 @@ pub fn cleanup(
         println!();
         print!("Cleaned up {} agent(s)", results.len());
         if wt_removed > 0 {
-            print!(": {} worktree(s)", wt_removed);
+            print!(": {wt_removed} worktree(s)");
         }
         if tmux_killed > 0 {
-            print!(", {} tmux session(s)", tmux_killed);
+            print!(", {tmux_killed} tmux session(s)");
         }
         if containers_removed > 0 {
-            print!(", {} container(s)", containers_removed);
+            print!(", {containers_removed} container(s)");
         }
         if errors > 0 {
-            print!(" ({} error(s))", errors);
+            print!(" ({errors} error(s))");
         }
         println!(".");
     }

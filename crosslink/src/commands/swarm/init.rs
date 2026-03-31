@@ -96,8 +96,8 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
         schema_version: 1,
         title: doc.title.clone(),
         design_doc: Some(doc_path.display().to_string()),
-        created_at: now.clone(),
-        phases: phase_names.clone(),
+        created_at: now,
+        phases: phase_names,
     };
 
     // Write plan and phase files
@@ -111,7 +111,7 @@ pub fn init(crosslink_dir: &Path, doc_path: &Path) -> Result<()> {
         paths_to_commit.push(phase_path);
     }
 
-    let path_refs: Vec<&str> = paths_to_commit.iter().map(|s| s.as_str()).collect();
+    let path_refs: Vec<&str> = paths_to_commit.iter().map(String::as_str).collect();
     commit_hub_files(&sync, &path_refs, "swarm: init plan from design doc")?;
 
     println!("Swarm plan initialized: {}", doc.title);
@@ -156,7 +156,7 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
             description: req.clone(),
             issue_id: None,
             agent_id: None,
-            branch: Some(format!("feature/{}", slug)),
+            branch: Some(format!("feature/{slug}")),
             status: AgentStatus::Planned,
             started_at: None,
             completed_at: None,
@@ -172,7 +172,7 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
                 description: ac.clone(),
                 issue_id: None,
                 agent_id: None,
-                branch: Some(format!("feature/{}", slug)),
+                branch: Some(format!("feature/{slug}")),
                 status: AgentStatus::Planned,
                 started_at: None,
                 completed_at: None,
@@ -188,7 +188,7 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
             description: doc.title.clone(),
             issue_id: None,
             agent_id: None,
-            branch: Some(format!("feature/{}", slug)),
+            branch: Some(format!("feature/{slug}")),
             status: AgentStatus::Planned,
             started_at: None,
             completed_at: None,
@@ -198,7 +198,10 @@ pub(super) fn propose_phases(doc: &DesignDoc) -> Vec<PhaseDefinition> {
     // Split into phases of at most 8 agents
     let max_per_phase = 8;
     let mut phases = Vec::new();
-    let chunks: Vec<Vec<AgentEntry>> = agents.chunks(max_per_phase).map(|c| c.to_vec()).collect();
+    let chunks: Vec<Vec<AgentEntry>> = agents
+        .chunks(max_per_phase)
+        .map(<[AgentEntry]>::to_vec)
+        .collect();
 
     for (i, chunk) in chunks.into_iter().enumerate() {
         let name = if phases.is_empty() && agents.len() <= max_per_phase {
@@ -241,7 +244,7 @@ fn propose_phases_from_groups(doc: &DesignDoc) -> Vec<PhaseDefinition> {
                     description: req.clone(),
                     issue_id: None,
                     agent_id: None,
-                    branch: Some(format!("feature/{}", slug)),
+                    branch: Some(format!("feature/{slug}")),
                     status: AgentStatus::Planned,
                     started_at: None,
                     completed_at: None,
@@ -261,11 +264,9 @@ fn propose_phases_from_groups(doc: &DesignDoc) -> Vec<PhaseDefinition> {
             .collect()
         } else if i > 0 {
             // Parallel phases still depend on the last phase before them
-            if let Some(prev) = phases.last() {
-                vec![prev.name.clone()]
-            } else {
-                vec![]
-            }
+            phases
+                .last()
+                .map_or_else(Vec::new, |prev| vec![prev.name.clone()])
         } else {
             vec![]
         };

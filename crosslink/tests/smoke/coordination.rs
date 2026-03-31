@@ -6,7 +6,7 @@ use super::harness::SmokeHarness;
 /// Initialize an agent identity and hub cache so the SharedWriter, locks, and
 /// compact commands work.  Uses `--no-key` to skip SSH key generation.
 fn init_agent_and_sync(h: &SmokeHarness, agent_id: &str) {
-    h.run_ok(&["agent", "init", agent_id, "--no-key"]);
+    h.run_ok(&["agent", "init", agent_id, "--no-key", "--force"]);
     // Sync initialises the hub cache worktree which SharedWriter needs.
     h.run_ok(&["sync"]);
 }

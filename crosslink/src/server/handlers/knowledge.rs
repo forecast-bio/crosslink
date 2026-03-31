@@ -16,6 +16,7 @@ use serde_json::Value;
 use crate::{
     knowledge::{parse_frontmatter, KnowledgeManager},
     server::{
+        errors::{bad_request, internal_error, not_found},
         state::AppState,
         types::{
             ApiError, CreateKnowledgePageRequest, KnowledgePage, KnowledgePageSummary,
@@ -24,38 +25,15 @@ use crate::{
     },
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn internal_error(context: &str, e: impl std::fmt::Display) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiError {
-            error: context.to_string(),
-            detail: Some(e.to_string()),
-        }),
-    )
-}
-
-fn not_found(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiError {
-            error: "not found".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
-}
-
-fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ApiError>) {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ApiError {
-            error: "bad request".to_string(),
-            detail: Some(msg.into()),
-        }),
-    )
+/// Escape a string for safe embedding inside YAML double-quoted values.
+///
+/// Escapes backslashes, double quotes, and newlines so that user-supplied
+/// input cannot break out of the quoted context.
+fn yaml_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }
 
 /// Build a `KnowledgeManager` from the app state's crosslink directory.
@@ -69,6 +47,9 @@ fn knowledge_manager(state: &AppState) -> Result<KnowledgeManager, (StatusCode, 
 // ---------------------------------------------------------------------------
 
 /// `GET /api/v1/knowledge` — list all knowledge pages with summary metadata.
+///
+/// # Errors
+/// Returns an error if the knowledge manager cannot be initialized or pages cannot be listed.
 pub async fn list_knowledge_pages(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
@@ -105,6 +86,9 @@ pub async fn list_knowledge_pages(
 /// The request body must contain a `slug`, `title`, `content`, and optional
 /// `tags` and `sources`. The handler constructs YAML frontmatter and writes
 /// the page to the knowledge cache.
+///
+/// # Errors
+/// Returns an error if validation fails or the page cannot be written.
 pub async fn create_knowledge_page(
     State(state): State<AppState>,
     Json(body): Json<CreateKnowledgePageRequest>,
@@ -114,6 +98,18 @@ pub async fn create_knowledge_page(
     }
     if body.title.is_empty() {
         return Err(bad_request("title cannot be empty"));
+    }
+
+    // Path traversal protection: reject slugs containing directory separators,
+    // parent-directory references, or null bytes.
+    if body.slug.contains('/')
+        || body.slug.contains('\\')
+        || body.slug.contains("..")
+        || body.slug.contains('\0')
+    {
+        return Err(bad_request(
+            "slug must not contain '/', '\\', '..', or null bytes",
+        ));
     }
 
     let km = knowledge_manager(&state)?;
@@ -130,7 +126,9 @@ pub async fn create_knowledge_page(
 
     let now = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
-    // Build YAML frontmatter.
+    // Build YAML frontmatter with proper escaping to prevent YAML injection.
+    // All user-supplied strings are wrapped in double quotes with interior
+    // quotes and backslashes escaped.
     let sources_yaml = if body.sources.is_empty() {
         "[]".to_string()
     } else {
@@ -138,9 +136,14 @@ pub async fn create_knowledge_page(
             .sources
             .iter()
             .map(|s| {
-                let mut entry = format!("  - url: \"{}\"\n    title: \"{}\"", s.url, s.title);
+                let mut entry = format!(
+                    "  - url: \"{}\"\n    title: \"{}\"",
+                    yaml_escape(&s.url),
+                    yaml_escape(&s.title)
+                );
                 if let Some(ref at) = s.accessed_at {
-                    entry.push_str(&format!("\n    accessed_at: \"{}\"", at));
+                    use std::fmt::Write;
+                    let _ = write!(entry, "\n    accessed_at: \"{}\"", yaml_escape(at));
                 }
                 entry
             })
@@ -155,7 +158,7 @@ pub async fn create_knowledge_page(
             "[{}]",
             body.tags
                 .iter()
-                .map(|t| format!("\"{}\"", t))
+                .map(|t| format!("\"{}\"", yaml_escape(t)))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -163,7 +166,7 @@ pub async fn create_knowledge_page(
 
     let page_content = format!(
         "---\ntitle: \"{}\"\ntags: {}\nsources: {}\ncontributors: []\ncreated: \"{}\"\nupdated: \"{}\"\n---\n\n{}",
-        body.title, tags_yaml, sources_yaml, now, now, body.content
+        yaml_escape(&body.title), tags_yaml, sources_yaml, now, now, body.content
     );
 
     km.write_page(&body.slug, &page_content)
@@ -198,6 +201,9 @@ pub async fn create_knowledge_page(
 /// `GET /api/v1/knowledge/search?q=<query>` — search knowledge pages by content.
 ///
 /// Returns matching snippets with context lines, ranked by term relevance.
+///
+/// # Errors
+/// Returns an error if the query is empty or the search fails.
 pub async fn search_knowledge(
     State(state): State<AppState>,
     Query(params): Query<KnowledgeSearchQuery>,
@@ -217,15 +223,16 @@ pub async fn search_knowledge(
         .search_content(&params.q, 2)
         .map_err(|e| internal_error("Knowledge search failed", e))?;
 
-    // Enrich each match with the page title from frontmatter.
-    let pages = km
-        .list_pages()
-        .map_err(|e| internal_error("Failed to list pages for title lookup", e))?;
-
-    let title_map: std::collections::HashMap<String, String> = pages
-        .into_iter()
-        .map(|p| (p.slug.clone(), p.frontmatter.title))
-        .collect();
+    // Build title map lazily — only if there are matches to enrich.
+    let title_map: std::collections::HashMap<String, String> = if matches.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        km.list_pages()
+            .map_err(|e| internal_error("Failed to list pages for title lookup", e))?
+            .into_iter()
+            .map(|p| (p.slug.clone(), p.frontmatter.title))
+            .collect()
+    };
 
     let items: Vec<KnowledgeSearchMatch> = matches
         .into_iter()
@@ -251,6 +258,9 @@ pub async fn search_knowledge(
 /// `GET /api/v1/knowledge/:slug` — read a single knowledge page by slug.
 ///
 /// Returns the full page content along with parsed frontmatter metadata.
+///
+/// # Errors
+/// Returns an error if the page cannot be found or read.
 pub async fn get_knowledge_page(
     State(state): State<AppState>,
     Path(slug): Path<String>,
@@ -258,13 +268,13 @@ pub async fn get_knowledge_page(
     let km = knowledge_manager(&state)?;
 
     if !km.is_initialized() {
-        return Err(not_found(format!("Page '{}' not found", slug)));
+        return Err(not_found(format!("Page '{slug}' not found")));
     }
 
     let raw = km.read_page(&slug).map_err(|e| {
         let msg = e.to_string();
         if msg.contains("not found") {
-            not_found(format!("Page '{}' not found", slug))
+            not_found(format!("Page '{slug}' not found"))
         } else {
             internal_error("Failed to read knowledge page", e)
         }
@@ -324,12 +334,13 @@ fn strip_frontmatter(raw: &str) -> String {
         return raw.to_string();
     }
     // Find the closing `---` after the opening one.
-    if let Some(end) = trimmed[3..].find("\n---") {
-        let after = &trimmed[3 + end + 4..]; // skip past "\n---"
-        after.trim_start_matches('\n').to_string()
-    } else {
-        raw.to_string()
-    }
+    trimmed[3..].find("\n---").map_or_else(
+        || raw.to_string(),
+        |end| {
+            let after = &trimmed[3 + end + 4..]; // skip past "\n---"
+            after.trim_start_matches('\n').to_string()
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -821,17 +832,17 @@ mod tests {
 
     #[test]
     fn test_helper_functions_directly() {
-        let (status, json) = super::internal_error("ctx", "detail");
+        let (status, json) = crate::server::errors::internal_error("ctx", "detail");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "ctx");
         assert_eq!(json.detail.as_deref(), Some("detail"));
 
-        let (status, json) = super::not_found("not there");
+        let (status, json) = crate::server::errors::not_found("not there");
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(json.error, "not found");
         assert_eq!(json.detail.as_deref(), Some("not there"));
 
-        let (status, json) = super::bad_request("invalid");
+        let (status, json) = crate::server::errors::bad_request("invalid");
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(json.error, "bad request");
         assert_eq!(json.detail.as_deref(), Some("invalid"));

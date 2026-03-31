@@ -122,7 +122,7 @@ pub fn review(
         agent_count: assignments.len(),
         created_at: now,
         agents: assignments.clone(),
-        doc_output: doc.map(|p| p.to_path_buf()),
+        doc_output: doc.map(std::path::Path::to_path_buf),
     };
 
     // Persist plan to hub branch
@@ -134,8 +134,8 @@ pub fn review(
     )?;
 
     // Print summary
-    println!("Review plan ({} mandate):", mandate);
-    println!("  Prompt: {}", prompt_text);
+    println!("Review plan ({mandate} mandate):");
+    println!("  Prompt: {prompt_text}");
     println!();
     println!("Agent assignments:");
     for agent in &plan.agents {
@@ -173,7 +173,7 @@ pub fn review(
 // Review pipeline orchestration
 // ---------------------------------------------------------------------------
 
-/// Convert consolidated finding groups into the format expected by issue_filing.
+/// Convert consolidated finding groups into the format expected by `issue_filing`.
 fn findings_to_filing(groups: &[findings::FindingGroup]) -> Vec<issue_filing::FindingForFiling> {
     groups
         .iter()
@@ -232,9 +232,8 @@ fn apply_trust_filtering(
     crosslink_dir: &Path,
     report: &findings::ConsolidatedReport,
 ) -> Vec<findings::FindingGroup> {
-    let config = match trust_model::load_trust_config(crosslink_dir) {
-        Ok(c) => c,
-        Err(_) => return report.groups.clone(),
+    let Ok(config) = trust_model::load_trust_config(crosslink_dir) else {
+        return report.groups.clone();
     };
 
     // Convert finding groups to tuples for the trust model batch API
@@ -269,7 +268,7 @@ fn apply_trust_filtering(
         }
     }
     if by_design_count > 0 {
-        println!("  {} finding(s) triaged as by-design", by_design_count);
+        println!("  {by_design_count} finding(s) triaged as by-design");
     }
     kept
 }
@@ -387,10 +386,10 @@ fn run_review_pipeline(crosslink_dir: &Path, config: PipelineConfig) -> Result<(
 
 /// Fetch titles of existing GitHub issues labeled "review-finding" for deduplication.
 fn fetch_existing_review_titles() -> Vec<String> {
-    match fetch_issues_by_label("review-finding") {
-        Ok(issues) => issues.into_iter().map(|(_, title, _, _)| title).collect(),
-        Err(_) => Vec::new(),
-    }
+    fetch_issues_by_label("review-finding").map_or_else(
+        |_| Vec::new(),
+        |issues| issues.into_iter().map(|(_, title, _, _)| title).collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +426,7 @@ fn fetch_issue_details(number: u64) -> Result<(String, String, Vec<String>)> {
         .as_array()
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                .filter_map(|v| v["name"].as_str().map(ToString::to_string))
                 .collect()
         })
         .unwrap_or_default();
@@ -474,7 +473,7 @@ pub(super) fn fetch_issues_by_label(label: &str) -> Result<Vec<LabeledIssue>> {
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                    .filter_map(|v| v["name"].as_str().map(ToString::to_string))
                     .collect()
             })
             .unwrap_or_default();
@@ -500,7 +499,7 @@ pub(super) fn slugify_fix_target(issue_number: u64, title: &str) -> String {
 
     // Truncate slug_part to keep the total slug reasonable
     let max_slug_len: usize = 50;
-    let prefix = format!("fix-{}-", issue_number);
+    let prefix = format!("fix-{issue_number}-");
     let remaining = max_slug_len.saturating_sub(prefix.len());
     let truncated = if slug_part.len() > remaining {
         // Cut at a word boundary if possible
@@ -512,7 +511,7 @@ pub(super) fn slugify_fix_target(issue_number: u64, title: &str) -> String {
         &slug_part
     };
 
-    format!("{}{}", prefix, truncated)
+    format!("{prefix}{truncated}")
 }
 
 /// Parse comma-separated issue numbers from a string.
@@ -523,7 +522,7 @@ pub(super) fn parse_issue_numbers(input: &str) -> Result<Vec<u64>> {
             let trimmed = s.trim();
             trimmed
                 .parse::<u64>()
-                .with_context(|| format!("Invalid issue number: {:?}", trimmed))
+                .with_context(|| format!("Invalid issue number: {trimmed:?}"))
         })
         .collect()
 }

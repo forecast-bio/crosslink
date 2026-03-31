@@ -10,6 +10,9 @@ impl KnowledgeManager {
     /// query terms matched within each page — pages matching more terms appear
     /// first. Within a page, contiguous matching lines are grouped with
     /// surrounding context.
+    ///
+    /// # Errors
+    /// Returns an error if the cache directory cannot be read.
     pub fn search_content(&self, query: &str, context: usize) -> Result<Vec<SearchMatch>> {
         if !self.cache_dir.exists() {
             return Ok(Vec::new());
@@ -22,10 +25,10 @@ impl KnowledgeManager {
         }
 
         let mut entries: Vec<_> = std::fs::read_dir(&self.cache_dir)?
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "md").unwrap_or(false))
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
             .collect();
-        entries.sort_by_key(|e| e.file_name());
+        entries.sort_by_key(std::fs::DirEntry::file_name);
 
         // Collect (term_match_count, matches) per file for ranking
         let mut scored_results: Vec<(usize, Vec<SearchMatch>)> = Vec::new();
@@ -37,14 +40,18 @@ impl KnowledgeManager {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            let content = std::fs::read_to_string(&path)?;
-            let lines: Vec<&str> = content.lines().collect();
-            let content_lower = content.to_lowercase();
+            let page_text = std::fs::read_to_string(&path)?;
+            let lines: Vec<&str> = page_text.lines().collect();
+
+            // Lowercase each line once and reuse for both term-hit counting
+            // and per-line matching (avoids redundant lowercasing of the
+            // entire content separately).
+            let lines_lower: Vec<String> = lines.iter().map(|l| l.to_lowercase()).collect();
 
             // Count how many distinct query terms appear anywhere in this page
             let term_hits = terms
                 .iter()
-                .filter(|term| content_lower.contains(**term))
+                .filter(|term| lines_lower.iter().any(|ll| ll.contains(**term)))
                 .count();
 
             if term_hits == 0 {
@@ -52,13 +59,10 @@ impl KnowledgeManager {
             }
 
             // Find lines matching any query term
-            let matching_indices: Vec<usize> = lines
+            let matching_indices: Vec<usize> = lines_lower
                 .iter()
                 .enumerate()
-                .filter(|(_, line)| {
-                    let line_lower = line.to_lowercase();
-                    terms.iter().any(|term| line_lower.contains(term))
-                })
+                .filter(|(_, line_lower)| terms.iter().any(|term| line_lower.contains(term)))
                 .map(|(i, _)| i)
                 .collect();
 
@@ -99,6 +103,9 @@ impl KnowledgeManager {
     /// Search knowledge pages by source URL domain.
     ///
     /// Finds pages that have a source whose URL contains the given domain string.
+    ///
+    /// # Errors
+    /// Returns an error if listing pages fails.
     pub fn search_sources(&self, domain: &str) -> Result<Vec<PageInfo>> {
         let domain_lower = domain.to_lowercase();
 
@@ -125,21 +132,16 @@ pub(super) fn group_matches(indices: &[usize], context: usize) -> Vec<Vec<usize>
     let mut groups: Vec<Vec<usize>> = Vec::new();
 
     for &idx in indices {
-        let merged = if let Some(last_group) = groups.last_mut() {
-            if let Some(&last_idx) = last_group.last() {
-                if idx <= last_idx + 2 * context + 1 {
-                    last_group.push(idx);
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
+        let should_merge = groups
+            .last()
+            .and_then(|g| g.last())
+            .is_some_and(|&last_idx| idx <= last_idx + 2 * context + 1);
+
+        if should_merge {
+            if let Some(last_group) = groups.last_mut() {
+                last_group.push(idx);
             }
         } else {
-            false
-        };
-        if !merged {
             groups.push(vec![idx]);
         }
     }

@@ -43,7 +43,7 @@ const SECONDARY_NAV: NavItem[] = [
   { label: "Appearance", to: "/appearance", icon: Palette },
 ];
 
-function NavItem({ item }: { item: NavItem }) {
+function NavItemLink({ item }: { item: NavItem }) {
   return (
     <NavLink
       to={item.to}
@@ -77,7 +77,7 @@ export function Sidebar() {
       <ScrollArea className="flex-1 px-2 py-3">
         <nav className="space-y-0.5">
           {NAV_ITEMS.map((item) => (
-            <NavItem key={item.to} item={item} />
+            <NavItemLink key={item.to} item={item} />
           ))}
         </nav>
 
@@ -85,7 +85,7 @@ export function Sidebar() {
 
         <nav className="space-y-0.5">
           {SECONDARY_NAV.map((item) => (
-            <NavItem key={item.to} item={item} />
+            <NavItemLink key={item.to} item={item} />
           ))}
         </nav>
       </ScrollArea>

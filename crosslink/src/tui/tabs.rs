@@ -11,22 +11,19 @@ use super::TabAction;
 
 /// A placeholder tab for features not yet implemented.
 pub struct PlaceholderTab {
-    title: String,
+    title: &'static str,
     phase: u8,
 }
 
 impl PlaceholderTab {
-    pub fn new(title: &str, phase: u8) -> Self {
-        PlaceholderTab {
-            title: title.to_string(),
-            phase,
-        }
+    pub const fn new(title: &'static str, phase: u8) -> Self {
+        Self { title, phase }
     }
 }
 
 impl super::Tab for PlaceholderTab {
-    fn title(&self) -> &str {
-        &self.title
+    fn title(&self) -> &'static str {
+        self.title
     }
 
     fn render(&self, frame: &mut Frame, area: Rect) {

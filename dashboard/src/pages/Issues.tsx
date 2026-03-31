@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Plus, CircleDot, CheckCircle2, Tag, Milestone, CheckSquare, Square } from "lucide-react";
 import { useIssuesStore } from "@/stores/issues";
@@ -9,19 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { IssueForm } from "@/components/IssueForm";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime, priorityVariant } from "@/lib/utils";
 import type { IssuePriority, MilestoneDetail } from "@/lib/types";
 
 const PRIORITIES: IssuePriority[] = ["critical", "high", "medium", "low"];
-
-function priorityVariant(p: IssuePriority) {
-  switch (p) {
-    case "critical": return "destructive" as const;
-    case "high": return "warning" as const;
-    case "medium": return "info" as const;
-    default: return "secondary" as const;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Bulk action bar
@@ -90,16 +81,15 @@ export function Issues() {
   const [milestones, setMilestones] = useState<MilestoneDetail[]>([]);
   const [milestonesLoading, setMilestonesLoading] = useState(false);
 
-  const refetch = () => fetch({
+  const refetch = useCallback(() => fetch({
     status: statusFilter === "all" ? undefined : statusFilter,
     priority: priorityFilter === "all" ? undefined : priorityFilter,
-  });
+  }), [fetch, statusFilter, priorityFilter]);
 
   useEffect(() => {
     void refetch();
     setSelected(new Set());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, priorityFilter]);
+  }, [refetch]);
 
   // Client-side search filter
   const filtered = search

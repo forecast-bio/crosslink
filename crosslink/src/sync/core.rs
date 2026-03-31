@@ -22,11 +22,16 @@ pub struct SyncManager {
 }
 
 impl SyncManager {
-    /// Create a new SyncManager for the given .crosslink directory.
+    /// Create a new `SyncManager` for the given .crosslink directory.
     ///
     /// When running inside a git worktree, automatically detects the main
     /// repository root and uses its `.crosslink/.hub-cache/` so that the
     /// shared coordination branch worktree is never duplicated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the repo root cannot be determined from the
+    /// crosslink directory path.
     pub fn new(crosslink_dir: &Path) -> Result<Self> {
         let local_repo_root = crosslink_dir
             .parent()
@@ -41,7 +46,7 @@ impl SyncManager {
         let cache_dir = repo_root.join(".crosslink").join(HUB_CACHE_DIR);
         let remote = read_tracker_remote(crosslink_dir);
 
-        Ok(SyncManager {
+        Ok(Self {
             crosslink_dir: crosslink_dir.to_path_buf(),
             cache_dir,
             repo_root,
@@ -50,16 +55,19 @@ impl SyncManager {
     }
 
     /// Get the configured git remote name for the hub branch.
+    #[must_use]
     pub fn remote(&self) -> &str {
         &self.remote
     }
 
     /// Check if the cache directory is initialized.
+    #[must_use]
     pub fn is_initialized(&self) -> bool {
         self.cache_dir.exists()
     }
 
     /// Get the path to the cache directory.
+    #[must_use]
     pub fn cache_path(&self) -> &Path {
         &self.cache_dir
     }
@@ -68,6 +76,7 @@ impl SyncManager {
     ///
     /// Returns `false` when the remote (e.g. "origin") is not configured,
     /// which means hub sync operations cannot work.
+    #[must_use]
     pub fn remote_exists(&self) -> bool {
         Command::new("git")
             .current_dir(&self.repo_root)
@@ -80,6 +89,7 @@ impl SyncManager {
     }
 
     /// Check if the hub uses V2 layout (per-entity lock files in `locks/`).
+    #[must_use]
     pub fn is_v2_layout(&self) -> bool {
         let meta_dir = self.cache_dir.join("meta");
         crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1) >= 2
@@ -87,8 +97,23 @@ impl SyncManager {
 
     // --- Private/crate helpers ---
 
+    /// Return the cache directory path as a UTF-8 string, or bail with a
+    /// clear error when the path contains non-UTF-8 bytes.
     pub(super) fn cache_path_str(&self) -> String {
-        self.cache_dir.to_string_lossy().to_string()
+        self.cache_dir.to_str().map_or_else(
+            || {
+                // Log and fall back to lossy conversion. A non-UTF-8 cache
+                // path will cause git commands to target the wrong directory,
+                // so this is loud on purpose.
+                tracing::error!(
+                    "hub cache path contains non-UTF-8 characters: {:?}; \
+                     git operations may fail",
+                    self.cache_dir
+                );
+                self.cache_dir.to_string_lossy().to_string()
+            },
+            str::to_string,
+        )
     }
 
     pub(super) fn git_in_repo(&self, args: &[&str]) -> Result<std::process::Output> {
@@ -96,10 +121,49 @@ impl SyncManager {
             .current_dir(&self.repo_root)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?}", args))?;
+            .with_context(|| format!("Failed to run git {args:?}"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} failed: {}", args, stderr);
+            bail!("git {args:?} failed: {stderr}");
+        }
+        Ok(output)
+    }
+
+    /// Run a git commit in the cache worktree with signing-awareness.
+    ///
+    /// If `commit.gpgsign` was explicitly configured at local or worktree scope
+    /// (e.g. by `crosslink agent init` / `configure_signing()`), honour it so
+    /// hub-cache commits carry the agent's signature for audit trail. If signing
+    /// was only inherited from the user's global git config, bypass it to avoid
+    /// failures when the global key isn't usable in the cache context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the git commit command fails.
+    pub(super) fn git_commit_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
+        let local_configured = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["config", "--local", "commit.gpgsign"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        let worktree_configured = Command::new("git")
+            .current_dir(&self.cache_dir)
+            .args(["config", "--worktree", "commit.gpgsign"])
+            .output()
+            .is_ok_and(|o| o.status.success());
+
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&self.cache_dir);
+        if !local_configured && !worktree_configured {
+            cmd.args(["-c", "commit.gpgsign=false"]);
+        }
+        cmd.arg("commit").args(args);
+        let output = cmd
+            .output()
+            .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("git commit {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }
@@ -109,21 +173,27 @@ impl SyncManager {
             .current_dir(&self.cache_dir)
             .args(args)
             .output()
-            .with_context(|| format!("Failed to run git {:?} in cache", args))?;
+            .with_context(|| format!("Failed to run git {args:?} in cache"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {:?} in cache failed: {}", args, stderr);
+            bail!("git {args:?} in cache failed: {stderr}");
         }
         Ok(output)
     }
 
     /// Copy `.claude/hooks/` from the repo root into the hub cache worktree.
     ///
-    /// PreToolUse hooks resolve their path via `git rev-parse --show-toplevel`.
+    /// `PreToolUse` hooks resolve their path via `git rev-parse --show-toplevel`.
     /// When an agent's CWD is inside the hub cache, that resolves to the cache
     /// root instead of the main repo, so the hooks must exist there too.
     /// This is a best-effort operation — if `.claude/hooks/` doesn't exist in
     /// the repo root, we silently skip.
+    ///
+    /// **Note**: This performs a shallow copy — only regular files in the
+    /// top-level `hooks/` directory are copied. Subdirectories and symlinks
+    /// are ignored. The copy runs once (skips if `dst` already exists),
+    /// so hook updates in the source require deleting the cache copy to
+    /// re-trigger propagation.
     pub(super) fn propagate_claude_hooks(&self) -> Result<()> {
         let src = self.repo_root.join(".claude").join("hooks");
         if !src.is_dir() {
@@ -166,14 +236,32 @@ impl SyncManager {
             } else {
                 "--local"
             };
-            let email_result = Command::new("git")
+            let email_output = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.email", "crosslink@localhost"])
-                .output();
-            let name_result = Command::new("git")
+                .output()
+                .context("Failed to run git config for user.email")?;
+            if !email_output.status.success() {
+                bail!(
+                    "git config {} user.email failed: {}",
+                    scope_flag,
+                    String::from_utf8_lossy(&email_output.stderr)
+                );
+            }
+
+            let name_output = Command::new("git")
                 .current_dir(&self.cache_dir)
                 .args(["config", scope_flag, "user.name", "crosslink"])
-                .output();
+                .output()
+                .context("Failed to run git config for user.name")?;
+            if !name_output.status.success() {
+                bail!(
+                    "git config {} user.name failed: {}",
+                    scope_flag,
+                    String::from_utf8_lossy(&name_output.stderr)
+                );
+            }
+
             // Verify identity is actually set — don't let commits fail later
             // with "Author identity unknown" (#469)
             let verified = Command::new("git")
@@ -184,9 +272,8 @@ impl SyncManager {
                 .unwrap_or(false);
             if !verified {
                 bail!(
-                    "Failed to set git identity in hub cache (email: {:?}, name: {:?})",
-                    email_result.map(|o| o.status.success()),
-                    name_result.map(|o| o.status.success()),
+                    "Failed to verify git identity in hub cache: \
+                     git config set succeeded but user.email is not readable"
                 );
             }
         }
@@ -197,7 +284,7 @@ impl SyncManager {
     /// Returns 0 if the remote ref doesn't exist or the count can't be determined.
     pub(super) fn count_unpushed_commits(&self) -> usize {
         let remote_ref = format!("{}/{}", self.remote, HUB_BRANCH);
-        let range = format!("{}..HEAD", remote_ref);
+        let range = format!("{remote_ref}..HEAD");
         match self.git_in_cache(&["rev-list", "--count", &range]) {
             Ok(output) => String::from_utf8_lossy(&output.stdout)
                 .trim()
