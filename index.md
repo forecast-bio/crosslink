@@ -1,11 +1,12 @@
 ---
 title: "Knowledge Index"
-tags: [index]
+tags: ["index"]
 sources: []
-contributors: [maxine--basel]
+contributors: ["maxine--basel"]
 created: 2026-03-17
-updated: 2026-03-17
+updated: 2026-03-31
 ---
+
 
 # Knowledge Index
 
@@ -43,10 +44,13 @@ Shared knowledge repository for crosslink. Search with \`crosslink knowledge sea
 
 ## Design Documents
 
+## Design Documents
+
 - **adversarial-review-v1** — Correctness, structure, and test hardening punch list (GH #364)
 - **dashboard-extraction** — Standalone multi-repo dashboard architecture
 - **refactor-subcommand-structure** — CLI surface area restructuring
 - **v050-release** / **v050-release-gap-analysis** — v0.5.0 release planning
+- **v070-release** — v0.7.0 QA audit, hub-write-lock bug, smoke test regression patterns
 - **shared-issues-migration** — Migration to shared issue coordination
 - **swarm-introspection** — Swarm phase introspection and budget design
 - **adversarial-review-adr** — Earlier adversarial review findings (Feb 2026)
