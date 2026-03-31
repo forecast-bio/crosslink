@@ -1,11 +1,12 @@
 ---
 title: "Multi-Agent Coordination — Practical Guide"
-tags: [coordination, onboarding]
+tags: ["coordination", "onboarding"]
 sources: []
-contributors: [maxine--basel]
+contributors: ["maxine--basel"]
 created: 2026-03-17
-updated: 2026-03-17
+updated: 2026-03-31
 ---
+
 
 # Multi-Agent Coordination — Practical Guide
 
@@ -13,26 +14,45 @@ How agents actually coordinate in crosslink. For the deep CRDT design, see `even
 
 ## The Hub Branch
 
-All multi-agent state lives on the `crosslink/hub` git branch. This branch is never checked out directly — crosslink manages it via bare worktree operations.
+## The Hub Branch
+
+All multi-agent state lives on the `crosslink/hub` git branch. This branch is never checked out directly — crosslink manages it via a worktree at `.crosslink/.hub-cache`.
 
 ```
-crosslink/hub branch structure:
+crosslink/hub branch structure (V2 layout):
+├── agents/
+│   └── {agent-id}/             # Per-agent event logs
+│       └── {event-id}.json
+├── checkpoint/
+│   ├── state.json              # Compaction watermark and lease state
+│   └── skew_warnings.json      # Clock skew violation records
+├── heartbeats/
+│   └── {agent-id}.json         # Agent liveness heartbeats
 ├── issues/
-│   └── {uuid}.json          # One file per issue (events + metadata)
-├── comments/
-│   └── {issue-uuid}/
-│       └── {comment-uuid}.json
+│   └── {uuid}/                 # One directory per issue
+│       ├── issue.json          # Issue metadata (title, priority, status, etc.)
+│       └── comments/           # Comments embedded with their issue
+│           └── {comment-uuid}.json
 ├── locks/
-│   └── {issue-id}.json      # Active lock claims
-├── trust/
-│   ├── keys/
-│   │   └── {agent-id}.pub   # Published public keys
-│   └── allowed_signers      # Approved keys for verification
+│   └── {issue-id}.json         # Active lock claims (by display ID)
+├── locks.json                  # Legacy V1 lock file (read for migration)
 ├── meta/
-│   └── counters.json         # Next issue/comment ID allocation
-└── events/
-    └── {event-id}.json       # Event log for CRDT convergence
+│   ├── counters.json           # Next display_id/comment_id/milestone_id allocation
+│   ├── milestones/             # Milestone files
+│   └── version.json            # Hub layout version marker
+└── trust/
+    ├── allowed_signers         # Approved agent keys for signature verification
+    ├── approvals/              # Trust approval records
+    └── keys/
+        └── {agent-id}.pub     # Published agent public keys
 ```
+
+Key V2 changes from V1:
+- Issues have their own directories instead of flat files
+- Comments are co-located with their parent issue (not in a separate top-level directory)
+- Events are partitioned by agent (under `agents/`)
+- Heartbeats have their own top-level directory
+- Layout version is tracked in `meta/version.json`
 
 ## Sync Flow
 
