@@ -185,6 +185,7 @@ fn test_roundtrip_export_import() {
 #[test]
 fn test_roundtrip_milestone_issues() {
     let h = SmokeHarness::new();
+    h.run_ok(&["sync"]);
 
     // Create a milestone
     h.run_ok(&["milestone", "create", "v1.0-test"]);

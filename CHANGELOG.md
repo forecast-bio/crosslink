@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-30
+
+### Added
+- `crosslink init --update` with manifest-tracked safe upgrades — tracks installed resource versions and applies incremental updates without overwriting user customizations
+- First-class Shell/Bash support in language rules, detection, and hooks
+- QA architectural review skill (`/qa`) shipped with `crosslink init`
+- Team and solo configuration preset documentation
+
+### Fixed
+- Full-codebase QA audit — 180+ fixes across security, correctness, and architecture: shell injection, fail-open hooks, CORS, transaction safety, hydration data loss, non-atomic writes, TOCTOU races, N+1 queries, and structural refactors (init.rs split, config registry extraction, `status.rs` → `lifecycle.rs`)
+- `swarm merge --base` flag for repos without a `develop` branch
+- `gh` added to allowed bash prefixes; session status caching in work-check hook
+- `.hub-write-lock` excluded from git tracking to prevent recovery commit loop
+- Consistent signing bypass for all hub-cache commits
+- Resolved clippy pedantic and nursery warnings across codebase
+
+### Changed
+- `init.rs` split into `init/mod.rs`, `init/merge.rs`, `init/python.rs`, `init/signing.rs`, `init/walkthrough.rs` for maintainability
+- Config command logic extracted to `config_registry.rs`
+- `status.rs` renamed to `lifecycle.rs`
+- Shared error helpers module added to server (`server/errors.rs`)
+- TUI tabs refactored with shared helpers to reduce duplication
+
 ## [0.6.0] - 2026-03-24
 
 ### Added
