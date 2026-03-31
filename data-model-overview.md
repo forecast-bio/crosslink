@@ -1,11 +1,12 @@
 ---
 title: "Data Model Overview"
-tags: [architecture, onboarding]
+tags: ["architecture", "onboarding"]
 sources: []
-contributors: [maxine--basel]
+contributors: ["maxine--basel"]
 created: 2026-03-17
-updated: 2026-03-17
+updated: 2026-03-31
 ---
+
 
 # Data Model Overview
 
@@ -69,12 +70,16 @@ Comments carry a `kind` field for structured audit trails:
 
 ## Priority Levels
 
-| Priority | When to Use |
-|----------|-------------|
-| `critical` | Blocking other work, production issue, data loss risk |
-| `high` | Important, should be done soon |
-| `medium` | Normal priority (default) |
-| `low` | Nice to have, do when time allows |
+## Priority Levels
+
+| Priority | When to Use | Availability |
+|----------|-------------|--------------|
+| `critical` | Blocking other work, production issue, data loss risk | CLI only |
+| `high` | Important, should be done soon | CLI + API |
+| `medium` | Normal priority (default) | CLI + API |
+| `low` | Nice to have, do when time allows | CLI + API |
+
+> **Note**: The web dashboard API accepts `low`, `medium`, and `high` only. The CLI accepts all four including `critical`. If you create a `critical` issue via CLI, it will display correctly everywhere but cannot be set via the API.
 
 ## Identity and Attribution
 
