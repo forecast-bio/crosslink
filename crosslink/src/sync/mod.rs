@@ -1,3 +1,4 @@
+pub mod bootstrap;
 mod cache;
 mod core;
 mod heartbeats;

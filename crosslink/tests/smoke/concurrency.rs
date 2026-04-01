@@ -25,17 +25,27 @@ use std::time::Duration;
 // ============================================================================
 
 /// Send a raw HTTP/1.1 request and return `(status_code, body_string)`.
-fn http_request(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+fn http_request(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    auth_token: Option<&str>,
+) -> (u16, String) {
     let mut stream =
         TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Failed to connect to server");
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
     let body_str = body.unwrap_or("");
+    let auth_header = auth_token
+        .map(|t| format!("Authorization: Bearer {t}\r\n"))
+        .unwrap_or_default();
     let request = format!(
         "{method} {path} HTTP/1.1\r\n\
 Host: 127.0.0.1:{port}\r\n\
 Content-Type: application/json\r\n\
+{auth_header}\
 Content-Length: {len}\r\n\
 Connection: close\r\n\
 \r\n\
@@ -125,6 +135,11 @@ fn parse_json(body: &str) -> serde_json::Value {
 fn test_concurrent_api_creates_10() {
     let mut h = SmokeHarness::new();
     let port = h.start_server();
+    let token = Arc::new(
+        h.server_auth_token
+            .clone()
+            .expect("server did not emit auth token"),
+    );
 
     // Synchronise all threads so they start at roughly the same moment.
     let barrier = Arc::new(Barrier::new(10));
@@ -132,13 +147,14 @@ fn test_concurrent_api_creates_10() {
     let handles: Vec<_> = (0..10)
         .map(|i| {
             let barrier = Arc::clone(&barrier);
+            let token = Arc::clone(&token);
             thread::spawn(move || {
                 barrier.wait();
                 let payload = format!(
                     r#"{{"title": "Concurrent issue {}", "priority": "medium"}}"#,
                     i
                 );
-                http_request(port, "POST", "/api/v1/issues", Some(&payload))
+                http_request(port, "POST", "/api/v1/issues", Some(&payload), Some(&token))
             })
         })
         .collect();
@@ -174,7 +190,7 @@ fn test_concurrent_api_creates_10() {
     );
 
     // Verify all 10 issues are queryable through the list endpoint.
-    let (status, body) = http_request(port, "GET", "/api/v1/issues", None);
+    let (status, body) = http_request(port, "GET", "/api/v1/issues", None, Some(&token));
     assert_eq!(status, 200);
     let json = parse_json(&body);
     let total = json["total"].as_u64().unwrap_or(0);
@@ -197,14 +213,14 @@ fn test_concurrent_api_creates_10() {
 fn test_parallel_lock_claim_one_winner() {
     // Set up the primary agent with hub initialised and an issue to lock.
     let agent_a = SmokeHarness::new();
-    agent_a.run_ok(&["agent", "init", "agent-a", "--no-key"]);
+    agent_a.run_ok(&["agent", "init", "agent-a", "--no-key", "--force"]);
     agent_a.run_ok(&["sync"]);
     agent_a.run_ok(&["create", "Contested resource"]);
     agent_a.run_ok(&["sync"]);
 
     // Fork a second agent sharing the same remote.
     let agent_b = agent_a.fork_agent("agent-b");
-    agent_b.run_ok(&["agent", "init", "agent-b", "--no-key"]);
+    agent_b.run_ok(&["agent", "init", "agent-b", "--no-key", "--force"]);
     agent_b.run_ok(&["sync"]);
 
     // Capture paths / bins needed across threads.
@@ -628,7 +644,7 @@ fn test_sqlite_busy_concurrent_writes() {
 fn test_split_brain_lock_detection() {
     // Agent A: initialise, create an issue, and claim a lock.
     let agent_a = SmokeHarness::new();
-    agent_a.run_ok(&["agent", "init", "agent-a", "--no-key"]);
+    agent_a.run_ok(&["agent", "init", "agent-a", "--no-key", "--force"]);
     agent_a.run_ok(&["sync"]);
     agent_a.run_ok(&["create", "Split-brain target"]);
     agent_a.run_ok(&["sync"]);
@@ -640,7 +656,7 @@ fn test_split_brain_lock_detection() {
     // and claim the same lock directly by writing a lock event into the hub
     // cache on disk.
     let agent_b = agent_a.fork_agent("agent-b");
-    agent_b.run_ok(&["agent", "init", "agent-b", "--no-key"]);
+    agent_b.run_ok(&["agent", "init", "agent-b", "--no-key", "--force"]);
     agent_b.run_ok(&["sync"]);
 
     // Locate Agent B's hub cache directory (the worktree crosslink uses for

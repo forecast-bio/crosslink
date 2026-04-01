@@ -94,6 +94,20 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     let approval_path = approvals_dir.join(format!("{agent_id}.json"));
     std::fs::write(&approval_path, serde_json::to_string_pretty(&approval)?)?;
 
+    // Complete bootstrap if pending — the first approval establishes the
+    // trust chain, enabling signing enforcement (#644).
+    let bootstrap_completed =
+        if let Some(state) = crate::sync::bootstrap::read_bootstrap_state(cache) {
+            if state.status == "pending" {
+                crate::sync::bootstrap::complete_bootstrap(cache)?;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
     // Commit and push
     commit_trust_change(
         cache,
@@ -105,6 +119,9 @@ pub fn approve(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
         println!("Approved agent '{agent_id}' (principal: {principal}, approved by: {fp})");
     } else {
         println!("Approved agent '{agent_id}' (principal: {principal})");
+    }
+    if bootstrap_completed {
+        println!("Bootstrap complete — signing enforcement is now active.");
     }
     Ok(())
 }
@@ -306,6 +323,10 @@ fn commit_trust_change_impl(
     };
 
     git(&["add", "trust/"])?;
+    // Stage bootstrap state if updated by this trust change (#644)
+    if cache_dir.join("meta").join("bootstrap.json").exists() {
+        let _ = git(&["add", "meta/bootstrap.json"]);
+    }
 
     if unsigned {
         git(&["-c", "commit.gpgsign=false", "commit", "-m", message])?;

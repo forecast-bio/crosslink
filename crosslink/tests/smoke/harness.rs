@@ -39,6 +39,8 @@ pub struct SmokeHarness {
     pub crosslink_bin: PathBuf,
     server_handle: Option<Child>,
     pub server_port: Option<u16>,
+    /// Bearer token for API authentication, captured from server stdout.
+    pub server_auth_token: Option<String>,
     pub agent_id: String,
     /// Path to a bare git repo used as the shared remote.  `None` for bare
     /// harnesses and harnesses that don't need coordination.
@@ -143,6 +145,7 @@ impl SmokeHarness {
             crosslink_bin: bin,
             server_handle: None,
             server_port: None,
+            server_auth_token: None,
             agent_id: "smoke-primary".to_string(),
             bare_remote,
             _remote_dir: Some(remote_dir),
@@ -161,6 +164,7 @@ impl SmokeHarness {
             crosslink_bin: bin,
             server_handle: None,
             server_port: None,
+            server_auth_token: None,
             agent_id: "smoke-bare".to_string(),
             bare_remote: None,
             _remote_dir: None,
@@ -240,13 +244,34 @@ impl SmokeHarness {
         };
         // The listener is dropped, freeing the port for the server.
 
-        let child = Command::new(&self.crosslink_bin)
+        let mut child = Command::new(&self.crosslink_bin)
             .current_dir(self.temp_dir.path())
             .args(["serve", "--port", &port.to_string()])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn crosslink serve");
+
+        // Capture the auth token from server stdout before storing the child.
+        // The server prints "  Auth:      Bearer <token>" during startup.
+        if let Some(stdout) = child.stdout.take() {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stdout);
+            let deadline = Instant::now() + Duration::from_secs(10);
+            for line in reader.lines() {
+                if Instant::now() > deadline {
+                    break;
+                }
+                let Ok(line) = line else { break };
+                if let Some(token) = line.trim().strip_prefix("Auth:") {
+                    let token = token.trim();
+                    if let Some(token) = token.strip_prefix("Bearer ") {
+                        self.server_auth_token = Some(token.to_string());
+                    }
+                    break;
+                }
+            }
+        }
 
         self.server_handle = Some(child);
         self.server_port = Some(port);
@@ -372,6 +397,7 @@ impl SmokeHarness {
             crosslink_bin: bin,
             server_handle: None,
             server_port: None,
+            server_auth_token: None,
             agent_id: agent_id.to_string(),
             bare_remote: Some(remote_path.clone()),
             _remote_dir: None, // The remote TempDir is owned by the original harness
