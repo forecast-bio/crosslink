@@ -228,6 +228,16 @@ impl SyncManager {
             // Exclude runtime files from tracking before first commit (#528)
             self.ensure_hub_gitignore()?;
 
+            // Write initial bootstrap state so it's included in the first commit.
+            // This marks the hub as being in the bootstrap phase (#644).
+            super::bootstrap::write_bootstrap_state(
+                &self.cache_dir,
+                &super::bootstrap::BootstrapState {
+                    status: "pending".to_string(),
+                    completed_at: None,
+                },
+            )?;
+
             // Commit the initial state so the branch has at least one commit.
             // Without this, `git log` and other commands fail on the empty orphan.
             self.git_in_cache(&["add", "-A"])?;
@@ -235,6 +245,7 @@ impl SyncManager {
             // a global gitconfig.
             self.ensure_cache_git_identity()?;
             self.git_commit_in_cache(&["-m", "Initialize crosslink/hub branch"])?;
+
         }
 
         // Also ensure identity for the has_remote path so callers that commit

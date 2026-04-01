@@ -55,17 +55,19 @@ impl SyncManager {
             return self.fallback_to_driver_signing();
         }
 
-        // Set up allowed_signers path
+        // Ensure allowed_signers file always exists so git's verify-commit
+        // correctly classifies signed commits. Without this, verify-commit
+        // reports "allowedSignersFile needs to be configured" which maps
+        // to Unsigned instead of Invalid (untrusted signer).
         let allowed_signers = self.cache_dir.join("trust").join("allowed_signers");
+        if !allowed_signers.exists() {
+            signing::AllowedSigners::default().save(&allowed_signers)?;
+        }
 
         signing::configure_git_ssh_signing(
             &self.cache_dir,
             &private_key,
-            if allowed_signers.exists() {
-                Some(&allowed_signers)
-            } else {
-                None
-            },
+            Some(&allowed_signers),
         )?;
 
         Ok(())

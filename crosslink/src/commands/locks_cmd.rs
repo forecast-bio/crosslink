@@ -448,54 +448,96 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         }
     }
 
-    // Signing enforcement check
+    // Signing enforcement check — bootstrap-aware (#644)
     let enforcement = read_signing_enforcement(crosslink_dir);
     if enforcement != "disabled" {
-        let results = sync.verify_recent_commits(5)?;
-        let unsigned: Vec<_> = results
-            .iter()
-            .filter(|(_, v)| matches!(v, SignatureVerification::Unsigned { .. }))
-            .collect();
-        let invalid: Vec<_> = results
-            .iter()
-            .filter(|(_, v)| matches!(v, SignatureVerification::Invalid { .. }))
-            .collect();
+        let bootstrap = crate::sync::bootstrap::read_bootstrap_state(sync.cache_path());
 
-        if !unsigned.is_empty() || !invalid.is_empty() {
-            let msg = format!(
-                "{} unsigned, {} invalid signature(s) in last {} commit(s)",
-                unsigned.len(),
-                invalid.len(),
-                results.len()
-            );
-            if enforcement == "enforced" {
-                anyhow::bail!("Signing enforcement FAILED: {msg}");
-            }
-            // audit mode
-            println!("Signing audit: {msg}");
-        } else if !results.is_empty() {
-            println!(
-                "Signing audit: all {} recent commit(s) are signed.",
-                results.len()
-            );
-        }
-
-        // Per-entry signature verification
-        let (verified, failed, entry_unsigned) = sync.verify_entry_signatures()?;
-        let total_entries = verified + failed + entry_unsigned;
-        if total_entries > 0 {
-            if failed > 0 {
-                let msg = format!(
-                    "{verified} verified, {failed} FAILED, {entry_unsigned} unsigned entry signature(s)"
-                );
+        match bootstrap.as_ref().map(|b| b.status.as_str()) {
+            Some("pending") => {
+                // Bootstrap incomplete — enforcement cannot work yet because
+                // bootstrap commits are inherently unsigned by design.
                 if enforcement == "enforced" {
-                    anyhow::bail!("Entry signing enforcement FAILED: {msg}");
+                    anyhow::bail!(
+                        "Hub bootstrap incomplete \u{2014} signing enforcement cannot proceed.\n\
+                         \n\
+                         Bootstrap commits are inherently unsigned. To complete setup:\n\
+                         1. Run `crosslink trust pending` to see keys awaiting approval\n\
+                         2. Run `crosslink trust approve <agent-id>` for each agent\n\
+                         \n\
+                         This establishes the trust chain and enables enforcement."
+                    );
                 }
-                println!("Entry signing audit: {msg}");
-            } else if verified > 0 {
-                println!(
-                    "Entry signing audit: {verified} verified, {entry_unsigned} unsigned entry signature(s)."
-                );
+                // audit mode
+                println!("Signing audit: bootstrap pending \u{2014} unsigned bootstrap commit(s) expected.");
+            }
+            _ => {
+                // "complete" or no bootstrap state (old repo): full enforcement.
+                let results = sync.verify_recent_commits(5)?;
+
+                // Filter out bootstrap commits identified by their deterministic
+                // commit message prefix (init + key publication).
+                let is_bootstrap = |hash: &str| -> bool {
+                    if bootstrap.is_none() {
+                        return false; // old repo, no filtering
+                    }
+                    sync.commit_message(hash)
+                        .map(|msg| crate::sync::bootstrap::is_bootstrap_message(&msg))
+                        .unwrap_or(false)
+                };
+
+                let unsigned: Vec<_> = results
+                    .iter()
+                    .filter(|(hash, v)| {
+                        matches!(v, SignatureVerification::Unsigned { .. })
+                            && !is_bootstrap(hash)
+                    })
+                    .collect();
+                let invalid: Vec<_> = results
+                    .iter()
+                    .filter(|(hash, v)| {
+                        matches!(v, SignatureVerification::Invalid { .. })
+                            && !is_bootstrap(hash)
+                    })
+                    .collect();
+
+                if !unsigned.is_empty() || !invalid.is_empty() {
+                    let msg = format!(
+                        "{} unsigned, {} invalid signature(s) in last {} commit(s)",
+                        unsigned.len(),
+                        invalid.len(),
+                        results.len()
+                    );
+                    if enforcement == "enforced" {
+                        anyhow::bail!("Signing enforcement FAILED: {msg}");
+                    }
+                    // audit mode
+                    println!("Signing audit: {msg}");
+                } else if !results.is_empty() {
+                    println!(
+                        "Signing audit: all {} recent commit(s) are signed.",
+                        results.len()
+                    );
+                }
+
+                // Per-entry signature verification
+                let (verified, failed, entry_unsigned) = sync.verify_entry_signatures()?;
+                let total_entries = verified + failed + entry_unsigned;
+                if total_entries > 0 {
+                    if failed > 0 {
+                        let msg = format!(
+                            "{verified} verified, {failed} FAILED, {entry_unsigned} unsigned entry signature(s)"
+                        );
+                        if enforcement == "enforced" {
+                            anyhow::bail!("Entry signing enforcement FAILED: {msg}");
+                        }
+                        println!("Entry signing audit: {msg}");
+                    } else if verified > 0 {
+                        println!(
+                            "Entry signing audit: {verified} verified, {entry_unsigned} unsigned entry signature(s)."
+                        );
+                    }
+                }
             }
         }
     }

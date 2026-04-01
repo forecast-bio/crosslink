@@ -168,6 +168,12 @@ impl SyncManager {
         Ok(output)
     }
 
+    /// Get the subject line of a commit in the cache worktree.
+    pub fn commit_message(&self, commit: &str) -> Result<String> {
+        let output = self.git_in_cache(&["log", "-1", "--format=%s", commit])?;
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
     pub(super) fn git_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
         let output = Command::new("git")
             .current_dir(&self.cache_dir)
