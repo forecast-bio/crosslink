@@ -58,3 +58,5 @@ maxine--basel--kickoff-graph-command-0fa7@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1
 maxine--knowledge-edit@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAEOPgfsTwrDrcovyWsm7ZvI/6nx5wSn9WKv/W87UQoz crosslink-agent:maxine--knowledge-edit@basel.local
 # approved by doll at 2026-04-01 20:21:23 UTC
 maxine--tui-startup-sync@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMcsO57DMtDE0ojwilL8yUcHg2hSrOnu1rf/0tNvZFm crosslink-agent:maxine--tui-startup-sync@basel.local
+# approved by doll at 2026-04-01 20:21:32 UTC
+maxine-at-forecast--noether--rules-local@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEdiS8X67XUBcXvhOZPECG2MPaH4RUsWD3coQy43HGVt crosslink-agent:maxine-at-forecast--noether--rules-local@noether-4.local
