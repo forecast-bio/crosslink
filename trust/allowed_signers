@@ -46,3 +46,5 @@ noether--add-container-agent@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHxdZ
 maxine-at-forecast--noether--restrict-proptests@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrtTWgzzBVejctqkdMGdYmVXjNHttIDfDYiSN3oAI4x crosslink-agent:maxine-at-forecast--noether--restrict-proptests@noether-4.local
 # approved by doll at 2026-04-01 20:14:38 UTC
 maxine-at-forecast--noether--config-tracker-remote@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBqI8oHkgjjQiLXBEvXzMoVsTb3t5xxtuz/DDfwEjiEC crosslink-agent:maxine-at-forecast--noether--config-tracker-remote@noether-4.local
+# approved by doll at 2026-04-01 20:15:13 UTC
+maxine--basel--gh-issues-299-and-301@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
