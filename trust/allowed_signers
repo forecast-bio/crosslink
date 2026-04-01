@@ -50,3 +50,5 @@ maxine-at-forecast--noether--config-tracker-remote@crosslink ssh-ed25519 AAAAC3N
 maxine--basel--gh-issues-299-and-301@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzCUK3Bb8VBxhcyoS7NqrH1AzKjw3SUgB7iCpMWOqw+ crosslink-agent:maxine--basel@basel.local
 # approved by doll at 2026-04-01 20:20:30 UTC
 m1--full-system-adversarial-review@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILDwCbbx8KrmjZvPzkr8IQF/ENhs0AIxXuiRJG1v4z9G crosslink-agent:m1--full-system-adversarial-review@noether-4.local
+# approved by doll at 2026-04-01 20:20:52 UTC
+maxine-at-forecast--noether--fix-signing@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGkf2AH8/zXy+moJNYGg8A/l4jjq3F8fBZtYhhyL/agX crosslink-agent:maxine-at-forecast--noether--fix-signing@noether-4.local
