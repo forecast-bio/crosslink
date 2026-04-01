@@ -337,16 +337,32 @@ impl SyncManager {
                             ("comment_id", &comment.id.to_string()),
                             ("content", &comment.content),
                         ]);
-                        // Use fingerprint as principal for verification
+                        // Try author-based principal first (original agent signature)
                         let principal = format!("{}@crosslink", &comment.author);
-                        match signing::verify_content(
+                        let original_ok = signing::verify_content(
                             &allowed_signers_path,
                             &principal,
                             "crosslink-comment",
                             &canonical,
                             sig,
+                        );
+                        if matches!(original_ok, Ok(true)) {
+                            verified += 1;
+                            continue;
+                        }
+                        // Fallback: try backfill principal with backfill namespace.
+                        // Human-attested entries use a different namespace so they
+                        // can be verified without being confused with agent sigs.
+                        match signing::verify_content(
+                            &allowed_signers_path,
+                            "backfill@crosslink",
+                            "crosslink-backfill",
+                            &canonical,
+                            sig,
                         ) {
-                            Ok(true) => verified += 1,
+                            Ok(true) => {
+                                verified += 1;
+                            }
                             Ok(false) => {
                                 tracing::warn!(
                                     "signature verification failed for comment {} by '{}' (signer: {})",
@@ -355,8 +371,6 @@ impl SyncManager {
                                 failed += 1;
                             }
                             Err(e) => {
-                                // Verification unavailable (no allowed_signers, no ssh-keygen)
-                                // Treat as unverifiable but not failed
                                 if allowed_signers_path.exists() {
                                     tracing::warn!(
                                         "signature verification error for comment {} by '{}': {}",
@@ -366,8 +380,7 @@ impl SyncManager {
                                     );
                                     failed += 1;
                                 } else {
-                                    // Can't verify without allowed_signers — count as signed but unverifiable
-                                    let _ = fingerprint; // acknowledge the signature exists
+                                    let _ = fingerprint;
                                     unsigned += 1;
                                 }
                             }

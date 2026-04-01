@@ -1,13 +1,17 @@
 use anyhow::Result;
 use std::path::Path;
 
+use anyhow::{bail, Context};
+use std::path::PathBuf;
+
 use crate::db::{Database, SCHEMA_VERSION};
 use crate::hydration::hydrate_to_sqlite;
 use crate::identity::AgentConfig;
 use crate::issue_file::{
-    read_all_issue_files, read_all_milestone_files, read_counters, read_milestones_file,
-    write_counters, Counters,
+    read_all_issue_files, read_all_milestone_files, read_comment_files, read_counters,
+    read_milestones_file, write_comment_file, write_counters, write_issue_file, Counters,
 };
+use crate::signing;
 use crate::sync::SyncManager;
 use crate::IntegrityCommands;
 
@@ -62,6 +66,9 @@ pub fn run(action: Option<&IntegrityCommands>, crosslink_dir: &Path, db: &Databa
             let result = check_layout(crosslink_dir, *repair);
             print_result(&result);
             Ok(())
+        }
+        Some(IntegrityCommands::SignBackfill { confirm, key }) => {
+            sign_backfill(crosslink_dir, *confirm, key.as_deref())
         }
     }
 }
@@ -506,6 +513,290 @@ fn check_layout(crosslink_dir: &Path, repair: bool) -> CheckResult {
         name: "layout".to_string(),
         status: CheckStatus::Repaired(repair_desc.join("; ")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Sign backfill: retroactively sign unsigned entries with a human key
+// ---------------------------------------------------------------------------
+
+/// Signing namespace for backfill attestation — distinct from the original
+/// `"crosslink-comment"` namespace so verification can distinguish
+/// human-attested entries from agent-signed ones.
+const BACKFILL_SIGNING_NAMESPACE: &str = "crosslink-backfill";
+
+/// Principal used for human backfill attestation in `allowed_signers`.
+const BACKFILL_PRINCIPAL: &str = "backfill@crosslink";
+
+fn sign_backfill(crosslink_dir: &Path, confirm: bool, key_override: Option<&Path>) -> Result<()> {
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+    if !cache_dir.exists() {
+        bail!("Hub cache not found. Run `crosslink sync` first.");
+    }
+
+    // ── Resolve signing key ──────────────────────────────────────────
+    let private_key = resolve_signing_key(key_override)?;
+    let public_key = derive_public_key_path(&private_key)?;
+    let fingerprint = signing::get_key_fingerprint(&public_key)?;
+    let public_key_line = signing::read_public_key(&public_key)?;
+
+    println!("Signing key: {fingerprint}");
+    println!("Public key:  {}", public_key.display());
+
+    // ── Scan for unsigned entries ────────────────────────────────────
+    let issues_dir = cache_dir.join("issues");
+    let mut issues = read_all_issue_files(&issues_dir)?;
+
+    // V1 inline comments
+    let mut v1_unsigned_count = 0usize;
+    let mut v1_issue_count = 0usize;
+    for issue in &issues {
+        let n = issue
+            .comments
+            .iter()
+            .filter(|c| c.signed_by.is_none() || c.signature.is_none())
+            .count();
+        if n > 0 {
+            v1_unsigned_count += n;
+            v1_issue_count += 1;
+        }
+    }
+
+    // V2 standalone comment files
+    let mut v2_unsigned: Vec<(PathBuf, crate::issue_file::CommentFile)> = Vec::new();
+    for entry in std::fs::read_dir(&issues_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let path = entry.path();
+        if path.is_dir() {
+            let comments_dir = path.join("comments");
+            if comments_dir.exists() {
+                for cf in read_comment_files(&comments_dir)? {
+                    if cf.signed_by.is_none() || cf.signature.is_none() {
+                        let cf_path = comments_dir.join(format!("{}.json", cf.uuid));
+                        v2_unsigned.push((cf_path, cf));
+                    }
+                }
+            }
+        }
+    }
+
+    let total = v1_unsigned_count + v2_unsigned.len();
+    if total == 0 {
+        println!("No unsigned entries found. Nothing to do.");
+        return Ok(());
+    }
+
+    println!();
+    println!("Found {total} unsigned entry(ies):");
+    if v1_unsigned_count > 0 {
+        println!("  {v1_unsigned_count} inline comment(s) across {v1_issue_count} issue(s)");
+    }
+    if !v2_unsigned.is_empty() {
+        println!("  {} standalone comment file(s)", v2_unsigned.len());
+    }
+    println!();
+    println!("These will be signed with your key ({fingerprint}) as attestation");
+    println!("that the missing signatures were a system error, not unapproved commits.");
+
+    if !confirm {
+        println!();
+        println!("Dry run. Re-run with --confirm to apply signatures.");
+        return Ok(());
+    }
+
+    // ── Sign V1 inline comments ─────────────────────────────────────
+    let mut signed_count = 0usize;
+    let mut modified_issue_paths: Vec<PathBuf> = Vec::new();
+
+    for issue in &mut issues {
+        let mut modified = false;
+        for comment in &mut issue.comments {
+            if comment.signed_by.is_some() && comment.signature.is_some() {
+                continue;
+            }
+            let canonical = signing::canonicalize_for_signing(&[
+                ("author", comment.author.as_str()),
+                ("comment_id", &comment.id.to_string()),
+                ("content", comment.content.as_str()),
+            ]);
+            let sig = signing::sign_content(&private_key, &canonical, BACKFILL_SIGNING_NAMESPACE)
+                .with_context(|| {
+                format!(
+                    "Failed to sign comment {} in issue {}",
+                    comment.id, issue.uuid
+                )
+            })?;
+            comment.signed_by = Some(fingerprint.clone());
+            comment.signature = Some(sig);
+            signed_count += 1;
+            modified = true;
+        }
+        if modified {
+            // Determine write path: V2 directory takes precedence
+            let v2_path = issues_dir.join(issue.uuid.to_string()).join("issue.json");
+            let v1_path = issues_dir.join(format!("{}.json", issue.uuid));
+            let write_path = if v2_path.exists() { v2_path } else { v1_path };
+            write_issue_file(&write_path, issue)?;
+            modified_issue_paths.push(write_path);
+        }
+    }
+
+    // ── Sign V2 standalone comment files ─────────────────────────────
+    let mut v2_signed_paths: Vec<PathBuf> = Vec::new();
+    for (cf_path, mut cf) in v2_unsigned {
+        // V2 comment files don't store a numeric id; use the uuid as the
+        // comment_id field for canonical content (matches nothing in the
+        // original signing flow, but creates a verifiable attestation).
+        let canonical = signing::canonicalize_for_signing(&[
+            ("author", cf.author.as_str()),
+            ("comment_id", &cf.uuid.to_string()),
+            ("content", cf.content.as_str()),
+        ]);
+        let sig = signing::sign_content(&private_key, &canonical, BACKFILL_SIGNING_NAMESPACE)
+            .with_context(|| format!("Failed to sign comment file {}", cf.uuid))?;
+        cf.signed_by = Some(fingerprint.clone());
+        cf.signature = Some(sig);
+        write_comment_file(&cf_path, &cf)?;
+        v2_signed_paths.push(cf_path);
+        signed_count += 1;
+    }
+
+    // ── Register human key in allowed_signers ────────────────────────
+    let trust_dir = cache_dir.join("trust");
+    let allowed_signers_path = trust_dir.join("allowed_signers");
+    let mut signers = signing::AllowedSigners::load(&allowed_signers_path)?;
+    let added = signers.add_entry(signing::AllowedSignerEntry {
+        principal: BACKFILL_PRINCIPAL.to_string(),
+        public_key: public_key_line,
+        metadata_comment: Some(format!(
+            "approved by human backfill at {}",
+            chrono::Utc::now().format("%Y-%m-%d")
+        )),
+    });
+    if added {
+        signers.save(&allowed_signers_path)?;
+        println!("Registered {fingerprint} as {BACKFILL_PRINCIPAL} in allowed_signers.");
+    }
+
+    // ── Commit and push to hub branch ────────────────────────────────
+    // Stage all modified files
+    let mut rel_paths: Vec<String> = Vec::new();
+    for path in modified_issue_paths.iter().chain(v2_signed_paths.iter()) {
+        if let Ok(rel) = path.strip_prefix(&cache_dir) {
+            rel_paths.push(rel.to_string_lossy().to_string());
+        }
+    }
+    if added {
+        if let Ok(rel) = allowed_signers_path.strip_prefix(&cache_dir) {
+            rel_paths.push(rel.to_string_lossy().to_string());
+        }
+    }
+
+    if rel_paths.is_empty() {
+        println!("No files to commit.");
+        return Ok(());
+    }
+
+    // git add
+    let mut add_args = vec!["add", "--"];
+    let refs: Vec<&str> = rel_paths.iter().map(String::as_str).collect();
+    add_args.extend_from_slice(&refs);
+
+    std::process::Command::new("git")
+        .current_dir(&cache_dir)
+        .args(&add_args)
+        .output()
+        .context("Failed to git add in hub cache")?;
+
+    // git commit (without gpg signing — this is the hub branch, human
+    // attestation is in the entry signatures themselves)
+    let commit_msg = format!(
+        "integrity: backfill {signed_count} unsigned entry signature(s)\n\n\
+         Attested by {fingerprint} ({BACKFILL_PRINCIPAL}).\n\
+         These entries lacked signatures due to a system error,\n\
+         not unapproved commits."
+    );
+    let commit_output = std::process::Command::new("git")
+        .current_dir(&cache_dir)
+        .args(["-c", "commit.gpgsign=false", "commit", "-m", &commit_msg])
+        .output()
+        .context("Failed to git commit in hub cache")?;
+
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        bail!("git commit failed: {stderr}");
+    }
+
+    // Try to push
+    let sync = SyncManager::new(crosslink_dir)?;
+    let remote = sync.remote();
+    let push_output = std::process::Command::new("git")
+        .current_dir(&cache_dir)
+        .args(["push", remote, "HEAD:refs/heads/crosslink/hub"])
+        .output()
+        .context("Failed to push hub branch")?;
+
+    if push_output.status.success() {
+        println!("Signed {signed_count} entry(ies) and pushed to {remote}.");
+    } else {
+        let stderr = String::from_utf8_lossy(&push_output.stderr);
+        println!("Signed {signed_count} entry(ies). Committed locally.");
+        println!("Push failed (you may need to push manually): {stderr}");
+    }
+
+    Ok(())
+}
+
+/// Resolve the SSH private key to use for signing.
+fn resolve_signing_key(key_override: Option<&Path>) -> Result<PathBuf> {
+    if let Some(key) = key_override {
+        let path = PathBuf::from(key);
+        if !path.exists() {
+            bail!("Specified key not found: {}", path.display());
+        }
+        // If they passed a .pub file, derive the private key
+        return Ok(strip_pub_extension(&path));
+    }
+
+    // Try git's configured signing key
+    if let Some(path) = signing::find_git_signing_key() {
+        return Ok(strip_pub_extension(&path));
+    }
+
+    bail!(
+        "No signing key found. Configure one with:\n  \
+         git config --global user.signingkey ~/.ssh/your_key\n\
+         or pass --key <path>"
+    );
+}
+
+/// If the path ends in `.pub`, strip it to get the private key path.
+fn strip_pub_extension(path: &Path) -> PathBuf {
+    path.to_string_lossy()
+        .strip_suffix(".pub")
+        .map_or_else(|| path.to_path_buf(), PathBuf::from)
+}
+
+/// Derive the public key path from a private key path.
+fn derive_public_key_path(private_key: &Path) -> Result<PathBuf> {
+    let pub_path = PathBuf::from(format!("{}.pub", private_key.display()));
+    if pub_path.exists() {
+        return Ok(pub_path);
+    }
+    // Maybe the private key path itself is actually the public key
+    if private_key.exists() {
+        let content = std::fs::read_to_string(private_key)?;
+        if content.trim().starts_with("ssh-") || content.trim().starts_with("ecdsa-") {
+            return Ok(private_key.to_path_buf());
+        }
+    }
+    bail!(
+        "Cannot find public key for {}. Expected {}.pub",
+        private_key.display(),
+        private_key.display()
+    );
 }
 
 // ---------------------------------------------------------------------------

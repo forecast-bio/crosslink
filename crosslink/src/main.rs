@@ -1364,6 +1364,15 @@ enum IntegrityCommands {
         #[arg(long)]
         repair: bool,
     },
+    /// Retroactively sign unsigned hub entries with a human key (attestation)
+    SignBackfill {
+        /// Actually apply signatures (dry-run without this flag)
+        #[arg(long)]
+        confirm: bool,
+        /// Path to SSH private key (defaults to git's configured signing key)
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
