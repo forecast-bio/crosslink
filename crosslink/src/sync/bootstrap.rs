@@ -29,6 +29,8 @@ pub struct BootstrapState {
 const BOOTSTRAP_MESSAGE_PREFIXES: &[&str] = &[
     "Initialize crosslink/hub branch",
     "trust: publish key for agent",
+    "sync: auto-stage dirty hub state",
+    "bootstrap: register agent",
 ];
 
 /// Check whether a commit message identifies a bootstrap commit.
@@ -140,7 +142,11 @@ mod tests {
     fn test_is_bootstrap_message() {
         assert!(is_bootstrap_message("Initialize crosslink/hub branch"));
         assert!(is_bootstrap_message("trust: publish key for agent 'foo'"));
-        assert!(!is_bootstrap_message("sync: auto-stage dirty hub state"));
+        assert!(is_bootstrap_message(
+            "sync: auto-stage dirty hub state (recovery)"
+        ));
+        assert!(is_bootstrap_message("bootstrap: register agent 'abc'"));
         assert!(!is_bootstrap_message("some random commit"));
+        assert!(!is_bootstrap_message("fix: a real commit"));
     }
 }
