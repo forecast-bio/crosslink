@@ -1,0 +1,278 @@
+use anyhow::Result;
+use chrono::Utc;
+use rusqlite::params;
+
+use super::core::Database;
+
+/// A row from the `sentinel_runs` table.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SentinelRun {
+    pub id: i64,
+    pub run_id: String,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub mode: String,
+    pub signals_found: i64,
+    pub dispatched: i64,
+    pub collected: i64,
+    pub triaged: i64,
+    pub skipped: i64,
+    pub deferred: i64,
+}
+
+/// A row from the `sentinel_dispatches` table.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SentinelDispatch {
+    pub id: i64,
+    pub run_id: String,
+    pub signal_ref: String,
+    pub signal_title: String,
+    pub source: String,
+    pub disposition: String,
+    pub agent_id: Option<String>,
+    pub crosslink_issue_id: Option<i64>,
+    pub gh_issue_number: Option<i64>,
+    pub label: String,
+    pub attempt_number: i32,
+    pub model_used: Option<String>,
+    pub outcome: String,
+    pub outcome_detail: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+impl Database {
+    // === Sentinel runs ===
+
+    /// Insert a new sentinel run record. Returns the auto-generated row ID.
+    pub fn insert_sentinel_run(&self, run_id: &str, mode: &str) -> Result<i64> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO sentinel_runs (run_id, started_at, mode) VALUES (?1, ?2, ?3)",
+            params![run_id, now, mode],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Update a sentinel run with final statistics.
+    pub fn complete_sentinel_run(
+        &self,
+        run_id: &str,
+        signals_found: i64,
+        dispatched: i64,
+        collected: i64,
+        triaged: i64,
+        skipped: i64,
+        deferred: i64,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE sentinel_runs
+             SET completed_at = ?1, signals_found = ?2, dispatched = ?3,
+                 collected = ?4, triaged = ?5, skipped = ?6, deferred = ?7
+             WHERE run_id = ?8",
+            params![
+                now,
+                signals_found,
+                dispatched,
+                collected,
+                triaged,
+                skipped,
+                deferred,
+                run_id
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// List recent sentinel runs, most recent first.
+    pub fn list_sentinel_runs(&self, limit: usize) -> Result<Vec<SentinelRun>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, run_id, started_at, completed_at, mode,
+                    signals_found, dispatched, collected, triaged, skipped, deferred
+             FROM sentinel_runs ORDER BY started_at DESC LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![limit as i64], |row| {
+                Ok(SentinelRun {
+                    id: row.get(0)?,
+                    run_id: row.get(1)?,
+                    started_at: row.get(2)?,
+                    completed_at: row.get(3)?,
+                    mode: row.get(4)?,
+                    signals_found: row.get(5)?,
+                    dispatched: row.get(6)?,
+                    collected: row.get(7)?,
+                    triaged: row.get(8)?,
+                    skipped: row.get(9)?,
+                    deferred: row.get(10)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    // === Sentinel dispatches ===
+
+    /// Insert a new sentinel dispatch record. Returns the auto-generated row ID.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_sentinel_dispatch(
+        &self,
+        run_id: &str,
+        signal_ref: &str,
+        signal_title: &str,
+        source: &str,
+        disposition: &str,
+        agent_id: Option<&str>,
+        crosslink_issue_id: Option<i64>,
+        gh_issue_number: Option<i64>,
+        label: &str,
+        attempt_number: i32,
+        model_used: Option<&str>,
+    ) -> Result<i64> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO sentinel_dispatches
+             (run_id, signal_ref, signal_title, source, disposition, agent_id,
+              crosslink_issue_id, gh_issue_number, label, attempt_number, model_used, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                run_id,
+                signal_ref,
+                signal_title,
+                source,
+                disposition,
+                agent_id,
+                crosslink_issue_id,
+                gh_issue_number,
+                label,
+                attempt_number,
+                model_used,
+                now,
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Update a dispatch record with its outcome.
+    pub fn update_dispatch_outcome(
+        &self,
+        dispatch_id: i64,
+        outcome: &str,
+        outcome_detail: &str,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE sentinel_dispatches
+             SET outcome = ?1, outcome_detail = ?2, completed_at = ?3
+             WHERE id = ?4",
+            params![outcome, outcome_detail, now, dispatch_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get all dispatches with outcome = 'pending'.
+    pub fn get_pending_dispatches(&self) -> Result<Vec<SentinelDispatch>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, run_id, signal_ref, signal_title, source, disposition,
+                    agent_id, crosslink_issue_id, gh_issue_number, label,
+                    attempt_number, model_used, outcome, outcome_detail,
+                    created_at, completed_at
+             FROM sentinel_dispatches WHERE outcome = 'pending'",
+        )?;
+        let rows = stmt
+            .query_map([], Self::map_dispatch_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Count dispatches with outcome = 'pending'.
+    pub fn count_pending_dispatches(&self) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM sentinel_dispatches WHERE outcome = 'pending'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Get the most recent dispatch for a given (gh_issue_number, label) pair.
+    /// Used for the authoritative dedup check (Layer 3).
+    pub fn get_latest_dispatch_for_signal(
+        &self,
+        gh_issue_number: i64,
+        label: &str,
+    ) -> Result<Option<SentinelDispatch>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, run_id, signal_ref, signal_title, source, disposition,
+                    agent_id, crosslink_issue_id, gh_issue_number, label,
+                    attempt_number, model_used, outcome, outcome_detail,
+                    created_at, completed_at
+             FROM sentinel_dispatches
+             WHERE gh_issue_number = ?1 AND label = ?2
+             ORDER BY created_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt
+            .query_map(params![gh_issue_number, label], Self::map_dispatch_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows.pop())
+    }
+
+    /// Load all dispatches for SeenSet construction (most recent per signal_ref).
+    pub fn load_dispatch_seen_set(&self) -> Result<Vec<SentinelDispatch>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT d.id, d.run_id, d.signal_ref, d.signal_title, d.source, d.disposition,
+                    d.agent_id, d.crosslink_issue_id, d.gh_issue_number, d.label,
+                    d.attempt_number, d.model_used, d.outcome, d.outcome_detail,
+                    d.created_at, d.completed_at
+             FROM sentinel_dispatches d
+             INNER JOIN (
+                 SELECT signal_ref, MAX(created_at) as max_created
+                 FROM sentinel_dispatches
+                 GROUP BY signal_ref
+             ) latest ON d.signal_ref = latest.signal_ref AND d.created_at = latest.max_created",
+        )?;
+        let rows = stmt
+            .query_map([], Self::map_dispatch_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// List dispatches for a given run_id.
+    pub fn list_dispatches_for_run(&self, run_id: &str) -> Result<Vec<SentinelDispatch>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, run_id, signal_ref, signal_title, source, disposition,
+                    agent_id, crosslink_issue_id, gh_issue_number, label,
+                    attempt_number, model_used, outcome, outcome_detail,
+                    created_at, completed_at
+             FROM sentinel_dispatches WHERE run_id = ?1
+             ORDER BY created_at",
+        )?;
+        let rows = stmt
+            .query_map(params![run_id], Self::map_dispatch_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Shared row mapper for sentinel_dispatches queries.
+    fn map_dispatch_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SentinelDispatch> {
+        Ok(SentinelDispatch {
+            id: row.get(0)?,
+            run_id: row.get(1)?,
+            signal_ref: row.get(2)?,
+            signal_title: row.get(3)?,
+            source: row.get(4)?,
+            disposition: row.get(5)?,
+            agent_id: row.get(6)?,
+            crosslink_issue_id: row.get(7)?,
+            gh_issue_number: row.get(8)?,
+            label: row.get(9)?,
+            attempt_number: row.get(10)?,
+            model_used: row.get(11)?,
+            outcome: row.get(12)?,
+            outcome_detail: row.get(13)?,
+            created_at: row.get(14)?,
+            completed_at: row.get(15)?,
+        })
+    }
+}
