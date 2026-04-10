@@ -1811,6 +1811,14 @@ pub enum SentinelCommands {
     },
     /// Stop the sentinel daemon
     Stop,
+    /// Internal: run the sentinel watch loop (used by watch)
+    #[command(hide = true)]
+    RunDaemon {
+        #[arg(long)]
+        dir: std::path::PathBuf,
+        #[arg(long, default_value = "10")]
+        interval: u64,
+    },
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -2893,6 +2901,10 @@ fn main() -> Result<()> {
             }
         }
         Commands::Sentinel { action } => {
+            // RunDaemon is the internal loop entry point — dir is explicit, no auto-detection
+            if let SentinelCommands::RunDaemon { ref dir, interval } = action {
+                return commands::sentinel::watch::run_watch_loop(dir, interval);
+            }
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             let writer = get_writer(&crosslink_dir);

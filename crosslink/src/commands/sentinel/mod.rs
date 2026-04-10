@@ -6,6 +6,7 @@ pub mod history;
 #[allow(dead_code)]
 pub mod seen_set;
 pub mod sources;
+pub mod watch;
 
 use anyhow::Result;
 use std::path::Path;
@@ -38,16 +39,8 @@ pub fn dispatch_cmd(
             )?;
             Ok(())
         }
-        SentinelCommands::Watch { interval: _ } => {
-            // Will be implemented in #659
-            println!("sentinel watch not yet implemented");
-            Ok(())
-        }
-        SentinelCommands::Status => {
-            // Will be implemented in #659
-            println!("sentinel not running");
-            Ok(())
-        }
+        SentinelCommands::Watch { interval } => watch::start(crosslink_dir, interval),
+        SentinelCommands::Status => watch::status(crosslink_dir, db),
         SentinelCommands::History {
             limit,
             json: json_flag,
@@ -55,10 +48,7 @@ pub fn dispatch_cmd(
             let use_json = json || json_flag;
             history::show_history(db, limit, use_json)
         }
-        SentinelCommands::Stop => {
-            // Will be implemented in #659
-            println!("sentinel not running");
-            Ok(())
-        }
+        SentinelCommands::Stop => watch::stop(crosslink_dir),
+        SentinelCommands::RunDaemon { dir, interval } => watch::run_watch_loop(&dir, interval),
     }
 }
