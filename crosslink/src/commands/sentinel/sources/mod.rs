@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 pub mod github;
+pub mod internal;
 
 /// Classification of where a signal originated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

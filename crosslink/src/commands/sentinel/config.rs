@@ -32,12 +32,14 @@ impl Default for SentinelConfig {
 #[serde(default)]
 pub struct SourcesConfig {
     pub github_labels: GitHubLabelsConfig,
+    pub internal_hygiene: InternalHygieneConfig,
 }
 
 impl Default for SourcesConfig {
     fn default() -> Self {
         Self {
             github_labels: GitHubLabelsConfig::default(),
+            internal_hygiene: InternalHygieneConfig::default(),
         }
     }
 }
@@ -58,6 +60,23 @@ impl Default for GitHubLabelsConfig {
                 "agent-todo: replicate".to_string(),
                 "agent-todo: fix".to_string(),
             ],
+        }
+    }
+}
+
+/// Internal hygiene source configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct InternalHygieneConfig {
+    pub enabled: bool,
+    pub stale_threshold_days: i64,
+}
+
+impl Default for InternalHygieneConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            stale_threshold_days: 30,
         }
     }
 }

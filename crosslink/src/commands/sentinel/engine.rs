@@ -54,6 +54,14 @@ pub fn run_oneshot(
             Err(e) => tracing::warn!("failed to initialize github-labels source: {e}"),
         }
     }
+    if config.sources.internal_hygiene.enabled {
+        let hygiene_config = super::sources::internal::InternalHygieneConfig {
+            stale_threshold_days: config.sources.internal_hygiene.stale_threshold_days,
+        };
+        sources.push(Box::new(
+            super::sources::internal::InternalHygieneSource::new(crosslink_dir, hygiene_config),
+        ));
+    }
 
     // 2. Load SeenSet
     let seen = SeenSet::load(db)?;

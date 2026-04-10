@@ -118,6 +118,13 @@ pub fn triage(signal: &Signal, decision: &SignalDecision, config: &SentinelConfi
                 },
             }
         }
+        SourceKind::Internal => {
+            // Internal hygiene signals are triaged for human review, not auto-dispatched
+            Disposition::Triage {
+                priority: "low".into(),
+                labels: vec!["hygiene".into()],
+            }
+        }
         _ => Disposition::Skip {
             reason: "no matching rule for source".into(),
         },
