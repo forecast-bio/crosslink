@@ -1,6 +1,7 @@
 mod operations;
 
 use anyhow::{bail, Context, Result};
+use std::io::{self, IsTerminal, Read};
 use std::path::Path;
 
 use crate::KnowledgeCommands;
@@ -19,13 +20,30 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             repo,
         } => {
             reject_repo_on_write(repo.as_deref())?;
+            // Read body from stdin when no --content or --from-doc was given
+            // and stdin is piped (not a terminal).
+            let effective_content = if content.is_some() || from_doc.is_some() {
+                content
+            } else if !io::stdin().is_terminal() {
+                let mut buf = String::new();
+                io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("Failed to read body from stdin")?;
+                if buf.is_empty() {
+                    None
+                } else {
+                    Some(buf)
+                }
+            } else {
+                None
+            };
             add(
                 crosslink_dir,
                 &slug,
                 title.as_deref(),
                 &tag,
                 &source,
-                content.as_deref(),
+                effective_content.as_deref(),
                 from_doc.as_deref(),
             )
         }
