@@ -8,6 +8,8 @@ pub mod metrics;
 pub mod seen_set;
 pub mod sources;
 pub mod watch;
+#[allow(dead_code)]
+pub mod webhook;
 
 use anyhow::Result;
 use std::path::Path;

@@ -12,6 +12,7 @@ pub struct SentinelConfig {
     pub sources: SourcesConfig,
     pub default_agent: DefaultAgentConfig,
     pub escalation: EscalationConfig,
+    pub webhook: WebhookServerConfig,
 }
 
 impl Default for SentinelConfig {
@@ -23,6 +24,7 @@ impl Default for SentinelConfig {
             sources: SourcesConfig::default(),
             default_agent: DefaultAgentConfig::default(),
             escalation: EscalationConfig::default(),
+            webhook: WebhookServerConfig::default(),
         }
     }
 }
@@ -144,6 +146,27 @@ impl Default for DefaultAgentConfig {
             model: "claude-sonnet-4-6".to_string(),
             timeout_minutes: 30,
             verify: "local".to_string(),
+        }
+    }
+}
+
+/// Webhook server configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct WebhookServerConfig {
+    pub enabled: bool,
+    pub port: u16,
+    /// GitHub webhook secret for HMAC-SHA256 signature verification.
+    /// If None, signatures are not verified (not recommended for production).
+    pub secret: Option<String>,
+}
+
+impl Default for WebhookServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 9876,
+            secret: None,
         }
     }
 }

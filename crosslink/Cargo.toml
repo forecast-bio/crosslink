@@ -47,6 +47,8 @@ toml = "0.8"
 sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+hmac = "0.12"
+hex = "0.4.3"
 
 [dev-dependencies]
 tempfile = "3"
