@@ -1811,6 +1811,12 @@ pub enum SentinelCommands {
     },
     /// Stop the sentinel daemon
     Stop,
+    /// Show dispatch success rates per model and rule
+    Metrics {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Internal: run the sentinel watch loop (used by watch)
     #[command(hide = true)]
     RunDaemon {

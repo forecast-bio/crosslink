@@ -41,6 +41,20 @@ pub struct SentinelDispatch {
     pub completed_at: Option<String>,
 }
 
+/// Aggregated dispatch metrics grouped by model and label.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DispatchMetric {
+    pub model: String,
+    pub label: String,
+    pub total: i64,
+    pub successes: i64,
+    pub failures: i64,
+    pub exhausted: i64,
+    pub pending: i64,
+    pub orphaned: i64,
+    pub success_rate: f64,
+}
+
 impl Database {
     // === Sentinel runs ===
 
@@ -250,6 +264,49 @@ impl Database {
         )?;
         let rows = stmt
             .query_map(params![run_id], Self::map_dispatch_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Get success rate metrics grouped by model and label.
+    pub fn get_dispatch_metrics(&self) -> Result<Vec<DispatchMetric>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                COALESCE(model_used, 'unknown') as model,
+                label,
+                COUNT(*) as total,
+                SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) as successes,
+                SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) as failures,
+                SUM(CASE WHEN outcome = 'exhausted' THEN 1 ELSE 0 END) as exhausted,
+                SUM(CASE WHEN outcome = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN outcome = 'orphaned' THEN 1 ELSE 0 END) as orphaned
+             FROM sentinel_dispatches
+             WHERE disposition = 'dispatch'
+             GROUP BY model_used, label
+             ORDER BY label, model_used",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                let total: i64 = row.get(2)?;
+                let successes: i64 = row.get(3)?;
+                let completed = total - row.get::<_, i64>(6)?; // total - pending
+                let success_rate = if completed > 0 {
+                    (successes as f64 / completed as f64) * 100.0
+                } else {
+                    0.0
+                };
+                Ok(DispatchMetric {
+                    model: row.get(0)?,
+                    label: row.get(1)?,
+                    total,
+                    successes,
+                    failures: row.get(4)?,
+                    exhausted: row.get(5)?,
+                    pending: row.get(6)?,
+                    orphaned: row.get(7)?,
+                    success_rate,
+                })
+            })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }

@@ -3,6 +3,7 @@ pub mod config;
 pub mod dispatch;
 pub mod engine;
 pub mod history;
+pub mod metrics;
 #[allow(dead_code)]
 pub mod seen_set;
 pub mod sources;
@@ -49,6 +50,10 @@ pub fn dispatch_cmd(
             history::show_history(db, limit, use_json)
         }
         SentinelCommands::Stop => watch::stop(crosslink_dir),
+        SentinelCommands::Metrics { json: json_flag } => {
+            let use_json = json || json_flag;
+            metrics::show_metrics(db, use_json)
+        }
         SentinelCommands::RunDaemon { dir, interval } => watch::run_watch_loop(&dir, interval),
     }
 }
