@@ -766,6 +766,66 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
 
     // ── All filesystem changes happen below this point ───────────────────
 
+    // Dry-run guard: preview what --force would write, then exit without
+    // touching the filesystem (mirrors the --update --dry-run behaviour).
+    if opts.dry_run {
+        let ui = InitUI::new();
+        ui.banner();
+
+        let prefix = python_prefix.map_or_else(
+            || detect_python_prefix(path),
+            std::string::ToString::to_string,
+        );
+        let files = managed_files(&prefix);
+
+        let mut would_write: Vec<&str> = Vec::new();
+        let mut would_create: Vec<&str> = Vec::new();
+        for (rel_path, _) in &files {
+            if path.join(rel_path).exists() {
+                would_write.push(rel_path);
+            } else {
+                would_create.push(rel_path);
+            }
+        }
+
+        // Always includes non-managed files written by init
+        let extra = [".mcp.json", ".crosslink/hook-config.json", ".gitignore"];
+        for f in &extra {
+            if path.join(f).exists() {
+                would_write.push(f);
+            } else {
+                would_create.push(f);
+            }
+        }
+
+        if !would_write.is_empty() {
+            ui.step_start(&format!(
+                "{} file{} to overwrite",
+                would_write.len(),
+                if would_write.len() == 1 { "" } else { "s" }
+            ));
+            println!();
+            for f in &would_write {
+                ui.detail(f);
+            }
+        }
+        if !would_create.is_empty() {
+            ui.step_start(&format!(
+                "{} new file{} to create",
+                would_create.len(),
+                if would_create.len() == 1 { "" } else { "s" }
+            ));
+            println!();
+            for f in &would_create {
+                ui.detail(f);
+            }
+        }
+
+        println!();
+        ui.detail("Dry run — no files were modified.");
+        return Ok(());
+    }
+
     ui.banner();
 
     let rules_dir = crosslink_dir.join("rules");
@@ -2274,6 +2334,43 @@ mod tests {
 
         // Restore for other tests
         fs::write(&hook_path, original).unwrap();
+    }
+
+    #[test]
+    fn test_force_dry_run_makes_no_changes() {
+        let dir = test_dir();
+        run(dir.path(), &test_opts(false)).unwrap();
+
+        // Modify a hook file so we can detect overwrites
+        let hook_path = dir.path().join(".claude/hooks/prompt-guard.py");
+        fs::write(&hook_path, "# user-modified").unwrap();
+
+        // Snapshot manifest
+        let manifest_before =
+            fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+
+        // Force + dry-run
+        let dry_force = InitOpts {
+            force: true,
+            dry_run: true,
+            ..test_opts(true)
+        };
+        run(dir.path(), &dry_force).unwrap();
+
+        // File should still have the user modification
+        let content = fs::read_to_string(&hook_path).unwrap();
+        assert_eq!(
+            content, "# user-modified",
+            "Force dry-run should not overwrite files"
+        );
+
+        // Manifest should be unchanged
+        let manifest_after =
+            fs::read_to_string(dir.path().join(".crosslink/init-manifest.json")).unwrap();
+        assert_eq!(
+            manifest_before, manifest_after,
+            "Force dry-run should not update manifest"
+        );
     }
 
     #[test]
