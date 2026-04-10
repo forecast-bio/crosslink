@@ -1,0 +1,8 @@
+{
+  "uuid": "39e5a95f-9bd0-4a00-b72c-62262358a833",
+  "issue_uuid": "0d786ab2-1bb3-4d2f-91c7-6cad52bfa94a",
+  "author": "anon-ab6221f8",
+  "content": "QA audit complete. Removed 12/13 allow(dead_code). Fixed: DRY (truncate_body helper), 11-param function (NewDispatch struct), label filter (exact match), git diff crash (merge-base fallback), GH_TOKEN stderr logging, Triage fields wired, Defer variant removed.",
+  "created_at": "2026-04-10T22:26:07.369766429Z",
+  "kind": "handoff"
+}
