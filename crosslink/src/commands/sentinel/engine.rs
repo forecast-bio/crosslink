@@ -104,13 +104,13 @@ pub fn run_oneshot(
         }
     }
 
-    // Apply label filter if specified
+    // Apply label filter if specified (exact suffix match, not substring)
     if let Some(filter) = label_filter {
         all_signals.retain(|s| {
             s.metadata
                 .get("label")
                 .and_then(|v| v.as_str())
-                .is_some_and(|l| l.contains(filter))
+                .is_some_and(|l| l == filter || l.ends_with(&format!(": {filter}")))
         });
     }
 
@@ -171,54 +171,58 @@ pub fn run_oneshot(
             } => {
                 if !quiet {
                     println!(
-                        "  dispatch: {} (attempt {}, model: {})",
-                        signal.reference, attempt, scope.model
+                        "  dispatch: {} [{:?}] (attempt {}, model: {}, detected: {})",
+                        signal.reference,
+                        signal.kind,
+                        attempt,
+                        scope.model,
+                        signal.detected_at.format("%H:%M:%S")
                     );
                 }
                 // Create crosslink issue for this signal
                 let issue_id = create_sentinel_issue(db, writer, signal)?;
 
                 // Spawn agent via kickoff
+                let source_str = format!("{:?}", signal.source);
+                let label_str = signal
+                    .metadata
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
                 match spawn_agent(crosslink_dir, db, writer, &description, issue_id, &scope) {
                     Ok(agent_id) => {
-                        db.insert_sentinel_dispatch(
-                            &run_id,
-                            &signal.reference,
-                            &signal.title,
-                            &format!("{:?}", signal.source),
-                            "dispatch",
-                            Some(&agent_id),
-                            Some(issue_id),
-                            gh_number,
-                            signal
-                                .metadata
-                                .get("label")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown"),
-                            attempt as i32,
-                            Some(&scope.model),
-                        )?;
+                        db.insert_sentinel_dispatch(&crate::db::sentinel::NewDispatch {
+                            run_id: &run_id,
+                            signal_ref: &signal.reference,
+                            signal_title: &signal.title,
+                            source: &source_str,
+                            disposition: "dispatch",
+                            agent_id: Some(&agent_id),
+                            crosslink_issue_id: Some(issue_id),
+                            gh_issue_number: gh_number,
+                            label: label_str,
+                            attempt_number: attempt as i32,
+                            model_used: Some(&scope.model),
+                        })?;
                         stats.dispatched += 1;
                     }
                     Err(e) => {
                         tracing::error!("agent spawn failed for {}: {e}", signal.reference);
-                        let dispatch_id = db.insert_sentinel_dispatch(
-                            &run_id,
-                            &signal.reference,
-                            &signal.title,
-                            &format!("{:?}", signal.source),
-                            "dispatch",
-                            None,
-                            Some(issue_id),
-                            gh_number,
-                            signal
-                                .metadata
-                                .get("label")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown"),
-                            attempt as i32,
-                            Some(&scope.model),
-                        )?;
+                        let dispatch_id =
+                            db.insert_sentinel_dispatch(&crate::db::sentinel::NewDispatch {
+                                run_id: &run_id,
+                                signal_ref: &signal.reference,
+                                signal_title: &signal.title,
+                                source: &source_str,
+                                disposition: "dispatch",
+                                agent_id: None,
+                                crosslink_issue_id: Some(issue_id),
+                                gh_issue_number: gh_number,
+                                label: label_str,
+                                attempt_number: attempt as i32,
+                                model_used: Some(&scope.model),
+                            })?;
                         db.update_dispatch_outcome(
                             dispatch_id,
                             "failure",
@@ -233,15 +237,26 @@ pub fn run_oneshot(
                 }
                 stats.skipped += 1;
             }
-            super::dispatch::Disposition::Defer { reason } => {
-                if !quiet {
-                    println!("  defer: {} ({})", signal.reference, reason);
+            // Defer is handled by the pre-triage capacity check above (continue)
+            super::dispatch::Disposition::Triage { priority, labels } => {
+                // Triage-only signals get a crosslink issue with priority + labels
+                let issue_id = create_sentinel_issue(db, writer, signal)?;
+                let _ = db.update_issue(issue_id, None, None, Some(&priority));
+                for l in &labels {
+                    if let Some(w) = writer {
+                        let _ = w.add_label(db, issue_id, l);
+                    } else {
+                        let _ = db.add_label(issue_id, l);
+                    }
                 }
-                stats.deferred += 1;
-            }
-            super::dispatch::Disposition::Triage { .. } => {
-                // Triage-only signals just get a crosslink issue, no agent
-                let _issue_id = create_sentinel_issue(db, writer, signal)?;
+                if !quiet {
+                    println!(
+                        "  triage: {} (priority: {}, labels: {})",
+                        signal.reference,
+                        priority,
+                        labels.join(", ")
+                    );
+                }
                 stats.skipped += 1;
             }
         }
@@ -340,15 +355,22 @@ fn spawn_agent(
     // For Ci verify level, ensure GH_TOKEN is available so the agent can push + create PRs.
     // Read it from `gh auth token` and inject into the process environment.
     if scope.verify == VerifyLevel::Ci && std::env::var("GH_TOKEN").is_err() {
-        if let Ok(output) = std::process::Command::new("gh")
+        match std::process::Command::new("gh")
             .args(["auth", "token"])
             .output()
         {
-            if output.status.success() {
+            Ok(output) if output.status.success() => {
                 let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !token.is_empty() {
                     std::env::set_var("GH_TOKEN", &token);
                 }
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!("gh auth token failed: {}", stderr.trim());
+            }
+            Err(e) => {
+                tracing::warn!("failed to run gh auth token: {e}");
             }
         }
     }

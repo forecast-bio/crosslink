@@ -55,6 +55,21 @@ pub struct DispatchMetric {
     pub success_rate: f64,
 }
 
+/// Parameters for inserting a new sentinel dispatch record.
+pub struct NewDispatch<'a> {
+    pub run_id: &'a str,
+    pub signal_ref: &'a str,
+    pub signal_title: &'a str,
+    pub source: &'a str,
+    pub disposition: &'a str,
+    pub agent_id: Option<&'a str>,
+    pub crosslink_issue_id: Option<i64>,
+    pub gh_issue_number: Option<i64>,
+    pub label: &'a str,
+    pub attempt_number: i32,
+    pub model_used: Option<&'a str>,
+}
+
 impl Database {
     // === Sentinel runs ===
 
@@ -129,21 +144,7 @@ impl Database {
     // === Sentinel dispatches ===
 
     /// Insert a new sentinel dispatch record. Returns the auto-generated row ID.
-    #[allow(clippy::too_many_arguments)]
-    pub fn insert_sentinel_dispatch(
-        &self,
-        run_id: &str,
-        signal_ref: &str,
-        signal_title: &str,
-        source: &str,
-        disposition: &str,
-        agent_id: Option<&str>,
-        crosslink_issue_id: Option<i64>,
-        gh_issue_number: Option<i64>,
-        label: &str,
-        attempt_number: i32,
-        model_used: Option<&str>,
-    ) -> Result<i64> {
+    pub fn insert_sentinel_dispatch(&self, d: &NewDispatch<'_>) -> Result<i64> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "INSERT INTO sentinel_dispatches
@@ -151,17 +152,17 @@ impl Database {
               crosslink_issue_id, gh_issue_number, label, attempt_number, model_used, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
-                run_id,
-                signal_ref,
-                signal_title,
-                source,
-                disposition,
-                agent_id,
-                crosslink_issue_id,
-                gh_issue_number,
-                label,
-                attempt_number,
-                model_used,
+                d.run_id,
+                d.signal_ref,
+                d.signal_title,
+                d.source,
+                d.disposition,
+                d.agent_id,
+                d.crosslink_issue_id,
+                d.gh_issue_number,
+                d.label,
+                d.attempt_number,
+                d.model_used,
                 now,
             ],
         )?;
@@ -248,22 +249,6 @@ impl Database {
         )?;
         let rows = stmt
             .query_map([], Self::map_dispatch_row)?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(rows)
-    }
-
-    /// List dispatches for a given run_id.
-    pub fn list_dispatches_for_run(&self, run_id: &str) -> Result<Vec<SentinelDispatch>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, run_id, signal_ref, signal_title, source, disposition,
-                    agent_id, crosslink_issue_id, gh_issue_number, label,
-                    attempt_number, model_used, outcome, outcome_detail,
-                    created_at, completed_at
-             FROM sentinel_dispatches WHERE run_id = ?1
-             ORDER BY created_at",
-        )?;
-        let rows = stmt
-            .query_map(params![run_id], Self::map_dispatch_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }

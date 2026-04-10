@@ -3,14 +3,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub mod ci;
-#[allow(dead_code)]
 pub mod github;
 pub mod internal;
 pub mod maintenance;
 
 /// Classification of where a signal originated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub enum SourceKind {
     GitHub,
     Internal,
@@ -19,7 +17,6 @@ pub enum SourceKind {
 
 /// Classification of the signal event type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub enum SignalKind {
     LabelAdded,
     StaleIssue,
@@ -28,7 +25,6 @@ pub enum SignalKind {
 
 /// A maintenance signal detected by a source adapter.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Signal {
     pub source: SourceKind,
     pub kind: SignalKind,
@@ -42,7 +38,6 @@ pub struct Signal {
 
 /// Dedup decision for a signal based on prior dispatch history.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum SignalDecision {
     /// Never seen before — dispatch with Sonnet (attempt 1).
     New,
@@ -53,7 +48,6 @@ pub enum SignalDecision {
 }
 
 /// A source adapter that polls for maintenance signals.
-#[allow(dead_code)]
 pub trait Source {
     /// Human-readable name for logging.
     fn name(&self) -> &str;

@@ -154,10 +154,47 @@ fn extract_worktree_artifacts(wt_path: &Path, is_fix: bool) -> WorktreeArtifacts
     }
 }
 
-/// Find new/modified test files in the worktree via `git diff --name-only`.
+/// Find new/modified test files in the worktree via `git diff`.
+/// Uses `--diff-filter=AM` (added or modified) against the merge base
+/// to handle repos with any number of commits.
 fn find_test_file(wt_path: &Path) -> Option<String> {
+    // Find the merge base with the default branch
+    let base_output = Command::new("git")
+        .args(["merge-base", "HEAD", "HEAD~1"])
+        .current_dir(wt_path)
+        .output()
+        .ok();
+
+    let diff_args = if let Some(ref base) = base_output {
+        if base.status.success() {
+            let base_sha = String::from_utf8_lossy(&base.stdout).trim().to_string();
+            vec![
+                "diff".to_string(),
+                "--name-only".to_string(),
+                "--diff-filter=AM".to_string(),
+                format!("{base_sha}..HEAD"),
+                "--".to_string(),
+                "tests/".to_string(),
+            ]
+        } else {
+            // Fallback: list all tracked test files
+            vec![
+                "ls-files".to_string(),
+                "--".to_string(),
+                "tests/".to_string(),
+            ]
+        }
+    } else {
+        vec![
+            "ls-files".to_string(),
+            "--".to_string(),
+            "tests/".to_string(),
+        ]
+    };
+
+    let args_refs: Vec<&str> = diff_args.iter().map(|s| s.as_str()).collect();
     let output = Command::new("git")
-        .args(["diff", "--name-only", "HEAD~1..HEAD", "--", "tests/"])
+        .args(&args_refs)
         .current_dir(wt_path)
         .output()
         .ok()?;
@@ -239,9 +276,11 @@ fn find_pr_number(wt_path: &Path) -> Option<String> {
 }
 
 /// Get `git diff --stat` summary for fix dispatches.
+/// Uses `--stat` against the worktree's uncommitted + committed changes.
 fn git_diff_stat(wt_path: &Path) -> Option<String> {
+    // Try diffing against merge-base first; fall back to just `git diff --stat`
     let output = Command::new("git")
-        .args(["diff", "--stat", "HEAD~1..HEAD"])
+        .args(["diff", "--stat", "HEAD"])
         .current_dir(wt_path)
         .output()
         .ok()?;
@@ -249,6 +288,9 @@ fn git_diff_stat(wt_path: &Path) -> Option<String> {
         return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        return None;
+    }
     // Return only the summary line (last line)
     stdout.lines().last().map(String::from)
 }

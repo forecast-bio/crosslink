@@ -12,14 +12,16 @@ struct GhIssue {
     number: i64,
     title: String,
     body: Option<String>,
-    labels: Vec<GhLabel>,
+    #[serde(default, rename = "labels")]
+    _labels: Vec<GhLabel>,
     #[serde(rename = "createdAt")]
     created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct GhLabel {
-    name: String,
+    #[serde(rename = "name")]
+    _name: String,
 }
 
 /// Polls GitHub for issues with `agent-todo:*` labels via the `gh` CLI.

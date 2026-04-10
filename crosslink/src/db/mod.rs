@@ -6,7 +6,6 @@ mod issues;
 mod labels;
 mod milestones;
 mod relations;
-#[allow(dead_code)]
 pub mod sentinel;
 mod sessions;
 mod time_entries;

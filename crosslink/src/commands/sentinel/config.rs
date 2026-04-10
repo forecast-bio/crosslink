@@ -129,17 +129,10 @@ impl Default for GitHubCIConfig {
 pub struct DefaultAgentConfig {
     pub model: String,
     pub timeout_minutes: u64,
-    /// Deserialized as a string, validated at load time via `validated_verify()`.
-    verify: String,
-}
-
-impl DefaultAgentConfig {
-    /// Parse the verify string into a `VerifyLevel`, falling back to `Local` on invalid input.
-    #[allow(dead_code)]
-    pub fn verify_level(&self) -> crate::commands::kickoff::VerifyLevel {
-        crate::commands::kickoff::parse_verify_level(&self.verify)
-            .unwrap_or(crate::commands::kickoff::VerifyLevel::Local)
-    }
+    /// Reserved for future per-rule verify level override. Currently each rule
+    /// hardcodes its verify level (Local for replicate, Ci for fix).
+    #[serde(default)]
+    _verify: String,
 }
 
 impl Default for DefaultAgentConfig {
@@ -147,7 +140,7 @@ impl Default for DefaultAgentConfig {
         Self {
             model: "claude-sonnet-4-6".to_string(),
             timeout_minutes: 30,
-            verify: "local".to_string(),
+            _verify: "local".to_string(),
         }
     }
 }

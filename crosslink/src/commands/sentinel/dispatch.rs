@@ -15,23 +15,17 @@ pub enum Disposition {
         attempt: u32,
     },
     /// Create a crosslink issue for human review.
-    #[allow(dead_code)]
     Triage {
         priority: String,
         labels: Vec<String>,
     },
     /// Already handled or no matching rule — skip.
     Skip { reason: String },
-    /// Eligible but cannot dispatch right now.
-    #[allow(dead_code)]
-    Defer { reason: String },
 }
 
 /// Constrains what a dispatched agent can do.
 #[derive(Debug, Clone)]
 pub struct AgentScope {
-    #[allow(dead_code)]
-    pub allowed_paths: Vec<String>,
     pub verify: VerifyLevel,
     pub timeout: Duration,
     pub model: String,
@@ -91,7 +85,6 @@ pub fn triage(
                 Disposition::Dispatch {
                     description,
                     scope: AgentScope {
-                        allowed_paths: vec!["tests/".into()],
                         verify: VerifyLevel::Local,
                         timeout: Duration::from_secs(timeout_secs),
                         model,
@@ -119,7 +112,6 @@ pub fn triage(
                 Disposition::Dispatch {
                     description,
                     scope: AgentScope {
-                        allowed_paths: vec!["src/".into(), "tests/".into()],
                         verify: VerifyLevel::Ci,
                         timeout: Duration::from_secs(fix_timeout),
                         model,
@@ -148,13 +140,16 @@ pub fn triage(
     }
 }
 
-fn build_replicate_prompt(gh_issue_number: i64, title: &str, body: &str) -> String {
-    // Truncate body to avoid blowing up the prompt
-    let body_truncated = if body.len() > 4000 {
-        format!("{}...\n\n(truncated)", &body[..4000])
+fn truncate_body(body: &str, max_len: usize) -> String {
+    if body.len() > max_len {
+        format!("{}...\n\n(truncated)", &body[..max_len])
     } else {
         body.to_string()
-    };
+    }
+}
+
+fn build_replicate_prompt(gh_issue_number: i64, title: &str, body: &str) -> String {
+    let body_truncated = truncate_body(body, 4000);
 
     format!(
         r#"Reproduce the bug described in GitHub issue #{gh_issue_number}.
@@ -180,11 +175,7 @@ Constraints:
 }
 
 fn build_fix_prompt(gh_issue_number: i64, title: &str, body: &str) -> String {
-    let body_truncated = if body.len() > 4000 {
-        format!("{}...\n\n(truncated)", &body[..4000])
-    } else {
-        body.to_string()
-    };
+    let body_truncated = truncate_body(body, 4000);
 
     format!(
         r#"Fix the bug described in GitHub issue #{gh_issue_number}.
