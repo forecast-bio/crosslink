@@ -99,12 +99,24 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
     };
 
     // Show in-flight agents regardless of daemon state
-    let pending = db.count_pending_dispatches()?;
+    let pending_dispatches = db.get_pending_dispatches()?;
     let config = SentinelConfig::load(crosslink_dir)?;
     println!(
         "  In-flight: {} / {} agents",
-        pending, config.max_concurrent_agents
+        pending_dispatches.len(),
+        config.max_concurrent_agents
     );
+
+    // List each in-flight agent
+    for d in &pending_dispatches {
+        let elapsed = super::collect::format_elapsed(&d.created_at);
+        let agent = d.agent_id.as_deref().unwrap_or("unknown");
+        let model = d.model_used.as_deref().unwrap_or("?");
+        println!(
+            "    {} — {} (attempt {}, {}, {})",
+            d.signal_ref, agent, d.attempt_number, model, elapsed
+        );
+    }
 
     // Show last run
     let runs = db.list_sentinel_runs(1)?;
@@ -120,10 +132,10 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
         );
     }
 
-    if !running && pending > 0 {
+    if !running && !pending_dispatches.is_empty() {
         println!(
             "  Warning: {} agent(s) in-flight but daemon not running — results won't be collected",
-            pending
+            pending_dispatches.len()
         );
     }
 

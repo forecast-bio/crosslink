@@ -60,7 +60,7 @@ pub fn collect_completed(db: &Database, crosslink_dir: &Path) -> Result<CollectS
         };
 
         // Compute duration
-        let duration = compute_duration(&dispatch.created_at);
+        let duration = format_elapsed(&dispatch.created_at);
 
         // Build structured comment
         let comment_body = build_replicate_template(
@@ -127,7 +127,7 @@ fn read_agent_findings(db: &Database, issue_id: i64) -> String {
 }
 
 /// Compute human-readable duration from an RFC3339 start time to now.
-fn compute_duration(started_at: &str) -> String {
+pub fn format_elapsed(started_at: &str) -> String {
     let Ok(start) = chrono::DateTime::parse_from_rfc3339(started_at) else {
         return "unknown".to_string();
     };
