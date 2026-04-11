@@ -43,10 +43,27 @@ pub fn run_oneshot(
         return run_dry(config, quiet);
     }
 
-    let run_id = Uuid::new_v4().to_string();
-    db.insert_sentinel_run(&run_id, "oneshot")?;
+    // Poll all configured sources to gather signals
+    let all_signals = poll_all_sources(crosslink_dir, config, label_filter);
 
-    // 1. Initialize sources
+    process_signal_batch(
+        crosslink_dir,
+        db,
+        writer,
+        config,
+        all_signals,
+        "oneshot",
+        quiet,
+    )
+}
+
+/// Poll all configured sources and return their combined signals.
+/// Applies the optional label filter (exact suffix match).
+fn poll_all_sources(
+    crosslink_dir: &Path,
+    config: &SentinelConfig,
+    label_filter: Option<&str>,
+) -> Vec<Signal> {
     let mut sources: Vec<Box<dyn Source>> = Vec::new();
     if config.sources.github_labels.enabled {
         match GitHubLabelSource::new(config) {
@@ -71,7 +88,6 @@ pub fn run_oneshot(
             test_coverage_enabled: config.sources.maintenance_sweep.test_coverage_enabled,
             lint_warning_threshold: config.sources.maintenance_sweep.lint_warning_threshold,
         };
-        // Resolve repo root for running commands
         if let Ok(root) = resolve_repo_root(crosslink_dir) {
             sources.push(Box::new(
                 super::sources::maintenance::MaintenanceSweepSource::new(&root, sweep_config),
@@ -79,10 +95,46 @@ pub fn run_oneshot(
         }
     }
 
-    // 2. Load SeenSet
+    let mut all_signals: Vec<Signal> = Vec::new();
+    for source in &mut sources {
+        match source.poll() {
+            Ok(signals) => all_signals.extend(signals),
+            Err(e) => tracing::warn!("source '{}' poll failed: {e}", source.name()),
+        }
+    }
+
+    if let Some(filter) = label_filter {
+        all_signals.retain(|s| {
+            s.metadata
+                .get("label")
+                .and_then(|v| v.as_str())
+                .is_some_and(|l| l == filter || l.ends_with(&format!(": {filter}")))
+        });
+    }
+
+    all_signals
+}
+
+/// Process a pre-built batch of signals through the dedup/triage/dispatch pipeline.
+///
+/// Used by both `run_oneshot` (after polling sources) and `webhook` (for real-time
+/// events that arrive between polling cycles).
+pub fn process_signal_batch(
+    crosslink_dir: &Path,
+    db: &Database,
+    writer: Option<&SharedWriter>,
+    config: &SentinelConfig,
+    all_signals: Vec<Signal>,
+    mode: &str,
+    quiet: bool,
+) -> Result<CycleStats> {
+    let run_id = Uuid::new_v4().to_string();
+    db.insert_sentinel_run(&run_id, mode)?;
+
+    // Load SeenSet
     let seen = SeenSet::load(db)?;
 
-    // 2b. Load self-tuning overrides from historical success rates
+    // Load self-tuning overrides from historical success rates
     let tuning = if config.escalation.enabled {
         super::tuning::TuningOverride::from_history(db, config).unwrap_or_else(|e| {
             tracing::warn!("self-tuning load failed: {e}");
@@ -93,25 +145,6 @@ pub fn run_oneshot(
     };
     if tuning.has_overrides() && !quiet {
         println!("  self-tuning: model overrides active based on historical data");
-    }
-
-    // 3. Poll all sources
-    let mut all_signals: Vec<Signal> = Vec::new();
-    for source in &mut sources {
-        match source.poll() {
-            Ok(signals) => all_signals.extend(signals),
-            Err(e) => tracing::warn!("source '{}' poll failed: {e}", source.name()),
-        }
-    }
-
-    // Apply label filter if specified (exact suffix match, not substring)
-    if let Some(filter) = label_filter {
-        all_signals.retain(|s| {
-            s.metadata
-                .get("label")
-                .and_then(|v| v.as_str())
-                .is_some_and(|l| l == filter || l.ends_with(&format!(": {filter}")))
-        });
     }
 
     let mut stats = CycleStats {

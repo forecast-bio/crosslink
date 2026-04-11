@@ -10,9 +10,6 @@ pub mod seen_set;
 pub mod sources;
 pub mod tuning;
 pub mod watch;
-// Webhook module is async (axum/tokio) and requires explicit integration
-// with the watch loop's tokio runtime — not yet wired into the sync loop.
-#[allow(dead_code)]
 pub mod webhook;
 
 use anyhow::Result;

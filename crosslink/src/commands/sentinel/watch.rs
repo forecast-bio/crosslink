@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -18,7 +18,6 @@ pub fn start(crosslink_dir: &Path, interval: u64) -> Result<()> {
     let pid_file = crosslink_dir.join("sentinel.pid");
     let log_file = crosslink_dir.join("sentinel.log");
 
-    // Check if already running
     if let Some(pid) = read_pid(&pid_file) {
         if is_process_running(pid) {
             println!("Sentinel already running (PID {pid})");
@@ -98,7 +97,6 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
         false
     };
 
-    // Show in-flight agents regardless of daemon state
     let pending_dispatches = db.get_pending_dispatches()?;
     let config = SentinelConfig::load(crosslink_dir)?;
     println!(
@@ -107,7 +105,6 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
         config.max_concurrent_agents
     );
 
-    // List each in-flight agent
     for d in &pending_dispatches {
         let elapsed = super::collect::format_elapsed(&d.created_at);
         let agent = d.agent_id.as_deref().unwrap_or("unknown");
@@ -118,7 +115,6 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
         );
     }
 
-    // Show last run
     let runs = db.list_sentinel_runs(1)?;
     if let Some(last) = runs.first() {
         let started = last
@@ -129,6 +125,18 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
         println!(
             "  Last run:  {} ({} signals, {} dispatched)",
             started, last.signals_found, last.dispatched
+        );
+    }
+
+    if config.webhook.enabled {
+        println!(
+            "  Webhook:   enabled on port {} ({})",
+            config.webhook.port,
+            if config.webhook.secret.is_some() {
+                "secret configured"
+            } else {
+                "no secret — signature verification disabled"
+            }
         );
     }
 
@@ -143,6 +151,12 @@ pub fn status(crosslink_dir: &Path, db: &Database) -> Result<()> {
 }
 
 /// Run the sentinel watch loop (called by the spawned daemon process).
+///
+/// Builds a tokio runtime and drives the async event loop. The loop multiplexes:
+/// - Polling timer ticks (every `interval_minutes`)
+/// - Webhook events from the optional GitHub webhook server
+/// - SIGTERM/SIGINT shutdown signals
+/// - Stdin closure (zombie prevention when parent dies)
 pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()> {
     let db_path = crosslink_dir.join("issues.db");
     if !db_path.exists() {
@@ -158,6 +172,24 @@ pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()>
         return Ok(());
     }
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to build tokio runtime for sentinel daemon")?;
+
+    runtime.block_on(async_watch_loop(
+        crosslink_dir.to_path_buf(),
+        interval_minutes,
+        config,
+    ))
+}
+
+/// The actual async watch loop body.
+async fn async_watch_loop(
+    crosslink_dir: PathBuf,
+    interval_minutes: u64,
+    config: SentinelConfig,
+) -> Result<()> {
     let interval = Duration::from_secs(interval_minutes * 60);
     let mut backoff_multiplier: u32 = 1;
 
@@ -165,23 +197,37 @@ pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()>
     println!("  Watching: {}", crosslink_dir.display());
     println!("  Interval: {interval_minutes} minutes");
 
-    // Graceful shutdown via SIGTERM/SIGINT
+    // Optionally start the webhook server for real-time events
+    let mut webhook_rx = if config.webhook.enabled {
+        let webhook_config = super::webhook::WebhookConfig {
+            port: config.webhook.port,
+            secret: config.webhook.secret.clone(),
+        };
+        match super::webhook::start_webhook_server(&webhook_config).await {
+            Ok(rx) => {
+                println!("  Webhook:  listening on port {}", config.webhook.port);
+                Some(rx)
+            }
+            Err(e) => {
+                tracing::error!("Failed to start webhook server: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Shutdown signaling: SIGTERM/SIGINT/stdin-closure all set this flag
     let should_exit = Arc::new(AtomicBool::new(false));
 
-    #[cfg(unix)]
-    {
-        let flag = Arc::clone(&should_exit);
-        if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&flag))
-        {
-            tracing::warn!("could not register SIGTERM handler: {e}");
-        }
-        if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGINT, flag) {
-            tracing::warn!("could not register SIGINT handler: {e}");
-        }
-    }
+    // Use tokio signal handlers (these compose with select!)
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("Failed to register SIGTERM handler")?;
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .context("Failed to register SIGINT handler")?;
 
-    // Zombie prevention: exit when stdin closes (parent died)
-    let should_exit_stdin = Arc::clone(&should_exit);
+    // Zombie prevention: spawn a blocking thread to detect stdin closure
+    let stdin_flag = Arc::clone(&should_exit);
     thread::spawn(move || {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 1];
@@ -189,7 +235,7 @@ pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()>
             match stdin.read(&mut buf) {
                 Ok(0) | Err(_) => {
                     tracing::info!("Stdin closed, sentinel shutting down");
-                    should_exit_stdin.store(true, Ordering::SeqCst);
+                    stdin_flag.store(true, Ordering::SeqCst);
                     break;
                 }
                 Ok(_) => {}
@@ -197,46 +243,90 @@ pub fn run_watch_loop(crosslink_dir: &Path, interval_minutes: u64) -> Result<()>
         }
     });
 
+    // Run an initial cycle immediately so the first poll doesn't wait `interval_minutes`
+    let mut next_poll_at = tokio::time::Instant::now();
+
     loop {
         if should_exit.load(Ordering::SeqCst) {
             println!("Sentinel exiting");
             break;
         }
 
-        // Run one cycle
-        match run_cycle(crosslink_dir) {
-            Ok(()) => {
-                backoff_multiplier = 1;
-            }
-            Err(e) => {
-                tracing::error!("sentinel cycle failed: {e}");
-                backoff_multiplier = (backoff_multiplier * 2).min(8);
-            }
-        }
+        let sleep_until = tokio::time::sleep_until(next_poll_at);
+        tokio::pin!(sleep_until);
 
-        // Sleep with early exit check
-        let sleep_duration = interval * backoff_multiplier;
-        let sleep_step = Duration::from_secs(5);
-        let mut slept = Duration::ZERO;
-        while slept < sleep_duration {
-            if should_exit.load(Ordering::SeqCst) {
-                println!("Sentinel exiting");
-                return Ok(());
+        tokio::select! {
+            // Polling timer fired
+            _ = &mut sleep_until => {
+                let cycle_dir = crosslink_dir.clone();
+                let cycle_config = config.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    run_polling_cycle(&cycle_dir, &cycle_config)
+                })
+                .await
+                .context("polling cycle task panicked")?;
+
+                match result {
+                    Ok(()) => {
+                        backoff_multiplier = 1;
+                    }
+                    Err(e) => {
+                        tracing::error!("sentinel polling cycle failed: {e}");
+                        backoff_multiplier = (backoff_multiplier * 2).min(8);
+                    }
+                }
+
+                next_poll_at = tokio::time::Instant::now() + interval * backoff_multiplier;
             }
-            thread::sleep(sleep_step.min(sleep_duration - slept));
-            slept += sleep_step;
+
+            // Webhook event received (only listen if webhook is enabled)
+            maybe_event = recv_webhook(&mut webhook_rx) => {
+                if let Some(event) = maybe_event {
+                    let cycle_dir = crosslink_dir.clone();
+                    let cycle_config = config.clone();
+                    let signal = event.signal;
+                    let result = tokio::task::spawn_blocking(move || {
+                        run_webhook_cycle(&cycle_dir, &cycle_config, signal)
+                    })
+                    .await
+                    .context("webhook cycle task panicked")?;
+
+                    if let Err(e) = result {
+                        tracing::error!("webhook cycle failed: {e}");
+                    }
+                }
+            }
+
+            // Shutdown signals
+            _ = sigterm.recv() => {
+                println!("Sentinel received SIGTERM, exiting");
+                break;
+            }
+            _ = sigint.recv() => {
+                println!("Sentinel received SIGINT, exiting");
+                break;
+            }
         }
     }
 
     Ok(())
 }
 
-/// Execute a single sentinel cycle within the watch loop.
-fn run_cycle(crosslink_dir: &Path) -> Result<()> {
-    let db = Database::open(&crosslink_dir.join("issues.db"))?;
-    let config = SentinelConfig::load(crosslink_dir)?;
+/// Helper to await a webhook event from an Option<Receiver>.
+/// If the receiver is None, returns a future that never resolves so `select!`
+/// will fall through to other branches.
+async fn recv_webhook(
+    rx: &mut Option<tokio::sync::mpsc::Receiver<super::webhook::WebhookEvent>>,
+) -> Option<super::webhook::WebhookEvent> {
+    match rx {
+        Some(receiver) => receiver.recv().await,
+        None => std::future::pending().await,
+    }
+}
 
-    // Construct SharedWriter if hub is available
+/// Execute a single polling cycle (sync, called via spawn_blocking).
+fn run_polling_cycle(crosslink_dir: &Path, config: &SentinelConfig) -> Result<()> {
+    let db = Database::open(&crosslink_dir.join("issues.db"))?;
     let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)
         .ok()
         .flatten();
@@ -245,7 +335,7 @@ fn run_cycle(crosslink_dir: &Path) -> Result<()> {
         crosslink_dir,
         &db,
         writer.as_ref(),
-        &config,
+        config,
         false, // not dry run
         None,  // no label filter
         true,  // quiet in daemon mode (output goes to log)
@@ -253,13 +343,49 @@ fn run_cycle(crosslink_dir: &Path) -> Result<()> {
 
     if stats.signals_found > 0 || stats.collected > 0 {
         println!(
-            "Cycle complete at {}: {} signals, {} dispatched, {} collected",
+            "Polling cycle at {}: {} signals, {} dispatched, {} skipped, {} deferred, {} collected",
             chrono::Utc::now().format("%H:%M:%S"),
             stats.signals_found,
             stats.dispatched,
+            stats.skipped,
+            stats.deferred,
             stats.collected,
         );
     }
+
+    Ok(())
+}
+
+/// Execute a single webhook-driven cycle for one signal (sync, via spawn_blocking).
+fn run_webhook_cycle(
+    crosslink_dir: &Path,
+    config: &SentinelConfig,
+    signal: super::sources::Signal,
+) -> Result<()> {
+    let db = Database::open(&crosslink_dir.join("issues.db"))?;
+    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)
+        .ok()
+        .flatten();
+
+    let signal_ref = signal.reference.clone();
+    let stats = engine::process_signal_batch(
+        crosslink_dir,
+        &db,
+        writer.as_ref(),
+        config,
+        vec![signal],
+        "webhook",
+        true, // quiet in daemon mode
+    )?;
+
+    println!(
+        "Webhook cycle at {}: {} ({} dispatched, {} skipped, {} deferred)",
+        chrono::Utc::now().format("%H:%M:%S"),
+        signal_ref,
+        stats.dispatched,
+        stats.skipped,
+        stats.deferred,
+    );
 
     Ok(())
 }

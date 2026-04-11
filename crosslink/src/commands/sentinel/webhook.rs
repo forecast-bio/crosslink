@@ -7,7 +7,6 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -23,7 +22,6 @@ pub struct WebhookEvent {
 struct WebhookState {
     sender: mpsc::Sender<WebhookEvent>,
     webhook_secret: Option<String>,
-    crosslink_dir: PathBuf,
 }
 
 /// GitHub webhook payload for issue events.
@@ -73,16 +71,12 @@ impl Default for WebhookConfig {
 ///
 /// The server runs in the background on a tokio runtime. The caller reads
 /// signals from the returned receiver and feeds them into the sentinel engine.
-pub async fn start_webhook_server(
-    config: &WebhookConfig,
-    crosslink_dir: &Path,
-) -> Result<mpsc::Receiver<WebhookEvent>> {
+pub async fn start_webhook_server(config: &WebhookConfig) -> Result<mpsc::Receiver<WebhookEvent>> {
     let (sender, receiver) = mpsc::channel(100);
 
     let state = Arc::new(WebhookState {
         sender,
         webhook_secret: config.secret.clone(),
-        crosslink_dir: crosslink_dir.to_path_buf(),
     });
 
     let app = Router::new()
