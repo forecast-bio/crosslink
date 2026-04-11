@@ -1,0 +1,8 @@
+{
+  "uuid": "76274961-6205-4549-b229-d91e8fe528af",
+  "issue_uuid": "f3de1608-6c29-40cd-96be-55d813078cae",
+  "author": "anon-ab6221f8",
+  "content": "Watch loop converted to async. Webhook server fully wired via tokio::select! over polling timer + webhook events + signals. process_signal_batch extracted from run_oneshot. Zero allow(dead_code), zero warnings, 4643 tests pass. 24 commits, 4540 lines on feature/650-sentinel-skeleton.",
+  "created_at": "2026-04-11T00:47:55.681837193Z",
+  "kind": "handoff"
+}
