@@ -1,0 +1,10 @@
+{
+  "uuid": "b60908ce-3b37-4a6e-851f-b0b626471ab1",
+  "display_id": 675,
+  "title": "Fix dashboard auth: wire API client to bearer token (GH#556)",
+  "status": "open",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-13T15:26:08.310750639Z",
+  "updated_at": "2026-04-13T15:26:08.310750639Z"
+}
