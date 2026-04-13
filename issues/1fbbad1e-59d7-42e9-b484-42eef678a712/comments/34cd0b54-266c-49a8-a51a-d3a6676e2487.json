@@ -1,0 +1,8 @@
+{
+  "uuid": "34cd0b54-266c-49a8-a51a-d3a6676e2487",
+  "issue_uuid": "1fbbad1e-59d7-42e9-b484-42eef678a712",
+  "author": "jus4",
+  "content": "[action] Writing help-output section spacing test in tests/cli_integration.rs",
+  "created_at": "2026-04-13T17:53:24.199037082Z",
+  "kind": "note"
+}
