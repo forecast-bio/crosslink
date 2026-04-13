@@ -137,14 +137,22 @@ pub(super) fn spawn_watchdog(
 
 /// Build the shell command string for launching a claude agent.
 ///
+/// `claude_config_dir` is a caller-side environment variable that must be
+/// propagated into the tmux session. When a tmux server is already running
+/// on the host, `tmux new-session` inherits env from the tmux server's
+/// frozen-at-startup environment rather than the caller's current shell —
+/// so any `CLAUDE_CONFIG_DIR` set by the caller is silently lost (#555).
+/// Baking it into the command string bypasses tmux env handling entirely.
+///
 /// When `sandbox_command` is set, the claude invocation is wrapped:
 /// ```text
-/// timeout 3600s my-sandbox --project-dir /path -- env -u CLAUDECODE claude ...
+/// timeout 3600s my-sandbox --project-dir /path -- CLAUDE_CONFIG_DIR='/p' env -u CLAUDECODE claude ...
 /// ```
 /// Without sandbox:
 /// ```text
-/// timeout 3600s env -u CLAUDECODE claude ...
+/// timeout 3600s CLAUDE_CONFIG_DIR='/p' env -u CLAUDECODE claude ...
 /// ```
+/// When `claude_config_dir` is `None`, the prefix is omitted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_agent_command(
     timeout_cmd: &str,
@@ -155,6 +163,7 @@ pub(super) fn build_agent_command(
     sandbox_command: Option<&str>,
     worktree_dir: &Path,
     skip_permissions: bool,
+    claude_config_dir: Option<&str>,
 ) -> String {
     use crate::utils::shell_escape_arg;
 
@@ -163,11 +172,18 @@ pub(super) fn build_agent_command(
     } else {
         ""
     };
+    // Shell prefix assignments (`VAR=value command`) set the variable in the
+    // environment passed to `command` only — they don't mutate the outer
+    // shell's env, so this is a per-invocation override.
+    let env_prefix = claude_config_dir
+        .filter(|v| !v.is_empty())
+        .map(|v| format!("CLAUDE_CONFIG_DIR={} ", shell_escape_arg(v)))
+        .unwrap_or_default();
     let escaped_model = shell_escape_arg(model);
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
     let claude_cmd = format!(
-        "env -u CLAUDECODE claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
+        "{env_prefix}env -u CLAUDECODE claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
     );
     sandbox_command.map_or_else(
         || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
@@ -545,6 +561,12 @@ pub(super) fn launch_local(
         bail!("Failed to create tmux session: {}", stderr.trim());
     }
 
+    // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session by
+    // baking it into the command string. `tmux new-session` would otherwise
+    // inherit env from the tmux server's frozen-at-startup environment
+    // rather than the caller's shell (#555).
+    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+
     // Build the claude command (with optional sandbox wrapping)
     let cmd = build_agent_command(
         timeout_cmd,
@@ -555,6 +577,7 @@ pub(super) fn launch_local(
         sandbox_command,
         worktree_dir,
         skip_permissions,
+        claude_config_dir.as_deref(),
     );
 
     // Write initial status sentinel BEFORE sending the command.
