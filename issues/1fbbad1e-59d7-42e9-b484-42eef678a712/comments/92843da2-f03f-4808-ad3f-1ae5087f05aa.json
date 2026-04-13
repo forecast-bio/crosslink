@@ -1,0 +1,8 @@
+{
+  "uuid": "92843da2-f03f-4808-ad3f-1ae5087f05aa",
+  "issue_uuid": "1fbbad1e-59d7-42e9-b484-42eef678a712",
+  "author": "jus4",
+  "content": "Found: init and config subcommands use a verbose multi-line options format (flag on its own line, description on the next, blank lines between each option) while all other subcommands use the compact inline format. This is because init and config have multi-paragraph long_about doc comments in main.rs, which clap renders differently. However, the blank-line count BETWEEN section headers (Commands: -> Options:) is consistently exactly 1 for every subcommand tested. The verbose option format produces blank lines WITHIN the Options: section, not between section boundaries.",
+  "created_at": "2026-04-13T17:54:58.154705674Z",
+  "kind": "observation"
+}
