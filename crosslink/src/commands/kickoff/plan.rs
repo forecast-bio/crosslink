@@ -226,6 +226,10 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         session_name = format!("{}-{}", &session_name[..session_name.len().min(44)], suffix);
     }
 
+    // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session (#555);
+    // see comment on `launch_local` for rationale.
+    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+
     // Plan mode reads PLAN_KICKOFF.md instead of KICKOFF.md
     let cmd = build_agent_command(
         preflight.timeout_cmd,
@@ -236,6 +240,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
         preflight.sandbox_command.as_deref(),
         &worktree_dir,
         false, // plan mode never skips permissions
+        claude_config_dir.as_deref(),
     );
 
     let output = Command::new("tmux")

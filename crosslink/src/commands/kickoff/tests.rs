@@ -1517,6 +1517,7 @@ fn test_build_agent_command_without_sandbox() {
         None,
         Path::new("/tmp/worktree"),
         false,
+        None,
     );
     assert_eq!(
         cmd,
@@ -1535,6 +1536,7 @@ fn test_build_agent_command_with_sandbox() {
         Some("bwrap --bind {{worktree}} /workspace --"),
         Path::new("/tmp/my-worktree"),
         false,
+        None,
     );
     assert!(cmd.starts_with("timeout 3600s bwrap --bind '/tmp/my-worktree' /workspace --"));
     assert!(cmd.contains("env -u CLAUDECODE claude"));
@@ -1551,6 +1553,7 @@ fn test_build_agent_command_with_skip_permissions() {
         None,
         Path::new("/tmp/worktree"),
         true,
+        None,
     );
     assert!(
         cmd.contains("--dangerously-skip-permissions"),
@@ -1570,9 +1573,91 @@ fn test_build_agent_command_plan_kickoff() {
         None,
         Path::new("/tmp/worktree"),
         false,
+        None,
     );
     assert!(cmd.starts_with("gtimeout 1800s"));
     assert!(cmd.contains("$(cat 'PLAN_KICKOFF.md')"));
+}
+
+#[test]
+fn test_build_agent_command_propagates_claude_config_dir() {
+    // When the caller has CLAUDE_CONFIG_DIR set, it should be baked into the
+    // shell command string as a prefix assignment — this bypasses tmux's
+    // frozen-at-startup env (#555).
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+        Some("/Users/me/.claude-work"),
+    );
+    assert_eq!(
+        cmd,
+        "timeout 3600s CLAUDE_CONFIG_DIR='/Users/me/.claude-work' env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
+    );
+}
+
+#[test]
+fn test_build_agent_command_omits_empty_claude_config_dir() {
+    // An empty string should be treated the same as None — propagating an
+    // empty value would just confuse claude's lookup logic.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+        Some(""),
+    );
+    assert!(!cmd.contains("CLAUDE_CONFIG_DIR="));
+    assert!(cmd.starts_with("timeout 3600s env -u CLAUDECODE claude"));
+}
+
+#[test]
+fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
+    // Paths with single quotes in them must be shell-escaped so the command
+    // parses correctly. shell_escape_arg wraps in single quotes and replaces
+    // embedded single quotes with '\''.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+        Some("/weird/it's-a-path"),
+    );
+    assert!(cmd.contains("CLAUDE_CONFIG_DIR='/weird/it'\\''s-a-path'"));
+}
+
+#[test]
+fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
+    // The env prefix must live on the claude side of the sandbox boundary
+    // so the sandboxed claude process inherits the variable, not the
+    // sandbox wrapper itself.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        Some("bwrap --bind {{worktree}} /workspace --"),
+        Path::new("/tmp/my-worktree"),
+        false,
+        Some("/Users/me/.claude-work"),
+    );
+    assert!(cmd.contains(
+        "bwrap --bind '/tmp/my-worktree' /workspace -- CLAUDE_CONFIG_DIR='/Users/me/.claude-work' env -u CLAUDECODE claude"
+    ));
 }
 
 #[test]
