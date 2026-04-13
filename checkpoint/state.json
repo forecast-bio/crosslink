@@ -34,12 +34,23 @@
     "634": {
       "agent_id": "maxine--basel",
       "claimed_at": "2026-03-27T20:05:46.795790Z"
+    },
+    "679": {
+      "agent_id": "jus4",
+      "claimed_at": "2026-04-13T17:49:16.269169379Z"
     }
   },
   "issues": {},
+  "unsigned_event_warnings": [
+    {
+      "agent_id": "jus4",
+      "agent_seq": 1,
+      "timestamp": "2026-04-13T17:49:16.269169379Z"
+    }
+  ],
   "watermark": {
-    "timestamp": "2026-03-31T21:44:53.460270Z",
-    "agent_id": "maxine--basel",
-    "agent_seq": 55
+    "timestamp": "2026-04-13T17:49:16.269169379Z",
+    "agent_id": "jus4",
+    "agent_seq": 1
   }
 }
