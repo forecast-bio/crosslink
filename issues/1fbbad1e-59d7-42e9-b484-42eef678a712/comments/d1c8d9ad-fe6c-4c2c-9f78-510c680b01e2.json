@@ -1,0 +1,8 @@
+{
+  "uuid": "d1c8d9ad-fe6c-4c2c-9f78-510c680b01e2",
+  "issue_uuid": "1fbbad1e-59d7-42e9-b484-42eef678a712",
+  "author": "jus4",
+  "content": "Cannot reproduce GH#560. Wrote test_help_section_spacing_consistent (tests/cli_integration.rs) covering 10 subcommands. All spacing is consistently exactly 1 blank line between section headers. The reported inconsistency does not exist in the current binary. Test passes cleanly.",
+  "created_at": "2026-04-13T17:55:35.542627633Z",
+  "kind": "resolution"
+}
