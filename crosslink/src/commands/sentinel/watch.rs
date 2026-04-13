@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -229,22 +229,40 @@ async fn async_watch_loop(
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
         .context("Failed to register SIGINT handler")?;
 
-    // Zombie prevention: spawn a blocking thread to detect stdin closure
-    let stdin_flag = Arc::clone(&should_exit);
-    thread::spawn(move || {
-        let mut stdin = std::io::stdin();
-        let mut buf = [0u8; 1];
-        loop {
-            match stdin.read(&mut buf) {
-                Ok(0) | Err(_) => {
-                    tracing::info!("Stdin closed, sentinel shutting down");
-                    stdin_flag.store(true, Ordering::SeqCst);
-                    break;
+    // Zombie prevention: spawn a blocking thread to detect stdin closure.
+    //
+    // Only active when stdin is a TTY. When `sentinel watch` spawns this
+    // daemon it passes `Stdio::null()` for the child's stdin — `/dev/null`
+    // returns `Ok(0)` on the first read, which would immediately set the
+    // shutdown flag and kill the daemon right after startup (GH#561). In
+    // that non-interactive case, SIGTERM from `sentinel stop` (or from the
+    // parent process exiting) is the correct shutdown channel; we don't
+    // need an additional stdin-EOF signal.
+    //
+    // The check remains useful when a human runs `sentinel run-daemon`
+    // directly in a terminal — ctrl+D then still cleanly shuts it down.
+    if std::io::stdin().is_terminal() {
+        let stdin_flag = Arc::clone(&should_exit);
+        thread::spawn(move || {
+            let mut stdin = std::io::stdin();
+            let mut buf = [0u8; 1];
+            loop {
+                match stdin.read(&mut buf) {
+                    Ok(0) | Err(_) => {
+                        tracing::info!("Stdin closed, sentinel shutting down");
+                        stdin_flag.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                    Ok(_) => {}
                 }
-                Ok(_) => {}
             }
-        }
-    });
+        });
+    } else {
+        tracing::debug!(
+            "stdin is not a TTY; skipping stdin-close zombie-prevention check \
+             (SIGTERM/SIGINT remain active)"
+        );
+    }
 
     // Run an initial cycle immediately so the first poll doesn't wait `interval_minutes`
     let mut next_poll_at = tokio::time::Instant::now();
