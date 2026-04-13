@@ -1491,7 +1491,10 @@ mod tests {
         assert!(!PRE_WEB_CHECK_PY.is_empty());
         assert!(!WORK_CHECK_PY.is_empty());
         assert!(!CROSSLINK_CONFIG_PY.is_empty());
+        assert!(!HEARTBEAT_PY.is_empty());
         assert!(!SAFE_FETCH_SERVER_PY.is_empty());
+        assert!(!KNOWLEDGE_SERVER_PY.is_empty());
+        assert!(!AGENT_PROMPT_SERVER_PY.is_empty());
         assert!(!MCP_JSON.is_empty());
         // All auto-discovered command files should be non-empty
         assert!(
@@ -2119,17 +2122,32 @@ mod tests {
     }
 
     #[test]
-    fn test_init_deploys_mcp_knowledge_server() {
+    fn test_init_deploys_mcp_servers() {
         let dir = test_dir();
         run(dir.path(), &test_opts(false)).unwrap();
 
-        // knowledge-server.py must exist
+        // All three server scripts must be deployed. Previously only
+        // safe-fetch and knowledge were checked, which masked #554 — init
+        // registered crosslink-agent-prompt in .mcp.json but never wrote
+        // the script to disk, so every Claude Code session logged a
+        // server-launch failure.
+        let mcp_dir = dir.path().join(".claude/mcp");
         assert!(
-            dir.path().join(".claude/mcp/knowledge-server.py").exists(),
+            mcp_dir.join("safe-fetch-server.py").exists(),
+            "safe-fetch-server.py not deployed"
+        );
+        assert!(
+            mcp_dir.join("knowledge-server.py").exists(),
             "knowledge-server.py not deployed"
         );
+        assert!(
+            mcp_dir.join("agent-prompt-server.py").exists(),
+            "agent-prompt-server.py not deployed"
+        );
 
-        // .mcp.json must reference both MCP servers
+        // .mcp.json must reference all three MCP servers. If a server is
+        // registered here without the matching script being deployed,
+        // Claude Code will fail to launch it on startup (#554).
         let mcp_content = fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
         let mcp: serde_json::Value = serde_json::from_str(&mcp_content).unwrap();
         let servers = mcp["mcpServers"].as_object().unwrap();
@@ -2140,6 +2158,10 @@ mod tests {
         assert!(
             servers.contains_key("crosslink-knowledge"),
             ".mcp.json missing crosslink-knowledge"
+        );
+        assert!(
+            servers.contains_key("crosslink-agent-prompt"),
+            ".mcp.json missing crosslink-agent-prompt"
         );
     }
 
@@ -2213,6 +2235,14 @@ mod tests {
         assert!(
             files.contains_key(".claude/mcp/safe-fetch-server.py"),
             "Manifest should track MCP servers"
+        );
+        assert!(
+            files.contains_key(".claude/mcp/knowledge-server.py"),
+            "Manifest should track knowledge MCP server"
+        );
+        assert!(
+            files.contains_key(".claude/mcp/agent-prompt-server.py"),
+            "Manifest should track agent-prompt MCP server"
         );
     }
 
