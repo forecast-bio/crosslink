@@ -27,7 +27,7 @@ fn http_request(
     auth_token: Option<&str>,
 ) -> (u16, String) {
     let mut stream =
-        TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Failed to connect to server");
+        TcpStream::connect(format!("127.0.0.1:{port}")).expect("Failed to connect to server");
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
@@ -160,12 +160,8 @@ fn test_server_starts_and_stops() {
     let port = h.start_server();
 
     // Verify the port is listening by opening a TCP connection.
-    let stream = TcpStream::connect(format!("127.0.0.1:{}", port));
-    assert!(
-        stream.is_ok(),
-        "Server should be listening on port {}",
-        port
-    );
+    let stream = TcpStream::connect(format!("127.0.0.1:{port}"));
+    assert!(stream.is_ok(), "Server should be listening on port {port}");
     drop(stream);
 
     h.stop_server();
@@ -174,7 +170,7 @@ fn test_server_starts_and_stops() {
     // Give it a moment to fully shut down.
     std::thread::sleep(Duration::from_millis(200));
     let stream = TcpStream::connect_timeout(
-        &format!("127.0.0.1:{}", port).parse().unwrap(),
+        &format!("127.0.0.1:{port}").parse().unwrap(),
         Duration::from_millis(500),
     );
     assert!(
@@ -212,8 +208,7 @@ fn test_api_create_issue() {
     let (status, body) = authed_request(port, &token, "POST", "/api/v1/issues", Some(payload));
     assert!(
         status == 200 || status == 201,
-        "Create issue should return 200 or 201, got {}",
-        status
+        "Create issue should return 200 or 201, got {status}"
     );
 
     let json = parse_json(&body);
@@ -361,8 +356,7 @@ fn test_api_404_unknown() {
     let (status, _) = authed_request(port, &token, "GET", "/api/v1/nonexistent", None);
     assert_eq!(
         status, 404,
-        "Unknown API path should return 404, got {}",
-        status
+        "Unknown API path should return 404, got {status}"
     );
 }
 
@@ -393,8 +387,7 @@ fn test_api_invalid_json() {
     );
     assert!(
         status == 400 || status == 422,
-        "Invalid JSON should return 400 or 422, got {}",
-        status
+        "Invalid JSON should return 400 or 422, got {status}"
     );
 }
 
@@ -411,8 +404,7 @@ fn test_api_sessions() {
     let (status, _) = authed_request(port, &token, "GET", "/api/v1/sessions/current", None);
     assert_eq!(
         status, 404,
-        "No session should exist initially, got {}",
-        status
+        "No session should exist initially, got {status}"
     );
 
     // Start a session.
@@ -447,8 +439,7 @@ fn test_api_sessions() {
     let (status, _) = authed_request(port, &token, "GET", "/api/v1/sessions/current", None);
     assert_eq!(
         status, 404,
-        "After ending session, current should be 404, got {}",
-        status
+        "After ending session, current should be 404, got {status}"
     );
 }
 
@@ -487,7 +478,7 @@ fn test_api_milestones() {
         port,
         &token,
         "GET",
-        &format!("/api/v1/milestones/{}", ms_id),
+        &format!("/api/v1/milestones/{ms_id}"),
         None,
     );
     assert_eq!(status, 200);
@@ -520,8 +511,7 @@ fn test_api_search() {
     let total = json["total"].as_u64().unwrap_or(0);
     assert!(
         total >= 2,
-        "Search for 'authentication' should find at least 2 results, got {}",
-        total
+        "Search for 'authentication' should find at least 2 results, got {total}"
     );
 
     let items = json["items"].as_array().expect("items should be an array");
@@ -531,8 +521,7 @@ fn test_api_search() {
             let title = item["title"].as_str().unwrap_or("");
             assert!(
                 title.to_lowercase().contains("authentication"),
-                "Issue result should match query: {}",
-                title
+                "Issue result should match query: {title}"
             );
         }
     }
@@ -619,7 +608,7 @@ fn test_ws_connects() {
 
     // Perform a WebSocket upgrade handshake using raw TCP.
     // We just verify the server responds with 101 Switching Protocols.
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}"))
         .expect("Failed to connect for WebSocket test");
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
@@ -750,8 +739,7 @@ fn test_api_issues_blocked_and_ready() {
     let total = json["total"].as_u64().unwrap_or(0);
     assert!(
         total >= 2,
-        "Should have at least 2 ready issues, got {}",
-        total
+        "Should have at least 2 ready issues, got {total}"
     );
 
     // Blocked list should be empty (no dependencies set).
@@ -782,8 +770,7 @@ fn test_api_search_empty_query() {
     let (status, _) = authed_request(port, &token, "GET", "/api/v1/search?q=", None);
     assert_eq!(
         status, 400,
-        "Empty search query should return 400, got {}",
-        status
+        "Empty search query should return 400, got {status}"
     );
 }
 

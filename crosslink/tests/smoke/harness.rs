@@ -103,7 +103,7 @@ impl SmokeHarness {
                 .args(&args)
                 .output()
                 .expect("git config/remote failed to execute");
-            assert!(out.status.success(), "git {:?} failed", args);
+            assert!(out.status.success(), "git {args:?} failed");
         }
 
         // Initial commit + push so the remote has a main branch
@@ -339,7 +339,7 @@ impl SmokeHarness {
         assert!(out.status.success(), "git init for fork failed");
 
         for args in [
-            vec!["config", "user.email", &format!("{}@test.local", agent_id)],
+            vec!["config", "user.email", &format!("{agent_id}@test.local")],
             vec!["config", "user.name", agent_id],
             vec![
                 "remote",
@@ -353,7 +353,7 @@ impl SmokeHarness {
                 .args(&args)
                 .output()
                 .expect("git config/remote failed");
-            assert!(out.status.success(), "git {:?} failed for fork", args);
+            assert!(out.status.success(), "git {args:?} failed for fork");
         }
 
         // Fetch and checkout main from the shared remote

@@ -407,7 +407,7 @@ fn test_write_page_without_init_fails() {
 
 // --- Search tests ---
 
-/// Helper: create a KnowledgeManager with pre-populated pages.
+/// Helper: create a `KnowledgeManager` with pre-populated pages.
 fn setup_search_manager(pages: &[(&str, &str)]) -> (tempfile::TempDir, KnowledgeManager) {
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
@@ -602,13 +602,11 @@ fn test_safe_page_path_rejects_windows_reserved_names() {
         let result = manager.safe_page_path(name);
         assert!(
             result.is_err(),
-            "Should reject Windows reserved name: {}",
-            name
+            "Should reject Windows reserved name: {name}"
         );
         assert!(
             result.unwrap_err().to_string().contains("Windows reserved"),
-            "Error should mention Windows reserved for: {}",
-            name
+            "Error should mention Windows reserved for: {name}"
         );
     }
 }
@@ -1832,7 +1830,7 @@ fn test_page_frontmatter_clone_and_debug() {
     };
     let cloned = fm.clone();
     assert_eq!(cloned, fm);
-    let debug_str = format!("{:?}", fm);
+    let debug_str = format!("{fm:?}");
     assert!(debug_str.contains("Clone Test"));
 }
 
@@ -1845,7 +1843,7 @@ fn test_source_clone_and_debug() {
     };
     let cloned = src.clone();
     assert_eq!(cloned, src);
-    let debug_str = format!("{:?}", src);
+    let debug_str = format!("{src:?}");
     assert!(debug_str.contains("example.com"));
 }
 
@@ -1856,7 +1854,7 @@ fn test_search_match_debug() {
         line_number: 5,
         context_lines: vec![(5, "hello".to_string())],
     };
-    let debug_str = format!("{:?}", m);
+    let debug_str = format!("{m:?}");
     assert!(debug_str.contains("test"));
 }
 
@@ -1873,7 +1871,7 @@ fn test_page_info_debug() {
             updated: String::new(),
         },
     };
-    let debug_str = format!("{:?}", info);
+    let debug_str = format!("{info:?}");
     assert!(debug_str.contains("test-slug"));
 }
 
@@ -1882,7 +1880,7 @@ fn test_sync_outcome_debug() {
     let outcome = SyncOutcome {
         resolved_conflicts: vec!["page-a".to_string()],
     };
-    let debug_str = format!("{:?}", outcome);
+    let debug_str = format!("{outcome:?}");
     assert!(debug_str.contains("page-a"));
 }
 
@@ -3009,7 +3007,7 @@ fn test_handle_rebase_conflict_merge_succeeds() {
         .output()
         .unwrap();
 
-    let remote_ref = format!("origin/{}", KNOWLEDGE_BRANCH);
+    let remote_ref = format!("origin/{KNOWLEDGE_BRANCH}");
     let manager = KnowledgeManager::new(&crosslink_dir).unwrap();
     let result = manager.handle_rebase_conflict(&remote_ref);
     assert!(result.is_ok());
@@ -3097,7 +3095,7 @@ fn test_handle_rebase_conflict_with_md_conflicts() {
         .output()
         .unwrap();
 
-    let remote_ref = format!("origin/{}", KNOWLEDGE_BRANCH);
+    let remote_ref = format!("origin/{KNOWLEDGE_BRANCH}");
     let manager = KnowledgeManager::new(&crosslink_dir).unwrap();
 
     let result = manager.handle_rebase_conflict(&remote_ref);
@@ -3510,8 +3508,7 @@ fn test_init_cache_from_existing_remote_knowledge_branch() {
     let result = mgr2.init_cache();
     assert!(
         result.is_ok(),
-        "init_cache from remote should succeed: {:?}",
-        result
+        "init_cache from remote should succeed: {result:?}"
     );
     assert!(mgr2.is_initialized());
 }

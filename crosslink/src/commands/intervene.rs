@@ -193,7 +193,7 @@ mod tests {
                 &db,
                 None,
                 id,
-                &format!("Test {}", trigger),
+                &format!("Test {trigger}"),
                 trigger,
                 None,
                 dir.path(),

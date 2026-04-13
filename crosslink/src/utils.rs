@@ -359,11 +359,7 @@ mod tests {
     #[test]
     fn test_windows_reserved_names_rejected() {
         for name in &["CON", "PRN", "AUX", "NUL", "COM1", "COM9", "LPT1", "LPT9"] {
-            assert!(
-                is_windows_reserved_name(name),
-                "{} should be reserved",
-                name
-            );
+            assert!(is_windows_reserved_name(name), "{name} should be reserved");
         }
     }
 
@@ -449,13 +445,13 @@ mod tests {
 
     #[test]
     fn test_base62_encode_4_deterministic() {
-        assert_eq!(base62_encode_4(999999), base62_encode_4(999999));
+        assert_eq!(base62_encode_4(999_999), base62_encode_4(999_999));
     }
 
     #[test]
     fn test_base62_encode_4_all_valid_chars() {
-        let result = base62_encode_4(0xDEADBEEF);
-        assert!(result.chars().all(|c| c.is_alphanumeric()));
+        let result = base62_encode_4(0xDEAD_BEEF);
+        assert!(result.chars().all(char::is_alphanumeric));
     }
 
     #[test]

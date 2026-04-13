@@ -949,7 +949,7 @@ mod tests {
         let public_key = public_key.trim();
         let signers_path = dir.path().join("allowed_signers");
         let principal = "test-agent@crosslink".to_string();
-        std::fs::write(&signers_path, format!("{} {}\n", principal, public_key)).unwrap();
+        std::fs::write(&signers_path, format!("{principal} {public_key}\n")).unwrap();
 
         // Verify the signature
         let verified = verify_event_signature(&envelope, &signers_path).unwrap();
@@ -991,7 +991,7 @@ mod tests {
         let signers_path = dir.path().join("allowed_signers");
         std::fs::write(
             &signers_path,
-            format!("test-agent@crosslink {}\n", public_key),
+            format!("test-agent@crosslink {public_key}\n"),
         )
         .unwrap();
 
@@ -1004,9 +1004,8 @@ mod tests {
         let result = verify_event_signature(&envelope, &signers_path);
         // Either Ok(false) or an Err — either way the signature is not valid
         match result {
-            Ok(false) => {} // expected
+            Ok(false) | Err(_) => {} // expected — invalid sig or ssh-keygen error
             Ok(true) => panic!("Should not verify a garbage signature"),
-            Err(_) => {} // also acceptable — ssh-keygen may error on garbage input
         }
     }
 

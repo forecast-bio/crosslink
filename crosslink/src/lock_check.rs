@@ -331,7 +331,7 @@ mod tests {
         Database::open(std::path::Path::new(":memory:")).unwrap()
     }
 
-    /// Write a minimal agent.json to crosslink_dir so AgentConfig::load succeeds.
+    /// Write a minimal agent.json to `crosslink_dir` so `AgentConfig::load` succeeds.
     fn write_agent_config(crosslink_dir: &Path, agent_id: &str) {
         let agent_json = serde_json::json!({
             "agent_id": agent_id,
@@ -392,7 +392,7 @@ mod tests {
             },
         ];
         for s in statuses {
-            let _ = format!("{:?}", s);
+            let _ = format!("{s:?}");
         }
     }
 
@@ -438,7 +438,7 @@ mod tests {
     // ─── check_lock with agent config but no git cache ────────────────────────
 
     /// When agent.json is present but the hub cache directory does not exist
-    /// (no git remote), check_lock must return NotConfigured to stay non-blocking.
+    /// (no git remote), `check_lock` must return `NotConfigured` to stay non-blocking.
     #[test]
     fn test_check_lock_agent_config_no_cache_returns_not_configured() {
         let dir = tempdir().unwrap();
@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(status, LockStatus::NotConfigured);
     }
 
-    /// enforce_lock with an agent config but no hub cache must succeed (non-blocking).
+    /// `enforce_lock` with an agent config but no hub cache must succeed (non-blocking).
     #[test]
     fn test_enforce_lock_agent_config_no_cache_allows() {
         let dir = tempdir().unwrap();
@@ -512,7 +512,7 @@ mod tests {
     #[test]
     fn test_auto_steal_config_missing_key() {
         let dir = tempdir().unwrap();
-        std::fs::write(dir.path().join("hook-config.json"), r#"{}"#).unwrap();
+        std::fs::write(dir.path().join("hook-config.json"), r"{}").unwrap();
         assert_eq!(read_auto_steal_config(dir.path()), None);
     }
 
@@ -631,7 +631,7 @@ mod tests {
 
     // ─── auto_steal_if_configured direct tests ────────────────────────────────
 
-    /// When no hook-config.json is present, auto_steal returns Ok(false) immediately.
+    /// When no hook-config.json is present, `auto_steal` returns Ok(false) immediately.
     #[test]
     fn test_auto_steal_no_config_returns_false() {
         let dir = tempdir().unwrap();
@@ -643,7 +643,7 @@ mod tests {
         assert!(!result.unwrap());
     }
 
-    /// When config is disabled (false), auto_steal returns Ok(false).
+    /// When config is disabled (false), `auto_steal` returns Ok(false).
     #[test]
     fn test_auto_steal_disabled_config_returns_false() {
         let dir = tempdir().unwrap();
@@ -660,7 +660,7 @@ mod tests {
         assert!(!result.unwrap());
     }
 
-    /// When multiplier > 0 but hub cache doesn't exist, auto_steal returns Ok(false).
+    /// When multiplier > 0 but hub cache doesn't exist, `auto_steal` returns Ok(false).
     #[test]
     fn test_auto_steal_config_enabled_but_no_cache_returns_false() {
         let dir = tempdir().unwrap();
@@ -681,13 +681,13 @@ mod tests {
 
     // ─── enforce_lock: LockedByOther (non-stale) → error ─────────────────────
 
-    /// enforce_lock must return an error when the lock is held by another agent
+    /// `enforce_lock` must return an error when the lock is held by another agent
     /// and the lock is not stale. We exercise this by building a fake hub cache
     /// directory containing a locks.json with a lock entry and an agent.json that
     /// identifies us as a *different* agent.
     ///
-    /// We use a real git repo so that SyncManager, is_initialized, and
-    /// read_locks_auto all succeed and return the prepared lock data.
+    /// We use a real git repo so that `SyncManager`, `is_initialized`, and
+    /// `read_locks_auto` all succeed and return the prepared lock data.
     #[test]
     fn test_enforce_lock_locked_by_other_non_stale_returns_error() {
         let dir = tempdir().unwrap();
@@ -757,13 +757,12 @@ mod tests {
         let msg = result.unwrap_err().to_string();
         assert!(
             msg.contains("other-agent"),
-            "error should name the holder: {}",
-            msg
+            "error should name the holder: {msg}"
         );
-        assert!(msg.contains("7"), "error should name the issue id: {}", msg);
+        assert!(msg.contains('7'), "error should name the issue id: {msg}");
     }
 
-    /// enforce_lock with a stale lock and no auto-steal config must still succeed
+    /// `enforce_lock` with a stale lock and no auto-steal config must still succeed
     /// (it prints a warning and proceeds).
     #[test]
     fn test_enforce_lock_locked_by_other_stale_no_auto_steal_proceeds() {
@@ -823,21 +822,20 @@ mod tests {
         .unwrap();
 
         // No auto_steal_stale_locks in hook-config → auto_steal returns Ok(false)
-        std::fs::write(crosslink_dir.join("hook-config.json"), r#"{}"#).unwrap();
+        std::fs::write(crosslink_dir.join("hook-config.json"), r"{}").unwrap();
 
         let db = temp_db();
         // Stale lock + no auto-steal → warning printed, Ok(()) returned
         let result = enforce_lock(&crosslink_dir, 8, &db);
         assert!(
             result.is_ok(),
-            "stale lock without auto-steal should proceed: {:?}",
-            result
+            "stale lock without auto-steal should proceed: {result:?}"
         );
     }
 
     // ─── enforce_lock: LockedBySelf / Available via agent + git setup ─────────
 
-    /// When the agent holds the lock itself, enforce_lock succeeds.
+    /// When the agent holds the lock itself, `enforce_lock` succeeds.
     #[test]
     fn test_enforce_lock_locked_by_self_succeeds() {
         let dir = tempdir().unwrap();
@@ -885,7 +883,7 @@ mod tests {
         assert!(enforce_lock(&crosslink_dir, 9, &db).is_ok());
     }
 
-    /// When the issue has no lock entry, enforce_lock returns Ok(()) (Available).
+    /// When the issue has no lock entry, `enforce_lock` returns Ok(()) (Available).
     #[test]
     fn test_enforce_lock_available_succeeds() {
         let dir = tempdir().unwrap();
@@ -926,7 +924,7 @@ mod tests {
 
     // ─── check_lock: LockedBySelf / Available / LockedByOther via fake cache ──
 
-    /// check_lock returns LockedBySelf when the current agent holds the lock.
+    /// `check_lock` returns `LockedBySelf` when the current agent holds the lock.
     #[test]
     fn test_check_lock_locked_by_self() {
         let dir = tempdir().unwrap();
@@ -970,7 +968,7 @@ mod tests {
         assert_eq!(status, LockStatus::LockedBySelf);
     }
 
-    /// check_lock returns Available when no lock exists for the issue.
+    /// `check_lock` returns Available when no lock exists for the issue.
     #[test]
     fn test_check_lock_available() {
         let dir = tempdir().unwrap();
@@ -1007,7 +1005,7 @@ mod tests {
         assert_eq!(status, LockStatus::Available);
     }
 
-    /// check_lock returns LockedByOther (non-stale) when a different agent holds the
+    /// `check_lock` returns `LockedByOther` (non-stale) when a different agent holds the
     /// lock and has a recent heartbeat.
     #[test]
     fn test_check_lock_locked_by_other_non_stale() {
@@ -1070,11 +1068,11 @@ mod tests {
                 assert_eq!(agent_id, "other-agent");
                 assert!(!stale);
             }
-            other => panic!("Expected LockedByOther, got {:?}", other),
+            other => panic!("Expected LockedByOther, got {other:?}"),
         }
     }
 
-    /// check_lock returns LockedByOther with stale=true when the heartbeat is old.
+    /// `check_lock` returns `LockedByOther` with stale=true when the heartbeat is old.
     #[test]
     fn test_check_lock_locked_by_other_stale() {
         let dir = tempdir().unwrap();
@@ -1138,7 +1136,7 @@ mod tests {
                 // what matters is that we get LockedByOther (not a panic/error).
                 let _ = stale;
             }
-            other => panic!("Expected LockedByOther, got {:?}", other),
+            other => panic!("Expected LockedByOther, got {other:?}"),
         }
     }
 
@@ -1299,15 +1297,14 @@ mod tests {
         let result = enforce_lock(&crosslink_dir, 60, &db);
         assert!(
             result.is_ok(),
-            "enforce_lock should proceed even when auto-steal errors: {:?}",
-            result
+            "enforce_lock should proceed even when auto-steal errors: {result:?}"
         );
     }
 
     // ─── Requested test names from task spec ──────────────────────────────────
 
-    /// check_lock with a non-existent crosslink dir (no parent → SyncManager fails).
-    /// Exercises line 36: `SyncManager::new` returns Err → NotConfigured.
+    /// `check_lock` with a non-existent crosslink dir (no parent → `SyncManager` fails).
+    /// Exercises line 36: `SyncManager::new` returns Err → `NotConfigured`.
     #[test]
     fn test_check_lock_no_crosslink_dir() {
         // A crosslink_dir that is the filesystem root has no parent,
@@ -1370,7 +1367,7 @@ mod tests {
         // The important thing is it does not panic.
         match result {
             Ok(LockStatus::NotConfigured) | Err(_) => {}
-            Ok(other) => panic!("unexpected status: {:?}", other),
+            Ok(other) => panic!("unexpected status: {other:?}"),
         }
     }
 
@@ -1433,7 +1430,7 @@ mod tests {
         assert_eq!(read_auto_steal_config(dir.path()), None);
     }
 
-    /// check_lock returns NotConfigured when `read_locks_auto` would fail
+    /// `check_lock` returns `NotConfigured` when `read_locks_auto` would fail
     /// due to a corrupt locks.json (exercises line 50).
     #[test]
     fn test_check_lock_corrupt_locks_json_returns_not_configured() {

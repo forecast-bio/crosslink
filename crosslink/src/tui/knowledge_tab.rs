@@ -1037,7 +1037,7 @@ mod tests {
             slug: slug.to_string(),
             frontmatter: PageFrontmatter {
                 title: title.to_string(),
-                tags: tags.iter().map(|s| s.to_string()).collect(),
+                tags: tags.iter().map(std::string::ToString::to_string).collect(),
                 sources: Vec::new(),
                 contributors: vec!["worker-1".to_string()],
                 created: "2026-01-01".to_string(),

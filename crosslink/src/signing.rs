@@ -1651,8 +1651,7 @@ mod tests {
         let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
         assert!(
             value.contains("allowed_signers"),
-            "should contain allowed_signers path, got: {}",
-            value
+            "should contain allowed_signers path, got: {value}"
         );
     }
 
@@ -1911,25 +1910,25 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
             fingerprint: Some("SHA256:abc".to_string()),
             principal: Some("user@host".to_string()),
         };
-        let debug_str = format!("{:?}", valid);
+        let debug_str = format!("{valid:?}");
         assert!(debug_str.contains("Valid"));
         assert!(debug_str.contains("abc123"));
 
         let unsigned = SignatureVerification::Unsigned {
             commit: "def456".to_string(),
         };
-        let debug_str = format!("{:?}", unsigned);
+        let debug_str = format!("{unsigned:?}");
         assert!(debug_str.contains("Unsigned"));
 
         let invalid = SignatureVerification::Invalid {
             commit: "ghi789".to_string(),
             reason: "bad sig".to_string(),
         };
-        let debug_str = format!("{:?}", invalid);
+        let debug_str = format!("{invalid:?}");
         assert!(debug_str.contains("Invalid"));
 
         let no_commits = SignatureVerification::NoCommits;
-        let debug_str = format!("{:?}", no_commits);
+        let debug_str = format!("{no_commits:?}");
         assert!(debug_str.contains("NoCommits"));
     }
 
@@ -1940,7 +1939,7 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
             fingerprint: None,
             principal: None,
         };
-        let debug = format!("{:?}", v);
+        let debug = format!("{v:?}");
         assert!(debug.contains("None"));
     }
 
@@ -2078,7 +2077,7 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         let mut signers = AllowedSigners::default();
         signers.add_entry(AllowedSignerEntry {
             principal: "canon-test@crosslink".to_string(),
-            public_key: keypair.public_key.clone(),
+            public_key: keypair.public_key,
             metadata_comment: None,
         });
         signers.save(&signers_path).unwrap();
@@ -2312,7 +2311,7 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         let mut signers = AllowedSigners::default();
         signers.add_entry(AllowedSignerEntry {
             principal: "ns-test@crosslink".to_string(),
-            public_key: keypair.public_key.clone(),
+            public_key: keypair.public_key,
             metadata_comment: None,
         });
         signers.save(&signers_path).unwrap();

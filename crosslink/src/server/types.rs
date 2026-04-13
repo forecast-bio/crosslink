@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn test_update_issue_request_all_optional() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let req: UpdateIssueRequest = serde_json::from_str(json).unwrap();
         assert!(req.title.is_none());
         assert!(req.description.is_none());

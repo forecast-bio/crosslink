@@ -109,12 +109,12 @@ mod tests {
         let (db, _dir) = setup_test_db();
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
 
-        let long_content = "a".repeat(100000);
+        let long_content = "a".repeat(100_000);
         let result = run(&db, None, issue_id, &long_content, "note");
         assert!(result.is_ok());
 
         let comments = db.get_comments(issue_id).unwrap();
-        assert_eq!(comments[0].content.len(), 100000);
+        assert_eq!(comments[0].content.len(), 100_000);
     }
 
     #[test]
@@ -218,14 +218,14 @@ mod tests {
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
             for i in 0..count {
-                run(&db, None, issue_id, &format!("Comment {}", i), "note").unwrap();
+                run(&db, None, issue_id, &format!("Comment {i}"), "note").unwrap();
             }
 
             let comments = db.get_comments(issue_id).unwrap();
             prop_assert_eq!(comments.len(), count);
 
             for (i, comment) in comments.iter().enumerate() {
-                prop_assert_eq!(&comment.content, &format!("Comment {}", i));
+                prop_assert_eq!(&comment.content, &format!("Comment {i}"));
             }
         }
 
@@ -238,7 +238,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
-            let content = format!("{}{}{}", prefix, emoji, suffix);
+            let content = format!("{prefix}{emoji}{suffix}");
             run(&db, None, issue_id, &content, "note").unwrap();
 
             let comments = db.get_comments(issue_id).unwrap();

@@ -856,7 +856,7 @@ mod tests {
     use crate::knowledge::{PageFrontmatter, Source, KNOWLEDGE_CACHE_DIR};
     use tempfile::tempdir;
 
-    /// Create a KnowledgeManager with a pre-created cache directory (no git needed).
+    /// Create a `KnowledgeManager` with a pre-created cache directory (no git needed).
     fn setup_km() -> (KnowledgeManager, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let crosslink_dir = dir.path().join(".crosslink");
@@ -920,7 +920,7 @@ mod tests {
         let now = Utc::now().format("%Y-%m-%d").to_string();
         let fm = PageFrontmatter {
             title: "Rust Testing Patterns".to_string(),
-            tags: tags.clone(),
+            tags,
             sources: sources
                 .iter()
                 .map(|url| Source {
@@ -1150,11 +1150,8 @@ mod tests {
             .iter()
             .filter(|p| p.slug != "target-page")
             .filter(|p| {
-                if let Ok(content) = km.read_page(&p.slug) {
-                    content.contains("target-page")
-                } else {
-                    false
-                }
+                km.read_page(&p.slug)
+                    .is_ok_and(|content| content.contains("target-page"))
             })
             .collect();
         assert_eq!(referencing_pages.len(), 1);
@@ -1231,7 +1228,7 @@ mod tests {
     fn test_add_from_doc_auto_tags() {
         // Verify that design-doc tag is added
         let tags: Vec<String> = vec!["existing-tag".to_string()];
-        let mut all_tags = tags.clone();
+        let mut all_tags = tags;
         if !all_tags.iter().any(|t| t == "design-doc") {
             all_tags.push("design-doc".to_string());
         }
@@ -1249,7 +1246,7 @@ mod tests {
         } else if doc.title.is_empty() {
             "fallback-slug".to_string()
         } else {
-            doc.title.clone()
+            doc.title
         };
         assert_eq!(display_title, "My Great Feature");
     }
@@ -1263,7 +1260,7 @@ mod tests {
         } else if doc.title.is_empty() {
             "fallback".to_string()
         } else {
-            doc.title.clone()
+            doc.title
         };
         assert_eq!(display_title, "Explicit Title");
     }
@@ -1374,7 +1371,7 @@ mod tests {
 
     #[test]
     fn test_import_preserves_existing_frontmatter() {
-        let (km, _dir) = setup_km();
+        let (km, dir) = setup_km();
 
         let raw = "---\ntitle: Existing Title\ntags: [original]\nsources: []\ncontributors: [alice]\ncreated: 2026-01-01\nupdated: 2026-01-15\n---\n\nBody content.\n";
 
@@ -1382,7 +1379,7 @@ mod tests {
             &km,
             // We need to write a temp file to import from
             &{
-                let p = _dir.path().join("test.md");
+                let p = dir.path().join("test.md");
                 std::fs::write(&p, raw).unwrap();
                 p
             },
@@ -1407,14 +1404,14 @@ mod tests {
 
     #[test]
     fn test_import_generates_frontmatter() {
-        let (km, _dir) = setup_km();
+        let (km, dir) = setup_km();
 
         let raw = "# Just a heading\n\nSome body text.\n";
 
         import_single_file(
             &km,
             &{
-                let p = _dir.path().join("my-doc.md");
+                let p = dir.path().join("my-doc.md");
                 std::fs::write(&p, raw).unwrap();
                 p
             },

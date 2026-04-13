@@ -158,8 +158,7 @@ fn test_integrity_counters_clean() {
     let combined = format!("{}{}", r.stdout, r.stderr);
     assert!(
         combined.contains("PASS") || combined.contains("SKIPPED"),
-        "Expected PASS or SKIPPED for counters on fresh install, got:\n{}",
-        combined,
+        "Expected PASS or SKIPPED for counters on fresh install, got:\n{combined}",
     );
 }
 
@@ -170,8 +169,7 @@ fn test_integrity_hydration_clean() {
     let combined = format!("{}{}", r.stdout, r.stderr);
     assert!(
         combined.contains("PASS") || combined.contains("SKIPPED"),
-        "Expected PASS or SKIPPED for hydration on fresh install, got:\n{}",
-        combined,
+        "Expected PASS or SKIPPED for hydration on fresh install, got:\n{combined}",
     );
 }
 
@@ -182,8 +180,7 @@ fn test_integrity_locks_clean() {
     let combined = format!("{}{}", r.stdout, r.stderr);
     assert!(
         combined.contains("PASS") || combined.contains("SKIPPED"),
-        "Expected PASS or SKIPPED for locks on fresh install, got:\n{}",
-        combined,
+        "Expected PASS or SKIPPED for locks on fresh install, got:\n{combined}",
     );
 }
 
@@ -227,8 +224,7 @@ fn test_integrity_counters_repair() {
         let combined = format!("{}{}", r.stdout, r.stderr);
         assert!(
             combined.contains("REPAIRED") || combined.contains("PASS"),
-            "Expected REPAIRED or PASS after repair, got:\n{}",
-            combined,
+            "Expected REPAIRED or PASS after repair, got:\n{combined}",
         );
 
         // Verify it passes now
@@ -243,8 +239,7 @@ fn test_integrity_counters_repair() {
         let combined = format!("{}{}", r.stdout, r.stderr);
         assert!(
             combined.contains("SKIPPED") || combined.contains("FAIL"),
-            "Expected SKIPPED or FAIL when counters not populated, got:\n{}",
-            combined,
+            "Expected SKIPPED or FAIL when counters not populated, got:\n{combined}",
         );
     }
 }
@@ -324,8 +319,7 @@ fn test_prune_dry_run() {
                 || combined.contains("Prune plan")
                 || combined.contains("commit(s)")
                 || combined.contains("nothing to prune"),
-            "Expected dry-run output, got:\n{}",
-            combined,
+            "Expected dry-run output, got:\n{combined}",
         );
     }
 }

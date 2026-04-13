@@ -539,8 +539,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("at least 3 characters"),
-            "Unexpected error: {}",
-            err_msg
+            "Unexpected error: {err_msg}"
         );
     }
 
@@ -639,8 +638,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("Remote mismatch"),
-            "Unexpected error: {}",
-            err_msg
+            "Unexpected error: {err_msg}"
         );
     }
 

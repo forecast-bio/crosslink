@@ -315,7 +315,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri(format!("/api/v1/milestones/{}", id))
+                    .uri(format!("/api/v1/milestones/{id}"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -366,7 +366,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(format!("/api/v1/milestones/{}/close", id))
+                    .uri(format!("/api/v1/milestones/{id}/close"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -417,7 +417,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(format!("/api/v1/milestones/{}/close", id))
+                    .uri(format!("/api/v1/milestones/{id}/close"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -494,7 +494,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(format!("/api/v1/milestones/{}/close", id2))
+                    .uri(format!("/api/v1/milestones/{id2}/close"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -556,7 +556,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(format!("/api/v1/milestones/{}/assign", milestone_id))
+                    .uri(format!("/api/v1/milestones/{milestone_id}/assign"))
                     .header("content-type", "application/json")
                     .body(Body::from(json!({"issue_id": issue_id}).to_string()))
                     .unwrap(),
@@ -593,7 +593,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(format!("/api/v1/milestones/{}/assign", milestone_id))
+                    .uri(format!("/api/v1/milestones/{milestone_id}/assign"))
                     .header("content-type", "application/json")
                     .body(Body::from(json!({"issue_id": 9999}).to_string()))
                     .unwrap(),
@@ -637,7 +637,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri(format!("/api/v1/milestones/{}", milestone_id))
+                    .uri(format!("/api/v1/milestones/{milestone_id}"))
                     .body(Body::empty())
                     .unwrap(),
             )

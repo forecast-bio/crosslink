@@ -381,7 +381,7 @@ mod tests {
         fn prop_list_returns_correct_count(count in 0usize..5) {
             let (db, _dir) = setup_test_db();
             for i in 0..count {
-                db.create_milestone(&format!("v{}.0", i), None).unwrap();
+                db.create_milestone(&format!("v{i}.0"), None).unwrap();
             }
             list(&db, None).unwrap();
             let milestones = db.list_milestones(None).unwrap();

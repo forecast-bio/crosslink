@@ -583,7 +583,7 @@ mod tests {
     #[test]
     fn consolidation_severity_boost_three_agents() {
         // Three agents report the same Medium finding → should boost to High.
-        let findings: Vec<Finding> = (1..=3)
+        let reports: Vec<ReviewReport> = (1..=3)
             .map(|i| {
                 make_finding(
                     "Hardcoded secret",
@@ -593,10 +593,6 @@ mod tests {
                     &format!("agent-{i}"),
                 )
             })
-            .collect();
-
-        let reports: Vec<ReviewReport> = findings
-            .into_iter()
             .map(|f| {
                 let agent = f.agent.clone();
                 make_report(&agent, vec![f])
@@ -649,7 +645,7 @@ mod tests {
 
     #[test]
     fn consolidation_critical_stays_critical_on_boost() {
-        let findings: Vec<Finding> = (1..=3)
+        let reports: Vec<ReviewReport> = (1..=3)
             .map(|i| {
                 make_finding(
                     "RCE via deserialization",
@@ -659,10 +655,6 @@ mod tests {
                     &format!("agent-{i}"),
                 )
             })
-            .collect();
-
-        let reports: Vec<ReviewReport> = findings
-            .into_iter()
             .map(|f| {
                 let agent = f.agent.clone();
                 make_report(&agent, vec![f])
@@ -698,10 +690,7 @@ mod tests {
             "agent-1",
         );
 
-        let reports = vec![make_report(
-            "agent-1",
-            vec![low.clone(), critical.clone(), high.clone()],
-        )];
+        let reports = vec![make_report("agent-1", vec![low, critical, high])];
 
         let consolidated = consolidate(reports);
         let severities: Vec<FindingSeverity> = consolidated

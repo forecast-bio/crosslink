@@ -458,7 +458,7 @@ mod tests {
             time_entries: vec![],
         };
 
-        let path = issues_dir.join(format!("{}.json", uuid));
+        let path = issues_dir.join(format!("{uuid}.json"));
         write_issue_file(&path, &issue).unwrap();
 
         // Verify file exists and is valid
@@ -556,23 +556,23 @@ mod tests {
         assert_eq!(related.len(), 2);
 
         // Only store relations where related_id > issue_id
-        let related_uuids: Vec<Uuid> = related
+        let related_uuid_count = related
             .iter()
             .filter(|r| r.id > id1)
             .filter_map(|r| id_to_uuid.get(&r.id).copied())
-            .collect();
-        assert_eq!(related_uuids.len(), 2);
+            .count();
+        assert_eq!(related_uuid_count, 2);
 
         // For issue 2, related issue is 1 (but 1 < 2 so we skip it)
         let related2 = db.get_related_issues(id2).unwrap();
-        let related2_uuids: Vec<Uuid> = related2
+        let related2_uuid_count = related2
             .iter()
             .filter(|r| r.id > id2)
             .filter_map(|r| id_to_uuid.get(&r.id).copied())
-            .collect();
+            .count();
         // id1 < id2, so no stored relations from id2's perspective
         // id3 > id2, but id2 isn't directly related to id3
-        assert_eq!(related2_uuids.len(), 0);
+        assert_eq!(related2_uuid_count, 0);
     }
 
     #[test]

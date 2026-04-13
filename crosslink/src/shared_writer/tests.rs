@@ -198,7 +198,7 @@ fn test_replace_local_refs_start_end() {
     assert_eq!(result, Some("#5".to_string()));
 }
 
-/// Helper for tests: scan issues dir for a display_id (mirrors SharedWriter logic).
+/// Helper for tests: scan issues dir for a `display_id` (mirrors `SharedWriter` logic).
 fn scan_for_display_id(issues_dir: &Path, display_id: i64) -> Result<IssueFile> {
     for entry in std::fs::read_dir(issues_dir)? {
         let entry = entry?;
@@ -212,20 +212,20 @@ fn scan_for_display_id(issues_dir: &Path, display_id: i64) -> Result<IssueFile> 
             }
         }
     }
-    bail!("Issue #{} not found", display_id)
+    bail!("Issue #{display_id} not found")
 }
 
 #[test]
 fn test_v1_issue_path_format() {
     let uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
-    let path = format!("issues/{}.json", uuid);
+    let path = format!("issues/{uuid}.json");
     assert_eq!(path, "issues/a1b2c3d4-e5f6-7890-abcd-ef1234567890.json");
 }
 
 #[test]
 fn test_v2_issue_path_format() {
     let uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
-    let path = format!("issues/{}/issue.json", uuid);
+    let path = format!("issues/{uuid}/issue.json");
     assert_eq!(
         path,
         "issues/a1b2c3d4-e5f6-7890-abcd-ef1234567890/issue.json"
@@ -236,7 +236,7 @@ fn test_v2_issue_path_format() {
 fn test_v2_comment_path_format() {
     let issue_uuid = Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap();
     let comment_uuid = Uuid::parse_str("11111111-2222-3333-4444-555555555555").unwrap();
-    let path = format!("issues/{}/comments/{}.json", issue_uuid, comment_uuid);
+    let path = format!("issues/{issue_uuid}/comments/{comment_uuid}.json");
     assert_eq!(
         path,
         "issues/a1b2c3d4-e5f6-7890-abcd-ef1234567890/comments/11111111-2222-3333-4444-555555555555.json"
@@ -356,7 +356,7 @@ mod lock_v2_tests {
         assert_eq!(claimed, LockClaimResult::Claimed);
         assert_eq!(already, LockClaimResult::AlreadyHeld);
         assert_ne!(claimed, already);
-        assert_ne!(claimed, contended.clone());
+        assert_ne!(claimed, contended);
         assert_eq!(
             contended,
             LockClaimResult::Contended {
@@ -364,8 +364,8 @@ mod lock_v2_tests {
             }
         );
         // Verify Debug
-        let _ = format!("{:?}", claimed);
-        let _ = format!("{:?}", contended);
+        let _ = format!("{claimed:?}");
+        let _ = format!("{contended:?}");
     }
 
     #[test]
@@ -837,8 +837,7 @@ mod lock_v2_tests {
             let state = read_checkpoint(cache).unwrap();
             assert_eq!(
                 state.locks[&1].agent_id, "agent-a",
-                "Winner should be agent-a regardless of who runs compaction (compactor={})",
-                compactor
+                "Winner should be agent-a regardless of who runs compaction (compactor={compactor})"
             );
         }
     }
@@ -853,10 +852,10 @@ mod integration {
     use std::process::Command;
     use tempfile::TempDir;
 
-    /// Set up a minimal git environment for SharedWriter tests.
+    /// Set up a minimal git environment for `SharedWriter` tests.
     ///
-    /// Returns (work_dir, remote_dir). The hub cache (`crosslink/hub` branch)
-    /// is initialized directly inside the work_dir so SharedWriter::new() works.
+    /// Returns (`work_dir`, `remote_dir`). The hub cache (`crosslink/hub` branch)
+    /// is initialized directly inside the `work_dir` so `SharedWriter::new()` works.
     fn setup_shared_writer_env() -> (TempDir, TempDir, std::path::PathBuf) {
         let remote_dir = tempfile::tempdir().unwrap();
         let work_dir = tempfile::tempdir().unwrap();
@@ -1068,7 +1067,7 @@ mod integration {
         let cache_dir = crosslink_dir.join(".hub-cache").join("issues");
         let entries: Vec<_> = std::fs::read_dir(&cache_dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .collect();
         assert!(
             !entries.is_empty(),
@@ -1395,7 +1394,7 @@ mod integration {
         let kinds = ["plan", "decision", "observation", "blocker", "resolution"];
         for kind in &kinds {
             writer
-                .add_comment(&db, issue_id, &format!("Comment: {}", kind), kind)
+                .add_comment(&db, issue_id, &format!("Comment: {kind}"), kind)
                 .unwrap();
         }
 
@@ -1966,7 +1965,7 @@ mod integration {
             milestone_uuid: None,
             time_entries: vec![],
         };
-        crate::issue_file::write_issue_file(&issues_dir.join(format!("{}.json", uuid)), &issue)
+        crate::issue_file::write_issue_file(&issues_dir.join(format!("{uuid}.json")), &issue)
             .unwrap();
 
         // promote_offline_issues should skip this one (UUID in promoted set)
@@ -2449,7 +2448,7 @@ mod integration {
 
     /// Create a V1-layout environment by deleting `meta/version.json` from the hub
     /// cache after normal V2 setup. `layout_version()` returns 1 when this file
-    /// is absent, routing add_comment / add_intervention_comment through the V1
+    /// is absent, routing `add_comment` / `add_intervention_comment` through the V1
     /// inline-append code paths (lines 679-701, 762-785).
     fn setup_shared_writer_env_v1() -> (TempDir, TempDir, std::path::PathBuf) {
         let (work_dir, remote_dir, crosslink_dir) = setup_shared_writer_env();
@@ -2824,9 +2823,8 @@ mod integration {
                 .description
                 .as_deref()
                 .unwrap()
-                .contains(&format!("#{}", id)),
-            "L1 should be rewritten to #{}",
-            id
+                .contains(&format!("#{id}")),
+            "L1 should be rewritten to #{id}"
         );
         drop(work_dir);
     }
@@ -2927,7 +2925,7 @@ mod integration {
 
         // Also git add + commit so the cache is clean
         writer
-            .git_in_cache(&["add", &format!("issues/{}/issue.json", uuid)])
+            .git_in_cache(&["add", &format!("issues/{uuid}/issue.json")])
             .unwrap();
         let _ = writer.git_in_cache(&["commit", "-m", "add offline issue", "--no-gpg-sign"]);
 
@@ -2940,7 +2938,7 @@ mod integration {
 
         // write_commit_push writes the promoted file in V1 format
         // (issues/{uuid}.json) regardless of layout version
-        let v1_file = cache_dir.join("issues").join(format!("{}.json", uuid));
+        let v1_file = cache_dir.join("issues").join(format!("{uuid}.json"));
         if v1_file.exists() {
             let content = std::fs::read_to_string(&v1_file).unwrap();
             let updated: crate::issue_file::IssueFile = serde_json::from_str(&content).unwrap();

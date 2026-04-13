@@ -221,7 +221,7 @@ mod tests {
         fn prop_add_remove_roundtrip(a in 0i64..3, b in 0i64..3) {
             if a != b {
                 let (db, _dir) = setup_test_db();
-                let ids: Vec<i64> = (0..5).map(|i| db.create_issue(&format!("Issue {}", i), None, "medium").unwrap()).collect();
+                let ids: Vec<i64> = (0..5).map(|i| db.create_issue(&format!("Issue {i}"), None, "medium").unwrap()).collect();
 
                 let id1 = ids[a as usize % ids.len()];
                 let id2 = ids[b as usize % ids.len()];

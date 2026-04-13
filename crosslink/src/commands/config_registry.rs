@@ -27,6 +27,7 @@ pub enum ConfigGroup {
     Security,
     Infrastructure,
     Agents,
+    Sentinel,
 }
 
 impl ConfigGroup {
@@ -36,6 +37,7 @@ impl ConfigGroup {
             ConfigGroup::Security => "Security",
             ConfigGroup::Infrastructure => "Infrastructure",
             ConfigGroup::Agents => "Agents",
+            ConfigGroup::Sentinel => "Sentinel",
         }
     }
 
@@ -45,6 +47,7 @@ impl ConfigGroup {
             ConfigGroup::Security,
             ConfigGroup::Infrastructure,
             ConfigGroup::Agents,
+            ConfigGroup::Sentinel,
         ]
     }
 }
@@ -162,6 +165,98 @@ pub static REGISTRY: &[ConfigKey] = &[
         description: "Named aliases for external repositories (e.g. repo-alias.upstream)",
         group: ConfigGroup::Infrastructure,
         hot_swappable: false,
+    },
+    // --- Sentinel config keys ---
+    ConfigKey {
+        key: "sentinel.enabled",
+        config_type: ConfigType::Bool,
+        description: "Enable the autonomous sentinel daemon",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.interval_minutes",
+        config_type: ConfigType::Integer,
+        description: "Minutes between sentinel poll cycles (1-1440)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.max_concurrent_agents",
+        config_type: ConfigType::Integer,
+        description: "Maximum agents sentinel may run simultaneously (1-10)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.sources.github_labels.enabled",
+        config_type: ConfigType::Bool,
+        description: "Enable GitHub label polling source",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.sources.github_labels.labels",
+        config_type: ConfigType::StringArray,
+        description: "GitHub labels that trigger sentinel dispatch (e.g. agent-todo: replicate)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.default_agent.model",
+        config_type: ConfigType::String,
+        description: "Default model for sentinel-dispatched agents",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.default_agent.timeout_minutes",
+        config_type: ConfigType::Integer,
+        description: "Default timeout in minutes for sentinel agents (5-480)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.default_agent.verify",
+        config_type: ConfigType::Enum(&["local", "ci", "thorough"]),
+        description: "Default verification level for sentinel agents",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.escalation.enabled",
+        config_type: ConfigType::Bool,
+        description: "Enable automatic Sonnet->Opus escalation on failure",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.escalation.model",
+        config_type: ConfigType::String,
+        description: "Model to escalate to on first-attempt failure",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.escalation.cooldown_minutes",
+        config_type: ConfigType::Integer,
+        description: "Minutes to wait before retrying with escalated model (5-1440)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.escalation.max_attempts",
+        config_type: ConfigType::Integer,
+        description: "Maximum dispatch attempts per signal (1-5)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.escalation.timeout_multiplier_pct",
+        config_type: ConfigType::Integer,
+        description: "Timeout multiplier for escalation attempt as percentage (150 = 1.5x)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
     },
 ];
 

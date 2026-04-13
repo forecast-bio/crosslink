@@ -1189,7 +1189,7 @@ fn test_find_stale_locks_with_age_stale_lock_no_heartbeat() {
             agent_id: "stale-agent".to_string(),
             branch: None,
             claimed_at: old_time,
-            signed_by: "".to_string(),
+            signed_by: String::new(),
         },
     );
     let locks = LocksFile {
@@ -1225,7 +1225,7 @@ fn test_find_stale_locks_with_age_fresh_heartbeat_not_stale() {
             agent_id: "fresh-agent".to_string(),
             branch: None,
             claimed_at: Utc::now(),
-            signed_by: "".to_string(),
+            signed_by: String::new(),
         },
     );
     let locks = LocksFile {
@@ -2187,7 +2187,7 @@ fn test_init_cache_with_existing_local_hub_branch() {
             "checkout",
             "-b",
             HUB_BRANCH,
-            &format!("origin/{}", HUB_BRANCH),
+            &format!("origin/{HUB_BRANCH}"),
         ])
         .output()
         .unwrap();
@@ -2275,17 +2275,17 @@ fn test_check_divergence_with_many_commits_fails() {
         .unwrap();
 
     // Create MAX_DIVERGENCE + 1 local commits without pushing
-    for i in 0..(MAX_DIVERGENCE + 1) {
+    for i in 0..=MAX_DIVERGENCE {
         std::fs::write(
-            manager.cache_dir.join(format!("diverge-{}.txt", i)),
-            format!("content {}", i),
+            manager.cache_dir.join(format!("diverge-{i}.txt")),
+            format!("content {i}"),
         )
         .unwrap();
         manager
-            .git_in_cache(&["add", &format!("diverge-{}.txt", i)])
+            .git_in_cache(&["add", &format!("diverge-{i}.txt")])
             .unwrap();
         manager
-            .git_in_cache(&["commit", "-m", &format!("diverge commit {}", i)])
+            .git_in_cache(&["commit", "-m", &format!("diverge commit {i}")])
             .unwrap();
     }
 
@@ -2338,7 +2338,7 @@ fn test_migrate_from_locks_branch_with_old_remote_branch() {
     // Push as crosslink/locks to the remote
     Command::new("git")
         .current_dir(work_dir.path())
-        .args(["push", "origin", &format!("HEAD:{}", OLD_BRANCH)])
+        .args(["push", "origin", &format!("HEAD:{OLD_BRANCH}")])
         .output()
         .unwrap();
     // Switch back to main

@@ -55,7 +55,7 @@ fn extract_issue_id(stdout: &str) -> String {
             }
         }
     }
-    panic!("Could not extract issue ID from output:\n{}", stdout);
+    panic!("Could not extract issue ID from output:\n{stdout}");
 }
 
 // ===========================================================================

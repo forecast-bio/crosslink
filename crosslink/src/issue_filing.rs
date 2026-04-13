@@ -444,8 +444,7 @@ mod tests {
             let tmpl = build_issue_template(&make_finding(sev));
             assert!(
                 tmpl.labels.contains(&"review-finding".to_string()),
-                "missing review-finding label for severity {}",
-                sev
+                "missing review-finding label for severity {sev}"
             );
         }
     }
@@ -613,34 +612,42 @@ mod tests {
 
     #[test]
     fn jaccard_identical_sets_returns_one() {
-        let a: HashSet<String> = ["foo", "bar"].iter().map(|s| s.to_string()).collect();
+        let a: HashSet<String> = ["foo", "bar"]
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         let b = a.clone();
         assert!((jaccard(&a, &b) - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn jaccard_disjoint_sets_returns_zero() {
-        let a: HashSet<String> = ["foo"].iter().map(|s| s.to_string()).collect();
-        let b: HashSet<String> = ["bar"].iter().map(|s| s.to_string()).collect();
+        let a: HashSet<String> = std::iter::once("foo".to_string()).collect();
+        let b: HashSet<String> = std::iter::once("bar".to_string()).collect();
         assert!((jaccard(&a, &b)).abs() < f64::EPSILON);
     }
 
     #[test]
     fn jaccard_partial_overlap() {
-        let a: HashSet<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
-        let b: HashSet<String> = ["b", "c", "d"].iter().map(|s| s.to_string()).collect();
+        let a: HashSet<String> = ["a", "b", "c"]
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
+        let b: HashSet<String> = ["b", "c", "d"]
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         // intersection = {b,c} = 2, union = {a,b,c,d} = 4 => 0.5
         let score = jaccard(&a, &b);
         assert!(
             (score - 0.5).abs() < f64::EPSILON,
-            "expected 0.5 got {}",
-            score
+            "expected 0.5 got {score}"
         );
     }
 
     #[test]
     fn jaccard_one_empty_returns_zero() {
-        let a: HashSet<String> = ["foo"].iter().map(|s| s.to_string()).collect();
+        let a: HashSet<String> = std::iter::once("foo".to_string()).collect();
         let b: HashSet<String> = HashSet::new();
         assert!((jaccard(&a, &b)).abs() < f64::EPSILON);
     }
@@ -732,7 +739,7 @@ mod tests {
         let findings: Vec<FindingForFiling> = ["critical", "high", "medium", "low", "info"]
             .iter()
             .map(|sev| FindingForFiling {
-                title: format!("Finding for {}", sev),
+                title: format!("Finding for {sev}"),
                 severity: sev.to_string(),
                 file: "src/lib.rs".to_string(),
                 line: None,
@@ -859,7 +866,7 @@ mod tests {
         let cloned = tmpl.clone();
         assert_eq!(cloned.title, tmpl.title);
         // Debug formatting should not panic
-        let _ = format!("{:?}", tmpl);
+        let _ = format!("{tmpl:?}");
     }
 
     #[test]
@@ -867,7 +874,7 @@ mod tests {
         let f = make_finding("medium");
         let cloned = f.clone();
         assert_eq!(cloned.severity, f.severity);
-        let _ = format!("{:?}", f);
+        let _ = format!("{f:?}");
     }
 
     #[test]
@@ -879,7 +886,7 @@ mod tests {
         };
         let cloned = issue.clone();
         assert_eq!(cloned.number, issue.number);
-        let _ = format!("{:?}", issue);
+        let _ = format!("{issue:?}");
     }
 
     #[test]
@@ -890,7 +897,7 @@ mod tests {
         };
         let cloned = s.clone();
         assert_eq!(cloned.reason, s.reason);
-        let _ = format!("{:?}", s);
+        let _ = format!("{s:?}");
     }
 
     #[test]
@@ -901,7 +908,7 @@ mod tests {
         };
         let cloned = r.clone();
         assert_eq!(cloned.filed.len(), 0);
-        let _ = format!("{:?}", r);
+        let _ = format!("{r:?}");
     }
 
     // -- file_issues non-dry-run with empty findings (covers line 251, 295) --
@@ -1001,7 +1008,7 @@ mod tests {
     fn jaccard_one_non_empty_one_empty_does_not_divide_by_zero() {
         // When exactly one set is non-empty, union > 0 so the `if union == 0`
         // guard on line 139 is false; intersection is 0; result is 0.
-        let a: HashSet<String> = ["only"].iter().map(|s| s.to_string()).collect();
+        let a: HashSet<String> = std::iter::once("only".to_string()).collect();
         let b: HashSet<String> = HashSet::new();
         let score = jaccard(&a, &b);
         assert!((score).abs() < f64::EPSILON);

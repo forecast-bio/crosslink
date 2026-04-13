@@ -203,7 +203,7 @@ mod tests {
             "estimated_hours": 5.0
         }"#;
         let resp: LlmDecomposeResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.estimated_hours, 5.0);
+        assert!((resp.estimated_hours - 5.0).abs() < f64::EPSILON);
         assert_eq!(resp.phases[0].stages[0].agent_count, 2);
         assert_eq!(resp.phases[0].stages[1].depends_on, vec!["Stage A"]);
         assert_eq!(

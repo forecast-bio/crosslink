@@ -356,7 +356,7 @@ internal = ["db"]
             TriageResult::ByDesign { reason } => {
                 assert_eq!(reason, "Local-only tool with no network exposure");
             }
-            other => panic!("Expected ByDesign, got {:?}", other),
+            other => panic!("Expected ByDesign, got {other:?}"),
         }
     }
 
@@ -375,7 +375,7 @@ internal = ["db"]
                 assert!(reason.contains("matched ignore pattern"));
                 assert!(reason.contains("auth"));
             }
-            other => panic!("Expected ByDesign, got {:?}", other),
+            other => panic!("Expected ByDesign, got {other:?}"),
         }
     }
 
@@ -441,7 +441,7 @@ internal = ["db"]
                 assert!(reason.contains("internal-db"));
                 assert!(reason.contains("implicit trust"));
             }
-            other => panic!("Expected Downgraded, got {:?}", other),
+            other => panic!("Expected Downgraded, got {other:?}"),
         }
     }
 
@@ -458,7 +458,7 @@ internal = ["db"]
         let result = triage_finding(&config, "Unvalidated input", "goes through message-bus");
         match result {
             TriageResult::Downgraded { .. } => {}
-            other => panic!("Expected Downgraded, got {:?}", other),
+            other => panic!("Expected Downgraded, got {other:?}"),
         }
     }
 

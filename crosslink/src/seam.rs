@@ -855,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_parse_mod_declarations() {
-        let src = r#"
+        let src = r"
 mod foo;
 pub mod bar;
 pub(crate) mod baz;
@@ -864,7 +864,7 @@ mod qux;
 mod inline_mod {
     fn something() {}
 }
-"#;
+";
         let mods = parse_mod_declarations(src);
         assert_eq!(mods, vec!["foo", "bar", "baz", "qux"]);
     }
@@ -979,8 +979,7 @@ mod inline_mod {
             for f in &part.files {
                 assert!(
                     seen.insert(f.clone()),
-                    "file {:?} appears in multiple partitions",
-                    f
+                    "file {f:?} appears in multiple partitions"
                 );
             }
         }
@@ -990,8 +989,8 @@ mod inline_mod {
     fn test_max_partitions_respected() {
         let mut files = Vec::new();
         for i in 0..20 {
-            let dir = format!("dir{}", i);
-            files.push((format!("{}/file.rs", dir), "fn foo() {}\n".repeat(100)));
+            let dir = format!("dir{i}");
+            files.push((format!("{dir}/file.rs"), "fn foo() {}\n".repeat(100)));
         }
         let file_refs: Vec<(&str, &str)> = files
             .iter()
@@ -1037,8 +1036,7 @@ mod inline_mod {
         let total_big_lines: usize = big_parts.iter().map(|p| p.line_count).sum();
         assert!(
             total_big_lines > 2000,
-            "big module lines = {}",
-            total_big_lines
+            "big module lines = {total_big_lines}"
         );
     }
 
@@ -1139,7 +1137,7 @@ mod inline_mod {
     // Additional coverage tests
     // -----------------------------------------------------------------------
 
-    /// Line 174: count_lines returns 0 for a missing file.
+    /// Line 174: `count_lines` returns 0 for a missing file.
     #[test]
     fn test_count_lines_missing_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -1173,13 +1171,13 @@ mod inline_mod {
         );
     }
 
-    /// Line 324: extract_mod_name returns None for "pub(crate" (no closing paren).
+    /// Line 324: `extract_mod_name` returns None for "pub(crate" (no closing paren).
     #[test]
     fn test_extract_mod_name_unclosed_pub_paren() {
         assert_eq!(extract_mod_name("pub(crate mod foo;"), None);
     }
 
-    /// Line 336: extract_mod_name returns None for identifiers containing
+    /// Line 336: `extract_mod_name` returns None for identifiers containing
     /// non-alphanumeric / non-underscore characters (e.g. a hyphen).
     #[test]
     fn test_extract_mod_name_invalid_identifier() {
@@ -1188,7 +1186,7 @@ mod inline_mod {
         assert_eq!(extract_mod_name("mod foo bar;"), None);
     }
 
-    /// Lines 384-388: directory_based_partitions groups files that sit directly
+    /// Lines 384-388: `directory_based_partitions` groups files that sit directly
     /// in the root (single path component) under the "_root" label.
     #[test]
     fn test_directory_based_partitions_root_files() {
@@ -1202,17 +1200,16 @@ mod inline_mod {
         let labels: Vec<&str> = parts.iter().map(|p| p.label.as_str()).collect();
         assert!(
             labels.contains(&"_root"),
-            "expected a '_root' partition for root-level files, got {:?}",
-            labels
+            "expected a '_root' partition for root-level files, got {labels:?}"
         );
         let root_part = parts.iter().find(|p| p.label == "_root").unwrap();
         // Both root-level .rs files should be in this partition.
         assert_eq!(root_part.files.len(), 2);
     }
 
-    /// Lines 499-500: git_coupling_inner builds the coupling map when pairs
-    /// exceed COUPLING_THRESHOLD.  We exercise this by calling the public
-    /// detect_seams on a real git repo where multiple commits touch the same
+    /// Lines 499-500: `git_coupling_inner` builds the coupling map when pairs
+    /// exceed `COUPLING_THRESHOLD`.  We exercise this by calling the public
+    /// `detect_seams` on a real git repo where multiple commits touch the same
     /// pair of files.
     #[test]
     fn test_git_coupling_builds_map() {
@@ -1243,9 +1240,9 @@ mod inline_mod {
         // Commit src/a.rs and src/b.rs together COUPLING_THRESHOLD times so
         // they get coupled.
         for i in 0..COUPLING_THRESHOLD {
-            let msg = format!("change {}", i);
-            let content_a = format!("fn a() {{ {} }}\n", i);
-            let content_b = format!("fn b() {{ {} }}\n", i);
+            let msg = format!("change {i}");
+            let content_a = format!("fn a() {{ {i} }}\n");
+            let content_b = format!("fn b() {{ {i} }}\n");
             fs::write(root.join("src/a.rs"), &content_a).unwrap();
             fs::write(root.join("src/b.rs"), &content_b).unwrap();
             git(&["add", "src/a.rs", "src/b.rs"]);
@@ -1256,13 +1253,12 @@ mod inline_mod {
         // After COUPLING_THRESHOLD co-commits the map should be non-empty.
         assert!(
             !coupling.is_empty(),
-            "expected non-empty coupling map after {} co-commits",
-            COUPLING_THRESHOLD
+            "expected non-empty coupling map after {COUPLING_THRESHOLD} co-commits"
         );
     }
 
-    /// Line 640: split_partition returns the original partition when line_count
-    /// is 0 (or files.len() <= 1).
+    /// Line 640: `split_partition` returns the original partition when `line_count`
+    /// is 0 (or `files.len()` <= 1).
     #[test]
     fn test_split_partition_zero_lines() {
         let part = Partition {
@@ -1287,7 +1283,7 @@ mod inline_mod {
         assert_eq!(result[0].label, "single");
     }
 
-    /// Lines 693-695: merge_small_partitions early-returns for 0 or 1 partition.
+    /// Lines 693-695: `merge_small_partitions` early-returns for 0 or 1 partition.
     #[test]
     fn test_merge_small_partitions_single() {
         let partitions = vec![Partition {
@@ -1306,7 +1302,7 @@ mod inline_mod {
         assert!(result.is_empty());
     }
 
-    /// Lines 734-738: merge_small_partitions else-branch — prev is big enough
+    /// Lines 734-738: `merge_small_partitions` else-branch — prev is big enough
     /// that it is emitted and part (also big) is pushed directly.
     #[test]
     fn test_merge_small_partitions_both_big() {
@@ -1488,13 +1484,13 @@ mod inline_mod {
     }
 
     /// Lines 748-750: leftover absorbed into last merged partition.
-    /// We achieve this by calling merge_small_partitions on a list that,
+    /// We achieve this by calling `merge_small_partitions` on a list that,
     /// after sorting, leaves a carry at the end but merged is already non-empty.
     /// We construct it manually: big(300) then small(50) — but sorted they
     /// become small(50), big(300).  With carry logic:
     ///   small(50) → carry.
     ///   big(300): prev(50) < MIN → merge → 350 >= MIN → pushed. carry=None.
-    /// No leftover. We need a different approach: call adjust_sizes with a
+    /// No leftover. We need a different approach: call `adjust_sizes` with a
     /// large partition containing a single file (so it won't be split) and
     /// two small ones that accumulate.
     #[test]
@@ -1551,7 +1547,7 @@ mod inline_mod {
         assert_eq!(result[0].files.len(), 3);
     }
 
-    /// Lines 764-765: merge_smallest_pair early-returns for single partition.
+    /// Lines 764-765: `merge_smallest_pair` early-returns for single partition.
     #[test]
     fn test_merge_smallest_pair_single() {
         let part = Partition {
@@ -1570,7 +1566,7 @@ mod inline_mod {
         assert!(result.is_empty());
     }
 
-    /// Line 793: merge_smallest_pair when partner_idx < min_idx (lo/hi swap).
+    /// Line 793: `merge_smallest_pair` when `partner_idx` < `min_idx` (lo/hi swap).
     #[test]
     fn test_merge_smallest_pair_partner_before_min() {
         // min_idx will be 2 (line_count=5), partner_idx will be 0 (line_count=10).
@@ -1604,16 +1600,16 @@ mod inline_mod {
         assert!(merged.label.contains("min"));
     }
 
-    /// Test apply_coupling with non-empty coupling data — exercises the full
+    /// Test `apply_coupling` with non-empty coupling data — exercises the full
     /// union-find merge path (lines 529-615).
     ///
     /// `apply_coupling` counts cross-partition edges by iterating every entry
-    /// in the coupling map: for each (file, coupled_set), for each coupled file
-    /// in the set it increments merge_votes by 1.  With two files a and b, the
+    /// in the coupling map: for each (file, `coupled_set`), for each coupled file
+    /// in the set it increments `merge_votes` by 1.  With two files a and b, the
     /// coupling map contributes 2 edges (a→b and b→a), which is 2 votes — still
-    /// below COUPLING_THRESHOLD(3).  We therefore add a third file c that is in
-    /// partition p_a and is also coupled with b, which drives the vote count for
-    /// the (p_a, p_b) pair above the threshold.
+    /// below `COUPLING_THRESHOLD(3)`.  We therefore add a third file c that is in
+    /// partition `p_a` and is also coupled with b, which drives the vote count for
+    /// the (`p_a`, `p_b`) pair above the threshold.
     #[test]
     fn test_apply_coupling_merges_coupled_partitions() {
         // p_a: a.rs, c.rs; p_b: b.rs.
@@ -1663,8 +1659,8 @@ mod inline_mod {
         assert_eq!(result[0].line_count, 200);
     }
 
-    /// Test apply_coupling when coupling exists but cross-partition vote count
-    /// is below COUPLING_THRESHOLD — partitions are NOT merged.
+    /// Test `apply_coupling` when coupling exists but cross-partition vote count
+    /// is below `COUPLING_THRESHOLD` — partitions are NOT merged.
     #[test]
     fn test_apply_coupling_below_threshold_not_merged() {
         // Each file appears in a separate partition.  Coupling map has the pair
@@ -1706,7 +1702,7 @@ mod inline_mod {
         assert_eq!(result.len(), 2);
     }
 
-    /// Test apply_coupling with an empty coupling map — early return path (line 524-525).
+    /// Test `apply_coupling` with an empty coupling map — early return path (line 524-525).
     #[test]
     fn test_apply_coupling_empty_coupling() {
         let partitions = vec![
@@ -1726,7 +1722,7 @@ mod inline_mod {
         assert_eq!(result.len(), 2);
     }
 
-    /// Test apply_coupling when coupling refers to files not in any partition —
+    /// Test `apply_coupling` when coupling refers to files not in any partition —
     /// those entries are simply skipped.
     #[test]
     fn test_apply_coupling_unknown_files_ignored() {
@@ -1746,7 +1742,7 @@ mod inline_mod {
         assert_eq!(result[0].label, "solo");
     }
 
-    /// Test the git_coupling_inner failure path: non-existent directory makes
+    /// Test the `git_coupling_inner` failure path: non-existent directory makes
     /// `git log` fail, which should return an empty map (not an error).
     #[test]
     fn test_git_coupling_non_git_dir() {
@@ -1756,7 +1752,7 @@ mod inline_mod {
         assert!(coupling.is_empty());
     }
 
-    /// Test ensure_complete_coverage adds _uncategorized for missing files and
+    /// Test `ensure_complete_coverage` adds _uncategorized for missing files and
     /// de-duplicates when files appear in multiple partitions.
     #[test]
     fn test_ensure_complete_coverage_adds_uncategorized() {
@@ -1768,8 +1764,7 @@ mod inline_mod {
         }];
         let all_files = vec![PathBuf::from("a.rs"), PathBuf::from("missing.rs")];
         let result = ensure_complete_coverage(partitions, &all_files, tmp.path());
-        let labels: Vec<&str> = result.iter().map(|p| p.label.as_str()).collect();
-        assert!(labels.contains(&"_uncategorized"));
+        assert!(result.iter().any(|p| p.label == "_uncategorized"));
         let uncat = result.iter().find(|p| p.label == "_uncategorized").unwrap();
         assert_eq!(uncat.files, vec![PathBuf::from("missing.rs")]);
     }
@@ -1829,7 +1824,7 @@ mod inline_mod {
         assert_eq!(result[0].label, "first");
     }
 
-    /// find_mod_files: file is directly under src as a .rs file.
+    /// `find_mod_files`: file is directly under src as a .rs file.
     #[test]
     fn test_find_mod_files_single_file() {
         let root = Path::new("/repo");
@@ -1843,7 +1838,7 @@ mod inline_mod {
         assert_eq!(result, vec![PathBuf::from("src/foo.rs")]);
     }
 
-    /// find_mod_files: module is a directory (src/<mod>/).
+    /// `find_mod_files`: module is a directory (src/<mod>/).
     #[test]
     fn test_find_mod_files_directory_module() {
         let root = Path::new("/repo");
@@ -1859,7 +1854,7 @@ mod inline_mod {
         assert!(result.contains(&PathBuf::from("src/mymod/helper.rs")));
     }
 
-    /// find_mod_files: no matching files returns empty vec.
+    /// `find_mod_files`: no matching files returns empty vec.
     #[test]
     fn test_find_mod_files_no_match() {
         let root = Path::new("/repo");
@@ -1869,7 +1864,7 @@ mod inline_mod {
         assert!(result.is_empty());
     }
 
-    /// record_pairs: single file — should not record any pair.
+    /// `record_pairs`: single file — should not record any pair.
     #[test]
     fn test_record_pairs_single_file() {
         let files = vec![PathBuf::from("a.rs")];
@@ -1878,7 +1873,7 @@ mod inline_mod {
         assert!(counts.is_empty());
     }
 
-    /// record_pairs: empty slice — should not record any pair.
+    /// `record_pairs`: empty slice — should not record any pair.
     #[test]
     fn test_record_pairs_empty() {
         let files: Vec<PathBuf> = vec![];
@@ -1887,7 +1882,7 @@ mod inline_mod {
         assert!(counts.is_empty());
     }
 
-    /// record_pairs: key normalisation — (b, a) and (a, b) map to the same key.
+    /// `record_pairs`: key normalisation — (b, a) and (a, b) map to the same key.
     #[test]
     fn test_record_pairs_key_order() {
         // b > a alphabetically, so the key should be (a, b) for both orderings.
@@ -1901,7 +1896,7 @@ mod inline_mod {
         assert_eq!(*counts.values().next().unwrap(), 2);
     }
 
-    /// detect_seams with max_partitions == 0 should clamp to 1.
+    /// `detect_seams` with `max_partitions` == 0 should clamp to 1.
     #[test]
     fn test_detect_seams_max_partitions_zero() {
         let repo = setup_repo(&[("dir_a/a.rs", "fn a() {}\n"), ("dir_b/b.rs", "fn b() {}\n")]);
@@ -1914,7 +1909,7 @@ mod inline_mod {
         );
     }
 
-    /// detect_seams on a non-Rust repo should fall back to directory partitions.
+    /// `detect_seams` on a non-Rust repo should fall back to directory partitions.
     #[test]
     fn test_detect_seams_non_rust_fallback() {
         // Use enough content per file to exceed MIN_PARTITION_LINES so the
@@ -1934,13 +1929,11 @@ mod inline_mod {
         assert!(!partitions.is_empty());
     }
 
-    /// Test adjust_sizes directly: a partition above MAX_PARTITION_LINES with
+    /// Test `adjust_sizes` directly: a partition above `MAX_PARTITION_LINES` with
     /// multiple files gets split.
     #[test]
     fn test_adjust_sizes_splits_large_partition() {
-        let files: Vec<PathBuf> = (0..10)
-            .map(|i| PathBuf::from(format!("f{}.rs", i)))
-            .collect();
+        let files: Vec<PathBuf> = (0..10).map(|i| PathBuf::from(format!("f{i}.rs"))).collect();
         let part = Partition {
             label: "big".to_string(),
             files,
@@ -1957,7 +1950,7 @@ mod inline_mod {
         assert!(result.iter().all(|p| p.label.starts_with("big")));
     }
 
-    /// Test adjust_sizes: a partition that does not exceed MAX is left alone.
+    /// Test `adjust_sizes`: a partition that does not exceed MAX is left alone.
     #[test]
     fn test_adjust_sizes_small_partition_unchanged() {
         let part = Partition {
@@ -1970,7 +1963,7 @@ mod inline_mod {
         assert_eq!(result[0].label, "small");
     }
 
-    /// Test merge_small_partitions: prev is big (>= MIN), part is big — both pushed separately.
+    /// Test `merge_small_partitions`: prev is big (>= MIN), part is big — both pushed separately.
     #[test]
     fn test_merge_small_partitions_big_prev_big_part() {
         // Three partitions: one small (< MIN_PARTITION_LINES), one that makes carry big, one big.
@@ -1999,7 +1992,7 @@ mod inline_mod {
         assert_eq!(result.len(), 2);
     }
 
-    /// Test merge_small_partitions: prev (carry) >= MIN_PARTITION_LINES, new part also >= MIN.
+    /// Test `merge_small_partitions`: prev (carry) >= `MIN_PARTITION_LINES`, new part also >= MIN.
     /// This exercises the else branch (line 733) where both are pushed separately.
     #[test]
     fn test_merge_small_partitions_carry_becomes_big_then_big_part() {
@@ -2035,7 +2028,7 @@ mod inline_mod {
         assert_eq!(result.len(), 2);
     }
 
-    /// Test merge_small_partitions: leftover carry absorbed into last merged partition.
+    /// Test `merge_small_partitions`: leftover carry absorbed into last merged partition.
     #[test]
     fn test_merge_small_partitions_leftover_carry_absorbed() {
         // Two partitions: one big, one small. After sort: small(50), big(300).

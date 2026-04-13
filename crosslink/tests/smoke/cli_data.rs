@@ -235,7 +235,7 @@ fn test_import_boundary_over() {
   "uuid": "00000000-0000-0000-0000-000000000001",
   "display_id": 1,
   "title": "Too big",
-  "description": "{}",
+  "description": "{desc_padding}",
   "priority": "medium",
   "status": "open",
   "labels": [],
@@ -249,8 +249,7 @@ fn test_import_boundary_over() {
   "created_at": "2026-01-01T00:00:00Z",
   "updated_at": "2026-01-01T00:00:00Z",
   "closed_at": null
-}}]"#,
-        desc_padding
+}}]"#
     );
 
     let import_path = h.temp_dir.path().join("too_big.json");
@@ -345,7 +344,7 @@ fn test_import_export_roundtrip() {
 
     // Create 10 issues with labels and comments
     for i in 1..=10 {
-        h.run_ok(&["create", &format!("Roundtrip issue {}", i), "-p", "medium"]);
+        h.run_ok(&["create", &format!("Roundtrip issue {i}"), "-p", "medium"]);
     }
     // Add labels to some
     h.run_ok(&["issue", "label", "1", "bug"]);
@@ -558,7 +557,7 @@ fn test_archive_older() {
 
     // Create and close several issues
     for i in 1..=5 {
-        h.run_ok(&["create", &format!("Issue {}", i)]);
+        h.run_ok(&["create", &format!("Issue {i}")]);
     }
     for i in 1..=5 {
         h.run_ok(&["close", &i.to_string()]);
@@ -576,9 +575,8 @@ fn test_archive_older() {
     let archive_list = h.run_ok(&["archive", "list"]);
     for i in 1..=5 {
         assert!(
-            archive_list.stdout.contains(&format!("Issue {}", i)),
-            "Issue {} should be in archive list",
-            i
+            archive_list.stdout.contains(&format!("Issue {i}")),
+            "Issue {i} should be in archive list"
         );
     }
 

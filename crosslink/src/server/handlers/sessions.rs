@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(body["ok"], true);
     }
 
-    /// Helper that returns (Router, TempDir) with an active session and a created issue.
+    /// Helper that returns (Router, `TempDir`) with an active session and a created issue.
     fn test_app_with_session_and_issue() -> (Router, tempfile::TempDir, i64) {
         let dir = tempfile::tempdir().expect("tempdir");
         let db_path = dir.path().join("test.db");
@@ -379,7 +379,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
-                    .uri(format!("/api/v1/sessions/work/{}", issue_id))
+                    .uri(format!("/api/v1/sessions/work/{issue_id}"))
                     .body(Body::empty())
                     .unwrap(),
             )

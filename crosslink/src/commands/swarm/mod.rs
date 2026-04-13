@@ -42,7 +42,7 @@ mod tests {
     use crate::findings::{Finding, FindingSeverity, ReviewReport};
     use std::path::PathBuf;
 
-    /// Helper to build seam::Partition from a label and file list (for tests).
+    /// Helper to build `seam::Partition` from a label and file list (for tests).
     fn make_partition(label: &str, files: Vec<&str>) -> crate::seam::Partition {
         crate::seam::Partition {
             label: label.to_string(),
@@ -180,7 +180,7 @@ mod tests {
         let doc = DesignDoc {
             title: "Big Feature".to_string(),
             summary: String::new(),
-            requirements: (1..=12).map(|i| format!("REQ-{}: Task {}", i, i)).collect(),
+            requirements: (1..=12).map(|i| format!("REQ-{i}: Task {i}")).collect(),
             requirement_groups: Vec::new(),
             acceptance_criteria: vec![],
             architecture: String::new(),
@@ -789,7 +789,7 @@ mod tests {
                 assert!(recommended_count > 0);
                 assert!(recommended_count < 4);
             }
-            other => panic!("Expected Split, got {:?}", other),
+            other => panic!("Expected Split, got {other:?}"),
         }
     }
 
@@ -799,7 +799,7 @@ mod tests {
         let rec = budget_recommendation(20000, 500, 4);
         match rec {
             BudgetRecommendation::Block { .. } => {}
-            other => panic!("Expected Block, got {:?}", other),
+            other => panic!("Expected Block, got {other:?}"),
         }
     }
 
@@ -1116,9 +1116,9 @@ mod tests {
 
         assert_eq!(assignments.len(), 1);
         assert_eq!(assignments[0].files.len(), 3);
-        assert!(assignments[0].partition_label.contains("a"));
-        assert!(assignments[0].partition_label.contains("b"));
-        assert!(assignments[0].partition_label.contains("c"));
+        assert!(assignments[0].partition_label.contains('a'));
+        assert!(assignments[0].partition_label.contains('b'));
+        assert!(assignments[0].partition_label.contains('c'));
     }
 
     #[test]
@@ -1232,7 +1232,7 @@ mod tests {
                 FixTarget {
                     issue_number: 327,
                     title: "Memory leak".to_string(),
-                    body: "".to_string(),
+                    body: String::new(),
                     labels: vec![],
                     agent_slug: "fix-327-memory-leak".to_string(),
                     status: AgentStatus::Running,

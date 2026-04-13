@@ -322,7 +322,7 @@ mod tests {
         fn prop_run_never_panics(count in 0usize..5) {
             let (db, dir) = setup_test_db();
             for i in 0..count {
-                db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
+                db.create_issue(&format!("Issue {i}"), None, "medium").unwrap();
             }
             let result = run(&db, dir.path());
             prop_assert!(result.is_ok());

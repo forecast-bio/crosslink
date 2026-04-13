@@ -33,7 +33,7 @@ fn http_request(
     auth_token: Option<&str>,
 ) -> (u16, String) {
     let mut stream =
-        TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Failed to connect to server");
+        TcpStream::connect(format!("127.0.0.1:{port}")).expect("Failed to connect to server");
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
@@ -150,10 +150,8 @@ fn test_concurrent_api_creates_10() {
             let token = Arc::clone(&token);
             thread::spawn(move || {
                 barrier.wait();
-                let payload = format!(
-                    r#"{{"title": "Concurrent issue {}", "priority": "medium"}}"#,
-                    i
-                );
+                let payload =
+                    format!(r#"{{"title": "Concurrent issue {i}", "priority": "medium"}}"#);
                 http_request(port, "POST", "/api/v1/issues", Some(&payload), Some(&token))
             })
         })
@@ -172,22 +170,15 @@ fn test_concurrent_api_creates_10() {
         let json = parse_json(&body);
         let id = json["id"]
             .as_i64()
-            .unwrap_or_else(|| panic!("Thread {} response missing numeric id: {}", idx, body));
+            .unwrap_or_else(|| panic!("Thread {idx} response missing numeric id: {body}"));
         assert!(
             !ids.contains(&id),
-            "Duplicate issue id {} from thread {}",
-            id,
-            idx
+            "Duplicate issue id {id} from thread {idx}"
         );
         ids.push(id);
     }
 
-    assert_eq!(
-        ids.len(),
-        10,
-        "Expected 10 distinct issue ids, got {:?}",
-        ids
-    );
+    assert_eq!(ids.len(), 10, "Expected 10 distinct issue ids, got {ids:?}");
 
     // Verify all 10 issues are queryable through the list endpoint.
     let (status, body) = http_request(port, "GET", "/api/v1/issues", None, Some(&token));
@@ -196,8 +187,7 @@ fn test_concurrent_api_creates_10() {
     let total = json["total"].as_u64().unwrap_or(0);
     assert_eq!(
         total, 10,
-        "Expected 10 issues in list after concurrent creates, got {}",
-        total
+        "Expected 10 issues in list after concurrent creates, got {total}"
     );
 }
 
@@ -268,40 +258,26 @@ fn test_parallel_lock_claim_one_winner() {
     let code_b = out_b.status.code().unwrap_or(-1);
     assert!(
         code_a == 0 || code_a == 1,
-        "agent-a exited with unexpected code {}\nstdout: {}\nstderr: {}",
-        code_a,
-        stdout_a,
-        stderr_a,
+        "agent-a exited with unexpected code {code_a}\nstdout: {stdout_a}\nstderr: {stderr_a}",
     );
     assert!(
         code_b == 0 || code_b == 1,
-        "agent-b exited with unexpected code {}\nstdout: {}\nstderr: {}",
-        code_b,
-        stdout_b,
-        stderr_b,
+        "agent-b exited with unexpected code {code_b}\nstdout: {stdout_b}\nstderr: {stderr_b}",
     );
 
     // At most one agent wins.
     assert!(
         !(success_a && success_b),
         "Both agents claimed the same lock simultaneously — expected exactly one winner.\n\
-         agent-a stdout: {}\nagent-b stdout: {}",
-        stdout_a,
-        stdout_b,
+         agent-a stdout: {stdout_a}\nagent-b stdout: {stdout_b}",
     );
 
     // At least one agent wins (the lock must be claimable by somebody).
     assert!(
         success_a || success_b,
         "Neither agent was able to claim the lock.\n\
-         agent-a: code={} stdout={} stderr={}\n\
-         agent-b: code={} stdout={} stderr={}",
-        code_a,
-        stdout_a,
-        stderr_a,
-        code_b,
-        stdout_b,
-        stderr_b,
+         agent-a: code={code_a} stdout={stdout_a} stderr={stderr_a}\n\
+         agent-b: code={code_b} stdout={stdout_b} stderr={stderr_b}",
     );
 
     // The loser must not be killed by a signal (code must be Some).  We do
@@ -309,14 +285,14 @@ fn test_parallel_lock_claim_one_winner() {
     // the lock layer OR from the underlying git/SharedWriter layer, both of
     // which produce valid (non-empty) diagnostic output.
     if !success_a {
-        let combined_a = format!("{}{}", stdout_a, stderr_a);
+        let combined_a = format!("{stdout_a}{stderr_a}");
         assert!(
             !combined_a.is_empty(),
             "Losing agent-a produced no output at all",
         );
     }
     if !success_b {
-        let combined_b = format!("{}{}", stdout_b, stderr_b);
+        let combined_b = format!("{stdout_b}{stderr_b}");
         assert!(
             !combined_b.is_empty(),
             "Losing agent-b produced no output at all",
@@ -357,7 +333,7 @@ fn test_offline_local_operations_then_sync() {
             .args(&args)
             .output()
             .expect("git config failed");
-        assert!(out.status.success(), "git config {:?} failed", args);
+        assert!(out.status.success(), "git config {args:?} failed");
     }
 
     // Make an initial commit (crosslink init needs a git repo with at least
@@ -405,15 +381,13 @@ fn test_offline_local_operations_then_sync() {
     let (ok, stdout, stderr) = run(&["issue", "create", "Offline issue alpha"]);
     assert!(
         ok,
-        "create should succeed offline\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        "create should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
     );
 
     let (ok, stdout, stderr) = run(&["issue", "create", "Offline issue beta", "-p", "high"]);
     assert!(
         ok,
-        "create with priority should succeed offline\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        "create with priority should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
     );
 
     // --- Offline list ---
@@ -422,18 +396,15 @@ fn test_offline_local_operations_then_sync() {
     let (ok, list_stdout, stderr) = run(&["issue", "list", "-s", "all"]);
     assert!(
         ok,
-        "list should succeed offline\nstdout: {}\nstderr: {}",
-        list_stdout, stderr
+        "list should succeed offline\nstdout: {list_stdout}\nstderr: {stderr}"
     );
     assert!(
         list_stdout.contains("Offline issue alpha"),
-        "list should show alpha\nstdout: {}",
-        list_stdout
+        "list should show alpha\nstdout: {list_stdout}"
     );
     assert!(
         list_stdout.contains("Offline issue beta"),
-        "list should show beta\nstdout: {}",
-        list_stdout
+        "list should show beta\nstdout: {list_stdout}"
     );
 
     // --- Offline show ---
@@ -445,25 +416,23 @@ fn test_offline_local_operations_then_sync() {
         .find(|l| l.contains("Offline issue alpha"))
         .and_then(|l| l.split_whitespace().next())
         .map(|id| id.trim_start_matches('#').to_string())
-        .unwrap_or_else(|| panic!("Could not find alpha in list output: {}", list_stdout));
+        .unwrap_or_else(|| panic!("Could not find alpha in list output: {list_stdout}"));
 
     let beta_id = list_stdout
         .lines()
         .find(|l| l.contains("Offline issue beta"))
         .and_then(|l| l.split_whitespace().next())
         .map(|id| id.trim_start_matches('#').to_string())
-        .unwrap_or_else(|| panic!("Could not find beta in list output: {}", list_stdout));
+        .unwrap_or_else(|| panic!("Could not find beta in list output: {list_stdout}"));
 
     let (ok, stdout, stderr) = run(&["issue", "show", &alpha_id]);
     assert!(
         ok,
-        "show should succeed offline\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        "show should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
     );
     assert!(
         stdout.contains("Offline issue alpha"),
-        "show should display alpha\nstdout: {}",
-        stdout
+        "show should display alpha\nstdout: {stdout}"
     );
 
     // --- Offline update ---
@@ -476,16 +445,14 @@ fn test_offline_local_operations_then_sync() {
     ]);
     assert!(
         ok,
-        "update should succeed offline\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        "update should succeed offline\nstdout: {stdout}\nstderr: {stderr}"
     );
 
     let (ok, stdout, _) = run(&["issue", "show", &beta_id]);
     assert!(ok, "show after offline update should succeed");
     assert!(
         stdout.contains("beta (updated)") || stdout.contains("Offline issue beta"),
-        "show should reflect the update\nstdout: {}",
-        stdout
+        "show should reflect the update\nstdout: {stdout}"
     );
 
     // --- Add a remote and sync ---
@@ -534,13 +501,11 @@ fn test_offline_local_operations_then_sync() {
     let (ok, stdout, stderr) = run(&["issue", "list", "-s", "all"]);
     assert!(
         ok,
-        "list should succeed after sync\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        "list should succeed after sync\nstdout: {stdout}\nstderr: {stderr}"
     );
     assert!(
         stdout.contains("Offline issue alpha"),
-        "alpha should survive sync\nstdout: {}",
-        stdout
+        "alpha should survive sync\nstdout: {stdout}"
     );
 }
 
@@ -582,7 +547,7 @@ fn test_sqlite_busy_concurrent_writes() {
                 barrier.wait();
                 Command::new(&bin)
                     .current_dir(&dir)
-                    .args(["issue", "create", &format!("SQLITE_BUSY issue {}", i)])
+                    .args(["issue", "create", &format!("SQLITE_BUSY issue {i}")])
                     .output()
                     .expect("failed to execute crosslink")
             })
@@ -593,13 +558,12 @@ fn test_sqlite_busy_concurrent_writes() {
     for (i, handle) in handles.into_iter().enumerate() {
         let output = handle
             .join()
-            .unwrap_or_else(|_| panic!("thread {} panicked", i));
+            .unwrap_or_else(|_| panic!("thread {i} panicked"));
 
         // A signal-terminated process has no exit code — that is a bug.
         assert!(
             output.status.code().is_some(),
-            "thread {} process killed by signal (possible panic/abort)",
-            i
+            "thread {i} process killed by signal (possible panic/abort)"
         );
 
         if output.status.success() {
@@ -610,8 +574,7 @@ fn test_sqlite_busy_concurrent_writes() {
 
     assert!(
         successes >= 1,
-        "At least one concurrent create must succeed, but all {} failed",
-        THREADS,
+        "At least one concurrent create must succeed, but all {THREADS} failed",
     );
 
     // Count successfully queryable issues; must equal successes.
@@ -622,9 +585,7 @@ fn test_sqlite_busy_concurrent_writes() {
 
     assert!(
         db_count >= successes as usize,
-        "DB has {} issues but {} creates succeeded — some data was lost",
-        db_count,
-        successes,
+        "DB has {db_count} issues but {successes} creates succeeded — some data was lost",
     );
 }
 
@@ -723,12 +684,11 @@ fn test_split_brain_lock_detection() {
         assert!(
             !check_text.contains("agent-a") || !check_text.contains("agent-b"),
             "Both agents appear as lock holders simultaneously — split-brain not resolved.\n\
-             locks check output: {}",
-            check_text,
+             locks check output: {check_text}",
         );
     } else {
         // Sync failed — it should mention a lock or conflict in its output.
-        let combined = format!("{}{}", sync_stdout, sync_stderr);
+        let combined = format!("{sync_stdout}{sync_stderr}");
         assert!(
             combined.contains("lock")
                 || combined.contains("Lock")

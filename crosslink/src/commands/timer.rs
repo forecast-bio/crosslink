@@ -201,7 +201,7 @@ mod tests {
         #[test]
         fn prop_start_stop_roundtrip(idx in 0usize..5) {
             let (db, _dir) = setup_test_db();
-            let ids: Vec<i64> = (0..5).map(|i| db.create_issue(&format!("Issue {}", i), None, "medium").unwrap()).collect();
+            let ids: Vec<i64> = (0..5).map(|i| db.create_issue(&format!("Issue {i}"), None, "medium").unwrap()).collect();
             let id = ids[idx];
 
             start(&db, id).unwrap();

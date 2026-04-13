@@ -6,6 +6,7 @@ mod issues;
 mod labels;
 mod milestones;
 mod relations;
+pub mod sentinel;
 mod sessions;
 mod time_entries;
 mod token_usage;

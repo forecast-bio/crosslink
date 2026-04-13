@@ -230,7 +230,7 @@ mod tests {
         fn prop_run_never_panics(count in 0usize..5) {
             let (db, _dir) = setup_test_db();
             for i in 0..count {
-                db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
+                db.create_issue(&format!("Issue {i}"), None, "medium").unwrap();
             }
             let result = run(&db, None, false);
             prop_assert!(result.is_ok());
@@ -241,7 +241,7 @@ mod tests {
             let (db, _dir) = setup_test_db();
             let mut parent_id = db.create_issue("Root", None, "high").unwrap();
             for i in 0..depth {
-                parent_id = db.create_subissue(parent_id, &format!("Child {}", i), None, "medium").unwrap();
+                parent_id = db.create_subissue(parent_id, &format!("Child {i}"), None, "medium").unwrap();
             }
             let result = run(&db, None, false);
             prop_assert!(result.is_ok());

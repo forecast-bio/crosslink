@@ -184,7 +184,7 @@ mod tests {
         assert!(config.description.is_none());
     }
 
-    /// Helper to build a minimal AgentConfig for tests.
+    /// Helper to build a minimal `AgentConfig` for tests.
     fn test_config(agent_id: &str) -> AgentConfig {
         AgentConfig {
             agent_id: agent_id.to_string(),
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn test_validate_valid_ids() {
         for id in &["worker-1", "agent_2", "MyAgent", "abc", "test-agent-42"] {
-            assert!(test_config(id).validate().is_ok(), "Failed for id: {}", id);
+            assert!(test_config(id).validate().is_ok(), "Failed for id: {id}");
         }
     }
 
@@ -235,13 +235,12 @@ mod tests {
     fn test_validate_rejects_windows_reserved_names() {
         for id in &["CON", "con", "PRN", "AUX", "NUL", "COM1", "LPT1"] {
             let err = test_config(id).validate();
-            assert!(err.is_err(), "Should reject Windows reserved name: {}", id);
+            assert!(err.is_err(), "Should reject Windows reserved name: {id}");
             assert!(
                 err.unwrap_err()
                     .to_string()
                     .contains("Windows reserved filename"),
-                "Error message should mention Windows reserved filename for: {}",
-                id
+                "Error message should mention Windows reserved filename for: {id}"
             );
         }
     }

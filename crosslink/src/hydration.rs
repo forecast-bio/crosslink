@@ -908,7 +908,7 @@ mod tests {
         let issue_b = make_issue(2, "Blocker issue");
 
         // issue_a is blocked by issue_b
-        let mut issue_a_with_dep = issue_a.clone();
+        let mut issue_a_with_dep = issue_a;
         issue_a_with_dep.blockers = vec![issue_b.uuid];
 
         write_issues_to_cache(cache.path(), &[issue_a_with_dep, issue_b]);
@@ -945,7 +945,7 @@ mod tests {
         let issue_a = make_issue(1, "Issue A");
         let issue_b = make_issue(2, "Issue B");
 
-        let mut issue_a_related = issue_a.clone();
+        let mut issue_a_related = issue_a;
         issue_a_related.related = vec![issue_b.uuid];
 
         write_issues_to_cache(cache.path(), &[issue_a_related, issue_b]);
@@ -1057,7 +1057,7 @@ mod tests {
             created_at: Utc::now(),
             closed_at: None,
         };
-        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{}.json", ms_uuid)), &entry)
+        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{ms_uuid}.json")), &entry)
             .unwrap();
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
@@ -1334,7 +1334,7 @@ mod tests {
             created_at: Utc::now(),
             closed_at: None,
         };
-        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{}.json", ms_uuid)), &entry)
+        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{ms_uuid}.json")), &entry)
             .unwrap();
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
@@ -1384,7 +1384,7 @@ mod tests {
             created_at: Utc::now(),
             closed_at: Some(Utc::now()),
         };
-        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{}.json", ms_uuid)), &entry)
+        crate::issue_file::write_milestone_file(&ms_dir.join(format!("{ms_uuid}.json")), &entry)
             .unwrap();
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
@@ -1425,7 +1425,7 @@ mod tests {
             signed_by: None,
             signature: None,
         };
-        write_comment_file(&comments_dir.join(format!("{}.json", comment_uuid)), &cf).unwrap();
+        write_comment_file(&comments_dir.join(format!("{comment_uuid}.json")), &cf).unwrap();
 
         // Write layout version 2
         let meta_dir = cache.path().join("meta");
@@ -1468,7 +1468,7 @@ mod tests {
             signed_by: Some("SHA256:abc123".to_string()),
             signature: Some("base64sig==".to_string()),
         };
-        write_comment_file(&comments_dir.join(format!("{}.json", comment_uuid)), &cf).unwrap();
+        write_comment_file(&comments_dir.join(format!("{comment_uuid}.json")), &cf).unwrap();
 
         let meta_dir = cache.path().join("meta");
         write_layout_version(&meta_dir, 2).unwrap();
@@ -1628,13 +1628,12 @@ mod tests {
             .join("comments");
         let entries: Vec<_> = std::fs::read_dir(&comments_dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| {
                 e.path()
                     .extension()
                     .and_then(|x| x.to_str())
-                    .map(|x| x == "json")
-                    .unwrap_or(false)
+                    .is_some_and(|x| x == "json")
             })
             .collect();
         assert_eq!(entries.len(), 2);
@@ -1671,13 +1670,12 @@ mod tests {
             .join("comments");
         let json_path = std::fs::read_dir(&comments_dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .find(|e| {
                 e.path()
                     .extension()
                     .and_then(|x| x.to_str())
-                    .map(|x| x == "json")
-                    .unwrap_or(false)
+                    .is_some_and(|x| x == "json")
             })
             .unwrap()
             .path();

@@ -329,8 +329,7 @@ mod tests {
         let violations = detect_git_skew_violations(cache_dir).unwrap();
         assert!(
             violations.is_empty(),
-            "Expected no violations for events within threshold, got: {:?}",
-            violations
+            "Expected no violations for events within threshold, got: {violations:?}"
         );
     }
 
@@ -492,7 +491,7 @@ mod tests {
                     parent_uuid: None,
                     created_by: "agent-1".to_string(),
                 },
-                format!("IssueCreated({}, Test)", uuid),
+                format!("IssueCreated({uuid}, Test)"),
             ),
             (
                 Event::LockClaimed {
@@ -506,7 +505,7 @@ mod tests {
                     issue_uuid: uuid,
                     label: "bug".to_string(),
                 },
-                format!("LabelAdded({}, bug)", uuid),
+                format!("LabelAdded({uuid}, bug)"),
             ),
         ];
 
@@ -656,9 +655,7 @@ mod tests {
             let desc = describe_event(&event);
             assert!(
                 desc.contains(expected_prefix),
-                "describe_event should contain '{}', got '{}'",
-                expected_prefix,
-                desc
+                "describe_event should contain '{expected_prefix}', got '{desc}'"
             );
         }
     }
@@ -672,7 +669,7 @@ mod tests {
             description: None,
             priority: None,
         });
-        assert_eq!(desc, format!("IssueUpdated({})", uuid));
+        assert_eq!(desc, format!("IssueUpdated({uuid})"));
     }
 
     #[test]
@@ -683,7 +680,7 @@ mod tests {
             new_status: "open".to_string(),
             closed_at: None,
         });
-        assert_eq!(desc, format!("StatusChanged({}, open)", uuid));
+        assert_eq!(desc, format!("StatusChanged({uuid}, open)"));
     }
 
     #[test]
@@ -702,7 +699,7 @@ mod tests {
             blocked_uuid: a,
             blocker_uuid: b,
         });
-        assert_eq!(desc, format!("DependencyAdded({} blocked by {})", a, b));
+        assert_eq!(desc, format!("DependencyAdded({a} blocked by {b})"));
     }
 
     #[test]
@@ -713,10 +710,7 @@ mod tests {
             blocked_uuid: a,
             blocker_uuid: b,
         });
-        assert_eq!(
-            desc,
-            format!("DependencyRemoved({} unblocked from {})", a, b)
-        );
+        assert_eq!(desc, format!("DependencyRemoved({a} unblocked from {b})"));
     }
 
     #[test]
@@ -727,7 +721,7 @@ mod tests {
             uuid_a: a,
             uuid_b: b,
         });
-        assert_eq!(desc, format!("RelationAdded({}, {})", a, b));
+        assert_eq!(desc, format!("RelationAdded({a}, {b})"));
     }
 
     #[test]
@@ -738,7 +732,7 @@ mod tests {
             uuid_a: a,
             uuid_b: b,
         });
-        assert_eq!(desc, format!("RelationRemoved({}, {})", a, b));
+        assert_eq!(desc, format!("RelationRemoved({a}, {b})"));
     }
 
     #[test]
@@ -748,7 +742,7 @@ mod tests {
             issue_uuid: uuid,
             milestone_uuid: None,
         });
-        assert_eq!(desc, format!("MilestoneAssigned({})", uuid));
+        assert_eq!(desc, format!("MilestoneAssigned({uuid})"));
     }
 
     #[test]
@@ -758,7 +752,7 @@ mod tests {
             issue_uuid: uuid,
             label: "wontfix".to_string(),
         });
-        assert_eq!(desc, format!("LabelRemoved({}, wontfix)", uuid));
+        assert_eq!(desc, format!("LabelRemoved({uuid}, wontfix)"));
     }
 
     #[test]
@@ -768,7 +762,7 @@ mod tests {
             issue_uuid: uuid,
             new_parent_uuid: Some(Uuid::new_v4()),
         });
-        assert_eq!(desc, format!("ParentChanged({})", uuid));
+        assert_eq!(desc, format!("ParentChanged({uuid})"));
     }
 
     #[test]

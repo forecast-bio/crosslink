@@ -548,9 +548,9 @@ mod tests {
     fn make_node(id: &str, phase: &str, deps: &[&str]) -> DagNode {
         DagNode {
             id: id.to_string(),
-            title: format!("Stage {}", id),
+            title: format!("Stage {id}"),
             status: StageStatus::Pending,
-            depends_on: deps.iter().map(|d| d.to_string()).collect(),
+            depends_on: deps.iter().map(std::string::ToString::to_string).collect(),
             issue_id: None,
             agent_id: None,
             phase_id: phase.to_string(),
@@ -563,13 +563,13 @@ mod tests {
         assert!(dag.is_empty());
         assert_eq!(dag.len(), 0);
         assert!(dag.is_complete());
-        assert_eq!(dag.progress(), 1.0);
+        assert!((dag.progress() - 1.0).abs() < f64::EPSILON);
         assert!(dag.ready_nodes().is_empty());
     }
 
     #[test]
     fn test_single_node_no_deps() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert_eq!(dag.len(), 1);
         assert_eq!(dag.ready_nodes(), vec!["a"]);
         assert!(!dag.is_complete());
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_linear_chain() {
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["b"]),
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_diamond_dag() {
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -610,36 +610,32 @@ mod tests {
 
     #[test]
     fn test_cycle_detection() {
-        let result = Dag::from_nodes(&vec![
-            make_node("a", "p1", &["b"]),
-            make_node("b", "p1", &["a"]),
-        ]);
+        let result = Dag::from_nodes(&[make_node("a", "p1", &["b"]), make_node("b", "p1", &["a"])]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string().to_lowercase();
         assert!(
             err_msg.contains("cycle"),
-            "Expected 'cycle' in error: {}",
-            err_msg
+            "Expected 'cycle' in error: {err_msg}"
         );
     }
 
     #[test]
     fn test_missing_dependency() {
-        let result = Dag::from_nodes(&vec![make_node("a", "p1", &["nonexistent"])]);
+        let result = Dag::from_nodes(&[make_node("a", "p1", &["nonexistent"])]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("does not exist"));
     }
 
     #[test]
     fn test_duplicate_id() {
-        let result = Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("a", "p1", &[])]);
+        let result = Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("a", "p1", &[])]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Duplicate"));
     }
 
     #[test]
     fn test_mark_running_and_done() {
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -666,11 +662,8 @@ mod tests {
 
     #[test]
     fn test_mark_failed() {
-        let mut dag = Dag::from_nodes(&vec![
-            make_node("a", "p1", &[]),
-            make_node("b", "p1", &["a"]),
-        ])
-        .unwrap();
+        let mut dag =
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &["a"])]).unwrap();
 
         dag.mark_running("a", "agent-1").unwrap();
         dag.mark_failed("a").unwrap();
@@ -682,15 +675,15 @@ mod tests {
 
     #[test]
     fn test_mark_skipped() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         dag.mark_skipped("a").unwrap();
         assert!(dag.is_complete());
-        assert_eq!(dag.progress(), 1.0);
+        assert!((dag.progress() - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_progress_tracking() {
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -698,7 +691,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(dag.progress(), 0.0);
+        assert!(dag.progress() < f64::EPSILON);
 
         dag.mark_running("a", "agent-1").unwrap();
         dag.mark_done("a").unwrap();
@@ -711,27 +704,27 @@ mod tests {
 
     #[test]
     fn test_cannot_mark_done_if_not_running() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(dag.mark_done("a").is_err());
     }
 
     #[test]
     fn test_cannot_mark_running_if_not_pending() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         dag.mark_running("a", "agent-1").unwrap();
         assert!(dag.mark_running("a", "agent-2").is_err());
     }
 
     #[test]
     fn test_set_issue_id() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         dag.set_issue_id("a", 42).unwrap();
         assert_eq!(dag.get("a").unwrap().issue_id, Some(42));
     }
 
     #[test]
     fn test_dependents_and_dependencies() {
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -747,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_stages_by_phase() {
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p2", &[]),
@@ -762,7 +755,7 @@ mod tests {
     #[test]
     fn test_status_and_agent_maps() {
         let mut dag =
-            Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
 
         dag.mark_running("a", "agent-1").unwrap();
 
@@ -778,7 +771,7 @@ mod tests {
     #[test]
     fn test_complex_multi_phase_dag() {
         // Simulates the web dashboard phases: 1 → (2 || 3) → 4 → 6
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("1a", "p1", &[]),
             make_node("1b", "p1", &[]),
             make_node("2a", "p2", &["1a", "1b"]),
@@ -805,11 +798,8 @@ mod tests {
 
     #[test]
     fn test_serialization_round_trip() {
-        let dag = Dag::from_nodes(&vec![
-            make_node("a", "p1", &[]),
-            make_node("b", "p1", &["a"]),
-        ])
-        .unwrap();
+        let dag =
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &["a"])]).unwrap();
 
         let json = serde_json::to_string_pretty(&dag).unwrap();
         let restored: Dag = serde_json::from_str(&json).unwrap();
@@ -821,7 +811,7 @@ mod tests {
 
     #[test]
     fn test_three_node_cycle_detection() {
-        let result = Dag::from_nodes(&vec![
+        let result = Dag::from_nodes(&[
             make_node("a", "p1", &["c"]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["b"]),
@@ -831,14 +821,14 @@ mod tests {
 
     #[test]
     fn test_self_loop_detection() {
-        let result = Dag::from_nodes(&vec![make_node("a", "p1", &["a"])]);
+        let result = Dag::from_nodes(&[make_node("a", "p1", &["a"])]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_no_false_cycle_on_diamond() {
         // Diamond is NOT a cycle
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),
@@ -851,7 +841,7 @@ mod tests {
     #[test]
     fn test_many_independent_nodes_all_ready() {
         let nodes: Vec<DagNode> = (0..10)
-            .map(|i| make_node(&format!("n{}", i), "p1", &[]))
+            .map(|i| make_node(&format!("n{i}"), "p1", &[]))
             .collect();
         let dag = Dag::from_nodes(&nodes).unwrap();
         assert_eq!(dag.ready_nodes().len(), 10);
@@ -866,19 +856,19 @@ mod tests {
 
     #[test]
     fn test_is_empty_false_with_nodes() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(!dag.is_empty());
     }
 
     #[test]
     fn test_has_failures_false_when_clean() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(!dag.has_failures());
     }
 
     #[test]
     fn test_nodes_with_status() {
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -906,7 +896,7 @@ mod tests {
 
     #[test]
     fn test_mark_running_nonexistent_node() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_running("nonexistent", "agent-1");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -914,7 +904,7 @@ mod tests {
 
     #[test]
     fn test_mark_done_nonexistent_node() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_done("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -922,7 +912,7 @@ mod tests {
 
     #[test]
     fn test_mark_failed_nonexistent_node() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_failed("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -930,7 +920,7 @@ mod tests {
 
     #[test]
     fn test_mark_skipped_nonexistent_node() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         let result = dag.mark_skipped("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -938,7 +928,7 @@ mod tests {
 
     #[test]
     fn test_set_issue_id_nonexistent_node() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         let result = dag.set_issue_id("nonexistent", 42);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
@@ -946,40 +936,40 @@ mod tests {
 
     #[test]
     fn test_dependents_nonexistent_node() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(dag.dependents("nonexistent").is_empty());
     }
 
     #[test]
     fn test_dependencies_nonexistent_node() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(dag.dependencies("nonexistent").is_empty());
     }
 
     #[test]
     fn test_get_returns_none_for_missing() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(dag.get("nonexistent").is_none());
         assert!(dag.get("a").is_some());
     }
 
     #[test]
     fn test_get_mut_returns_none_for_missing() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(dag.get_mut("nonexistent").is_none());
         assert!(dag.get_mut("a").is_some());
     }
 
     #[test]
     fn test_get_mut_modifies_node() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         dag.get_mut("a").unwrap().title = "Modified".to_string();
         assert_eq!(dag.get("a").unwrap().title, "Modified");
     }
 
     #[test]
     fn test_node_ids_returns_all_ids() {
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("x", "p1", &[]),
             make_node("y", "p1", &[]),
             make_node("z", "p1", &[]),
@@ -992,8 +982,7 @@ mod tests {
 
     #[test]
     fn test_nodes_returns_all_nodes() {
-        let dag =
-            Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
         let nodes = dag.nodes();
         assert_eq!(nodes.len(), 2);
         assert!(nodes.contains_key("a"));
@@ -1002,17 +991,14 @@ mod tests {
 
     #[test]
     fn test_running_nodes_empty_when_none_running() {
-        let dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         assert!(dag.running_nodes().is_empty());
     }
 
     #[test]
     fn test_ready_nodes_blocked_by_running_dep() {
-        let mut dag = Dag::from_nodes(&vec![
-            make_node("a", "p1", &[]),
-            make_node("b", "p1", &["a"]),
-        ])
-        .unwrap();
+        let mut dag =
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &["a"])]).unwrap();
 
         dag.mark_running("a", "agent-1").unwrap();
         // b should NOT be ready since a is running, not done
@@ -1021,11 +1007,8 @@ mod tests {
 
     #[test]
     fn test_ready_nodes_blocked_by_failed_dep() {
-        let mut dag = Dag::from_nodes(&vec![
-            make_node("a", "p1", &[]),
-            make_node("b", "p1", &["a"]),
-        ])
-        .unwrap();
+        let mut dag =
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &["a"])]).unwrap();
 
         dag.mark_failed("a").unwrap();
         // b should NOT be ready since a is failed, not done
@@ -1034,7 +1017,7 @@ mod tests {
 
     #[test]
     fn test_mark_done_no_dependents_returns_empty() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         dag.mark_running("a", "agent-1").unwrap();
         let unblocked = dag.mark_done("a").unwrap();
         assert!(unblocked.is_empty());
@@ -1042,11 +1025,8 @@ mod tests {
 
     #[test]
     fn test_mark_done_dependent_not_pending_not_unblocked() {
-        let mut dag = Dag::from_nodes(&vec![
-            make_node("a", "p1", &[]),
-            make_node("b", "p1", &["a"]),
-        ])
-        .unwrap();
+        let mut dag =
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &["a"])]).unwrap();
 
         // Mark b as failed before a completes
         dag.mark_failed("b").unwrap();
@@ -1059,7 +1039,7 @@ mod tests {
 
     #[test]
     fn test_progress_with_mixed_terminal_states() {
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -1076,7 +1056,7 @@ mod tests {
 
     #[test]
     fn test_is_complete_with_all_terminal_states() {
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -1093,7 +1073,7 @@ mod tests {
 
     #[test]
     fn test_is_complete_false_with_running() {
-        let mut dag = Dag::from_nodes(&vec![make_node("a", "p1", &[])]).unwrap();
+        let mut dag = Dag::from_nodes(&[make_node("a", "p1", &[])]).unwrap();
         dag.mark_running("a", "agent-1").unwrap();
         assert!(!dag.is_complete());
     }
@@ -1113,7 +1093,7 @@ mod tests {
 
     #[test]
     fn test_stages_by_phase_multiple_phases() {
-        let dag = Dag::from_nodes(&vec![
+        let dag = Dag::from_nodes(&[
             make_node("a", "phase-1", &[]),
             make_node("b", "phase-1", &["a"]),
             make_node("c", "phase-2", &[]),
@@ -1136,7 +1116,7 @@ mod tests {
 
     #[test]
     fn test_agent_map_only_includes_agents() {
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &[]),
             make_node("c", "p1", &[]),
@@ -1153,7 +1133,7 @@ mod tests {
     #[test]
     fn test_status_map_all_nodes() {
         let mut dag =
-            Dag::from_nodes(&vec![make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
+            Dag::from_nodes(&[make_node("a", "p1", &[]), make_node("b", "p1", &[])]).unwrap();
 
         dag.mark_running("a", "agent-1").unwrap();
         dag.mark_done("a").unwrap();
@@ -1167,7 +1147,7 @@ mod tests {
     #[test]
     fn test_mark_done_diamond_partial_unblock() {
         // d depends on both b and c. Completing b should NOT unblock d.
-        let mut dag = Dag::from_nodes(&vec![
+        let mut dag = Dag::from_nodes(&[
             make_node("a", "p1", &[]),
             make_node("b", "p1", &["a"]),
             make_node("c", "p1", &["a"]),

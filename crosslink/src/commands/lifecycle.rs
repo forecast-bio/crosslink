@@ -278,8 +278,8 @@ mod tests {
 
     #[test]
     fn test_close_existing_issue() {
-        let (db, _dir) = setup_test_db();
-        let crosslink_dir = _dir.path().join(".crosslink");
+        let (db, dir) = setup_test_db();
+        let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
@@ -294,8 +294,8 @@ mod tests {
 
     #[test]
     fn test_close_nonexistent_issue() {
-        let (db, _dir) = setup_test_db();
-        let crosslink_dir = _dir.path().join(".crosslink");
+        let (db, dir) = setup_test_db();
+        let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
         let result = close(&db, None, 99999, false, &crosslink_dir);
@@ -305,8 +305,8 @@ mod tests {
 
     #[test]
     fn test_close_already_closed_issue() {
-        let (db, _dir) = setup_test_db();
-        let crosslink_dir = _dir.path().join(".crosslink");
+        let (db, dir) = setup_test_db();
+        let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
@@ -440,8 +440,8 @@ mod tests {
 
     #[test]
     fn test_close_reopen_cycle() {
-        let (db, _dir) = setup_test_db();
-        let crosslink_dir = _dir.path().join(".crosslink");
+        let (db, dir) = setup_test_db();
+        let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
         let issue_id = db.create_issue("Test issue", None, "medium").unwrap();
@@ -467,8 +467,8 @@ mod tests {
     proptest! {
         #[test]
         fn prop_close_sets_status_to_closed(title in "[a-zA-Z0-9 ]{1,50}") {
-            let (db, _dir) = setup_test_db();
-            let crosslink_dir = _dir.path().join(".crosslink");
+            let (db, dir) = setup_test_db();
+            let crosslink_dir = dir.path().join(".crosslink");
             std::fs::create_dir_all(&crosslink_dir).unwrap();
 
             let issue_id = db.create_issue(&title, None, "medium").unwrap();
@@ -493,8 +493,8 @@ mod tests {
 
         #[test]
         fn prop_nonexistent_issue_close_fails(issue_id in 1000i64..10000) {
-            let (db, _dir) = setup_test_db();
-            let crosslink_dir = _dir.path().join(".crosslink");
+            let (db, dir) = setup_test_db();
+            let crosslink_dir = dir.path().join(".crosslink");
             std::fs::create_dir_all(&crosslink_dir).unwrap();
 
             let result = close(&db, None, issue_id, false, &crosslink_dir);

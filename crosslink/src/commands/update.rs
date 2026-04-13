@@ -184,7 +184,7 @@ mod tests {
         assert!(result.is_ok());
 
         let issue = db.get_issue(issue_id).unwrap().unwrap();
-        assert_eq!(issue.description, Some("".to_string()));
+        assert_eq!(issue.description, Some(String::new()));
     }
 
     #[test]

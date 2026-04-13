@@ -1174,7 +1174,7 @@ mod tests {
         assert!(content.contains("python") || content.contains("def") || content.len() > 20);
     }
 
-    /// Keys that the embedded MCP_JSON is expected to manage.
+    /// Keys that the embedded `MCP_JSON` is expected to manage.
     fn embedded_mcp_keys() -> Vec<String> {
         let embedded: serde_json::Value = serde_json::from_str(MCP_JSON).unwrap();
         embedded["mcpServers"]
@@ -1211,8 +1211,7 @@ mod tests {
         for key in embedded_mcp_keys() {
             assert!(
                 servers.contains_key(&key),
-                "embedded key \"{}\" should exist",
-                key
+                "embedded key \"{key}\" should exist"
             );
         }
         assert!(
@@ -1244,8 +1243,7 @@ mod tests {
         for key in &expected_keys {
             assert!(
                 warnings.iter().any(|w| w.contains(key)),
-                "should warn about overwriting \"{}\"",
-                key
+                "should warn about overwriting \"{key}\""
             );
         }
     }
@@ -1274,8 +1272,7 @@ mod tests {
         for key in &expected_keys {
             assert!(
                 servers.contains_key(key),
-                "fresh file should contain \"{}\"",
-                key
+                "fresh file should contain \"{key}\""
             );
         }
     }
@@ -1295,8 +1292,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("invalid JSON"),
-            "Error should mention invalid JSON, got: {}",
-            err
+            "Error should mention invalid JSON, got: {err}"
         );
 
         // Original (broken) content should be untouched
@@ -1319,8 +1315,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("not a JSON object"),
-            "Error should mention not a JSON object, got: {}",
-            err
+            "Error should mention not a JSON object, got: {err}"
         );
 
         // Original content should be untouched
@@ -1343,8 +1338,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("invalid JSON"),
-            "Error should mention invalid JSON, got: {}",
-            err
+            "Error should mention invalid JSON, got: {err}"
         );
     }
 
@@ -1363,8 +1357,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("non-object mcpServers"),
-            "Error should mention non-object mcpServers, got: {}",
-            err
+            "Error should mention non-object mcpServers, got: {err}"
         );
 
         // Original content should be untouched
@@ -1503,7 +1496,7 @@ mod tests {
             COMMAND_FILES.len()
         );
         for (filename, content) in COMMAND_FILES {
-            assert!(!content.is_empty(), "Command file {} is empty", filename);
+            assert!(!content.is_empty(), "Command file {filename} is empty");
         }
         assert!(!RULE_SANITIZE_PATTERNS.is_empty());
         assert!(!HOOK_CONFIG_JSON.is_empty());
@@ -1522,11 +1515,7 @@ mod tests {
         // All should have content
         for (name, content) in RULE_FILES {
             assert!(!name.is_empty(), "Rule file name should not be empty");
-            assert!(
-                !content.is_empty(),
-                "Rule file {} should not be empty",
-                name
-            );
+            assert!(!content.is_empty(), "Rule file {name} should not be empty");
         }
     }
 
@@ -1761,8 +1750,7 @@ mod tests {
         for expected in embedded_allowed_tools() {
             assert!(
                 tools.iter().any(|v| v.as_str() == Some(&expected)),
-                "allowedTools should contain \"{}\"",
-                expected
+                "allowedTools should contain \"{expected}\""
             );
         }
     }
@@ -1826,8 +1814,7 @@ mod tests {
         for expected in embedded_allowed_tools() {
             assert!(
                 tools.contains(&expected.as_str()),
-                "embedded tool \"{}\" should be preserved after force re-init",
-                expected
+                "embedded tool \"{expected}\" should be preserved after force re-init"
             );
         }
         assert!(
@@ -1860,8 +1847,7 @@ mod tests {
             let count = tools.iter().filter(|&&t| t == expected.as_str()).count();
             assert_eq!(
                 count, 1,
-                "\"{}\" should appear exactly once, found {}",
-                expected, count
+                "\"{expected}\" should appear exactly once, found {count}"
             );
         }
     }
@@ -1881,8 +1867,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("invalid JSON"),
-            "Error should mention invalid JSON, got: {}",
-            err
+            "Error should mention invalid JSON, got: {err}"
         );
 
         // Original (broken) content should be untouched
@@ -1905,8 +1890,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("not a JSON object"),
-            "Error should mention not a JSON object, got: {}",
-            err
+            "Error should mention not a JSON object, got: {err}"
         );
     }
 
@@ -1933,8 +1917,7 @@ mod tests {
         for expected in embedded_allowed_tools() {
             assert!(
                 tools.contains(&expected.as_str()),
-                "fresh file should contain \"{}\"",
-                expected
+                "fresh file should contain \"{expected}\""
             );
         }
     }
@@ -2009,10 +1992,8 @@ mod tests {
 
         // Add user content before and after the managed section
         let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        let new_content = format!(
-            "# My custom rules\n/build/\n\n{}\n# Trailing rules\n*.tmp\n",
-            content
-        );
+        let new_content =
+            format!("# My custom rules\n/build/\n\n{content}\n# Trailing rules\n*.tmp\n");
         fs::write(dir.path().join(".gitignore"), new_content).unwrap();
 
         // Force re-init
@@ -2291,8 +2272,7 @@ mod tests {
         let err = format!("{:#}", result.unwrap_err());
         assert!(
             err.contains("not initialized"),
-            "Should mention not initialized, got: {}",
-            err
+            "Should mention not initialized, got: {err}"
         );
     }
 
@@ -2428,14 +2408,14 @@ mod tests {
         // Custom tool should still be present
         let result: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
-        let tools: Vec<&str> = result["allowedTools"]
+        let has_custom_tool = result["allowedTools"]
             .as_array()
             .unwrap()
             .iter()
             .filter_map(|v| v.as_str())
-            .collect();
+            .any(|t| t == "Bash(my-tool *)");
         assert!(
-            tools.contains(&"Bash(my-tool *)"),
+            has_custom_tool,
             "Custom allowedTools entry should survive --update"
         );
     }
@@ -2487,7 +2467,7 @@ mod tests {
         ];
         for hook in &hook_files {
             let key = format!(".claude/hooks/{hook}");
-            assert!(files.contains_key(&key), "Manifest should track {}", key);
+            assert!(files.contains_key(&key), "Manifest should track {key}");
         }
 
         // Should track MCP servers

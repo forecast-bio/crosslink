@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
-pub const SCHEMA_VERSION: i32 = 15;
+pub const SCHEMA_VERSION: i32 = 16;
 
 /// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
@@ -366,6 +366,56 @@ impl Database {
                     CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_id);
                     CREATE INDEX IF NOT EXISTS idx_token_usage_session ON token_usage(session_id);
                     CREATE INDEX IF NOT EXISTS idx_token_usage_timestamp ON token_usage(timestamp);
+                    ",
+            );
+        }
+
+        // Migration v16: Sentinel autonomous maintenance tables
+        if version < 16 {
+            self.migrate_batch(
+                r"
+                    CREATE TABLE IF NOT EXISTS sentinel_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL UNIQUE,
+                        started_at TEXT NOT NULL,
+                        completed_at TEXT,
+                        mode TEXT NOT NULL,
+                        signals_found INTEGER DEFAULT 0,
+                        dispatched INTEGER DEFAULT 0,
+                        collected INTEGER DEFAULT 0,
+                        triaged INTEGER DEFAULT 0,
+                        skipped INTEGER DEFAULT 0,
+                        deferred INTEGER DEFAULT 0
+                    );
+
+                    CREATE TABLE IF NOT EXISTS sentinel_dispatches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL,
+                        signal_ref TEXT NOT NULL,
+                        signal_title TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        disposition TEXT NOT NULL,
+                        agent_id TEXT,
+                        crosslink_issue_id INTEGER,
+                        gh_issue_number INTEGER,
+                        label TEXT NOT NULL,
+                        attempt_number INTEGER DEFAULT 1,
+                        model_used TEXT,
+                        outcome TEXT DEFAULT 'pending',
+                        outcome_detail TEXT,
+                        created_at TEXT NOT NULL,
+                        completed_at TEXT,
+                        FOREIGN KEY (crosslink_issue_id) REFERENCES issues(id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_sentinel_dispatches_signal_ref
+                        ON sentinel_dispatches(signal_ref);
+                    CREATE INDEX IF NOT EXISTS idx_sentinel_dispatches_outcome
+                        ON sentinel_dispatches(outcome);
+                    CREATE INDEX IF NOT EXISTS idx_sentinel_dispatches_run_id
+                        ON sentinel_dispatches(run_id);
+                    CREATE INDEX IF NOT EXISTS idx_sentinel_dispatches_gh_label
+                        ON sentinel_dispatches(gh_issue_number, label);
                     ",
             );
         }

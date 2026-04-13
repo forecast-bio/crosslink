@@ -706,7 +706,7 @@ mod tests {
     use tempfile::tempdir;
     use tower::util::ServiceExt;
 
-    /// Create a temporary AppState backed by a temp dir database.
+    /// Create a temporary `AppState` backed by a temp dir database.
     fn test_state() -> (AppState, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test.db");
@@ -1008,13 +1008,12 @@ mod tests {
             .await
             .unwrap();
         let detail: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
-        let subissue_ids: Vec<i64> = detail["subissues"]
+        let has_child = detail["subissues"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|s| s["id"].as_i64().unwrap())
-            .collect();
-        assert!(subissue_ids.contains(&child_id));
+            .any(|s| s["id"].as_i64() == Some(child_id));
+        assert!(has_child);
     }
 
     #[tokio::test]
@@ -1309,8 +1308,7 @@ mod tests {
 
         let app = build_router(state);
         let body = format!(
-            r#"{{"title": "Child via create", "priority": "low", "parent_id": {}}}"#,
-            parent_id
+            r#"{{"title": "Child via create", "priority": "low", "parent_id": {parent_id}}}"#
         );
         let response = app
             .oneshot(
@@ -1551,7 +1549,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("DELETE")
-                    .uri(format!("/issues/{}/labels/nonexistent", id))
+                    .uri(format!("/issues/{id}/labels/nonexistent"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1590,7 +1588,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/issues/{}/block", id))
+                    .uri(format!("/issues/{id}/block"))
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"blocker_id": 9999}"#))
                     .unwrap(),
@@ -1614,7 +1612,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("DELETE")
-                    .uri(format!("/issues/{}/block/{}", id, other_id))
+                    .uri(format!("/issues/{id}/block/{other_id}"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1691,7 +1689,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri(format!("/issues?parent_id={}", parent_id))
+                    .uri(format!("/issues?parent_id={parent_id}"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1780,7 +1778,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri(format!("/issues?search=Gizmo&parent_id={}", parent_id))
+                    .uri(format!("/issues?search=Gizmo&parent_id={parent_id}"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1845,7 +1843,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/issues/{}/comments", id))
+                    .uri(format!("/issues/{id}/comments"))
                     .header("content-type", "application/json")
                     .body(Body::from(body.to_string()))
                     .unwrap(),
@@ -1927,7 +1925,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri(format!("/issues/{}", issue_id))
+                    .uri(format!("/issues/{issue_id}"))
                     .body(Body::empty())
                     .unwrap(),
             )

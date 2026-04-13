@@ -1024,14 +1024,13 @@ fn test_corrupted_db_file_truncated() {
     let result = Database::open(&db_path);
     match result {
         Err(e) => {
-            let err_msg = format!("{}", e);
+            let err_msg = format!("{e}");
             assert!(
                 err_msg.contains("not a database")
                     || err_msg.contains("malformed")
                     || err_msg.contains("corrupt")
                     || err_msg.contains("disk image"),
-                "Error should indicate corruption, got: {}",
-                err_msg
+                "Error should indicate corruption, got: {err_msg}"
             );
         }
         Ok(db) => {
@@ -1270,7 +1269,7 @@ fn test_get_related_issue_ids() {
 
     // From id1's perspective, both id2 and id3 should be related
     let mut related = db.get_related_issue_ids(id1).unwrap();
-    related.sort();
+    related.sort_unstable();
     assert_eq!(related, vec![id2, id3]);
 
     // From id2's perspective, only id1 is related
@@ -1842,7 +1841,7 @@ fn test_get_schema_version() {
     let (db, _dir) = setup_test_db();
     let version = db.get_schema_version().unwrap();
     // Should be the latest migration version (at least > 0)
-    assert!(version > 0, "Schema version should be > 0, got {}", version);
+    assert!(version > 0, "Schema version should be > 0, got {version}");
 }
 
 #[test]
@@ -2040,7 +2039,7 @@ mod proptest_tests {
         fn prop_create_increases_count(count in 1usize..20) {
             let (db, _dir) = setup_test_db();
             for i in 0..count {
-                db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
+                db.create_issue(&format!("Issue {i}"), None, "medium").unwrap();
             }
             let issues = db.list_issues(None, None, None).unwrap();
             prop_assert_eq!(issues.len(), count);
@@ -2071,7 +2070,7 @@ mod proptest_tests {
 
             // Create both issues
             for i in 1..=std::cmp::max(a, b) {
-                db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
+                db.create_issue(&format!("Issue {i}"), None, "medium").unwrap();
             }
 
             db.add_dependency(a, b).unwrap();
@@ -2086,7 +2085,7 @@ mod proptest_tests {
             suffix in "[a-zA-Z]{3,10}"
         ) {
             let (db, _dir) = setup_test_db();
-            let title = format!("{} unique marker {}", prefix, suffix);
+            let title = format!("{prefix} unique marker {suffix}");
             db.create_issue(&title, None, "medium").unwrap();
 
             // Search for the unique marker
@@ -2103,7 +2102,7 @@ mod proptest_tests {
             // Create a chain of issues
             let mut ids = Vec::new();
             for i in 0..chain_len {
-                let id = db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
+                let id = db.create_issue(&format!("Issue {i}"), None, "medium").unwrap();
                 ids.push(id);
             }
 
@@ -2128,7 +2127,7 @@ mod proptest_tests {
             // Create children
             let mut child_ids = Vec::new();
             for i in 0..child_count {
-                let id = db.create_subissue(parent_id, &format!("Child {}", i), None, "low").unwrap();
+                let id = db.create_subissue(parent_id, &format!("Child {i}"), None, "low").unwrap();
                 child_ids.push(id);
             }
 
@@ -2158,7 +2157,7 @@ mod proptest_tests {
             // Create issues
             let mut ids = Vec::new();
             for i in 0..issue_count {
-                let id = db.create_issue(&format!("Issue {}", i), None, "medium").unwrap();
+                let id = db.create_issue(&format!("Issue {i}"), None, "medium").unwrap();
                 ids.push(id);
             }
 
@@ -2217,7 +2216,7 @@ mod proptest_tests {
             let (db, _dir) = setup_test_db();
 
             // Create an issue with % and _ in title
-            let special_title = format!("{}%test_marker{}", prefix, suffix);
+            let special_title = format!("{prefix}%test_marker{suffix}");
             db.create_issue(&special_title, None, "medium").unwrap();
 
             // Create another issue that would match if wildcards weren't escaped

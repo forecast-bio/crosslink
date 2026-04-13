@@ -795,13 +795,13 @@ mod tests {
             Some("normal")
         );
         assert_eq!(
-            config.get("new_field").and_then(|v| v.as_bool()),
+            config.get("new_field").and_then(serde_json::Value::as_bool),
             Some(true)
         );
         assert_eq!(
             config
                 .get("intervention_tracking")
-                .and_then(|v| v.as_bool()),
+                .and_then(serde_json::Value::as_bool),
             Some(true)
         );
         let hs = config.get("house_style").unwrap();

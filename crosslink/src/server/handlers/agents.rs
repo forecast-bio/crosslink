@@ -762,7 +762,7 @@ mod tests {
             "machine_id": "test-machine"
         });
         std::fs::write(
-            heartbeats_dir.join(format!("{}.json", agent_id)),
+            heartbeats_dir.join(format!("{agent_id}.json")),
             serde_json::to_string(&hb).unwrap(),
         )
         .unwrap();
@@ -839,8 +839,7 @@ mod tests {
         let status = resp.status();
         assert!(
             status == StatusCode::OK || status == StatusCode::INTERNAL_SERVER_ERROR,
-            "Expected 200 or 500, got {}",
-            status
+            "Expected 200 or 500, got {status}"
         );
         if status == StatusCode::OK {
             let body = body_json(resp).await;
@@ -1092,7 +1091,7 @@ mod tests {
     }
 
     /// Test app with a seeded heartbeat AND a worktree directory that contains
-    /// a .kickoff-status file, so get_agent returns kickoff_status.
+    /// a .kickoff-status file, so `get_agent` returns `kickoff_status`.
     fn test_app_with_heartbeat_and_kickoff(
         agent_id: &str,
         kickoff_status: &str,
@@ -1113,7 +1112,7 @@ mod tests {
             "machine_id": "test-machine"
         });
         std::fs::write(
-            heartbeats_dir.join(format!("{}.json", agent_id)),
+            heartbeats_dir.join(format!("{agent_id}.json")),
             serde_json::to_string(&hb).unwrap(),
         )
         .unwrap();
@@ -1123,7 +1122,7 @@ mod tests {
         std::fs::create_dir_all(&worktrees_dir).unwrap();
         std::fs::write(
             worktrees_dir.join(".kickoff-status"),
-            format!("{}\n", kickoff_status),
+            format!("{kickoff_status}\n"),
         )
         .unwrap();
 
@@ -1231,7 +1230,7 @@ mod tests {
         std::fs::write(
             hub_cache
                 .join("heartbeats")
-                .join(format!("{}.json", agent_id)),
+                .join(format!("{agent_id}.json")),
             serde_json::to_string(&hb).unwrap(),
         )
         .unwrap();
@@ -1278,11 +1277,7 @@ mod tests {
         let body = body_json(resp).await;
         // There should be at least one stale lock entry
         let total = body["total"].as_u64().unwrap_or(0);
-        assert!(
-            total >= 1,
-            "expected at least one stale lock, got {}",
-            total
-        );
+        assert!(total >= 1, "expected at least one stale lock, got {total}");
         let items = body["items"].as_array().unwrap();
         let entry = &items[0];
         assert_eq!(entry["issue_id"], 77);

@@ -470,7 +470,7 @@ mod tests {
         let plan = transform_to_plan(response, "test-doc");
         assert_eq!(plan.document_slug, "test-doc");
         assert_eq!(plan.total_stages, 1);
-        assert_eq!(plan.estimated_hours, 2.0);
+        assert!((plan.estimated_hours - 2.0).abs() < f64::EPSILON);
         assert_eq!(plan.phases.len(), 1);
         assert_eq!(plan.phases[0].stages.len(), 1);
         assert_eq!(plan.phases[0].stages[0].tasks.len(), 1);
@@ -722,7 +722,7 @@ mod tests {
         assert_eq!(resp.phases.len(), 1);
         assert_eq!(resp.phases[0].stages[0].tasks.len(), 1);
         assert_eq!(resp.phases[0].stages[0].agent_count, 2);
-        assert_eq!(resp.estimated_hours, 3.0);
+        assert!((resp.estimated_hours - 3.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -771,9 +771,9 @@ mod tests {
         assert_eq!(stage.tasks.len(), 2);
         assert_eq!(stage.tasks[0].title, "Task A");
         assert_eq!(stage.tasks[0].description, "Do A");
-        assert_eq!(stage.tasks[0].complexity_hours, 1.0);
+        assert!((stage.tasks[0].complexity_hours - 1.0).abs() < f64::EPSILON);
         assert_eq!(stage.tasks[1].title, "Task B");
-        assert_eq!(stage.tasks[1].complexity_hours, 2.5);
+        assert!((stage.tasks[1].complexity_hours - 2.5).abs() < f64::EPSILON);
         // Check task IDs are sequential
         assert!(stage.tasks[0].id.contains("-t0"));
         assert!(stage.tasks[1].id.contains("-t1"));

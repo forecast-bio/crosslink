@@ -741,7 +741,7 @@ mod tests {
     use chrono::Duration;
 
     /// Try to acquire the compaction lease. Returns true if acquired.
-    /// (Test-only helper — production code uses CompactionLockGuard.)
+    /// (Test-only helper — production code uses `CompactionLockGuard`.)
     fn try_acquire_lease(state: &mut CheckpointState, agent_id: &str) -> bool {
         let now = Utc::now();
         if let Some(ref lease) = state.compaction_lease {
@@ -751,7 +751,7 @@ mod tests {
                 // Another agent holds an unexpired lease — but check if the
                 // holding process is still alive. If the PID is dead, treat
                 // the lease as stale regardless of expiry time.
-                let holder_dead = lease.pid.map(|pid| !is_pid_alive(pid)).unwrap_or(false);
+                let holder_dead = lease.pid.is_some_and(|pid| !is_pid_alive(pid));
                 if !holder_dead {
                     return false;
                 }
@@ -795,7 +795,7 @@ mod tests {
     }
 
     /// Release the compaction lease.
-    /// (Test-only helper — production code uses CompactionLockGuard.)
+    /// (Test-only helper — production code uses `CompactionLockGuard`.)
     fn release_lease(state: &mut CheckpointState) {
         state.compaction_lease = None;
     }
@@ -1952,7 +1952,7 @@ mod tests {
         let now = Utc::now();
 
         for (agent, seq_offset) in &[("agent-a", 3), ("agent-b", 2), ("agent-c", 1)] {
-            let log = cache_dir.join(format!("agents/{}/events.log", agent));
+            let log = cache_dir.join(format!("agents/{agent}/events.log"));
             let mut e = make_envelope(
                 agent,
                 1,
@@ -3436,7 +3436,7 @@ mod tests {
         std::fs::write(&legacy_wm_path, &wm_json).unwrap();
 
         // Strip embedded watermark from checkpoint state to simulate legacy state
-        let mut state_no_wm = state.clone();
+        let mut state_no_wm = state;
         state_no_wm.watermark = None;
         write_checkpoint(cache_dir, &state_no_wm).unwrap();
 
@@ -3565,7 +3565,7 @@ mod tests {
         // Use "check-agent@crosslink" as the principal (matching envelope.agent_id + "@crosslink")
         std::fs::write(
             &signers_path,
-            format!("check-agent@crosslink {}\n", public_key),
+            format!("check-agent@crosslink {public_key}\n"),
         )
         .unwrap();
 

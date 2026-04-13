@@ -36,5 +36,28 @@
     "gated_git_commands": [],
     "agent_lint_commands": [],
     "agent_test_commands": []
+  },
+  "sentinel": {
+    "enabled": false,
+    "interval_minutes": 10,
+    "max_concurrent_agents": 3,
+    "sources": {
+      "github_labels": {
+        "enabled": true,
+        "labels": ["agent-todo: replicate", "agent-todo: fix"]
+      }
+    },
+    "default_agent": {
+      "model": "claude-sonnet-4-6",
+      "timeout_minutes": 30,
+      "verify": "local"
+    },
+    "escalation": {
+      "enabled": true,
+      "model": "claude-opus-4-6",
+      "cooldown_minutes": 30,
+      "max_attempts": 2,
+      "timeout_multiplier_pct": 150
+    }
   }
 }

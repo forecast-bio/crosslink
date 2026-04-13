@@ -34,6 +34,7 @@ pub mod next;
 pub mod prune;
 pub mod relate;
 pub mod search;
+pub mod sentinel;
 pub mod session;
 pub mod show;
 pub mod style;

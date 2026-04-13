@@ -83,7 +83,7 @@ impl StatusFilter {
 
 /// Create a `KeyEvent` for testing purposes. Shared across TUI tab test modules.
 #[cfg(test)]
-pub fn make_test_key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
+pub const fn make_test_key(code: crossterm::event::KeyCode) -> crossterm::event::KeyEvent {
     use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     KeyEvent {
         code,

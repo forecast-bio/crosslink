@@ -805,7 +805,7 @@ mod tests {
         let result = resolve_repo_inner(repo_path.to_str().unwrap());
         match result {
             RepoSource::Local(p) => assert_eq!(p, repo_path),
-            _ => panic!("Expected Local variant"),
+            RepoSource::Remote(_) => panic!("Expected Local variant"),
         }
     }
 
@@ -814,7 +814,7 @@ mod tests {
         let result = resolve_repo_inner("https://github.com/org/repo");
         match result {
             RepoSource::Remote(url) => assert_eq!(url, "https://github.com/org/repo"),
-            _ => panic!("Expected Remote variant"),
+            RepoSource::Local(_) => panic!("Expected Remote variant"),
         }
     }
 
@@ -823,7 +823,7 @@ mod tests {
         let result = resolve_repo_inner("github.com/org/repo");
         match result {
             RepoSource::Remote(url) => assert_eq!(url, "github.com/org/repo"),
-            _ => panic!("Expected Remote variant"),
+            RepoSource::Local(_) => panic!("Expected Remote variant"),
         }
     }
 
@@ -918,7 +918,7 @@ mod tests {
             .iter()
             .enumerate()
         {
-            let uuid = format!("00000000-0000-0000-0000-{:012}", i);
+            let uuid = format!("00000000-0000-0000-0000-{i:012}");
             let issue = serde_json::json!({
                 "uuid": uuid,
                 "display_id": i as i64 + 1,

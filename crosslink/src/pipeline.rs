@@ -479,8 +479,7 @@ mod tests {
         let err = p.advance().unwrap_err();
         assert!(
             err.to_string().contains("human checkpoint"),
-            "Expected checkpoint error, got: {}",
-            err
+            "Expected checkpoint error, got: {err}"
         );
     }
 
@@ -495,8 +494,7 @@ mod tests {
         let err = p.advance().unwrap_err();
         assert!(
             err.to_string().contains("terminal"),
-            "Expected terminal error, got: {}",
-            err
+            "Expected terminal error, got: {err}"
         );
     }
 
@@ -509,8 +507,7 @@ mod tests {
         let err = p.advance().unwrap_err();
         assert!(
             err.to_string().contains("terminal"),
-            "Expected terminal error, got: {}",
-            err
+            "Expected terminal error, got: {err}"
         );
     }
 
@@ -541,8 +538,7 @@ mod tests {
         let err = p.confirm_checkpoint().unwrap_err();
         assert!(
             err.to_string().contains("not at a human checkpoint"),
-            "Expected non-checkpoint error, got: {}",
-            err
+            "Expected non-checkpoint error, got: {err}"
         );
     }
 
@@ -564,7 +560,7 @@ mod tests {
         p.advance().unwrap(); // Review
         let summary = p.summary();
         assert!(summary.contains("Pipeline:"));
-        assert!(summary.contains("Stage:    review"), "Summary: {}", summary);
+        assert!(summary.contains("Stage:    review"), "Summary: {summary}");
         assert!(summary.contains("Agents:   4"));
         assert!(summary.contains("Mandate:  security review"));
         assert!(summary.contains("History:"));
@@ -604,8 +600,7 @@ mod tests {
             assert_eq!(
                 stage.to_string(),
                 serde_name,
-                "Display and serde mismatch for {:?}",
-                stage
+                "Display and serde mismatch for {stage:?}"
             );
         }
     }
@@ -785,7 +780,7 @@ mod tests {
         let summary = p.summary();
         assert!(summary.contains("History:"));
         assert!(summary.contains("partition -> review"));
-        assert!(!summary.contains("("));
+        assert!(!summary.contains('('));
     }
 
     #[test]
@@ -942,8 +937,7 @@ mod tests {
         let parsed = chrono::DateTime::parse_from_rfc3339(json.trim_matches('"'));
         assert!(
             parsed.is_ok(),
-            "created_at should serialize to valid RFC3339: {}",
-            json
+            "created_at should serialize to valid RFC3339: {json}"
         );
     }
 
@@ -1090,8 +1084,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("Failed to write"),
-            "Expected write error, got: {}",
-            err_msg
+            "Expected write error, got: {err_msg}"
         );
     }
 
@@ -1126,9 +1119,7 @@ mod tests {
             let err = p.confirm_checkpoint().unwrap_err();
             assert!(
                 err.to_string().contains("not at a human checkpoint"),
-                "Stage {:?} should reject confirm_checkpoint, got: {}",
-                stage,
-                err
+                "Stage {stage:?} should reject confirm_checkpoint, got: {err}"
             );
         }
     }
@@ -1172,8 +1163,7 @@ mod tests {
             assert_eq!(
                 p.current_stage,
                 PipelineStage::Failed,
-                "fail() should set Failed from {:?}",
-                stage
+                "fail() should set Failed from {stage:?}"
             );
             let last = p.history.last().unwrap();
             assert_eq!(last.from, stage);
@@ -1222,9 +1212,7 @@ mod tests {
             let parsed = chrono::DateTime::parse_from_rfc3339(json.trim_matches('"'));
             assert!(
                 parsed.is_ok(),
-                "history[{}] timestamp should serialize to valid RFC3339: {}",
-                i,
-                json
+                "history[{i}] timestamp should serialize to valid RFC3339: {json}"
             );
         }
     }
@@ -1292,8 +1280,7 @@ mod tests {
             let v = Pipeline::valid_transitions(stage);
             assert!(
                 v.contains(&PipelineStage::Failed),
-                "{:?} should have Failed as valid transition",
-                stage
+                "{stage:?} should have Failed as valid transition"
             );
             assert!(
                 v.len() == 2,
@@ -1318,8 +1305,7 @@ mod tests {
         let created_str = p.created_at.to_rfc3339();
         assert!(
             summary.contains(&created_str),
-            "Summary should include the actual created_at value: {}",
-            summary
+            "Summary should include the actual created_at value: {summary}"
         );
     }
 
@@ -1343,8 +1329,7 @@ mod tests {
             let result = p.advance().unwrap();
             assert_eq!(
                 result, expected_to,
-                "advance from {:?} should go to {:?}",
-                from, expected_to
+                "advance from {from:?} should go to {expected_to:?}"
             );
             assert_eq!(p.current_stage, expected_to);
         }

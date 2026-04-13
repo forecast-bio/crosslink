@@ -36,7 +36,7 @@ fn harness_local_only() -> SmokeHarness {
             .args(&args)
             .output()
             .expect("git config failed");
-        assert!(out.status.success(), "git config {:?} failed", args);
+        assert!(out.status.success(), "git config {args:?} failed");
     }
 
     // Initial commit (crosslink init needs a git repo with at least one commit)
@@ -86,7 +86,7 @@ fn extract_issue_id(stdout: &str) -> String {
             }
         }
     }
-    panic!("Could not extract issue ID from output:\n{}", stdout);
+    panic!("Could not extract issue ID from output:\n{stdout}");
 }
 
 // ===========================================================================

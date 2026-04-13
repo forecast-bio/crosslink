@@ -134,7 +134,7 @@ mod tests {
         assert!(result.is_ok());
 
         let labels = db.get_labels(issue_id).unwrap();
-        assert!(labels.contains(&"".to_string()));
+        assert!(labels.contains(&String::new()));
     }
 
     #[test]

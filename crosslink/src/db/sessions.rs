@@ -9,7 +9,7 @@ use crate::models::Session;
 impl Database {
     // Sessions
 
-    /// Convenience wrapper for tests -- starts a session with no agent_id.
+    /// Convenience wrapper for tests -- starts a session with no `agent_id`.
     #[cfg(test)]
     pub fn start_session(&self) -> Result<i64> {
         self.start_session_with_agent(None)

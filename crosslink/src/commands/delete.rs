@@ -274,7 +274,7 @@ mod tests {
             let issue_id = db.create_issue("Test", None, "medium").unwrap();
 
             for i in 0..count {
-                db.add_comment(issue_id, &format!("Comment {}", i), "note").unwrap();
+                db.add_comment(issue_id, &format!("Comment {i}"), "note").unwrap();
             }
 
             run_force(&db, issue_id).unwrap();

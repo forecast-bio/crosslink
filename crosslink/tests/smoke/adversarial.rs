@@ -439,7 +439,7 @@ fn test_concurrent_creates_5() {
             thread::spawn(move || {
                 let output = Command::new(&bin)
                     .current_dir(&dir)
-                    .args(["create", &format!("Concurrent issue {}", i)])
+                    .args(["create", &format!("Concurrent issue {i}")])
                     .output()
                     .expect("failed to execute crosslink");
                 output.status.success()
@@ -468,7 +468,6 @@ fn test_concurrent_creates_5() {
     let count = parsed.as_array().map(|a| a.len()).unwrap_or(0);
     assert!(
         count >= 1,
-        "DB should have at least 1 issue after concurrent creates, got {}",
-        count,
+        "DB should have at least 1 issue after concurrent creates, got {count}",
     );
 }

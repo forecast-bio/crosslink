@@ -36,6 +36,11 @@
 #![allow(clippy::struct_excessive_bools, clippy::fn_params_excessive_bools)]
 // Option<&T> vs &Option<T>: both are valid depending on context.
 #![allow(clippy::ref_option)]
+// Large stack arrays in test code: `vec![...]` literals expand to array literals
+// internally, and clippy can't trace the span back through macro expansion to
+// suggest a fix. Test code where stack frame size doesn't matter for production.
+// See https://github.com/rust-lang/rust-clippy/issues for the underlying span bug.
+#![allow(clippy::large_stack_arrays)]
 
 mod checkpoint;
 mod clock_skew;
@@ -326,6 +331,11 @@ enum Commands {
     Swarm {
         #[command(subcommand)]
         action: SwarmCommands,
+    },
+    /// Autonomous maintenance sentinel (monitors sources, dispatches agents)
+    Sentinel {
+        #[command(subcommand)]
+        action: SentinelCommands,
     },
     /// Interactive terminal dashboard (read-only)
     Tui,
@@ -1776,6 +1786,61 @@ enum SwarmCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub enum SentinelCommands {
+    /// One-shot sentinel sweep
+    Run {
+        /// Print what would be dispatched without acting
+        #[arg(long)]
+        dry_run: bool,
+        /// Only process signals matching this label
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// Start persistent sentinel daemon
+    Watch {
+        /// Poll interval in minutes
+        #[arg(long, default_value = "10")]
+        interval: u64,
+    },
+    /// Show sentinel daemon status and in-flight agents
+    Status,
+    /// Show past sentinel runs and outcomes
+    History {
+        /// Maximum number of runs to show
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        /// Show per-dispatch details for each run
+        #[arg(long)]
+        detail: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop the sentinel daemon
+    Stop,
+    /// Show dispatch success rates per model and rule
+    Metrics {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Analyze dispatch history for recurring patterns and hotspots
+    Patterns {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Internal: run the sentinel watch loop (used by watch)
+    #[command(hide = true)]
+    RunDaemon {
+        #[arg(long)]
+        dir: std::path::PathBuf,
+        #[arg(long, default_value = "10")]
+        interval: u64,
+    },
+}
+
 #[derive(Subcommand, Clone, Copy)]
 enum ContextCommands {
     /// Measure context injection sizes and estimate token overhead
@@ -2854,6 +2919,23 @@ fn main() -> Result<()> {
                     commands::swarm::trust_init(&crosslink_dir, &model)
                 }
             }
+        }
+        Commands::Sentinel { action } => {
+            // RunDaemon is the internal loop entry point — dir is explicit, no auto-detection
+            if let SentinelCommands::RunDaemon { ref dir, interval } = action {
+                return commands::sentinel::watch::run_watch_loop(dir, interval);
+            }
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            let writer = get_writer(&crosslink_dir);
+            commands::sentinel::dispatch_cmd(
+                action,
+                &crosslink_dir,
+                &db,
+                writer.as_ref(),
+                cli.quiet,
+                cli.json,
+            )
         }
         Commands::Tui => {
             let db = get_db()?;

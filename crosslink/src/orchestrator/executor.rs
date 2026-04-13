@@ -1013,7 +1013,7 @@ mod tests {
         let status = executor.status();
         assert_eq!(status.plan_id, "test-plan-1");
         assert_eq!(status.state, ExecutionState::Running);
-        assert_eq!(status.progress_percent, 0.0);
+        assert!(status.progress_percent < f64::EPSILON);
         assert_eq!(status.stage_statuses.len(), 4);
         assert!(status.stage_agents.is_empty());
     }

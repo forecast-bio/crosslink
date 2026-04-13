@@ -348,9 +348,9 @@ mod tests {
 
     #[test]
     fn test_start_session() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        let result = start(&db, _dir.path());
+        let result = start(&db, dir.path());
         assert!(result.is_ok());
 
         let session = db.get_current_session().unwrap();
@@ -359,13 +359,13 @@ mod tests {
 
     #[test]
     fn test_start_already_active() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        start(&db, _dir.path()).unwrap();
+        start(&db, dir.path()).unwrap();
         let first_session = db.get_current_session().unwrap().unwrap();
 
         // Starting again should not create new session
-        let result = start(&db, _dir.path());
+        let result = start(&db, dir.path());
         assert!(result.is_ok());
 
         let current = db.get_current_session().unwrap().unwrap();
@@ -376,10 +376,10 @@ mod tests {
 
     #[test]
     fn test_end_session() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        start(&db, _dir.path()).unwrap();
-        let result = end(&db, None, _dir.path());
+        start(&db, dir.path()).unwrap();
+        let result = end(&db, None, dir.path());
         assert!(result.is_ok());
 
         let session = db.get_current_session().unwrap();
@@ -388,10 +388,10 @@ mod tests {
 
     #[test]
     fn test_end_session_with_notes() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        start(&db, _dir.path()).unwrap();
-        let result = end(&db, Some("Completed auth feature"), _dir.path());
+        start(&db, dir.path()).unwrap();
+        let result = end(&db, Some("Completed auth feature"), dir.path());
         assert!(result.is_ok());
 
         let last = db.get_last_session().unwrap().unwrap();
@@ -403,9 +403,9 @@ mod tests {
 
     #[test]
     fn test_end_no_active_session() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        let result = end(&db, None, _dir.path());
+        let result = end(&db, None, dir.path());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -417,18 +417,18 @@ mod tests {
 
     #[test]
     fn test_status_no_session() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        let result = status(&db, _dir.path(), false);
+        let result = status(&db, dir.path(), false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_status_with_session() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        start(&db, _dir.path()).unwrap();
-        let result = status(&db, _dir.path(), false);
+        start(&db, dir.path()).unwrap();
+        let result = status(&db, dir.path(), false);
         assert!(result.is_ok());
     }
 
@@ -506,33 +506,33 @@ mod tests {
 
     #[test]
     fn test_last_handoff_no_sessions() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        let result = last_handoff(&db, _dir.path());
+        let result = last_handoff(&db, dir.path());
         assert!(result.is_ok());
         // Should handle gracefully when no sessions exist
     }
 
     #[test]
     fn test_last_handoff_no_notes() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        start(&db, _dir.path()).unwrap();
-        end(&db, None, _dir.path()).unwrap();
+        start(&db, dir.path()).unwrap();
+        end(&db, None, dir.path()).unwrap();
 
-        let result = last_handoff(&db, _dir.path());
+        let result = last_handoff(&db, dir.path());
         assert!(result.is_ok());
         // Should handle gracefully when last session has no notes
     }
 
     #[test]
     fn test_last_handoff_with_notes() {
-        let (db, _dir) = setup_test_db();
+        let (db, dir) = setup_test_db();
 
-        start(&db, _dir.path()).unwrap();
-        end(&db, Some("Important handoff notes"), _dir.path()).unwrap();
+        start(&db, dir.path()).unwrap();
+        end(&db, Some("Important handoff notes"), dir.path()).unwrap();
 
-        let result = last_handoff(&db, _dir.path());
+        let result = last_handoff(&db, dir.path());
         assert!(result.is_ok());
         // Notes should be retrievable
         let last = db.get_last_session().unwrap().unwrap();
@@ -577,22 +577,22 @@ mod tests {
     proptest! {
         #[test]
         fn prop_start_end_cycle(iterations in 1usize..5) {
-            let (db, _dir) = setup_test_db();
+            let (db, dir) = setup_test_db();
 
             for _ in 0..iterations {
-                start(&db, _dir.path()).unwrap();
+                start(&db, dir.path()).unwrap();
                 prop_assert!(db.get_current_session().unwrap().is_some());
-                end(&db, None, _dir.path()).unwrap();
+                end(&db, None, dir.path()).unwrap();
                 prop_assert!(db.get_current_session().unwrap().is_none());
             }
         }
 
         #[test]
         fn prop_handoff_notes_roundtrip(notes in "[a-zA-Z0-9 ]{0,100}") {
-            let (db, _dir) = setup_test_db();
+            let (db, dir) = setup_test_db();
 
-            start(&db, _dir.path()).unwrap();
-            end(&db, Some(&notes), _dir.path()).unwrap();
+            start(&db, dir.path()).unwrap();
+            end(&db, Some(&notes), dir.path()).unwrap();
 
             let last = db.get_last_session().unwrap().unwrap();
             prop_assert_eq!(last.handoff_notes, Some(notes));

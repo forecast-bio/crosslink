@@ -399,7 +399,7 @@ mod tests {
         let comment = Comment {
             id: 1,
             issue_id: 1,
-            content: "".to_string(),
+            content: String::new(),
             created_at: Utc::now(),
             kind: "note".to_string(),
             trigger_type: None,

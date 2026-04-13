@@ -23,8 +23,7 @@ fn assert_issue_count_flat(h: &SmokeHarness, status: &str, expected: usize) {
     let count = count_issues(h, status);
     assert_eq!(
         count, expected,
-        "expected {} issues with status {:?}, got {}",
-        expected, status, count
+        "expected {expected} issues with status {status:?}, got {count}"
     );
 }
 
@@ -70,7 +69,7 @@ fn test_roundtrip_label_list() {
     // Create issues with different labels
     let labels = ["bug", "feature", "docs", "ci", "refactor"];
     for (i, label) in labels.iter().enumerate() {
-        h.run_ok(&["create", &format!("Issue for label {}", label)]);
+        h.run_ok(&["create", &format!("Issue for label {label}")]);
         h.run_ok(&["issue", "label", &(i + 1).to_string(), label]);
     }
 
@@ -78,7 +77,7 @@ fn test_roundtrip_label_list() {
     for label in &labels {
         let result = h.run_ok(&["list", "-l", label]);
         assert!(
-            result.stdout_contains(&format!("Issue for label {}", label)),
+            result.stdout_contains(&format!("Issue for label {label}")),
             "list with -l {} didn't contain expected issue.\nGot: {}",
             label,
             result.stdout
@@ -123,7 +122,7 @@ fn test_roundtrip_comment_trail() {
             result.stdout
         );
         assert!(
-            result.stdout_contains(&format!("[{}]", kind)),
+            result.stdout_contains(&format!("[{kind}]")),
             "trail missing kind tag [{}].\nGot: {}",
             kind,
             result.stdout
@@ -136,13 +135,13 @@ fn test_roundtrip_export_import() {
     let h = SmokeHarness::new();
     // Create issues with labels and comments
     for i in 1..=5 {
-        h.run_ok(&["create", &format!("Export issue {}", i), "-p", "medium"]);
+        h.run_ok(&["create", &format!("Export issue {i}"), "-p", "medium"]);
         h.run_ok(&["issue", "label", &i.to_string(), "test-label"]);
         h.run_ok(&[
             "issue",
             "comment",
             &i.to_string(),
-            &format!("Comment on {}", i),
+            &format!("Comment on {i}"),
         ]);
     }
 
@@ -154,7 +153,7 @@ fn test_roundtrip_export_import() {
     assert!(export_path.exists(), "export file was not created");
     let content = std::fs::read_to_string(&export_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&content)
-        .unwrap_or_else(|e| panic!("export JSON is invalid: {}\ncontent: {}", e, content));
+        .unwrap_or_else(|e| panic!("export JSON is invalid: {e}\ncontent: {content}"));
     assert_eq!(
         parsed.as_array().map(|a| a.len()),
         Some(5),
@@ -174,7 +173,7 @@ fn test_roundtrip_export_import() {
     let list_result = h2.run_ok(&["list", "-s", "all"]);
     for i in 1..=5 {
         assert!(
-            list_result.stdout_contains(&format!("Export issue {}", i)),
+            list_result.stdout_contains(&format!("Export issue {i}")),
             "imported issue {} missing from list.\nGot: {}",
             i,
             list_result.stdout
@@ -320,7 +319,7 @@ fn test_regression_subissue_chain() {
 fn test_scale_50_issues() {
     let h = SmokeHarness::new();
     for i in 1..=50 {
-        h.run_ok(&["create", &format!("Scale test issue {}", i)]);
+        h.run_ok(&["create", &format!("Scale test issue {i}")]);
     }
     assert_issue_count_flat(&h, "all", 50);
 
@@ -337,7 +336,7 @@ fn test_scale_many_labels() {
     h.run_ok(&["create", "Many labels issue"]);
 
     // Add 20 different labels
-    let labels: Vec<String> = (1..=20).map(|i| format!("label-{}", i)).collect();
+    let labels: Vec<String> = (1..=20).map(|i| format!("label-{i}")).collect();
     for label in &labels {
         h.run_ok(&["issue", "label", "1", label]);
     }
@@ -364,7 +363,7 @@ fn test_scale_deep_subissues_10() {
         h.run_ok(&[
             "issue",
             "create",
-            &format!("Depth level {}", depth),
+            &format!("Depth level {depth}"),
             "--parent",
             &(depth - 1).to_string(),
         ]);
@@ -374,7 +373,7 @@ fn test_scale_deep_subissues_10() {
     let result = h.run_ok(&["issue", "tree"]);
     for depth in 1..=10 {
         assert!(
-            result.stdout_contains(&format!("Depth level {}", depth)),
+            result.stdout_contains(&format!("Depth level {depth}")),
             "tree missing depth level {}.\nGot: {}",
             depth,
             result.stdout
@@ -426,12 +425,12 @@ fn test_scale_comments_20() {
     ];
     for i in 1..=20 {
         let kind = kinds[(i - 1) % kinds.len()];
-        h.run_ok(&["create", &format!("Issue for comment {}", i)]);
+        h.run_ok(&["create", &format!("Issue for comment {i}")]);
         h.run_ok(&[
             "issue",
             "comment",
             &i.to_string(),
-            &format!("Comment number {} of twenty", i),
+            &format!("Comment number {i} of twenty"),
             "--kind",
             kind,
         ]);
@@ -440,7 +439,7 @@ fn test_scale_comments_20() {
     for i in 1..=20 {
         let result = h.run_ok(&["workflow", "trail", &i.to_string()]);
         assert!(
-            result.stdout_contains(&format!("Comment number {} of twenty", i)),
+            result.stdout_contains(&format!("Comment number {i} of twenty")),
             "trail for issue {} missing comment.\nGot: {}",
             i,
             result.stdout

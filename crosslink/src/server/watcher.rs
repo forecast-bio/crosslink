@@ -499,7 +499,7 @@ mod tests {
 
         let hb = make_heartbeat("worker-1", 1);
         let mut current: HashMap<String, Heartbeat> = HashMap::new();
-        current.insert("worker-1".to_string(), hb.clone());
+        current.insert("worker-1".to_string(), hb);
 
         // Simulate diff logic directly.
         for (agent_id, hb) in &current {
@@ -537,11 +537,9 @@ mod tests {
     fn test_diff_no_broadcast_on_unchanged() {
         let (tx, mut rx) = broadcast::channel::<WsEvent>(16);
         let mut last_state: HashMap<String, Heartbeat> = HashMap::new();
-        let mut last_statuses: HashMap<String, AgentStatus> = HashMap::new();
 
         let hb = make_heartbeat("worker-1", 1);
         last_state.insert("worker-1".to_string(), hb.clone());
-        last_statuses.insert("worker-1".to_string(), AgentStatus::Active);
 
         let mut current: HashMap<String, Heartbeat> = HashMap::new();
         current.insert("worker-1".to_string(), hb); // same timestamp
@@ -550,8 +548,7 @@ mod tests {
         for (agent_id, hb) in &current {
             let is_new_or_updated = last_state
                 .get(agent_id)
-                .map(|prev| prev.last_heartbeat != hb.last_heartbeat)
-                .unwrap_or(true);
+                .is_none_or(|prev| prev.last_heartbeat != hb.last_heartbeat);
             if is_new_or_updated {
                 let _ = tx.send(WsEvent::Heartbeat(WsHeartbeatEvent {
                     event_type: crate::server::types::WsEventType::Heartbeat,
