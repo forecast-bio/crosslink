@@ -1,0 +1,8 @@
+{
+  "uuid": "46a30053-aee2-4a22-9a26-5e2f4085bcf6",
+  "issue_uuid": "1fbbad1e-59d7-42e9-b484-42eef678a712",
+  "author": "jus4",
+  "content": "Committed: test(help): assert consistent section spacing in --help output (GH#560) [CL-679] | Files: 1 file changed, 95 insertions(+)",
+  "created_at": "2026-04-13T17:56:13.215926878Z",
+  "kind": "result"
+}
