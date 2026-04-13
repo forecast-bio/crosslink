@@ -1,0 +1,8 @@
+{
+  "uuid": "a8a8f62e-7fd2-4774-b3f0-34b8246df4cb",
+  "issue_uuid": "1fbbad1e-59d7-42e9-b484-42eef678a712",
+  "author": "jus4",
+  "content": "Result: Cannot reproduce GH#560. Test test_help_section_spacing_consistent added to tests/cli_integration.rs checks all 10 subcommands (root, issue, session, kickoff, config, init, swarm, sentinel, knowledge, integrity) and finds exactly 1 blank line between every adjacent pair of section headers in all cases. The test PASSES. The reported 'sometimes one blank line, sometimes two' between Commands: and Options: does not manifest on the current binary. The init/config verbose option layout was a potential red herring but does not affect inter-section spacing.",
+  "created_at": "2026-04-13T17:55:21.197444704Z",
+  "kind": "result"
+}
