@@ -37,7 +37,7 @@ fn dedup_issue_files(issues: &[IssueFile]) -> (Vec<&IssueFile>, Vec<&IssueFile>)
 
     for (_id, mut group) in by_display_id {
         // Sort by updated_at descending — most recent first
-        group.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        group.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
         keep.push(group[0]);
         dupes.extend(group.into_iter().skip(1));
     }

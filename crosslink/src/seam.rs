@@ -565,7 +565,7 @@ fn apply_coupling(mut partitions: Vec<Partition>, coupling: &CouplingMap) -> Vec
 
     // Sort merges by vote count descending.
     let mut merges: Vec<((usize, usize), usize)> = merge_votes.into_iter().collect();
-    merges.sort_by(|a, b| b.1.cmp(&a.1));
+    merges.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     for ((a, b), votes) in merges {
         if votes < COUPLING_THRESHOLD {

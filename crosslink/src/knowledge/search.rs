@@ -92,7 +92,7 @@ impl KnowledgeManager {
         }
 
         // Sort by term hit count descending (pages matching more terms first)
-        scored_results.sort_by(|a, b| b.0.cmp(&a.0));
+        scored_results.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         Ok(scored_results
             .into_iter()
