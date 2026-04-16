@@ -129,12 +129,10 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
             // If overridden by rules.local/, show the local version's size
             let (size, suffix) = if local_overrides.contains(&filename) {
                 let local_path = rules_local_dir.join(&filename);
-                let s = fs::metadata(&local_path)
-                    .map(|m| m.len() as usize)
-                    .unwrap_or(0);
+                let s = fs::metadata(&local_path).map_or(0, |m| m.len() as usize);
                 (s, " (local)")
             } else {
-                let s = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+                let s = fs::metadata(&path).map_or(0, |m| m.len() as usize);
                 (s, "")
             };
             let tokens = size / 4;
@@ -185,7 +183,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         for entry in &local_entries {
             let path = entry.path();
             let filename = entry.file_name().to_string_lossy().to_string();
-            let size = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+            let size = fs::metadata(&path).map_or(0, |m| m.len() as usize);
             let tokens = size / 4;
             total_rules += size;
             active_rules += size;
@@ -224,9 +222,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
     // 3. CLAUDE.md
     let claude_md = project_root.join("CLAUDE.md");
     let claude_md_size = if claude_md.is_file() {
-        fs::metadata(&claude_md)
-            .map(|m| m.len() as usize)
-            .unwrap_or(0)
+        fs::metadata(&claude_md).map_or(0, |m| m.len() as usize)
     } else {
         0
     };
@@ -261,7 +257,7 @@ fn measure(crosslink_dir: &Path, verbose: bool) -> Result<()> {
         for entry in &entries {
             let path = entry.path();
             let filename = entry.file_name().to_string_lossy().to_string();
-            let size = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+            let size = fs::metadata(&path).map_or(0, |m| m.len() as usize);
             total_skills += size;
             println!("{:<35} {:>8} {:>8}", filename, size, size / 4);
         }

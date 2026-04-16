@@ -161,9 +161,7 @@ fn fetch_style_repo(crosslink_dir: &Path, url: &str, ref_name: &str) -> Result<(
 
 /// Check whether a file contains the `# crosslink:custom` marker.
 fn has_custom_marker(path: &Path) -> bool {
-    fs::read_to_string(path)
-        .map(|content| content.contains(CUSTOM_MARKER))
-        .unwrap_or(false)
+    fs::read_to_string(path).is_ok_and(|content| content.contains(CUSTOM_MARKER))
 }
 
 /// Result of comparing a source file against a deployed file.

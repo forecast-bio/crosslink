@@ -268,7 +268,7 @@ fn build_finding_group(mut members: Vec<Finding>) -> FindingGroup {
     assert!(!members.is_empty());
 
     // Canonical = longest description (richest detail).
-    members.sort_by(|a, b| b.description.len().cmp(&a.description.len()));
+    members.sort_by_key(|b| std::cmp::Reverse(b.description.len()));
     let canonical = members.remove(0);
 
     // Consensus: count distinct agents.

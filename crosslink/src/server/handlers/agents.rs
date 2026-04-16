@@ -84,7 +84,7 @@ fn find_worktree_for_agent(root: &Path, agent_id: &str) -> Option<PathBuf> {
     std::fs::read_dir(&worktrees_dir)
         .ok()?
         .filter_map(std::result::Result::ok)
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .find(|e| {
             let slug = e.file_name().to_string_lossy().to_string();
             agent_id == slug
@@ -154,8 +154,7 @@ async fn tmux_session_exists(name: &str) -> bool {
         .args(["has-session", "-t", name])
         .output()
         .await
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 /// Derive the expected tmux session name for a worktree slug.

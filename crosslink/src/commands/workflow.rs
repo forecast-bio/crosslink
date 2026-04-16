@@ -83,9 +83,7 @@ fn compare_display(result: &CompareResult) -> &str {
 
 /// Check whether a deployed file contains the `# crosslink:custom` marker.
 fn has_custom_marker(deployed_path: &Path) -> bool {
-    fs::read_to_string(deployed_path)
-        .map(|content| content.contains(CUSTOM_MARKER))
-        .unwrap_or(false)
+    fs::read_to_string(deployed_path).is_ok_and(|content| content.contains(CUSTOM_MARKER))
 }
 
 /// `crosslink workflow diff` — compare deployed policy files against embedded defaults.

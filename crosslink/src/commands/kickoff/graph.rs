@@ -62,9 +62,7 @@ struct BranchJsonEntry {
 
 /// Entry point for `crosslink kickoff graph`.
 pub fn graph(crosslink_dir: &Path, all: bool, json: bool, quiet: bool) -> Result<()> {
-    let term_width = crossterm::terminal::size()
-        .map(|(w, _)| w as usize)
-        .unwrap_or(80);
+    let term_width = crossterm::terminal::size().map_or(80, |(w, _)| w as usize);
 
     // Phase 1: Collect refs
     let agents = discover_agents(crosslink_dir).unwrap_or_default();
@@ -148,8 +146,7 @@ fn ref_exists(name: &str) -> bool {
     Command::new("git")
         .args(["rev-parse", "--verify", "--quiet", name])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 /// Derive the branch name from an agent's worktree directory.
@@ -316,8 +313,7 @@ fn git_is_ancestor(commit: &str, branch: &str) -> bool {
     Command::new("git")
         .args(["merge-base", "--is-ancestor", commit, branch])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 /// Run `git rev-list --count <from>..<to>` and return the count.
@@ -389,7 +385,7 @@ fn render_ascii(base_branches: &[String], nodes: &[BranchNode], term_width: usiz
 
     // Sort branches within each group by number of intermediate commits (longest first)
     for branches in by_base.values_mut() {
-        branches.sort_by(|a, b| b.intermediate_count.cmp(&a.intermediate_count));
+        branches.sort_by_key(|b| std::cmp::Reverse(b.intermediate_count));
     }
 
     // Render: iterate base branches, show forking branches for each

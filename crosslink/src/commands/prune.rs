@@ -87,10 +87,8 @@ fn remove_stale_hub_data(cache_dir: &Path) -> Result<Vec<String>> {
             }
             let agent_dir = entry.path();
             let events_log = agent_dir.join("events.log");
-            let has_events = events_log.exists()
-                && std::fs::metadata(&events_log)
-                    .map(|m| m.len() > 0)
-                    .unwrap_or(false);
+            let has_events =
+                events_log.exists() && std::fs::metadata(&events_log).is_ok_and(|m| m.len() > 0);
 
             if !has_events {
                 let agent_name = entry.file_name().to_string_lossy().to_string();
@@ -111,7 +109,7 @@ fn count_stale_hub_data(cache_dir: &Path) -> Vec<String> {
     if heartbeats_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&heartbeats_dir) {
             for entry in entries.flatten() {
-                if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                if entry.file_type().is_ok_and(|t| t.is_file()) {
                     stale.push(format!(
                         "heartbeats/{}",
                         entry.file_name().to_string_lossy()
@@ -125,14 +123,12 @@ fn count_stale_hub_data(cache_dir: &Path) -> Vec<String> {
     if agents_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&agents_dir) {
             for entry in entries.flatten() {
-                if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                if !entry.file_type().is_ok_and(|t| t.is_dir()) {
                     continue;
                 }
                 let events_log = entry.path().join("events.log");
                 let has_events = events_log.exists()
-                    && std::fs::metadata(&events_log)
-                        .map(|m| m.len() > 0)
-                        .unwrap_or(false);
+                    && std::fs::metadata(&events_log).is_ok_and(|m| m.len() > 0);
                 if !has_events {
                     stale.push(format!("agents/{}/", entry.file_name().to_string_lossy()));
                 }

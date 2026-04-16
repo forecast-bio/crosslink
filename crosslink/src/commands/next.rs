@@ -105,7 +105,7 @@ pub fn run(db: &Database, crosslink_dir: &std::path::Path) -> Result<()> {
     }
 
     // Sort by score descending
-    scored.sort_by(|a, b| b.score.cmp(&a.score));
+    scored.sort_by_key(|b| std::cmp::Reverse(b.score));
 
     if scored.is_empty() {
         // All ready issues are subissues or locked, show first available instead

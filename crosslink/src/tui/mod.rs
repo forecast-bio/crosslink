@@ -244,7 +244,7 @@ pub fn copy_to_clipboard(text: &str) -> bool {
         "unsupported platform",
     ));
 
-    result.map(|s| s.success()).unwrap_or(false)
+    result.is_ok_and(|s| s.success())
 }
 
 /// Result from a background sync operation.

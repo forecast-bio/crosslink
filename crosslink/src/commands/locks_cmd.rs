@@ -424,8 +424,7 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
             // before signing is configured, so it's always unsigned).
             let is_bootstrap = sync
                 .commit_message(commit)
-                .map(|msg| crate::sync::bootstrap::is_bootstrap_message(&msg))
-                .unwrap_or(false);
+                .is_ok_and(|msg| crate::sync::bootstrap::is_bootstrap_message(&msg));
             if is_bootstrap {
                 println!(
                     "Locks synced (commit {} is an unsigned bootstrap commit).",
@@ -495,8 +494,7 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
                     return false; // old repo, no filtering
                 }
                 sync.commit_message(hash)
-                    .map(|msg| crate::sync::bootstrap::is_bootstrap_message(&msg))
-                    .unwrap_or(false)
+                    .is_ok_and(|msg| crate::sync::bootstrap::is_bootstrap_message(&msg))
             };
 
             let unsigned: Vec<_> = results

@@ -253,11 +253,9 @@ impl MilestonesTab {
             .milestones
             .iter()
             .map(|m| {
-                let pct = if m.total_count > 0 {
-                    (m.closed_count * 100) / m.total_count
-                } else {
-                    0
-                };
+                let pct = (m.closed_count * 100)
+                    .checked_div(m.total_count)
+                    .unwrap_or(0);
                 let bar = progress_bar(m.closed_count, m.total_count, 12);
                 let issues_str = format!("{}/{}", m.closed_count, m.total_count);
                 let pct_str = format!("{pct}%");
@@ -341,11 +339,9 @@ impl MilestonesTab {
         }
 
         // Progress
-        let pct = if detail.total_count > 0 {
-            (detail.closed_count * 100) / detail.total_count
-        } else {
-            0
-        };
+        let pct = (detail.closed_count * 100)
+            .checked_div(detail.total_count)
+            .unwrap_or(0);
         let bar = progress_bar(detail.closed_count, detail.total_count, 20);
         lines.push(Line::from(""));
         lines.push(Line::from(vec![

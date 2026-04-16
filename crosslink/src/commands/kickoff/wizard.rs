@@ -1003,15 +1003,13 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
 
                 match app.screen {
                     Screen::Source => match key.code {
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.source_selected > 0 {
-                                app.source_selected -= 1;
-                            }
+                        KeyCode::Up | KeyCode::Char('k') if app.source_selected > 0 => {
+                            app.source_selected -= 1;
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.source_selected < app.total_source_items() - 1 {
-                                app.source_selected += 1;
-                            }
+                        KeyCode::Down | KeyCode::Char('j')
+                            if app.source_selected < app.total_source_items() - 1 =>
+                        {
+                            app.source_selected += 1;
                         }
                         KeyCode::Enter | KeyCode::Char(' ') => {
                             if app.source_selected >= app.design_docs.len() {
@@ -1028,15 +1026,11 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
                         _ => {}
                     },
                     Screen::Stage => match key.code {
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.stage_selected > 0 {
-                                app.stage_selected -= 1;
-                            }
+                        KeyCode::Up | KeyCode::Char('k') if app.stage_selected > 0 => {
+                            app.stage_selected -= 1;
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.stage_selected < 1 {
-                                app.stage_selected += 1;
-                            }
+                        KeyCode::Down | KeyCode::Char('j') if app.stage_selected < 1 => {
+                            app.stage_selected += 1;
                         }
                         KeyCode::Enter | KeyCode::Char(' ') => {
                             app.confirm_stage();
@@ -1051,15 +1045,13 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
                         _ => {}
                     },
                     Screen::Configure => match key.code {
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.config_selected > 0 {
-                                app.config_selected -= 1;
-                            }
+                        KeyCode::Up | KeyCode::Char('k') if app.config_selected > 0 => {
+                            app.config_selected -= 1;
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.config_selected < app.config_options.len().saturating_sub(1) {
-                                app.config_selected += 1;
-                            }
+                        KeyCode::Down | KeyCode::Char('j')
+                            if app.config_selected < app.config_options.len().saturating_sub(1) =>
+                        {
+                            app.config_selected += 1;
                         }
                         KeyCode::Left | KeyCode::Char('h') => {
                             if let Some(opt) = app.config_options.get_mut(app.config_selected) {

@@ -118,9 +118,7 @@ impl KnowledgeManager {
     /// Check if a page exists by slug.
     #[must_use]
     pub fn page_exists(&self, slug: &str) -> bool {
-        self.safe_page_path(slug)
-            .map(|path| path.exists())
-            .unwrap_or(false)
+        self.safe_page_path(slug).is_ok_and(|path| path.exists())
     }
 
     /// Delete a page by slug.

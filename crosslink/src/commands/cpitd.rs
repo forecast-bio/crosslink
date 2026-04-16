@@ -62,8 +62,7 @@ fn find_cpitd() -> bool {
     Command::new("cpitd")
         .arg("--version")
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 fn suggest_install() -> Result<()> {
@@ -300,7 +299,7 @@ pub fn scan(
     }
 
     if !quiet {
-        println!("\ncpitd scan complete: {created_count} created, {updated_count} updated",);
+        println!("\ncpitd scan complete: {created_count} created, {updated_count} updated");
     }
 
     Ok(())

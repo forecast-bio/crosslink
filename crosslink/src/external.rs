@@ -574,8 +574,7 @@ impl ExternalIssueReader {
                     Some("all") | None => true,
                     Some(s) => s
                         .parse::<crate::models::IssueStatus>()
-                        .map(|st| issue.status == st)
-                        .unwrap_or(false),
+                        .is_ok_and(|st| issue.status == st),
                 }
             })
             .filter(|issue| {
@@ -742,7 +741,7 @@ pub fn search_content_in_dir(
         }
     }
 
-    scored_results.sort_by(|a, b| b.0.cmp(&a.0));
+    scored_results.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     Ok(scored_results
         .into_iter()

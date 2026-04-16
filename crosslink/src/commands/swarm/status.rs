@@ -275,8 +275,7 @@ pub(super) fn probe_agent_status(repo_root: &Path, slug: &str) -> String {
     let tmux_alive = std::process::Command::new("tmux")
         .args(["has-session", "-t", &session_name])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
 
     if tmux_alive {
         return "running (tmux)".to_string();
