@@ -240,7 +240,7 @@ pub fn list_swarms(crosslink_dir: &Path) -> Result<()> {
         let mut archives: Vec<String> = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&archive_dir) {
             for entry in entries.flatten() {
-                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                if entry.file_type().is_ok_and(|t| t.is_dir()) {
                     let name = entry.file_name().to_string_lossy().to_string();
                     let plan_file = entry.path().join("plan.json");
                     let title = std::fs::read_to_string(&plan_file)

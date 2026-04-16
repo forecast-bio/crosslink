@@ -56,8 +56,7 @@ impl InitWalkthroughApp {
                 "alias xl='crosslink'"
             };
             fs::read_to_string(&shell_config_file)
-                .map(|c| c.lines().any(|l| l.trim() == alias_line))
-                .unwrap_or(false)
+                .is_ok_and(|c| c.lines().any(|l| l.trim() == alias_line))
         };
 
         Self {

@@ -354,8 +354,7 @@ pub(super) fn create_worktree(
         .current_dir(repo_root)
         .args(["rev-parse", "--verify", &branch_name])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
 
     if branch_exists {
         // Check if the branch has an active worktree
@@ -381,8 +380,7 @@ pub(super) fn create_worktree(
             .current_dir(repo_root)
             .args(["merge-base", "--is-ancestor", &branch_name, base])
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .is_ok_and(|o| o.status.success());
 
         if is_merged {
             // Branch is fully merged — safe to delete and recreate

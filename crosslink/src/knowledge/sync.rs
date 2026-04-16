@@ -23,8 +23,7 @@ impl KnowledgeManager {
         // Check if remote branch exists
         let has_remote = self
             .git_in_repo(&["ls-remote", "--heads", &self.remote, KNOWLEDGE_BRANCH])
-            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
-            .unwrap_or(false);
+            .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty());
 
         if has_remote {
             // Fetch the remote branch

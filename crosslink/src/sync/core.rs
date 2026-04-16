@@ -84,8 +84,7 @@ impl SyncManager {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+            .is_ok_and(|s| s.success())
     }
 
     /// Check if the hub uses V2 layout (per-entity lock files in `locks/`).
@@ -230,8 +229,7 @@ impl SyncManager {
             .current_dir(&self.cache_dir)
             .args(["config", "user.email"])
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .is_ok_and(|o| o.status.success());
         if !has_email {
             let use_worktree = signing::is_linked_worktree(&self.cache_dir);
             if use_worktree {
@@ -274,8 +272,7 @@ impl SyncManager {
                 .current_dir(&self.cache_dir)
                 .args(["config", "user.email"])
                 .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+                .is_ok_and(|o| o.status.success());
             if !verified {
                 bail!(
                     "Failed to verify git identity in hub cache: \

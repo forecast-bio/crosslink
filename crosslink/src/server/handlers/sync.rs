@@ -45,7 +45,7 @@ pub async fn sync_status(
             .map_err(|e| internal_error("Failed to read locks", e))?;
         let active = locks.locks.len();
 
-        let stale_count = sm.find_stale_locks_with_age().map(|v| v.len()).unwrap_or(0);
+        let stale_count = sm.find_stale_locks_with_age().map_or(0, |v| v.len());
 
         (active, stale_count)
     } else {

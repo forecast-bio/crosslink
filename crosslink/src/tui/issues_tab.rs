@@ -178,12 +178,12 @@ impl IssuesTab {
 
         // Apply sort
         match self.sort_order {
-            SortOrder::IdDesc => issues.sort_by(|a, b| b.id.cmp(&a.id)),
-            SortOrder::IdAsc => issues.sort_by(|a, b| a.id.cmp(&b.id)),
+            SortOrder::IdDesc => issues.sort_by_key(|b| std::cmp::Reverse(b.id)),
+            SortOrder::IdAsc => issues.sort_by_key(|a| a.id),
             SortOrder::Priority => {
-                issues.sort_by(|a, b| priority_rank(a.priority).cmp(&priority_rank(b.priority)));
+                issues.sort_by_key(|a| priority_rank(a.priority));
             }
-            SortOrder::Updated => issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
+            SortOrder::Updated => issues.sort_by_key(|b| std::cmp::Reverse(b.updated_at)),
         }
 
         self.issues = issues;

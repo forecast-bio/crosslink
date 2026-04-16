@@ -120,8 +120,7 @@ fn auto_steal_if_configured(
         30u64
     } else {
         sync.read_locks_auto()
-            .map(|l| l.settings.stale_lock_timeout_minutes)
-            .unwrap_or(60)
+            .map_or(60, |l| l.settings.stale_lock_timeout_minutes)
     };
     let auto_steal_threshold = multiplier.saturating_mul(stale_timeout);
 

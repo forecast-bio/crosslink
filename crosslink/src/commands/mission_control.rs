@@ -81,16 +81,14 @@ fn tmux_session_exists(name: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", name])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 fn container_running(runtime: &str, name: &str) -> bool {
     Command::new(runtime)
         .args(["inspect", "--format", "{{.State.Running}}", name])
         .output()
-        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
 }
 
 /// Build the command string to view an agent's output in a pane.

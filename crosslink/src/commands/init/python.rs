@@ -60,8 +60,7 @@ fn cpitd_is_installed() -> bool {
     std::process::Command::new("cpitd")
         .arg("--version")
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 const CPITD_REPO_URL: &str = "https://github.com/scythia-marrow/cpitd.git";

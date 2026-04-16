@@ -1145,7 +1145,7 @@ fn load_config_sync_data(crosslink_dir: &Path) -> ConfigSyncResult {
                 }
             }
         }
-        all.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        all.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
 
         let summaries: Vec<EventSummary> = all
             .iter()

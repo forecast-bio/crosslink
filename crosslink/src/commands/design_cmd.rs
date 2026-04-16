@@ -22,8 +22,7 @@ pub fn run(
     let claude_available = Command::new("which")
         .arg("claude")
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
 
     if !claude_available {
         bail!(

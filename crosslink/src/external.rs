@@ -574,8 +574,7 @@ impl ExternalIssueReader {
                     Some("all") | None => true,
                     Some(s) => s
                         .parse::<crate::models::IssueStatus>()
-                        .map(|st| issue.status == st)
-                        .unwrap_or(false),
+                        .is_ok_and(|st| issue.status == st),
                 }
             })
             .filter(|issue| {

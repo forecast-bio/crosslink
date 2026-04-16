@@ -15,8 +15,7 @@ impl SyncManager {
 
         let has_old_remote = self
             .git_in_repo(&["ls-remote", "--heads", &self.remote, OLD_BRANCH])
-            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
-            .unwrap_or(false);
+            .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty());
 
         if !has_old_local_cache && !has_old_remote {
             return Ok(false); // Nothing to migrate
@@ -76,8 +75,7 @@ impl SyncManager {
         // 3. Push new branch to remote (best-effort)
         let has_new_remote = self
             .git_in_repo(&["ls-remote", "--heads", &self.remote, HUB_BRANCH])
-            .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
-            .unwrap_or(false);
+            .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty());
         if !has_new_remote {
             if let Err(e) = self.git_in_repo(&["push", "-u", &self.remote, HUB_BRANCH]) {
                 tracing::warn!("migration push failed, changes saved locally only: {}", e);

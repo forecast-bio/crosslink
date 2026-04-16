@@ -338,8 +338,7 @@ pub(super) fn tmux_session_exists(name: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", name])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success())
 }
 
 /// Check if a command is available on PATH.
@@ -349,7 +348,7 @@ pub(crate) fn command_available(cmd: &str) -> bool {
     #[cfg(not(target_os = "windows"))]
     let lookup = Command::new("which").arg(cmd).output();
 
-    lookup.map(|o| o.status.success()).unwrap_or(false)
+    lookup.is_ok_and(|o| o.status.success())
 }
 
 /// Detect the current platform and Linux distribution (if applicable).

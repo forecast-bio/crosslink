@@ -63,8 +63,7 @@ pub fn search(
             matches.retain(|page| {
                 reader
                     .read_page(&page.slug)
-                    .map(|content| content.to_lowercase().contains(&q_lower))
-                    .unwrap_or(false)
+                    .is_ok_and(|content| content.to_lowercase().contains(&q_lower))
             });
         }
 

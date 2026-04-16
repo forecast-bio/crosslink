@@ -1065,9 +1065,9 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                             break;
                         }
                     }
-                    KeyCode::Tab => {
+                    KeyCode::Tab
                         // Tab advances screen without cycling
-                        if !app.is_confirm_screen() {
+                        if !app.is_confirm_screen() => {
                             if app.is_preset_screen() {
                                 app.confirm();
                             } else {
@@ -1075,7 +1075,6 @@ fn interactive_walkthrough(crosslink_dir: &Path) -> Result<()> {
                                 app.group_cursor = 0;
                             }
                         }
-                    }
                     KeyCode::Backspace => app.go_back(),
                     KeyCode::Esc | KeyCode::Char('q') => {
                         app.cancelled = true;

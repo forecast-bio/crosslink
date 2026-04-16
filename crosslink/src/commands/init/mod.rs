@@ -716,8 +716,7 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         .current_dir(path)
         .args(["rev-parse", "HEAD"])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
     if !has_commits {
         anyhow::bail!(
             "Git repository has no commits.\n\
