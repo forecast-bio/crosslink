@@ -1,0 +1,10 @@
+{
+  "uuid": "d946c4dd-e735-49db-a5c0-6e9fda27caab",
+  "issue_uuid": "0abecbc9-486d-4512-ac2e-63d370839a34",
+  "author": "maxine--basel",
+  "content": "Release PR created: forecast-bio/crosslink#567 — v0.8.0 branch pushed with version bump, changelog, and 159/159 smoke tests passing.",
+  "created_at": "2026-04-17T21:55:03.426658Z",
+  "kind": "result",
+  "signed_by": "SHA256:tP3whSCYO5fS8VQaOlKk18TksXDqvEv+VbwpAEfxy5A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgbMJQrcFvxUHGFzKhLs2qsfUDMqPDdJSAHuIKkxY6rD4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAABO1HSt8+0JfiZqwjIEMcM0sYiotYznbyEWFSgG9LIkD7mZqu08vnomnksowIm/2imsA5TEdyoBh2pNk60uqDg=="
+}
