@@ -2393,6 +2393,126 @@ mod integration {
         drop(work_dir);
     }
 
+    /// Regression: `claim_display_id` must not hand out an ID that
+    /// already belongs to an existing issue file, even when
+    /// `counters.json` is stale. Simulates a freshly-cloned repo
+    /// whose hub branch contains closed issues but whose local
+    /// `counters.json` still reports `next_display_id = 1`.
+    #[test]
+    fn test_claim_display_id_reconciles_against_stale_counter() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+
+        // Simulate: issues directory already contains higher-ID files
+        // (from a hub branch that was synced but whose counters.json
+        // was never updated — e.g., a closed issue preserved from a
+        // prior session).
+        let issues_dir = writer.sync.cache_path().join("issues");
+        std::fs::create_dir_all(&issues_dir).unwrap();
+        let stale = make_issue(100, "closed-from-hub");
+        write_issue_file(&issues_dir.join(format!("{}.json", stale.uuid)), &stale).unwrap();
+
+        // counters.json still at the default (next_display_id = 1).
+        let counters = writer.read_counters().unwrap();
+        assert_eq!(
+            counters.next_display_id, 1,
+            "precondition: counter is stale"
+        );
+
+        // Claim — the reconciler should jump ahead past the existing
+        // max so the new ID does not collide.
+        let (first, updated) = writer.claim_display_id(1).unwrap();
+        assert_eq!(first, 101, "first claim must be past the max existing ID");
+        assert_eq!(updated.next_display_id, 102);
+        drop(work_dir);
+    }
+
+    /// Regression: the reconciler must walk both V1 and V2 layouts.
+    #[test]
+    fn test_claim_display_id_reconciles_across_v1_and_v2_layouts() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+
+        let issues_dir = writer.sync.cache_path().join("issues");
+        std::fs::create_dir_all(&issues_dir).unwrap();
+
+        // V1 layout: issues/{uuid}.json
+        let v1 = make_issue(50, "v1-issue");
+        write_issue_file(&issues_dir.join(format!("{}.json", v1.uuid)), &v1).unwrap();
+
+        // V2 layout: issues/{uuid}/issue.json with a HIGHER display_id
+        let v2 = make_issue(200, "v2-issue");
+        let v2_dir = issues_dir.join(v2.uuid.to_string());
+        std::fs::create_dir_all(&v2_dir).unwrap();
+        write_issue_file(&v2_dir.join("issue.json"), &v2).unwrap();
+
+        let (first, _) = writer.claim_display_id(1).unwrap();
+        assert_eq!(
+            first, 201,
+            "reconciler must see the highest ID across both layouts"
+        );
+        drop(work_dir);
+    }
+
+    /// When the counter is already ahead of the cache (the normal
+    /// steady-state case), reconciliation must NOT decrease it.
+    /// Otherwise a successful push that bumped the counter could be
+    /// silently undone on the next claim.
+    #[test]
+    fn test_claim_display_id_does_not_regress_advanced_counter() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+
+        // Advance the counter well beyond any files on disk.
+        let mut counters = writer.read_counters().unwrap();
+        counters.next_display_id = 500;
+        writer.write_counters_to_cache(&counters).unwrap();
+
+        // Add a few issue files with much lower IDs.
+        let issues_dir = writer.sync.cache_path().join("issues");
+        std::fs::create_dir_all(&issues_dir).unwrap();
+        let low = make_issue(5, "low");
+        write_issue_file(&issues_dir.join(format!("{}.json", low.uuid)), &low).unwrap();
+
+        let (first, updated) = writer.claim_display_id(1).unwrap();
+        assert_eq!(first, 500, "counter must not be regressed by older files");
+        assert_eq!(updated.next_display_id, 501);
+        drop(work_dir);
+    }
+
+    /// Regression: `claim_milestone_id` has the same potential
+    /// collision; verify the parallel reconciler fixes it.
+    #[test]
+    fn test_claim_milestone_id_reconciles_against_stale_counter() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+
+        // Seed meta/milestones/ with a pre-existing milestone file.
+        let milestones_dir = writer.sync.cache_path().join("meta").join("milestones");
+        std::fs::create_dir_all(&milestones_dir).unwrap();
+        let ms_uuid = Uuid::new_v4();
+        let milestone = crate::issue_file::MilestoneEntry {
+            uuid: ms_uuid,
+            display_id: 42,
+            name: "Q1".to_string(),
+            description: None,
+            status: IssueStatus::Open,
+            created_at: Utc::now(),
+            closed_at: None,
+        };
+        let path = milestones_dir.join(format!("{ms_uuid}.json"));
+        std::fs::write(&path, serde_json::to_string_pretty(&milestone).unwrap()).unwrap();
+
+        // counters.json default says next_milestone_id = 1.
+        let counters = writer.read_counters().unwrap();
+        assert_eq!(counters.next_milestone_id, 1, "precondition: counter stale");
+
+        let (id, updated) = writer.claim_milestone_id().unwrap();
+        assert_eq!(id, 43, "milestone id must skip past the existing max");
+        assert_eq!(updated.next_milestone_id, 44);
+        drop(work_dir);
+    }
+
     #[test]
     fn test_read_max_event_seq_returns_zero_when_no_log() {
         let dir = tempfile::tempdir().unwrap();

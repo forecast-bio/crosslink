@@ -459,8 +459,19 @@ impl SharedWriter {
     /// Claim N sequential display IDs from `meta/counters.json`.
     ///
     /// Returns `(first_claimed_id, updated_counters)`.
+    ///
+    /// Before claiming, the counter is reconciled against the highest
+    /// `display_id` actually present in the hub-cache issue files. This
+    /// prevents a class of collision bugs where `counters.json` falls out
+    /// of sync with the real state — e.g. a freshly-cloned repo whose
+    /// `counters.json` defaults to 1 but whose `issues/` directory
+    /// already contains closed issues with larger IDs; or a local cache
+    /// whose counter was decremented by a previous offline rollback
+    /// without observing that other agents had meanwhile pushed issues
+    /// with higher IDs. See `reconcile_display_counter`.
     pub(super) fn claim_display_id(&self, count: i64) -> Result<(i64, Counters)> {
         let mut counters = self.read_counters()?;
+        self.reconcile_display_counter(&mut counters)?;
         let first = counters.next_display_id;
         counters.next_display_id += count;
         Ok((first, counters))
@@ -469,11 +480,78 @@ impl SharedWriter {
     /// Claim a milestone display ID from `meta/counters.json`.
     ///
     /// Returns `(claimed_id, updated_counters)`.
+    ///
+    /// As with `claim_display_id`, the counter is reconciled against the
+    /// highest `display_id` present in the on-disk milestone files
+    /// before assignment so that stale `counters.json` does not produce
+    /// colliding IDs.
     pub(super) fn claim_milestone_id(&self) -> Result<(i64, Counters)> {
         let mut counters = self.read_counters()?;
+        self.reconcile_milestone_counter(&mut counters)?;
         let id = counters.next_milestone_id;
         counters.next_milestone_id += 1;
         Ok((id, counters))
+    }
+
+    /// Reconcile `counters.next_display_id` with the actual maximum
+    /// `display_id` present in the hub-cache issue files (open OR
+    /// closed). If the counter is behind, advance it past the max so
+    /// the next claim cannot collide with an existing file.
+    ///
+    /// Typical scenarios where the counter falls behind:
+    /// - Fresh clone: `meta/counters.json` does not yet exist so
+    ///   `read_counters` returns `Counters::default()` with
+    ///   `next_display_id = 1`, but the hub branch already has issues
+    ///   with much higher IDs.
+    /// - Offline rollback: `rewrite_as_offline` decrements the counter
+    ///   on local push failure. If another agent meanwhile pushed a
+    ///   new issue that reuses the same slot, the next online sync
+    ///   pulls it in but the local counter still points at the freed
+    ///   slot.
+    /// - Mixed hub/local state: merges and fast-forwards can leave
+    ///   `counters.json` lagging behind the issues directory.
+    ///
+    /// This is O(N) over issues-in-cache. That cost is paid only when
+    /// minting a new `display_id` (typically a handful of times per
+    /// command), not on every read.
+    pub(super) fn reconcile_display_counter(&self, counters: &mut Counters) -> Result<()> {
+        let max_existing = self
+            .scan_issues(|_| true)?
+            .iter()
+            .filter_map(|i| i.display_id)
+            .max()
+            .unwrap_or(0);
+        if counters.next_display_id <= max_existing {
+            counters.next_display_id = max_existing + 1;
+        }
+        Ok(())
+    }
+
+    /// Reconcile `counters.next_milestone_id` with the actual maximum
+    /// `display_id` present in the on-disk milestone files. See
+    /// [`reconcile_display_counter`] for the full rationale; the same
+    /// failure modes apply to milestones.
+    pub(super) fn reconcile_milestone_counter(&self, counters: &mut Counters) -> Result<()> {
+        let milestones_dir = self.cache_dir.join("meta").join("milestones");
+        let mut max_existing = 0i64;
+        if milestones_dir.exists() {
+            for entry in std::fs::read_dir(&milestones_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                if let Ok(ms) = read_milestone_file(&path) {
+                    if ms.display_id > max_existing {
+                        max_existing = ms.display_id;
+                    }
+                }
+            }
+        }
+        if counters.next_milestone_id <= max_existing {
+            counters.next_milestone_id = max_existing + 1;
+        }
+        Ok(())
     }
 
     /// Load a milestone entry by `display_id` from per-file storage.
