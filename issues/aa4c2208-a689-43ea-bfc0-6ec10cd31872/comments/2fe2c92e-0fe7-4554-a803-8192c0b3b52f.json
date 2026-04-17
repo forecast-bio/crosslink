@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Manual sentinel tests passed: 8/10 automated, 2/10 require external GH+webhook setup. Tests 1-8 + extras (label filter, limit, stop) all green from compiled release binary.",
   "created_at": "2026-04-11T02:44:51.973026266Z",
-  "kind": "handoff"
+  "kind": "handoff",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAOjvwlmocMnhAqJvTPBk3OZYMiQmJ851VT8Xt6IoiHFzAAAAID90JHqrJzKOZ7VQNw1oOrEud/QGcHOsG+8l9QQJaLUZ"
 }

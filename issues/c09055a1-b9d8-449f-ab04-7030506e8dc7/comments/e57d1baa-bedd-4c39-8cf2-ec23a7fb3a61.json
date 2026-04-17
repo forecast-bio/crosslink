@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Both manual tests PASS. Test 1 (sentinel run + label): issue #560 created, labeled agent-todo: replicate, sentinel dispatched agent, agent ran 8m 23s in tmux, wrote test_help_section_spacing_consistent in tests/cli_integration.rs, reported 'cannot reproduce' (expected for fake issue), sentinel harvested + posted GH comment on #560 with Sentinel: Reproduction Report markdown. Test 2 (webhook): enabled webhook with HMAC secret, sent signed POST to /webhook/github → 200 queued, sentinel engine processed signal (shown in history with skipped=1 because webhook-qa-only is unknown label, as designed). Invalid signature → 401, missing signature → 401. All verified end-to-end.",
   "created_at": "2026-04-13T18:04:01.889095402Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGMAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEgAAAAgWXFA0E1RYzPRwmQinbXb2Lx3xxEU3Fh2XvIQrzsCYCgAAAAgEohLa69wiihXQYnvDAnZRA0pklh3Z8aRLIl8uJWEeug="
 }

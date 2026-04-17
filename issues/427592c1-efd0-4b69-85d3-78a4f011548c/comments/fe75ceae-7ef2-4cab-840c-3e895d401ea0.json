@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Scaffolding fix for GH#554 already landed via commit e9e5bc52 (PR #550 for the same bug filed as #549). Remaining gap: test coverage still only mentioned safe-fetch/knowledge, so a future regression re-dropping agent-prompt-server.py would slip through. Closed the gap by (1) renaming test_init_deploys_mcp_knowledge_server to test_init_deploys_mcp_servers and asserting all 3 scripts exist + all 3 .mcp.json entries, (2) extending test_embedded_constants_not_empty to cover KNOWLEDGE_SERVER_PY, AGENT_PROMPT_SERVER_PY, HEARTBEAT_PY, and (3) extending test_init_writes_manifest to require all 3 MCP scripts. 83/83 init tests pass, fmt clean.",
   "created_at": "2026-04-13T17:02:34.590886708Z",
-  "kind": "resolution"
+  "kind": "resolution",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAPU3LhRlg4gowMhOlT8sHr6c6RwhwyalCro2ovsLCSA/AAAAIGiqimS9RzQszlIBWdtmxDpB8HRjrznhrp5ebf0bZFyQ"
 }

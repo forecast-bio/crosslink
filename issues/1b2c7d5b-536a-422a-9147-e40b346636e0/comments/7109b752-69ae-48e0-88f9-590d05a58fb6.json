@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Session auto-ended (stale after 12685 minutes). No handoff notes provided.",
   "created_at": "2026-04-10T15:41:19.387565744Z",
-  "kind": "handoff"
+  "kind": "handoff",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGUAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEoAAAAhAJfTTir0gdS28Kc4sLpGDHggoks8g4s0pJJVYsQKXq8VAAAAIQCQvRTEBPSto31dN+Q/PIctygI9sCEcCevJ59b3PD3CVg=="
 }

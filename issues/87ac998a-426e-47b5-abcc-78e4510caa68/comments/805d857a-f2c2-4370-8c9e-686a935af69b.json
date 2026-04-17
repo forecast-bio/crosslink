@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Shipped Option A fix: build_agent_command() takes a new claude_config_dir parameter that is prepended as a shell prefix assignment (CLAUDE_CONFIG_DIR='/path' env -u CLAUDECODE claude ...) before the env call. Callers launch_local and plan.rs both read std::env::var at invocation time. 4 new tests in kickoff::tests cover propagation, empty-string-skip, single-quote shell escaping, and sandbox interaction. All 4 existing build_agent_command tests updated to pass None. 139/139 kickoff tests pass, cargo fmt clean, no new clippy warnings in touched files.",
   "created_at": "2026-04-13T15:57:26.409404693Z",
-  "kind": "resolution"
+  "kind": "resolution",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgcls/e+E5RHnChp3dxQL5eXExXCPOTvPngWYRM4hMa1sAAAAhAMNzikLvp/9vx68FlOxlZ8RJZ3Fj3JDu7d1D4rlzyXZS"
 }

@@ -4,5 +4,7 @@
   "author": "jus4",
   "content": "Plan: Run crosslink --help and key subcommand helps to capture full output, then write a Rust test in tests/cli_integration.rs that (1) runs each subcommand with --help, (2) parses section headers (lines at column 0 ending with ':'), (3) asserts exactly one blank line before each section header except the first. Key subcommands to test: root, issue, session, kickoff, config, init, swarm. Analysis shows spacing between Commands: and Options: sections appears consistently 1 blank line across all commands examined — init/config use verbose option format but boundary spacing is the same. Will report 'cannot reproduce' if test passes.",
   "created_at": "2026-04-13T17:53:19.008263111Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAKNGjlC/kl6g37XsXJwEAo+u7dukjYc34qAhHv0MdIvfAAAAIESHyUB53dgv2cG0xi+E/3t5MN9EIz+gZte7Fj4F8LEI"
 }

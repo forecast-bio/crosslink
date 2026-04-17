@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "## What\n\nImplement `crosslink sentinel history` — shows past sentinel runs and their dispatch outcomes.\n\n### Output format (table, default)\n```\nRun              Started              Signals  Dispatched  Collected  Skipped\nsentinel-a1b2c3  2026-04-10 14:30:00  3        2           1          1\nsentinel-d4e5f6  2026-04-10 14:20:00  1        0           0          1\n```\n\nWith --json: array of run objects including nested dispatches array.\n\n### Implementation\n- Query sentinel_runs ORDER BY started_at DESC LIMIT <limit>\n- For each run, optionally join sentinel_dispatches for detail view\n- Format as table (default) or JSON (--json flag)\n- Support --limit flag (default 10)\n\n### Dependencies\n- #651 (schema — sentinel_runs table and query methods)",
   "created_at": "2026-04-10T18:51:16.074812390Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAhAMNNhr5qR+f1hTdtEYDN/nYu0L+3/i1agLPIeCrNWAJxAAAAIC5w7+s/FZPCyiOqFNl+BQEanDhUk7B+jAPCK7Zf4GXd"
 }

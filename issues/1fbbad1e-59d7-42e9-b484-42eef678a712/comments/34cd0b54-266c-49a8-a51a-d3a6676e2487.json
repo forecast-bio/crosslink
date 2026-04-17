@@ -4,5 +4,7 @@
   "author": "jus4",
   "content": "[action] Writing help-output section spacing test in tests/cli_integration.rs",
   "created_at": "2026-04-13T17:53:24.199037082Z",
-  "kind": "note"
+  "kind": "note",
+  "signed_by": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+  "signature": "U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAEEEe0KY4l/Z7G/vfkx00kFwZtY3FjD8lde6VcPNSNT06kyL5ZUnzQGbJUMzOdlFd65s/RCzZhVJQVonLQ3yKzipGAAAABJjcm9zc2xpbmstYmFja2ZpbGwAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAEkAAAAgX/zEDjiGDxMKSD9o+T0z86GfzhtjaQdHLcHuhmPAFuIAAAAhAIopY3MfVAkwB4wOCmBPQhyQcyE/GsllUEEJG+L41xvU"
 }
