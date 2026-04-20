@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+#### Dashboard — multi-project control panel ([GH-429])
+
+- `crosslink dashboard serve` — new SCADA-style panel replacing
+  `crosslink serve`'s single-project focus. Aggregates every tracked
+  project into one view with live tiles, alerts, and full CLI parity
+  for writes.
+- `crosslink dashboard track <path>` / `untrack` / `list` — point the
+  panel at user's existing project workspaces (no private clones).
+- 5-second poll loop per project: git fetch → hub snapshot → counters +
+  derived alerts → SQLite persistence → WebSocket fanout.
+- Alerts surface: `stale_lock`, `silent_agent`, `overdue_issue`,
+  `orphan_subissue`, `unreachable_project` — open/resolve reconciled
+  against derived set on every tick.
+- Write surface (shell out through `run_cli` primitive; every
+  invocation audited to the `actions` table with actor + verb +
+  outcome):
+  - Issues: close, reopen, comment, block, unblock, relate, label,
+    unlabel
+  - Milestones: create (with optional description), add issue,
+    remove issue, close
+  - Locks: claim (with optional branch), release, steal
+- Per-user SQLite index at `~/.crosslink/dashboard.db` with 7 tables
+  (projects, project_state, alerts, pty_sessions, actions, activity,
+  config).
+- React + Vite frontend embedded via `rust-embed`, bundled with the
+  binary. New IA: project grid (default), per-project detail (issues
+  with inline label chips + comment/label/block/relate drawers,
+  agents, locks with Release + Steal controls, milestones with
+  create form), /alerts page grouped by severity.
+- Deprecates `crosslink serve` — prints a warning pointing users at
+  `crosslink dashboard serve`.
+
+`crosslink serve`'s legacy JSON log format is preserved under the
+new subcommand for log-scraping continuity.
+
 ## [0.5.2] - 2026-03-19
 
 ### Added
@@ -39,6 +76,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- Fix crosslink init: deploy agent-prompt-server.py (GH#554) (#677)
+- Fix kickoff env propagation: CLAUDE_CONFIG_DIR not reaching tmux agent (GH#555) (#676)
+- Fix dashboard auth: wire API client to bearer token (GH#556) (#675)
 
 #### Hub & Sync
 - V1/V2 hub layout coexistence — resolve inconsistent write paths and cache corruption ([GH-428])
@@ -67,6 +107,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add `INTENTIONAL` comments to deliberate error suppression patterns ([CL-419])
 
 ### Changed
+- Manual QA for PR #553 sentinel run + webhook tests (#678)
+- Manual QA for PR #553 sentinel run + webhook tests (#678)
 
 #### Codebase Decomposition
 - Decompose 6 god files into focused submodules — `shared_writer.rs`, `kickoff.rs`, `db.rs`, `sync.rs`, `knowledge.rs`, `commands/knowledge.rs` ([CL-413])

@@ -647,12 +647,13 @@ rely on the hub branch's git history.
 
 ### Phase 2 — Write surface
 
-- Close/reopen issues, labels, milestones, relations
-- Lock claim/release/steal
+- Close/reopen issues, labels, milestones, relations ✓ (P1.8/P1.9)
+- Lock claim/release/steal ✓ (P1.10)
+- Audit log ✓ (`actions` table; written by `run_cli` primitive)
 - Git-native agent control protocol (`agents/.../requests/`) — agent-side
-  polling lib + request writer on dashboard side
-- Audit log
-- Desktop notifications
+  polling lib + request writer on dashboard side **(deferred to its own
+  PR; touches the agent loop + CLI surface and deserves focused review)**
+- Desktop notifications **(deferred to Phase 3)**
 
 ### Phase 3 — Interactive terminal
 
