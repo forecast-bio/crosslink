@@ -1,0 +1,8 @@
+{
+  "uuid": "40c9a489-2a38-4966-acfb-b6303ae665cf",
+  "issue_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
+  "author": "anon-ab6221f8",
+  "content": "Updated approach: entire feature ships as one PR when complete, not per-phase. Branch feat/429-crosslink-dashboard accumulates commits until Phase 1 MVP (possibly Phase 2 convenience layer) is shippable end-to-end, then one atomic PR to develop. No intermediate pushes. Individual commits stay scoped for readability but don't gate on review between them.",
+  "created_at": "2026-04-20T19:21:27.770785124Z",
+  "kind": "decision"
+}
