@@ -1,0 +1,8 @@
+{
+  "uuid": "caf53613-a38b-4a57-900e-2d68348c1a0b",
+  "issue_uuid": "b93375ab-94ea-4138-9e95-2aca9b413a32",
+  "author": "anon-ab6221f8",
+  "content": "Implementation done. Split AgentConfig identity from session-role: added AgentRole enum (Driver default, Agent). AgentConfig::init keeps driver semantics; new init_with_role(Agent) used by agent init + bootstrap. Python is_agent_context reads role and only returns True on role=agent (plus .claude/worktrees/ cwd signal preserved). Legacy/malformed agent.json defaults to driver (safe). Verified end-to-end against work-check.py: no-agent-json + role=driver + legacy-no-role + malformed all block git push (exit 2), role=agent allows (exit 0). 1697 lib tests pass including 5 new role tests. Drive-by: fixed flaky identity proptest that could generate Windows-reserved names validate() rejects.",
+  "created_at": "2026-04-20T13:17:38.535395635Z",
+  "kind": "result"
+}
