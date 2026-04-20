@@ -261,6 +261,15 @@ const fn date_at_time(d: NaiveDate, t: NaiveTime) -> DateTime<Utc> {
     DateTime::<Utc>::from_naive_utc_and_offset(NaiveDateTime::new(d, t), Utc)
 }
 
+/// 23:59:59 is a static, known-valid time, but `NaiveTime::from_hms_opt`
+/// is fallible at the type level. Fall back to `NaiveTime::MIN` to
+/// satisfy `clippy::unwrap_used` without a panic path — the fallback is
+/// unreachable for these constant inputs, and the date-parser tests catch
+/// any regression immediately.
+fn end_of_day() -> NaiveTime {
+    NaiveTime::from_hms_opt(23, 59, 59).unwrap_or(NaiveTime::MIN)
+}
+
 /// Clap `value_parser` for `--scheduled`: `YYYY-MM-DD` → T00:00:00Z (start
 /// of day), or full RFC 3339 passed through. GH #361 REQ-11.
 ///
@@ -270,7 +279,7 @@ const fn date_at_time(d: NaiveDate, t: NaiveTime) -> DateTime<Utc> {
 /// valid RFC 3339 datetime.
 pub fn parse_scheduled_date(s: &str) -> Result<DateTime<Utc>, String> {
     if let Some(d) = parse_bare_date(s) {
-        return Ok(date_at_time(d, NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
+        return Ok(date_at_time(d, NaiveTime::MIN));
     }
     parse_rfc3339_as_utc(s).ok_or_else(|| {
         format!("expected YYYY-MM-DD or RFC 3339 datetime (e.g. 2026-03-20T14:00:00Z), got: {s}")
@@ -286,10 +295,7 @@ pub fn parse_scheduled_date(s: &str) -> Result<DateTime<Utc>, String> {
 /// valid RFC 3339 datetime.
 pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
     if let Some(d) = parse_bare_date(s) {
-        return Ok(date_at_time(
-            d,
-            NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
-        ));
+        return Ok(date_at_time(d, end_of_day()));
     }
     parse_rfc3339_as_utc(s).ok_or_else(|| {
         format!("expected YYYY-MM-DD or RFC 3339 datetime (e.g. 2026-03-20T14:00:00Z), got: {s}")
