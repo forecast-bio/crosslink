@@ -1,0 +1,8 @@
+{
+  "uuid": "23c8f3be-41ef-41d4-b3aa-60dfe23d3a1f",
+  "issue_uuid": "3f440d5c-4ab1-46ec-afae-7a52d5773c50",
+  "author": "anon-ab6221f8",
+  "content": "Implementation done. Added SyncManager::repair_stale_signingkey() in sync/trust.rs (reads user.signingkey from cache_dir, skips literal key material, falls back to driver signing via existing fallback_to_driver_signing when the path is missing). Wired best-effort call into git_commit_in_cache so every commit self-heals. Extracted tilde-expansion into a module-private helper reused by both code paths. Five new unit tests: missing-path repaired, valid-path noop, literal-key skipped, cache-missing noop, no-worktree-override noop. 1702 lib tests pass. Ready for push + PR.",
+  "created_at": "2026-04-20T13:52:16.601998795Z",
+  "kind": "result"
+}
