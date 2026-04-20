@@ -1,0 +1,10 @@
+{
+  "uuid": "4726a6dc-50c1-4e64-8cc4-5844ce15284f",
+  "display_id": 687,
+  "title": "Implement issue scheduling fields (scheduled_at, due_at) per GH #361",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-20T14:16:24.127467636Z",
+  "updated_at": "2026-04-20T14:16:24.127467636Z"
+}
