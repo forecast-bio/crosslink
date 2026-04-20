@@ -29,6 +29,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Milestones: create (with optional description), add issue,
     remove issue, close
   - Locks: claim (with optional branch), release, steal
+  - Agents: send control request (kill / pause / resume / reprioritise)
+    via the git-native protocol from design doc §9
+- Git-native agent control protocol:
+  - `crosslink agent request <target> <kind>` writes a signed JSON
+    under `agents/<target>/requests/` on the hub branch.
+  - `crosslink agent poll-requests` (run automatically every
+    `crosslink sync`) translates incoming requests into local
+    control flags under `.crosslink/agent-flags/` and writes an
+    ack back to the hub so the dashboard shows outcome status.
+  - `crosslink agent requests` lists pending/acked requests for
+    triage.
 - Per-user SQLite index at `~/.crosslink/dashboard.db` with 7 tables
   (projects, project_state, alerts, pty_sessions, actions, activity,
   config).

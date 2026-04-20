@@ -342,6 +342,27 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         );
     }
 
+    // Process pending agent control requests for this agent (§9 of
+    // the dashboard design doc). Every sync tick gets a poll pass so
+    // pause / resume / kill / reprioritise take effect in ≤ one sync
+    // interval without the agent loop needing its own timer.
+    if let (Ok(Some(writer)), Ok(Some(cfg))) = (
+        SharedWriter::new(crosslink_dir),
+        crate::identity::AgentConfig::load(crosslink_dir),
+    ) {
+        match crate::agent_requests::poll::process_pending(&writer, crosslink_dir, &cfg.agent_id) {
+            Ok(result) if !result.acted.is_empty() => {
+                println!(
+                    "Processed {} agent request(s) for {}.",
+                    result.acted.len(),
+                    cfg.agent_id
+                );
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("agent request poll failed: {e}"),
+        }
+    }
+
     // Attempt to promote offline issues (display_id: null → real IDs)
     if let Some(writer) = SharedWriter::new(crosslink_dir)? {
         let promoted = writer.promote_offline_issues(db)?;

@@ -650,9 +650,13 @@ rely on the hub branch's git history.
 - Close/reopen issues, labels, milestones, relations ✓ (P1.8/P1.9)
 - Lock claim/release/steal ✓ (P1.10)
 - Audit log ✓ (`actions` table; written by `run_cli` primitive)
-- Git-native agent control protocol (`agents/.../requests/`) — agent-side
-  polling lib + request writer on dashboard side **(deferred to its own
-  PR; touches the agent loop + CLI surface and deserves focused review)**
+- Git-native agent control protocol (`agents/.../requests/`) ✓ (P1.11)
+  - Driver-side write: `crosslink agent request`, dashboard REST
+    endpoint, React UI with per-agent request drawer
+  - Agent-side poll: `crate::agent_flags` (pause/kill/reprioritise
+    local flags), `crate::agent_requests::poll::process_pending`,
+    `crosslink agent poll-requests` CLI, auto-integrated into
+    `crosslink sync` so every sync tick processes requests
 - Desktop notifications **(deferred to Phase 3)**
 
 ### Phase 3 — Interactive terminal
