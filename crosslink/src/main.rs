@@ -47,6 +47,7 @@ mod clock_skew;
 mod commands;
 mod compaction;
 mod daemon;
+mod dashboard;
 mod db;
 mod events;
 mod external;
@@ -3055,6 +3056,12 @@ fn main() -> Result<()> {
         } => {
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
+            // Bootstrap (or open) the per-user dashboard index at
+            // ~/.crosslink/dashboard.db. Schema is applied idempotently.
+            // The handle isn't wired into server::run yet — that comes in
+            // P1.2 when the poll loop starts populating the index.
+            let dashboard_db_path = dashboard::db::DashboardDb::default_path()?;
+            let _dashboard_db = dashboard::db::DashboardDb::open(&dashboard_db_path)?;
             tokio::runtime::Runtime::new()?.block_on(server::run(
                 port,
                 dashboard_dir,
