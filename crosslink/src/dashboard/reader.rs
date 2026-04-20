@@ -1,0 +1,648 @@
+//! Hub-branch reader — reads tracked-project state from a local clone.
+//!
+//! Given a path to a cache clone (typically
+//! `~/.crosslink/dashboard-cache/<owner>/<repo>/`) that has `crosslink/hub`
+//! checked out, produces a [`HubSnapshot`] capturing issues, agent
+//! heartbeats, locks, and metadata. The dashboard poll loop (P1.2.C)
+//! calls this reader on every tick and diffs the result into the
+//! per-user `SQLite` index.
+//!
+//! Parsers are reused from the rest of the crosslink crate:
+//! - [`crate::issue_file::read_all_issue_files`] for issues (handles
+//!   both V2 `issues/<uuid>/issue.json` and legacy flat V1 layouts)
+//! - [`crate::locks::LocksFile`] for V1 `locks.json` and
+//!   [`crate::locks::Heartbeat`] for per-agent heartbeat files
+//! - [`crate::issue_file::read_layout_version`] for the hub's v1/v2 tag
+//!
+//! Items here are not called from non-test code yet — the poll loop
+//! (P1.2.C) is the sole consumer once it lands. The module-level
+//! `allow(dead_code)` prevents that intermediate state from breaking
+//! the strict `-D warnings` CI gate.
+
+#![allow(dead_code)]
+
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use std::path::Path;
+use std::process::Command;
+
+/// Snapshot of a tracked project's `crosslink/hub` branch at a point in time.
+#[derive(Debug, Clone)]
+pub struct HubSnapshot {
+    /// Commit SHA at the tip of `crosslink/hub`, or `None` if the ref
+    /// can't be resolved (fresh clone that hasn't fetched, etc.).
+    pub hub_sha: Option<String>,
+    /// Hub layout version (1 or 2). Used by downstream consumers that
+    /// care about which schema the checked-out files follow.
+    pub layout_version: u32,
+    /// All issue files on the hub branch.
+    pub issues: Vec<crate::issue_file::IssueFile>,
+    /// One entry per agent that has written a heartbeat.
+    pub agents: Vec<crate::locks::Heartbeat>,
+    /// Lock entries, keyed by issue display ID.
+    pub locks: Vec<LockRecord>,
+    /// Timestamp of the most recent git commit on the hub branch
+    /// (a rough "last change" indicator used for tile freshness).
+    pub last_commit_at: Option<DateTime<Utc>>,
+}
+
+/// Flattened lock record (`LocksFile`'s `HashMap` -> `Vec` for easier iteration).
+#[derive(Debug, Clone)]
+pub struct LockRecord {
+    pub issue_id: i64,
+    pub lock: crate::locks::Lock,
+}
+
+/// Read a snapshot of the hub branch from the given clone path.
+///
+/// `clone_path` is expected to be the working tree of a clone with
+/// `crosslink/hub` checked out. Missing files are treated as empty
+/// rather than fatal errors — the snapshot tolerates repos that
+/// haven't yet populated every layer (fresh hubs, repos with no
+/// agents yet, etc.).
+///
+/// # Errors
+/// Returns an error only for structural failures that would make the
+/// snapshot meaningless: the clone path doesn't exist, or a JSON
+/// parser encounters malformed data that isn't "missing file."
+pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
+    anyhow::ensure!(
+        clone_path.is_dir(),
+        "clone path does not exist or is not a directory: {}",
+        clone_path.display()
+    );
+
+    let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
+    let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
+
+    let meta_dir = clone_path.join("meta");
+    let layout_version = if meta_dir.is_dir() {
+        crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1)
+    } else {
+        1
+    };
+
+    let issues_dir = clone_path.join("issues");
+    let issues = if issues_dir.is_dir() {
+        crate::issue_file::read_all_issue_files(&issues_dir).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let agents = read_agent_heartbeats(clone_path);
+    let locks = read_locks(clone_path);
+
+    Ok(HubSnapshot {
+        hub_sha,
+        layout_version,
+        issues,
+        agents,
+        locks,
+        last_commit_at,
+    })
+}
+
+/// Read `agents/<id>/heartbeat.json` files (V2 layout).
+///
+/// Falls back gracefully — repos with no `agents/` directory and repos
+/// with malformed heartbeat files both yield an empty list. Readers
+/// should treat "no heartbeats" as a distinct state from "all agents
+/// silent."
+fn read_agent_heartbeats(clone_path: &Path) -> Vec<crate::locks::Heartbeat> {
+    let agents_dir = clone_path.join("agents");
+    if !agents_dir.is_dir() {
+        return Vec::new();
+    }
+
+    let Ok(entries) = std::fs::read_dir(&agents_dir) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let hb_path = entry.path().join("heartbeat.json");
+        if !hb_path.is_file() {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&hb_path) {
+            if let Ok(hb) = serde_json::from_str::<crate::locks::Heartbeat>(&content) {
+                out.push(hb);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
+    out
+}
+
+/// Read locks from whichever layout the repo uses (V2 per-lock files
+/// under `locks/` OR V1 flat `locks.json`). V2 takes precedence when
+/// both exist.
+fn read_locks(clone_path: &Path) -> Vec<LockRecord> {
+    let v2_dir = clone_path.join("locks");
+    if v2_dir.is_dir() {
+        return read_locks_v2(&v2_dir);
+    }
+
+    let v1_path = clone_path.join("locks.json");
+    if v1_path.is_file() {
+        return read_locks_v1(&v1_path);
+    }
+
+    Vec::new()
+}
+
+fn read_locks_v1(path: &Path) -> Vec<LockRecord> {
+    match crate::locks::LocksFile::load(path) {
+        Ok(file) => file
+            .locks
+            .into_iter()
+            .map(|(issue_id, lock)| LockRecord { issue_id, lock })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn read_locks_v2(dir: &Path) -> Vec<LockRecord> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        // V2 per-lock files are named after the issue display ID.
+        let Ok(issue_id) = stem.parse::<i64>() else {
+            continue;
+        };
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(lock) = serde_json::from_str::<crate::locks::Lock>(&content) {
+                out.push(LockRecord { issue_id, lock });
+            }
+        }
+    }
+    out.sort_by_key(|r| r.issue_id);
+    out
+}
+
+fn git_rev_parse(clone_path: &Path, revision: &str) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(clone_path)
+        .args(["rev-parse", revision])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        None
+    } else {
+        Some(stdout)
+    }
+}
+
+fn git_last_commit_at(clone_path: &Path, revision: &str) -> Option<DateTime<Utc>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(clone_path)
+        .args(["log", "-1", "--format=%cI", revision])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    DateTime::parse_from_rfc3339(&raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+/// Convenience summary derived from a snapshot — the counters the
+/// dashboard tile needs. Decouples the `project_state` DB writes in
+/// the poll loop from the raw parser output.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProjectCounters {
+    pub open_issues: i64,
+    pub overdue_issues: i64,
+    pub due_soon_issues: i64,
+    pub blocked_issues: i64,
+    pub active_agents: i64,
+    pub stale_locks: i64,
+}
+
+impl HubSnapshot {
+    /// Derive the counters displayed on a project tile.
+    ///
+    /// - `open_issues`: issues with status = open.
+    /// - `overdue_issues`: open issues whose `due_at < now`.
+    /// - `due_soon_issues`: open issues whose `due_at` is in the next
+    ///   24 hours.
+    /// - `blocked_issues`: open issues with at least one blocker that
+    ///   is itself still open.
+    /// - `active_agents`: agents whose `last_heartbeat` is within
+    ///   `agent_active_window_minutes` of now.
+    /// - `stale_locks`: locks whose `claimed_at` is older than
+    ///   `stale_lock_minutes` of now.
+    #[must_use]
+    pub fn derive_counters(
+        &self,
+        now: DateTime<Utc>,
+        agent_active_window_minutes: i64,
+        stale_lock_minutes: i64,
+    ) -> ProjectCounters {
+        use std::collections::HashSet;
+
+        let open: Vec<&crate::issue_file::IssueFile> = self
+            .issues
+            .iter()
+            .filter(|i| matches!(i.status, crate::models::IssueStatus::Open))
+            .collect();
+
+        let open_uuids: HashSet<uuid::Uuid> = open.iter().map(|i| i.uuid).collect();
+
+        let due_soon_window = chrono::Duration::hours(24);
+        let mut overdue = 0i64;
+        let mut due_soon = 0i64;
+        let mut blocked = 0i64;
+        for issue in &open {
+            if let Some(due) = issue.due_at {
+                if due < now {
+                    overdue += 1;
+                } else if due - now <= due_soon_window {
+                    due_soon += 1;
+                }
+            }
+            if issue.blockers.iter().any(|b| open_uuids.contains(b)) {
+                blocked += 1;
+            }
+        }
+
+        let agent_window = chrono::Duration::minutes(agent_active_window_minutes);
+        let active_agents = self
+            .agents
+            .iter()
+            .filter(|a| now - a.last_heartbeat <= agent_window)
+            .count() as i64;
+
+        let stale_window = chrono::Duration::minutes(stale_lock_minutes);
+        let stale_locks = self
+            .locks
+            .iter()
+            .filter(|r| now - r.lock.claimed_at > stale_window)
+            .count() as i64;
+
+        ProjectCounters {
+            open_issues: open.len() as i64,
+            overdue_issues: overdue,
+            due_soon_issues: due_soon,
+            blocked_issues: blocked,
+            active_agents,
+            stale_locks,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use serde_json::json;
+    use std::fs;
+    use tempfile::tempdir;
+    use uuid::Uuid;
+
+    fn now_fixed() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 4, 20, 12, 0, 0).unwrap()
+    }
+
+    fn write_issue(dir: &Path, file: &crate::issue_file::IssueFile) {
+        let issue_dir = dir.join("issues").join(file.uuid.to_string());
+        fs::create_dir_all(&issue_dir).unwrap();
+        let path = issue_dir.join("issue.json");
+        fs::write(&path, serde_json::to_string_pretty(file).unwrap()).unwrap();
+    }
+
+    fn make_issue(
+        uuid: Uuid,
+        display_id: i64,
+        status: crate::models::IssueStatus,
+        due_at: Option<DateTime<Utc>>,
+        blockers: Vec<Uuid>,
+    ) -> crate::issue_file::IssueFile {
+        crate::issue_file::IssueFile {
+            uuid,
+            display_id: Some(display_id),
+            title: format!("Issue {display_id}"),
+            description: None,
+            status,
+            priority: crate::models::Priority::Medium,
+            parent_uuid: None,
+            created_by: "test".into(),
+            created_at: now_fixed(),
+            updated_at: now_fixed(),
+            closed_at: None,
+            scheduled_at: None,
+            due_at,
+            labels: vec![],
+            comments: vec![],
+            blockers,
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        }
+    }
+
+    #[test]
+    fn test_read_snapshot_rejects_missing_dir() {
+        let bogus = std::path::PathBuf::from("/tmp/definitely-not-a-clone-path-xyz123");
+        let err = read_snapshot(&bogus).unwrap_err();
+        assert!(err.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_read_snapshot_empty_clone() {
+        let dir = tempdir().unwrap();
+        let snap = read_snapshot(dir.path()).unwrap();
+        assert!(snap.issues.is_empty());
+        assert!(snap.agents.is_empty());
+        assert!(snap.locks.is_empty());
+        assert_eq!(snap.layout_version, 1);
+        assert!(snap.hub_sha.is_none());
+    }
+
+    #[test]
+    fn test_read_snapshot_parses_issues() {
+        let dir = tempdir().unwrap();
+        let issue = make_issue(
+            Uuid::new_v4(),
+            42,
+            crate::models::IssueStatus::Open,
+            None,
+            vec![],
+        );
+        write_issue(dir.path(), &issue);
+        let snap = read_snapshot(dir.path()).unwrap();
+        assert_eq!(snap.issues.len(), 1);
+        assert_eq!(snap.issues[0].display_id, Some(42));
+    }
+
+    #[test]
+    fn test_read_snapshot_parses_heartbeats() {
+        let dir = tempdir().unwrap();
+        let agents_dir = dir.path().join("agents").join("jus4");
+        fs::create_dir_all(&agents_dir).unwrap();
+        let hb = json!({
+            "agent_id": "jus4",
+            "last_heartbeat": "2026-04-20T11:55:00+00:00",
+            "active_issue_id": 42,
+            "machine_id": "host-a"
+        });
+        fs::write(agents_dir.join("heartbeat.json"), hb.to_string()).unwrap();
+
+        let snap = read_snapshot(dir.path()).unwrap();
+        assert_eq!(snap.agents.len(), 1);
+        assert_eq!(snap.agents[0].agent_id, "jus4");
+        assert_eq!(snap.agents[0].active_issue_id, Some(42));
+    }
+
+    #[test]
+    fn test_read_snapshot_parses_v1_locks() {
+        let dir = tempdir().unwrap();
+        let locks_json = json!({
+            "version": 1,
+            "locks": {
+                "42": {
+                    "agent_id": "jus4",
+                    "branch": "feature/xyz",
+                    "claimed_at": "2026-04-20T10:00:00+00:00",
+                    "signed_by": "SHA256:abc"
+                }
+            },
+            "settings": { "stale_lock_timeout_minutes": 60 }
+        });
+        fs::write(dir.path().join("locks.json"), locks_json.to_string()).unwrap();
+
+        let snap = read_snapshot(dir.path()).unwrap();
+        assert_eq!(snap.locks.len(), 1);
+        assert_eq!(snap.locks[0].issue_id, 42);
+        assert_eq!(snap.locks[0].lock.agent_id, "jus4");
+    }
+
+    #[test]
+    fn test_read_snapshot_parses_v2_locks() {
+        let dir = tempdir().unwrap();
+        let locks_dir = dir.path().join("locks");
+        fs::create_dir_all(&locks_dir).unwrap();
+        let lock_json = json!({
+            "agent_id": "jus4",
+            "branch": null,
+            "claimed_at": "2026-04-20T10:00:00+00:00",
+            "signed_by": "SHA256:abc"
+        });
+        fs::write(locks_dir.join("42.json"), lock_json.to_string()).unwrap();
+
+        let snap = read_snapshot(dir.path()).unwrap();
+        assert_eq!(snap.locks.len(), 1);
+        assert_eq!(snap.locks[0].issue_id, 42);
+    }
+
+    #[test]
+    fn test_counters_open_and_closed() {
+        let snap = HubSnapshot {
+            hub_sha: None,
+            layout_version: 2,
+            issues: vec![
+                make_issue(
+                    Uuid::new_v4(),
+                    1,
+                    crate::models::IssueStatus::Open,
+                    None,
+                    vec![],
+                ),
+                make_issue(
+                    Uuid::new_v4(),
+                    2,
+                    crate::models::IssueStatus::Open,
+                    None,
+                    vec![],
+                ),
+                make_issue(
+                    Uuid::new_v4(),
+                    3,
+                    crate::models::IssueStatus::Closed,
+                    None,
+                    vec![],
+                ),
+            ],
+            agents: vec![],
+            locks: vec![],
+            last_commit_at: None,
+        };
+        let counters = snap.derive_counters(now_fixed(), 10, 60);
+        assert_eq!(counters.open_issues, 2);
+        assert_eq!(counters.blocked_issues, 0);
+    }
+
+    #[test]
+    fn test_counters_overdue_and_due_soon() {
+        let now = now_fixed();
+        let overdue = now - chrono::Duration::days(1);
+        let soon = now + chrono::Duration::hours(6);
+        let distant = now + chrono::Duration::days(30);
+
+        let snap = HubSnapshot {
+            hub_sha: None,
+            layout_version: 2,
+            issues: vec![
+                make_issue(
+                    Uuid::new_v4(),
+                    1,
+                    crate::models::IssueStatus::Open,
+                    Some(overdue),
+                    vec![],
+                ),
+                make_issue(
+                    Uuid::new_v4(),
+                    2,
+                    crate::models::IssueStatus::Open,
+                    Some(soon),
+                    vec![],
+                ),
+                make_issue(
+                    Uuid::new_v4(),
+                    3,
+                    crate::models::IssueStatus::Open,
+                    Some(distant),
+                    vec![],
+                ),
+            ],
+            agents: vec![],
+            locks: vec![],
+            last_commit_at: None,
+        };
+        let c = snap.derive_counters(now, 10, 60);
+        assert_eq!(c.open_issues, 3);
+        assert_eq!(c.overdue_issues, 1);
+        assert_eq!(c.due_soon_issues, 1);
+    }
+
+    #[test]
+    fn test_counters_blocked_only_counts_open_blockers() {
+        let blocker_open = Uuid::new_v4();
+        let blocker_closed = Uuid::new_v4();
+        let snap = HubSnapshot {
+            hub_sha: None,
+            layout_version: 2,
+            issues: vec![
+                // Open blocker — the dependent issue counts as blocked.
+                make_issue(
+                    blocker_open,
+                    10,
+                    crate::models::IssueStatus::Open,
+                    None,
+                    vec![],
+                ),
+                // Closed blocker — dependent does NOT count as blocked.
+                make_issue(
+                    blocker_closed,
+                    11,
+                    crate::models::IssueStatus::Closed,
+                    None,
+                    vec![],
+                ),
+                // Dependent with open blocker.
+                make_issue(
+                    Uuid::new_v4(),
+                    20,
+                    crate::models::IssueStatus::Open,
+                    None,
+                    vec![blocker_open],
+                ),
+                // Dependent with only closed blocker.
+                make_issue(
+                    Uuid::new_v4(),
+                    21,
+                    crate::models::IssueStatus::Open,
+                    None,
+                    vec![blocker_closed],
+                ),
+            ],
+            agents: vec![],
+            locks: vec![],
+            last_commit_at: None,
+        };
+        let c = snap.derive_counters(now_fixed(), 10, 60);
+        assert_eq!(c.open_issues, 3);
+        assert_eq!(c.blocked_issues, 1);
+    }
+
+    #[test]
+    fn test_counters_active_agents() {
+        let now = now_fixed();
+        let fresh = crate::locks::Heartbeat {
+            agent_id: "fresh".into(),
+            last_heartbeat: now - chrono::Duration::minutes(2),
+            active_issue_id: Some(1),
+            machine_id: "host".into(),
+        };
+        let stale = crate::locks::Heartbeat {
+            agent_id: "stale".into(),
+            last_heartbeat: now - chrono::Duration::minutes(30),
+            active_issue_id: None,
+            machine_id: "host".into(),
+        };
+        let snap = HubSnapshot {
+            hub_sha: None,
+            layout_version: 2,
+            issues: vec![],
+            agents: vec![fresh, stale],
+            locks: vec![],
+            last_commit_at: None,
+        };
+        let c = snap.derive_counters(now, 10, 60);
+        assert_eq!(c.active_agents, 1);
+    }
+
+    #[test]
+    fn test_counters_stale_locks() {
+        let now = now_fixed();
+        let fresh = LockRecord {
+            issue_id: 1,
+            lock: crate::locks::Lock {
+                agent_id: "jus4".into(),
+                branch: None,
+                claimed_at: now - chrono::Duration::minutes(5),
+                signed_by: "SHA256:a".into(),
+            },
+        };
+        let stale = LockRecord {
+            issue_id: 2,
+            lock: crate::locks::Lock {
+                agent_id: "jus4".into(),
+                branch: None,
+                claimed_at: now - chrono::Duration::minutes(90),
+                signed_by: "SHA256:a".into(),
+            },
+        };
+        let snap = HubSnapshot {
+            hub_sha: None,
+            layout_version: 2,
+            issues: vec![],
+            agents: vec![],
+            locks: vec![fresh, stale],
+            last_commit_at: None,
+        };
+        let c = snap.derive_counters(now, 10, 60);
+        assert_eq!(c.stale_locks, 1);
+    }
+}
