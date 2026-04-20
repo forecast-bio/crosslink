@@ -63,9 +63,10 @@ pub fn run(
         format!("ARGUMENTS: {arguments}\n\n{prompt_body}")
     };
 
-    // 6. Launch foreground Claude session
+    // 6. Launch foreground Claude session.
+    // The `claude` CLI accepts the initial prompt as a positional argument;
+    // there is no `--prompt` flag (see issue #568).
     let status = Command::new("claude")
-        .arg("--prompt")
         .arg(&full_prompt)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
