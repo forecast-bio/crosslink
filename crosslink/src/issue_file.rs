@@ -1268,4 +1268,94 @@ mod tests {
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].name, "v1.0");
     }
+
+    // ── Scheduling backward-compat (GH #361 AC-11) ──
+
+    #[test]
+    fn test_issuefile_deserializes_without_scheduling_fields() {
+        // An existing issue file written before scheduling existed must load
+        // cleanly with both new fields defaulting to None. This is the same
+        // shape produced by any crosslink version prior to #361.
+        let legacy = serde_json::json!({
+            "uuid": "00000000-0000-0000-0000-000000000001",
+            "display_id": 42,
+            "title": "legacy issue",
+            "status": "open",
+            "priority": "medium",
+            "created_by": "legacy-agent",
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:00Z"
+        });
+        let file: IssueFile = serde_json::from_value(legacy).unwrap();
+        assert_eq!(file.title, "legacy issue");
+        assert!(file.scheduled_at.is_none());
+        assert!(file.due_at.is_none());
+    }
+
+    #[test]
+    fn test_issuefile_scheduling_fields_roundtrip() {
+        let now = chrono::Utc::now();
+        let file = IssueFile {
+            uuid: uuid::Uuid::new_v4(),
+            display_id: Some(1),
+            title: "t".into(),
+            description: None,
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
+            parent_uuid: None,
+            created_by: "agent".into(),
+            created_at: now,
+            updated_at: now,
+            closed_at: None,
+            scheduled_at: Some(now),
+            due_at: Some(now + chrono::Duration::days(7)),
+            labels: vec![],
+            comments: vec![],
+            blockers: vec![],
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        };
+        let json = serde_json::to_string(&file).unwrap();
+        let parsed: IssueFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.scheduled_at, file.scheduled_at);
+        assert_eq!(parsed.due_at, file.due_at);
+    }
+
+    #[test]
+    fn test_issuefile_scheduling_none_omitted_from_json() {
+        // skip_serializing_if = Option::is_none keeps JSON clean for the
+        // common case where no scheduling is set.
+        let now = chrono::Utc::now();
+        let file = IssueFile {
+            uuid: uuid::Uuid::new_v4(),
+            display_id: Some(1),
+            title: "t".into(),
+            description: None,
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
+            parent_uuid: None,
+            created_by: "agent".into(),
+            created_at: now,
+            updated_at: now,
+            closed_at: None,
+            scheduled_at: None,
+            due_at: None,
+            labels: vec![],
+            comments: vec![],
+            blockers: vec![],
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        };
+        let json = serde_json::to_string(&file).unwrap();
+        assert!(
+            !json.contains("scheduled_at"),
+            "scheduled_at=None should not appear in JSON: {json}"
+        );
+        assert!(
+            !json.contains("due_at"),
+            "due_at=None should not appear in JSON: {json}"
+        );
+    }
 }

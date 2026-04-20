@@ -574,4 +574,57 @@ mod tests {
         assert!(validate_compact_name("hello world").is_err());
         assert!(validate_compact_name("hello/world").is_err());
     }
+
+    // ── Scheduling date parser tests (GH #361) ─────────────────────────
+
+    #[test]
+    fn test_parse_scheduled_date_iso_maps_to_start_of_day() {
+        // REQ-11 / AC-1: YYYY-MM-DD for --scheduled is T00:00:00Z.
+        let dt = parse_scheduled_date("2026-03-20").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-20T00:00:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_due_date_iso_maps_to_end_of_day() {
+        // REQ-11 / AC-1: YYYY-MM-DD for --due is T23:59:59Z.
+        let dt = parse_due_date("2026-03-25").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-25T23:59:59+00:00");
+    }
+
+    #[test]
+    fn test_parse_due_date_rfc3339_passthrough() {
+        // REQ-11 / AC-20: full RFC 3339 bypasses the end-of-day convention.
+        let dt = parse_due_date("2026-03-20T14:00:00Z").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-20T14:00:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_scheduled_date_rfc3339_passthrough() {
+        let dt = parse_scheduled_date("2026-03-20T09:30:00Z").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-20T09:30:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_scheduled_date_rejects_garbage() {
+        let err = parse_scheduled_date("not a date").unwrap_err();
+        assert!(
+            err.contains("YYYY-MM-DD") || err.contains("RFC 3339"),
+            "error message should hint at accepted formats: {err}"
+        );
+    }
+
+    #[test]
+    fn test_parse_due_date_rejects_empty() {
+        assert!(parse_due_date("").is_err());
+    }
+
+    #[test]
+    fn test_parse_date_rejects_invalid_month() {
+        assert!(parse_scheduled_date("2026-13-01").is_err());
+    }
+
+    #[test]
+    fn test_parse_date_rejects_invalid_day() {
+        assert!(parse_due_date("2026-02-31").is_err());
+    }
 }

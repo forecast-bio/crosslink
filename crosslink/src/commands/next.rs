@@ -394,4 +394,149 @@ mod tests {
             prop_assert!(result.is_ok());
         }
     }
+
+    // ── Scheduling tests (GH #361) ────────────────────────────────────
+    //
+    // The scheduling fields are populated via the shared-writer path in
+    // production; the unit tests here use direct SQL UPDATE on the DB
+    // to set `scheduled_at`/`due_at` without spinning up a hub cache.
+
+    fn set_scheduling(db: &Database, id: i64, scheduled: Option<&str>, due: Option<&str>) {
+        db.conn
+            .execute(
+                "UPDATE issues SET scheduled_at = ?1, due_at = ?2 WHERE id = ?3",
+                rusqlite::params![scheduled, due, id],
+            )
+            .unwrap();
+    }
+
+    // ── format_remaining ──
+
+    #[test]
+    fn test_format_remaining_negative_is_none() {
+        assert!(format_remaining(Duration::seconds(-1)).is_none());
+        assert!(format_remaining(Duration::zero()).is_none());
+    }
+
+    #[test]
+    fn test_format_remaining_sub_day_is_hours() {
+        let msg = format_remaining(Duration::hours(6)).unwrap();
+        assert_eq!(msg, "Due in 6 hours");
+    }
+
+    #[test]
+    fn test_format_remaining_1_hour_singular() {
+        let msg = format_remaining(Duration::hours(1) + Duration::minutes(30)).unwrap();
+        assert_eq!(msg, "Due in 1 hour");
+    }
+
+    #[test]
+    fn test_format_remaining_23_59_rounds_to_hours() {
+        // Still under 24h — show hours, not days.
+        let msg = format_remaining(Duration::hours(23) + Duration::minutes(59)).unwrap();
+        assert_eq!(msg, "Due in 23 hours");
+    }
+
+    #[test]
+    fn test_format_remaining_multi_day() {
+        let msg = format_remaining(Duration::days(3)).unwrap();
+        assert_eq!(msg, "Due in 3 days");
+    }
+
+    #[test]
+    fn test_format_remaining_1_day_singular() {
+        let msg = format_remaining(Duration::days(1) + Duration::hours(2)).unwrap();
+        assert_eq!(msg, "Due in 1 day");
+    }
+
+    // ── effective_schedule (subissue inheritance) ──
+
+    #[test]
+    fn test_effective_schedule_own_dates_take_precedence() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("own", None, "medium").unwrap();
+        set_scheduling(
+            &db,
+            id,
+            Some("2030-01-01T00:00:00+00:00"),
+            Some("2030-12-31T23:59:59+00:00"),
+        );
+        let issue = db.get_issue(id).unwrap().unwrap();
+        let (s, d) = effective_schedule(&db, &issue);
+        assert!(s.is_some() && d.is_some());
+    }
+
+    #[test]
+    fn test_effective_schedule_subissue_inherits_from_parent() {
+        let (db, _dir) = setup_test_db();
+        let parent = db.create_issue("parent", None, "medium").unwrap();
+        set_scheduling(
+            &db,
+            parent,
+            Some("2030-01-01T00:00:00+00:00"),
+            Some("2030-12-31T23:59:59+00:00"),
+        );
+        let child = db.create_subissue(parent, "child", None, "medium").unwrap();
+        let child_issue = db.get_issue(child).unwrap().unwrap();
+        let (s, d) = effective_schedule(&db, &child_issue);
+        assert!(
+            s.is_some(),
+            "subissue should inherit scheduled_at from parent"
+        );
+        assert!(d.is_some(), "subissue should inherit due_at from parent");
+    }
+
+    #[test]
+    fn test_effective_schedule_no_dates_returns_none() {
+        let (db, _dir) = setup_test_db();
+        let id = db.create_issue("dateless", None, "medium").unwrap();
+        let issue = db.get_issue(id).unwrap().unwrap();
+        let (s, d) = effective_schedule(&db, &issue);
+        assert!(s.is_none());
+        assert!(d.is_none());
+    }
+
+    // ── Full run() behavior ──
+
+    #[test]
+    fn test_run_tolerates_future_scheduled_issue() {
+        // AC-7: a future-scheduled issue shouldn't crash run() and shouldn't
+        // be recommended as "Next" — but if it's the only issue, the output
+        // should degrade gracefully. We just verify run() succeeds; stdout
+        // assertion lives in integration tests.
+        let (db, dir) = setup_test_db();
+        let id = db.create_issue("future", None, "high").unwrap();
+        let future = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+        set_scheduling(&db, id, Some(&future), None);
+        assert!(run(&db, dir.path()).is_ok());
+    }
+
+    #[test]
+    fn test_run_tolerates_overdue_issue() {
+        // AC-8: an overdue issue is the expected recommend, and run() must
+        // not panic on the scoring/warning logic.
+        let (db, dir) = setup_test_db();
+        let id = db.create_issue("overdue", None, "medium").unwrap();
+        let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        set_scheduling(&db, id, None, Some(&past));
+        assert!(run(&db, dir.path()).is_ok());
+    }
+
+    #[test]
+    fn test_run_tolerates_due_soon_issue() {
+        // AC-9: due-soon should trigger the "Due in X hours" warning branch.
+        let (db, dir) = setup_test_db();
+        let id = db.create_issue("soon", None, "medium").unwrap();
+        let soon = (chrono::Utc::now() + chrono::Duration::hours(6)).to_rfc3339();
+        set_scheduling(&db, id, None, Some(&soon));
+        assert!(run(&db, dir.path()).is_ok());
+    }
+
+    #[test]
+    fn test_run_includes_dateless_issue() {
+        // AC-16: dateless issues are always eligible.
+        let (db, dir) = setup_test_db();
+        db.create_issue("dateless", None, "medium").unwrap();
+        assert!(run(&db, dir.path()).is_ok());
+    }
 }
