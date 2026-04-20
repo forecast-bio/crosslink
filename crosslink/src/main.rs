@@ -346,7 +346,25 @@ enum Commands {
         #[arg(long, default_value = "tiled")]
         layout: String,
     },
-    /// Start the crosslink web dashboard server
+    /// Start the crosslink multi-project dashboard (GH #429).
+    ///
+    /// Serves the bundled React dashboard and the control API. Defaults
+    /// to binding 127.0.0.1:3100; override with --port and/or --bind.
+    /// Pass --dashboard-dir to override the bundled assets (development only).
+    Dashboard {
+        /// Port to listen on
+        #[arg(long, default_value = "3100")]
+        port: u16,
+        /// Override bundled dashboard assets with a local build output
+        /// (development only — bundled assets are preferred otherwise)
+        #[arg(long)]
+        dashboard_dir: Option<PathBuf>,
+    },
+    /// Deprecated: alias for `crosslink dashboard`.
+    ///
+    /// Will be removed in a future release. See GH #429 and
+    /// DESIGN-CROSSLINK-DASHBOARD.md §17 for the deprecation timeline.
+    #[command(hide = true)]
     Serve {
         /// Port to listen on
         #[arg(long, default_value = "3100")]
@@ -2375,7 +2393,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let log_format = match &cli.command {
-        Commands::Serve { .. } if cli.log_format == "text" => "json",
+        Commands::Dashboard { .. } | Commands::Serve { .. } if cli.log_format == "text" => "json",
         _ => cli.log_format.as_str(),
     };
     init_tracing(&cli.log_level, log_format);
@@ -3031,10 +3049,29 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             commands::mission_control::run(&crosslink_dir, &layout)
         }
+        Commands::Dashboard {
+            port,
+            dashboard_dir,
+        } => {
+            let crosslink_dir = find_crosslink_dir()?;
+            let db = get_db()?;
+            tokio::runtime::Runtime::new()?.block_on(server::run(
+                port,
+                dashboard_dir,
+                db,
+                crosslink_dir,
+            ))
+        }
         Commands::Serve {
             port,
             dashboard_dir,
         } => {
+            eprintln!(
+                "warning: `crosslink serve` is deprecated. \
+                 Use `crosslink dashboard` instead. \
+                 See https://github.com/forecast-bio/crosslink/issues/429. \
+                 This alias will be removed in a future release."
+            );
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             tokio::runtime::Runtime::new()?.block_on(server::run(
