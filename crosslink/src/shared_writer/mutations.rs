@@ -2,7 +2,7 @@
 //! comments, labels, blockers, and relations.
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::cell::Cell;
 use uuid::Uuid;
 
@@ -32,6 +32,28 @@ impl<'a> From<Option<Option<&'a str>>> for DescriptionUpdate<'a> {
     }
 }
 
+/// Generic three-valued update for optional fields (GH #361). Use for any
+/// setter that needs to distinguish "leave alone" from "set to `None`" from
+/// "set to `Some(value)`".
+pub enum FieldUpdate<T> {
+    /// Do not modify the field.
+    Unchanged,
+    /// Clear the field (set to `None`).
+    Clear,
+    /// Set the field to the given value.
+    Set(T),
+}
+
+impl<T> From<Option<Option<T>>> for FieldUpdate<T> {
+    fn from(opt: Option<Option<T>>) -> Self {
+        match opt {
+            None => Self::Unchanged,
+            Some(None) => Self::Clear,
+            Some(Some(v)) => Self::Set(v),
+        }
+    }
+}
+
 /// Internal parameters for creating a comment (shared by `add_comment`
 /// and `add_intervention_comment` to avoid duplicating V1/V2 dispatch).
 #[derive(Clone)]
@@ -56,6 +78,8 @@ impl SharedWriter {
         description: Option<&str>,
         priority: &str,
         parent_uuid: Option<Uuid>,
+        scheduled_at: Option<DateTime<Utc>>,
+        due_at: Option<DateTime<Utc>>,
         commit_msg: &str,
     ) -> Result<i64> {
         let uuid = Uuid::new_v4();
@@ -83,8 +107,8 @@ impl SharedWriter {
                     created_at: now,
                     updated_at: now,
                     closed_at: None,
-                    scheduled_at: None,
-                    due_at: None,
+                    scheduled_at,
+                    due_at,
                     labels: vec![],
                     comments: vec![],
                     blockers: vec![],
@@ -124,7 +148,9 @@ impl SharedWriter {
 
     /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
     ///
-    /// Returns the assigned display ID.
+    /// Returns the assigned display ID. `scheduled_at` / `due_at` are
+    /// optional scheduling dates (GH #361); pass `None` for neither to
+    /// create a dateless issue.
     ///
     /// # Errors
     ///
@@ -136,6 +162,8 @@ impl SharedWriter {
         title: &str,
         description: Option<&str>,
         priority: &str,
+        scheduled_at: Option<DateTime<Utc>>,
+        due_at: Option<DateTime<Utc>>,
     ) -> Result<i64> {
         self.create_issue_inner(
             db,
@@ -143,13 +171,18 @@ impl SharedWriter {
             description,
             priority,
             None,
+            scheduled_at,
+            due_at,
             &format!("create issue: {title}"),
         )
     }
 
     /// Create a subissue under a parent.
     ///
-    /// Returns the assigned display ID for the child.
+    /// Returns the assigned display ID for the child. Subissues never carry
+    /// scheduling dates — those are a property of the parent deliverable
+    /// (GH #361, REQ-12). The CLI layer rejects `--scheduled`/`--due`
+    /// when `--parent` is present; this function does not accept them.
     ///
     /// # Errors
     ///
@@ -169,6 +202,8 @@ impl SharedWriter {
             description,
             priority,
             Some(parent_uuid),
+            None,
+            None,
             &format!("create subissue under #{parent_id}: {title}"),
         )
     }
@@ -187,6 +222,8 @@ impl SharedWriter {
         description: DescriptionUpdate<'_>,
         status: Option<&str>,
         priority: Option<&str>,
+        scheduled_at: FieldUpdate<DateTime<Utc>>,
+        due_at: FieldUpdate<DateTime<Utc>>,
     ) -> Result<()> {
         let title_owned = title.map(std::string::ToString::to_string);
         let desc_update = description;
@@ -213,6 +250,16 @@ impl SharedWriter {
                 }
                 if let Some(p) = priority_parsed {
                     issue.priority = p;
+                }
+                match &scheduled_at {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => issue.scheduled_at = None,
+                    FieldUpdate::Set(dt) => issue.scheduled_at = Some(*dt),
+                }
+                match &due_at {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => issue.due_at = None,
+                    FieldUpdate::Set(dt) => issue.due_at = Some(*dt),
                 }
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;

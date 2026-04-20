@@ -203,7 +203,7 @@ pub fn run(
     }
 
     let id = if let Some(w) = writer {
-        let id = w.create_issue(db, title, final_description.as_deref(), &final_priority)?;
+        let id = w.create_issue(db, title, final_description.as_deref(), &final_priority, None, None)?;
 
         // Auto-add label from template
         if let Some(lbl) = template_label {

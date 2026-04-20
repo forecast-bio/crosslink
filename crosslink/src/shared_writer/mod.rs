@@ -19,6 +19,7 @@ mod tests;
 // continue to use `crate::shared_writer::SharedWriter`, etc.
 pub use self::core::SharedWriter;
 pub use locks::LockClaimResult;
+pub use mutations::{DescriptionUpdate, FieldUpdate};
 
 #[allow(unused_imports)]
 pub use offline::RewriteStats;

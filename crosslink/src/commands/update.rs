@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::commands::create::validate_priority;
 use crate::db::Database;
-use crate::shared_writer::SharedWriter;
+use crate::shared_writer::{FieldUpdate, SharedWriter};
 use crate::utils::format_issue_id;
 
 pub fn run(
@@ -29,7 +29,7 @@ pub fn run(
         // "updating description" (Some), and the inner Option allows setting
         // the description to either a value (Some("text")) or clearing it (None).
         // Here we never clear, so the inner is always Some when the outer is Some.
-        w.update_issue(db, id, title, description.map(Some).into(), None, priority)?;
+        w.update_issue(db, id, title, description.map(Some).into(), None, priority, FieldUpdate::Unchanged, FieldUpdate::Unchanged)?;
         println!("Updated issue {}", format_issue_id(id));
     } else if db.update_issue(id, title, description, priority)? {
         println!("Updated issue {}", format_issue_id(id));

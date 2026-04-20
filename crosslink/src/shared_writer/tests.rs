@@ -6,7 +6,7 @@ use crate::shared_writer::core::{
     PushOutcome, SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS, MAX_RETRIES,
 };
 use crate::shared_writer::locks::LockClaimResult;
-use crate::shared_writer::mutations::DescriptionUpdate;
+use crate::shared_writer::mutations::{DescriptionUpdate, FieldUpdate};
 use crate::shared_writer::offline::{replace_local_refs, RewriteStats};
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -992,7 +992,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Test issue", None, "medium")
+            .create_issue(&db, "Test issue", None, "medium", None, None)
             .unwrap();
         assert!(id > 0, "create_issue should return a positive display ID");
         drop(work_dir);
@@ -1005,10 +1005,10 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id1 = writer
-            .create_issue(&db, "First issue", None, "low")
+            .create_issue(&db, "First issue", None, "low", None, None)
             .unwrap();
         let id2 = writer
-            .create_issue(&db, "Second issue", None, "low")
+            .create_issue(&db, "Second issue", None, "low", None, None)
             .unwrap();
         assert_eq!(id2, id1 + 1, "IDs should be sequential");
         drop(work_dir);
@@ -1026,6 +1026,8 @@ mod integration {
                 "With description",
                 Some("A detailed description"),
                 "high",
+                None,
+                None,
             )
             .unwrap();
         assert!(id > 0);
@@ -1049,7 +1051,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Critical bug", None, "critical")
+            .create_issue(&db, "Critical bug", None, "critical", None, None)
             .unwrap();
         let issue = db.get_issue(id).unwrap().unwrap();
         assert_eq!(issue.priority, Priority::Critical);
@@ -1063,7 +1065,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         writer
-            .create_issue(&db, "Cache test", None, "medium")
+            .create_issue(&db, "Cache test", None, "medium", None, None)
             .unwrap();
 
         // Verify the issue JSON file exists in the hub cache (v2 layout)
@@ -1088,7 +1090,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let parent_id = writer
-            .create_issue(&db, "Parent issue", None, "medium")
+            .create_issue(&db, "Parent issue", None, "medium", None, None)
             .unwrap();
         let child_id = writer
             .create_subissue(&db, parent_id, "Child issue", None, "low")
@@ -1112,7 +1114,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Old title", None, "medium")
+            .create_issue(&db, "Old title", None, "medium", None, None)
             .unwrap();
         writer
             .update_issue(
@@ -1122,6 +1124,8 @@ mod integration {
                 DescriptionUpdate::Unchanged,
                 None,
                 None,
+                FieldUpdate::Unchanged,
+                FieldUpdate::Unchanged,
             )
             .unwrap();
 
@@ -1137,7 +1141,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Priority test", None, "low")
+            .create_issue(&db, "Priority test", None, "low", None, None)
             .unwrap();
         writer
             .update_issue(
@@ -1147,6 +1151,8 @@ mod integration {
                 DescriptionUpdate::Unchanged,
                 None,
                 Some("high"),
+                FieldUpdate::Unchanged,
+                FieldUpdate::Unchanged,
             )
             .unwrap();
 
@@ -1161,7 +1167,7 @@ mod integration {
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
         let db = make_db(work_dir.path());
 
-        let id = writer.create_issue(&db, "Desc test", None, "low").unwrap();
+        let id = writer.create_issue(&db, "Desc test", None, "low", None, None).unwrap();
         writer
             .update_issue(
                 &db,
@@ -1170,6 +1176,8 @@ mod integration {
                 DescriptionUpdate::Set("Updated desc"),
                 None,
                 None,
+                FieldUpdate::Unchanged,
+                FieldUpdate::Unchanged,
             )
             .unwrap();
 
@@ -1185,10 +1193,10 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Has desc", Some("initial desc"), "low")
+            .create_issue(&db, "Has desc", Some("initial desc"), "low", None, None)
             .unwrap();
         writer
-            .update_issue(&db, id, None, DescriptionUpdate::Clear, None, None)
+            .update_issue(&db, id, None, DescriptionUpdate::Clear, None, None, FieldUpdate::Unchanged, FieldUpdate::Unchanged)
             .unwrap();
 
         let issue = db.get_issue(id).unwrap().unwrap();
@@ -1205,7 +1213,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Close me", None, "medium")
+            .create_issue(&db, "Close me", None, "medium", None, None)
             .unwrap();
         writer.close_issue(&db, id).unwrap();
 
@@ -1221,7 +1229,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Open/close cycle", None, "medium")
+            .create_issue(&db, "Open/close cycle", None, "medium", None, None)
             .unwrap();
         writer.close_issue(&db, id).unwrap();
         writer.reopen_issue(&db, id).unwrap();
@@ -1238,7 +1246,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Closed at test", None, "medium")
+            .create_issue(&db, "Closed at test", None, "medium", None, None)
             .unwrap();
 
         // Before closing, closed_at should be None
@@ -1269,7 +1277,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Reopen cleared", None, "medium")
+            .create_issue(&db, "Reopen cleared", None, "medium", None, None)
             .unwrap();
         writer.close_issue(&db, id).unwrap();
         writer.reopen_issue(&db, id).unwrap();
@@ -1291,9 +1299,9 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id1 = writer
-            .create_issue(&db, "Delete me", None, "medium")
+            .create_issue(&db, "Delete me", None, "medium", None, None)
             .unwrap();
-        let id2 = writer.create_issue(&db, "Keep me", None, "medium").unwrap();
+        let id2 = writer.create_issue(&db, "Keep me", None, "medium", None, None).unwrap();
 
         let delete_result = writer.delete_issue(&db, id1);
         // delete may fail on empty commit in test environments; verify at least the DB state
@@ -1318,7 +1326,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "File remove test", None, "medium")
+            .create_issue(&db, "File remove test", None, "medium", None, None)
             .unwrap();
 
         // Get the UUID so we can check the V2 file path
@@ -1355,7 +1363,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let issue_id = writer
-            .create_issue(&db, "Comment host", None, "medium")
+            .create_issue(&db, "Comment host", None, "medium", None, None)
             .unwrap();
         let comment_id = writer
             .add_comment(&db, issue_id, "A test comment", "note")
@@ -1372,7 +1380,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let issue_id = writer
-            .create_issue(&db, "Comment persist", None, "medium")
+            .create_issue(&db, "Comment persist", None, "medium", None, None)
             .unwrap();
         writer
             .add_comment(&db, issue_id, "Persisted comment content", "plan")
@@ -1391,7 +1399,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let issue_id = writer
-            .create_issue(&db, "Typed comments", None, "medium")
+            .create_issue(&db, "Typed comments", None, "medium", None, None)
             .unwrap();
 
         let kinds = ["plan", "decision", "observation", "blocker", "resolution"];
@@ -1413,7 +1421,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let issue_id = writer
-            .create_issue(&db, "Sequential comments", None, "medium")
+            .create_issue(&db, "Sequential comments", None, "medium", None, None)
             .unwrap();
         let c1 = writer
             .add_comment(&db, issue_id, "First comment", "note")
@@ -1433,7 +1441,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let issue_id = writer
-            .create_issue(&db, "Intervention host", None, "medium")
+            .create_issue(&db, "Intervention host", None, "medium", None, None)
             .unwrap();
         let comment_id = writer
             .add_intervention_comment(
@@ -1462,7 +1470,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Label test", None, "medium")
+            .create_issue(&db, "Label test", None, "medium", None, None)
             .unwrap();
         writer.add_label(&db, id, "bug").unwrap();
 
@@ -1478,7 +1486,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Multi-label", None, "medium")
+            .create_issue(&db, "Multi-label", None, "medium", None, None)
             .unwrap();
         writer.add_label(&db, id, "bug").unwrap();
         writer.add_label(&db, id, "urgent").unwrap();
@@ -1498,7 +1506,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Remove label", None, "medium")
+            .create_issue(&db, "Remove label", None, "medium", None, None)
             .unwrap();
         writer.add_label(&db, id, "bug").unwrap();
         writer.add_label(&db, id, "keep").unwrap();
@@ -1523,7 +1531,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Idempotent label", None, "medium")
+            .create_issue(&db, "Idempotent label", None, "medium", None, None)
             .unwrap();
         writer.add_label(&db, id, "tag").unwrap();
         let _ = writer.add_label(&db, id, "tag"); // duplicate -- may error on empty commit
@@ -1543,10 +1551,10 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let blocked = writer
-            .create_issue(&db, "Blocked issue", None, "medium")
+            .create_issue(&db, "Blocked issue", None, "medium", None, None)
             .unwrap();
         let blocker = writer
-            .create_issue(&db, "Blocker issue", None, "high")
+            .create_issue(&db, "Blocker issue", None, "high", None, None)
             .unwrap();
 
         writer.add_blocker(&db, blocked, blocker).unwrap();
@@ -1567,10 +1575,10 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let blocked = writer
-            .create_issue(&db, "Was blocked", None, "medium")
+            .create_issue(&db, "Was blocked", None, "medium", None, None)
             .unwrap();
         let blocker = writer
-            .create_issue(&db, "Was blocker", None, "high")
+            .create_issue(&db, "Was blocker", None, "high", None, None)
             .unwrap();
 
         writer.add_blocker(&db, blocked, blocker).unwrap();
@@ -1590,10 +1598,10 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id1 = writer
-            .create_issue(&db, "Related A", None, "medium")
+            .create_issue(&db, "Related A", None, "medium", None, None)
             .unwrap();
         let id2 = writer
-            .create_issue(&db, "Related B", None, "medium")
+            .create_issue(&db, "Related B", None, "medium", None, None)
             .unwrap();
 
         writer.add_relation(&db, id1, id2).unwrap();
@@ -1610,10 +1618,10 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id1 = writer
-            .create_issue(&db, "Related C", None, "medium")
+            .create_issue(&db, "Related C", None, "medium", None, None)
             .unwrap();
         let id2 = writer
-            .create_issue(&db, "Related D", None, "medium")
+            .create_issue(&db, "Related D", None, "medium", None, None)
             .unwrap();
 
         writer.add_relation(&db, id1, id2).unwrap();
@@ -1692,7 +1700,7 @@ mod integration {
 
         let ms_id = writer.create_milestone(&db, "Sprint 1", None).unwrap();
         let issue_id = writer
-            .create_issue(&db, "Sprint task", None, "medium")
+            .create_issue(&db, "Sprint task", None, "medium", None, None)
             .unwrap();
 
         writer
@@ -1715,7 +1723,7 @@ mod integration {
 
         let ms_id = writer.create_milestone(&db, "Sprint 2", None).unwrap();
         let issue_id = writer
-            .create_issue(&db, "Sprint 2 task", None, "medium")
+            .create_issue(&db, "Sprint 2 task", None, "medium", None, None)
             .unwrap();
 
         writer
@@ -1785,7 +1793,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Hydration test", Some("desc"), "high")
+            .create_issue(&db, "Hydration test", Some("desc"), "high", None, None)
             .unwrap();
 
         // Re-hydrate from cache
@@ -1807,7 +1815,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Close hydration", None, "medium")
+            .create_issue(&db, "Close hydration", None, "medium", None, None)
             .unwrap();
         writer.close_issue(&db, id).unwrap();
 
@@ -1826,7 +1834,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let issue_id = writer
-            .create_issue(&db, "Comment hydration", None, "medium")
+            .create_issue(&db, "Comment hydration", None, "medium", None, None)
             .unwrap();
         writer
             .add_comment(&db, issue_id, "Hydrated comment", "note")
@@ -1884,7 +1892,7 @@ mod integration {
 
         // Create an issue with a description that won't match any local refs
         let id = writer
-            .create_issue(&db, "No local refs here", Some("Clean description"), "low")
+            .create_issue(&db, "No local refs here", Some("Clean description"), "low", None, None)
             .unwrap();
 
         // Mapping says L1 -> #5, but the issue has no L1 refs
@@ -2003,7 +2011,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "V2 path check", None, "low")
+            .create_issue(&db, "V2 path check", None, "low", None, None)
             .unwrap();
 
         // Find the issue UUID from the DB
@@ -2045,7 +2053,7 @@ mod integration {
 
         // Create
         let id = writer
-            .create_issue(&db, "Lifecycle issue", Some("Initial desc"), "medium")
+            .create_issue(&db, "Lifecycle issue", Some("Initial desc"), "medium", None, None)
             .unwrap();
 
         // Comment
@@ -2065,6 +2073,8 @@ mod integration {
                 DescriptionUpdate::Unchanged,
                 None,
                 Some("high"),
+                FieldUpdate::Unchanged,
+                FieldUpdate::Unchanged,
             )
             .unwrap();
 
@@ -2092,11 +2102,11 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id1 = writer
-            .create_issue(&db, "Issue Alpha", None, "high")
+            .create_issue(&db, "Issue Alpha", None, "high", None, None)
             .unwrap();
-        let id2 = writer.create_issue(&db, "Issue Beta", None, "low").unwrap();
+        let id2 = writer.create_issue(&db, "Issue Beta", None, "low", None, None).unwrap();
         let id3 = writer
-            .create_issue(&db, "Issue Gamma", None, "medium")
+            .create_issue(&db, "Issue Gamma", None, "medium", None, None)
             .unwrap();
 
         writer.close_issue(&db, id2).unwrap();
@@ -2137,8 +2147,8 @@ mod integration {
         let db = make_db(work_dir.path());
 
         // Each create_issue triggers emit which calls next_event_seq
-        writer.create_issue(&db, "Seq 1", None, "low").unwrap();
-        writer.create_issue(&db, "Seq 2", None, "low").unwrap();
+        writer.create_issue(&db, "Seq 1", None, "low", None, None).unwrap();
+        writer.create_issue(&db, "Seq 2", None, "low", None, None).unwrap();
 
         // The event_seq field should be > 0 after two operations
         // We can't directly read event_seq, but we can verify events exist in the log
@@ -2163,15 +2173,15 @@ mod integration {
         {
             let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
             let db = make_db(work_dir.path());
-            writer.create_issue(&db, "Issue 1", None, "low").unwrap();
-            writer.create_issue(&db, "Issue 2", None, "low").unwrap();
+            writer.create_issue(&db, "Issue 1", None, "low", None, None).unwrap();
+            writer.create_issue(&db, "Issue 2", None, "low", None, None).unwrap();
         }
 
         // Second writer should continue from counter 3
         {
             let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
             let db = make_db(work_dir.path());
-            let id = writer.create_issue(&db, "Issue 3", None, "low").unwrap();
+            let id = writer.create_issue(&db, "Issue 3", None, "low", None, None).unwrap();
             assert_eq!(id, 3, "Counter should persist: 3rd issue should get ID 3");
         }
 
@@ -2240,7 +2250,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         writer
-            .create_issue(&db, "Counter check", None, "low")
+            .create_issue(&db, "Counter check", None, "low", None, None)
             .unwrap();
 
         let counters = writer.read_counters().unwrap();
@@ -2258,7 +2268,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Load by ID", Some("description"), "medium")
+            .create_issue(&db, "Load by ID", Some("description"), "medium", None, None)
             .unwrap();
         let loaded = writer.load_issue_by_id(id, &db).unwrap();
         assert_eq!(loaded.title, "Load by ID");
@@ -2283,7 +2293,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "UUID resolve", None, "low")
+            .create_issue(&db, "UUID resolve", None, "low", None, None)
             .unwrap();
         let uuid = writer.resolve_uuid(id, &db).unwrap();
 
@@ -2347,8 +2357,8 @@ mod integration {
         let db = make_db(work_dir.path());
 
         // Create issues normally (they get display IDs)
-        writer.create_issue(&db, "Normal 1", None, "low").unwrap();
-        writer.create_issue(&db, "Normal 2", None, "low").unwrap();
+        writer.create_issue(&db, "Normal 1", None, "low", None, None).unwrap();
+        writer.create_issue(&db, "Normal 2", None, "low", None, None).unwrap();
 
         // find_offline_issues should return empty since all have display_id
         let offline = writer.find_offline_issues().unwrap();
@@ -2604,7 +2614,7 @@ mod integration {
 
         // In V1 layout, create_issue writes a flat issues/{uuid}.json file.
         let issue_id = writer
-            .create_issue(&db, "V1 comment host", None, "medium")
+            .create_issue(&db, "V1 comment host", None, "medium", None, None)
             .unwrap();
 
         let comment_id = writer
@@ -2635,7 +2645,7 @@ mod integration {
         assert_eq!(writer.layout_version(), 1);
 
         let issue_id = writer
-            .create_issue(&db, "V1 intervention host", None, "medium")
+            .create_issue(&db, "V1 intervention host", None, "medium", None, None)
             .unwrap();
 
         let comment_id = writer
@@ -2853,7 +2863,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Lock target", None, "medium")
+            .create_issue(&db, "Lock target", None, "medium", None, None)
             .unwrap();
 
         let result = writer.claim_lock_v2(id, Some("feature/test")).unwrap();
@@ -2868,7 +2878,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Lock target 2", None, "medium")
+            .create_issue(&db, "Lock target 2", None, "medium", None, None)
             .unwrap();
 
         writer.claim_lock_v2(id, None).unwrap();
@@ -2886,7 +2896,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Lock release", None, "medium")
+            .create_issue(&db, "Lock release", None, "medium", None, None)
             .unwrap();
         writer.claim_lock_v2(id, None).unwrap();
 
@@ -2913,7 +2923,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Steal target", None, "medium")
+            .create_issue(&db, "Steal target", None, "medium", None, None)
             .unwrap();
         writer.claim_lock_v2(id, None).unwrap();
 
@@ -2935,7 +2945,7 @@ mod integration {
 
         // Create an issue with a description referencing L1
         let id = writer
-            .create_issue(&db, "Rewrite test", Some("See L1 for details"), "medium")
+            .create_issue(&db, "Rewrite test", Some("See L1 for details"), "medium", None, None)
             .unwrap();
 
         // Mapping: neg_id=-1 -> new_id=id, simulate promotion
@@ -2963,7 +2973,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "Comment rewrite", None, "medium")
+            .create_issue(&db, "Comment rewrite", None, "medium", None, None)
             .unwrap();
         writer
             .add_comment(&db, id, "Related to L2", "observation")
@@ -2983,7 +2993,7 @@ mod integration {
         let db = make_db(work_dir.path());
 
         let id = writer
-            .create_issue(&db, "No refs", Some("Plain description"), "medium")
+            .create_issue(&db, "No refs", Some("Plain description"), "medium", None, None)
             .unwrap();
 
         let mapping = vec![(-1i64, id, "No refs".to_string())];
