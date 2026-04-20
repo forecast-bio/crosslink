@@ -848,7 +848,7 @@ mod lock_v2_tests {
 mod integration {
     use super::*;
     use crate::db::Database;
-    use crate::identity::AgentConfig;
+    use crate::identity::{AgentConfig, AgentRole};
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -924,6 +924,7 @@ mod integration {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
             description: Some("Integration test agent".to_string()),
+            role: AgentRole::Driver,
             ssh_key_path: None,
             ssh_fingerprint: None,
             ssh_public_key: None,
@@ -2747,6 +2748,7 @@ mod integration {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
             description: None,
+            role: AgentRole::Driver,
             ssh_key_path: Some("nonexistent_key_file.pem".to_string()),
             ssh_fingerprint: Some("SHA256:fakefingerprint".to_string()),
             ssh_public_key: None,
@@ -2782,6 +2784,7 @@ mod integration {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
             description: None,
+            role: AgentRole::Driver,
             ssh_key_path: Some(fake_key_name.to_string()),
             ssh_fingerprint: Some("SHA256:fakefingerprint".to_string()),
             ssh_public_key: None,

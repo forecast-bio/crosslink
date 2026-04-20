@@ -260,17 +260,23 @@ pub fn read_repo_compact_id(crosslink_dir: &Path) -> String {
     crate::utils::base62_encode_4(hasher.finish())
 }
 
-/// Lightweight agent identity setup for `crosslink init`.
+/// Lightweight driver identity setup for `crosslink init`.
 ///
-/// Creates the agent config and generates an SSH key, but does NOT
-/// publish keys to the hub or configure signing on the cache worktree.
-/// Those heavier operations happen lazily on first `crosslink sync` or
-/// `crosslink agent init`.
+/// Creates the agent config and generates an SSH key for hub-cache commit
+/// signing, but does NOT publish keys to the hub or configure signing on the
+/// cache worktree. Those heavier operations happen lazily on first
+/// `crosslink sync` or `crosslink agent init`.
+///
+/// The identity is tagged `role: driver` so Claude Code hooks continue to
+/// apply strict human-oriented rules to sessions in this repo, even though
+/// `agent.json` exists for signing (see GH #566). `crosslink agent init` and
+/// `crosslink agent bootstrap` override this to `role: agent`.
 ///
 /// # Errors
 ///
 /// Returns an error if agent config creation or SSH key generation fails.
 fn init_agent_identity(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
+    // AgentConfig::init defaults to role=driver.
     let mut config = crate::identity::AgentConfig::init(crosslink_dir, agent_id, None)?;
 
     let keys_dir = crosslink_dir.join("keys");

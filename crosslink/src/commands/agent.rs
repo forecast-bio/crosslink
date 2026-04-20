@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-use crate::identity::AgentConfig;
+use crate::identity::{AgentConfig, AgentRole};
 use crate::signing;
 use crate::sync;
 use crate::utils::format_issue_id;
@@ -81,7 +81,12 @@ pub fn init(
             );
         }
     }
-    let mut config = AgentConfig::init(crosslink_dir, agent_id, description)?;
+    // `crosslink agent init` creates an autonomous-agent identity (kickoff,
+    // swarm, sub-agent). Tag the role explicitly so the Claude Code hooks
+    // can distinguish this from a main-repo signing identity minted by
+    // `crosslink init` — see GH #566.
+    let mut config =
+        AgentConfig::init_with_role(crosslink_dir, agent_id, description, AgentRole::Agent)?;
 
     // Generate SSH key unless opted out
     if !no_key {
@@ -274,11 +279,28 @@ pub fn bootstrap(
     let crosslink_dir = target_dir.join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).context("Failed to create .crosslink directory")?;
 
-    // Step 4: Initialize agent identity (skip if already exists)
-    if AgentConfig::load(&crosslink_dir)?.is_some() {
-        println!("Agent already configured in this repo, skipping identity init.");
-    } else {
-        AgentConfig::init(&crosslink_dir, agent_id, description)?;
+    // Step 4: Initialize agent identity (skip if already exists).
+    // Bootstrap provisions an autonomous agent — tag role accordingly (GH #566).
+    // If a driver-typed identity already exists (e.g. from a prior `crosslink
+    // init` in this repo), promote it to `agent` in place so hooks treat the
+    // bootstrapped workspace correctly.
+    match AgentConfig::load(&crosslink_dir)? {
+        Some(existing) if existing.role == AgentRole::Agent => {
+            println!("Agent already configured in this repo, skipping identity init.");
+        }
+        Some(mut existing) => {
+            println!(
+                "Promoting existing identity '{}' to agent role.",
+                existing.agent_id
+            );
+            existing.role = AgentRole::Agent;
+            let path = crosslink_dir.join("agent.json");
+            let json = serde_json::to_string_pretty(&existing)?;
+            std::fs::write(&path, json)?;
+        }
+        None => {
+            AgentConfig::init_with_role(&crosslink_dir, agent_id, description, AgentRole::Agent)?;
+        }
     }
 
     let mut config = AgentConfig::load(&crosslink_dir)?

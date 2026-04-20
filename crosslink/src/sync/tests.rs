@@ -1,5 +1,5 @@
 use super::*;
-use crate::identity::AgentConfig;
+use crate::identity::{AgentConfig, AgentRole};
 use crate::locks::{Heartbeat, Keyring, LocksFile};
 use crate::sync::LockMode;
 use chrono::Utc;
@@ -1485,6 +1485,7 @@ fn make_agent(id: &str) -> AgentConfig {
         agent_id: id.to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: None,
@@ -2420,6 +2421,7 @@ fn test_configure_signing_with_key() {
         agent_id: "signing-test-agent".to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: Some("keys/agent_ed25519".to_string()),
         ssh_fingerprint: Some("SHA256:fakefingerprint".to_string()),
         ssh_public_key: Some(
@@ -2468,6 +2470,7 @@ fn test_configure_signing_key_file_missing() {
         agent_id: "missing-key-agent".to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: Some("keys/nonexistent".to_string()),
         ssh_fingerprint: Some("SHA256:missing".to_string()),
         ssh_public_key: None,
@@ -2491,6 +2494,7 @@ fn test_configure_signing_agent_has_no_key_fields() {
         agent_id: "no-key-agent".to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: None,
@@ -2518,6 +2522,7 @@ fn test_ensure_agent_key_published_with_public_key() {
         agent_id: "pub-key-agent".to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: Some(
@@ -2559,6 +2564,7 @@ fn test_ensure_agent_key_published_idempotent() {
         agent_id: "idempotent-pub-agent".to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: Some(
@@ -2589,6 +2595,7 @@ fn test_ensure_agent_key_published_no_public_key_field() {
         agent_id: "no-pub-key-agent".to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: None,
@@ -2736,6 +2743,7 @@ fn test_push_heartbeat_writes_file_and_pushes() {
         agent_id: "hb-agent".to_string(),
         machine_id: "hb-machine".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: None,
@@ -2763,6 +2771,7 @@ fn test_push_heartbeat_second_call_nothing_to_commit() {
         agent_id: "hb2-agent".to_string(),
         machine_id: "hb2-machine".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: None,
