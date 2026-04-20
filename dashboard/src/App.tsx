@@ -8,6 +8,8 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import { connectDashboardWs } from "@/api/ws";
+import { AlertRail } from "@/components/AlertRail";
+import { Alerts } from "@/pages/Alerts";
 import { ProjectDetail } from "@/pages/ProjectDetail";
 import { ProjectGrid } from "@/pages/ProjectGrid";
 
@@ -39,9 +41,11 @@ export function App() {
       <DashboardWsBridge />
       <BrowserRouter>
         <div className="min-h-screen bg-background text-foreground">
+          <AlertRail />
           <Routes>
             <Route path="/" element={<ProjectGrid />} />
             <Route path="/project/*" element={<ProjectDetail />} />
+            <Route path="/alerts" element={<Alerts />} />
           </Routes>
         </div>
       </BrowserRouter>

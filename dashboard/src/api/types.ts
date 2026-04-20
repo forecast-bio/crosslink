@@ -78,3 +78,17 @@ export interface ApiError {
   error: string;
   status: number;
 }
+
+export type AlertSeverity = "info" | "warning" | "critical";
+
+export interface AlertItem {
+  id: number;
+  project_slug: string;
+  kind: string;
+  severity: AlertSeverity;
+  subject_ref: string | null;
+  detail: string | null;
+  opened_at: string;
+  resolved_at: string | null;
+  acknowledged_at: string | null;
+}

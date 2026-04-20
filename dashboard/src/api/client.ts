@@ -6,7 +6,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import type { ProjectDetail, ProjectListItem } from "./types";
+import type { AlertItem, ProjectDetail, ProjectListItem } from "./types";
 
 const API_BASE = "/api/v1/dashboard";
 
@@ -63,5 +63,17 @@ export function useProject(slug: string | null) {
     refetchInterval: REFETCH_MS,
     refetchIntervalInBackground: false,
     enabled: slug !== null,
+  });
+}
+
+/// Currently-open alerts across all projects. Primary use case is
+/// the alert rail in the header and the `/alerts` page. WS events
+/// invalidate this cache on every `dashboard_alerts_changed` tick.
+export function useAlerts() {
+  return useQuery<AlertItem[], ApiRequestError>({
+    queryKey: ["dashboard", "alerts"],
+    queryFn: () => apiFetch<AlertItem[]>("/alerts"),
+    refetchInterval: REFETCH_MS,
+    refetchIntervalInBackground: false,
   });
 }

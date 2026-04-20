@@ -29,7 +29,18 @@ interface DashboardProjectUpdated {
   seq: number;
 }
 
-type IncomingEnvelope = DashboardProjectUpdated | { type: string; seq: number };
+interface DashboardAlertsChanged {
+  type: "dashboard_alerts_changed";
+  slug: string;
+  opened: number;
+  resolved: number;
+  seq: number;
+}
+
+type IncomingEnvelope =
+  | DashboardProjectUpdated
+  | DashboardAlertsChanged
+  | { type: string; seq: number };
 
 /// Connect to `/ws`, subscribe to the `"dashboard"` channel, and wire
 /// incoming events to React Query cache invalidations. Returns a
@@ -62,6 +73,10 @@ export function connectDashboardWs(queryClient: QueryClient): () => void {
         const slug = (msg as DashboardProjectUpdated).slug;
         queryClient.invalidateQueries({ queryKey: ["dashboard", "projects"] });
         queryClient.invalidateQueries({ queryKey: ["dashboard", "project", slug] });
+      } else if (msg.type === "dashboard_alerts_changed") {
+        // Alert set changed for some project — invalidate the global
+        // alerts query so the rail + /alerts page catch up immediately.
+        queryClient.invalidateQueries({ queryKey: ["dashboard", "alerts"] });
       }
     };
     socket.onclose = () => {
