@@ -32,7 +32,8 @@ pub fn session_from_row(row: &rusqlite::Row) -> rusqlite::Result<Session> {
 }
 
 /// Maps a database row to an Issue struct.
-/// Expects columns in order: id, title, description, status, priority, `parent_id`, `created_at`, `updated_at`, `closed_at`
+/// Expects columns in order: id, title, description, status, priority, `parent_id`,
+/// `created_at`, `updated_at`, `closed_at`, `scheduled_at`, `due_at`.
 pub fn issue_from_row(row: &rusqlite::Row) -> rusqlite::Result<Issue> {
     Ok(Issue {
         id: row.get(0)?,
@@ -44,5 +45,9 @@ pub fn issue_from_row(row: &rusqlite::Row) -> rusqlite::Result<Issue> {
         created_at: parse_datetime(&row.get::<_, String>(6)?),
         updated_at: parse_datetime(&row.get::<_, String>(7)?),
         closed_at: row.get::<_, Option<String>>(8)?.map(|s| parse_datetime(&s)),
+        scheduled_at: row.get::<_, Option<String>>(9)?.map(|s| parse_datetime(&s)),
+        due_at: row
+            .get::<_, Option<String>>(10)?
+            .map(|s| parse_datetime(&s)),
     })
 }

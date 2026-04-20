@@ -152,6 +152,8 @@ fn build_issue_file(
         created_at: issue.created_at,
         updated_at: issue.updated_at,
         closed_at: issue.closed_at,
+        scheduled_at: issue.scheduled_at,
+        due_at: issue.due_at,
         labels,
         comments,
         blockers,

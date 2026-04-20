@@ -17,6 +17,10 @@ pub struct HydratedIssue<'a> {
     pub created_at: &'a str,
     pub updated_at: &'a str,
     pub closed_at: Option<&'a str>,
+    /// RFC 3339 scheduled-at timestamp (GH #361).
+    pub scheduled_at: Option<&'a str>,
+    /// RFC 3339 due-at timestamp (GH #361).
+    pub due_at: Option<&'a str>,
 }
 
 /// Parameters for inserting a hydrated milestone from JSON into `SQLite`.
@@ -62,9 +66,9 @@ impl Database {
     /// Returns an error if the database insert fails.
     pub fn insert_hydrated_issue(&self, h: &HydratedIssue<'_>) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO issues (id, uuid, title, description, status, priority, parent_id, created_by, created_at, updated_at, closed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![h.id, h.uuid, h.title, h.description, h.status, h.priority, h.parent_id, h.created_by, h.created_at, h.updated_at, h.closed_at],
+            "INSERT OR REPLACE INTO issues (id, uuid, title, description, status, priority, parent_id, created_by, created_at, updated_at, closed_at, scheduled_at, due_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![h.id, h.uuid, h.title, h.description, h.status, h.priority, h.parent_id, h.created_by, h.created_at, h.updated_at, h.closed_at, h.scheduled_at, h.due_at],
         )?;
         Ok(())
     }

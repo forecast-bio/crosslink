@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
-pub const SCHEMA_VERSION: i32 = 16;
+pub const SCHEMA_VERSION: i32 = 17;
 
 /// Valid values for issue priority.
 pub const VALID_PRIORITIES: &[&str] = &["low", "medium", "high", "critical"];
@@ -172,6 +172,8 @@ impl Database {
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     closed_at TEXT,
+                    scheduled_at TEXT,
+                    due_at TEXT,
                     FOREIGN KEY (parent_id) REFERENCES issues(id) ON DELETE CASCADE
                 );
 
@@ -418,6 +420,15 @@ impl Database {
                         ON sentinel_dispatches(gh_issue_number, label);
                     ",
             );
+        }
+
+        // Migration v17: Issue scheduling fields (GH #361).
+        // scheduled_at: when the issue becomes actionable (crosslink next filters
+        // future-scheduled issues). due_at: hard deadline (crosslink next boosts
+        // overdue issues by +100 and warns when <= 1 day out).
+        if version < 17 {
+            self.migrate("ALTER TABLE issues ADD COLUMN scheduled_at TEXT");
+            self.migrate("ALTER TABLE issues ADD COLUMN due_at TEXT");
         }
     }
 

@@ -541,6 +541,8 @@ fn apply_issue_created(
                 created_at: envelope.timestamp,
                 updated_at: envelope.timestamp,
                 closed_at: None,
+                scheduled_at: None,
+                due_at: None,
                 labels: labels.iter().cloned().collect(),
                 blockers: BTreeSet::new(),
                 related: BTreeSet::new(),
@@ -3049,6 +3051,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: Some(Utc::now()),
+            scheduled_at: None,
+            due_at: None,
             labels: {
                 let mut s = BTreeSet::new();
                 s.insert("bug".to_string());

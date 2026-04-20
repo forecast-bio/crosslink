@@ -1098,6 +1098,8 @@ fn test_get_issue_export_metadata_with_hydrated_issue() {
         created_at: &now,
         updated_at: &now,
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
     })
     .unwrap();
 
@@ -1225,6 +1227,8 @@ fn test_get_milestone_uuid_for_issue_hydrated() {
         created_at: &now,
         updated_at: &now,
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
     })
     .unwrap();
 
@@ -1360,6 +1364,8 @@ fn test_insert_hydrated_issue() {
         created_at: &now,
         updated_at: &now,
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
     })
     .unwrap();
 
@@ -1386,6 +1392,8 @@ fn test_insert_hydrated_issue_with_parent() {
         created_at: &now,
         updated_at: &now,
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
     })
     .unwrap();
 
@@ -1401,6 +1409,8 @@ fn test_insert_hydrated_issue_with_parent() {
         created_at: &now,
         updated_at: &now,
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
     })
     .unwrap();
 
@@ -1557,6 +1567,8 @@ fn test_insert_hydrated_milestone_issue() {
         created_at: &now,
         updated_at: &now,
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
     })
     .unwrap();
 

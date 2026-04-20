@@ -3815,9 +3815,15 @@ fn test_sentinel_schema_migration() {
         .unwrap_or(false);
     assert!(has_dispatches, "sentinel_dispatches table should exist");
 
-    // Verify schema version is 16
+    // Verify schema is at least the version this test originally pinned
+    // (v16 sentinel tables). Bumping the overall schema version for later
+    // migrations is expected; the test only cares that the sentinel tables
+    // were installed.
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 16, "Schema version should be 16");
+    assert!(
+        version >= 16,
+        "Schema version should be >= 16 (sentinel migration), got {version}"
+    );
 }

@@ -60,6 +60,8 @@ pub fn run(
                 opts.description,
                 Some("Created by crosslink kickoff"),
                 "medium",
+                None,
+                None,
             )?
         } else {
             db.create_issue(

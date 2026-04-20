@@ -388,6 +388,12 @@ enum Commands {
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// Quick-create an issue (shortcut for `issue quick`)
@@ -410,6 +416,12 @@ enum Commands {
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// List issues (shortcut for `issue list`)
@@ -554,6 +566,12 @@ enum IssueCommands {
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// Quick-create an issue and start working on it (create + label + session work)
@@ -575,6 +593,12 @@ enum IssueCommands {
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// List issues
@@ -635,6 +659,18 @@ enum IssueCommands {
         /// New priority
         #[arg(short, long)]
         priority: Option<String>,
+        /// Set scheduled-at (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Clear scheduled-at (mutually exclusive with --scheduled)
+        #[arg(long, conflicts_with = "scheduled")]
+        no_scheduled: bool,
+        /// Set due-at (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+        /// Clear due-at (mutually exclusive with --due)
+        #[arg(long, conflicts_with = "due")]
+        no_due: bool,
     },
 
     /// Close an issue
@@ -1955,6 +1991,24 @@ fn hint(quiet: bool, msg: &str) {
     }
 }
 
+/// Fold a (set, clear-flag) pair from clap into a `FieldUpdate` for the
+/// shared-writer update path. Used by the `Update` dispatch to translate
+/// `--scheduled` / `--no-scheduled` (and `--due` / `--no-due`) into a
+/// single three-valued update (GH #361).
+const fn scheduled_update(
+    set: Option<chrono::DateTime<chrono::Utc>>,
+    clear: bool,
+) -> shared_writer::FieldUpdate<chrono::DateTime<chrono::Utc>> {
+    use shared_writer::FieldUpdate;
+    if clear {
+        FieldUpdate::Clear
+    } else if let Some(dt) = set {
+        FieldUpdate::Set(dt)
+    } else {
+        FieldUpdate::Unchanged
+    }
+}
+
 /// Dispatch an `IssueCommands` variant.
 fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> {
     match action {
@@ -1967,6 +2021,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             work,
             defer_id,
             parent,
+            scheduled,
+            due,
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
@@ -1978,30 +2034,34 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 crosslink_dir: Some(&crosslink_dir),
                 defer_id: parent.is_none() && defer_id,
             };
-            parent.map_or_else(
-                || {
-                    commands::create::run(
-                        &db,
-                        writer.as_ref(),
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        template.as_deref(),
-                        &opts,
-                    )
-                },
-                |parent_id| {
-                    commands::create::run_subissue(
-                        &db,
-                        writer.as_ref(),
-                        parent_id,
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        &opts,
-                    )
-                },
-            )
+            // Subissues don't carry scheduling dates (GH #361 REQ-12); the
+            // command handler rejects the combination with a clear error.
+            if let Some(parent_id) = parent {
+                if scheduled.is_some() || due.is_some() {
+                    anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
+                }
+                commands::create::run_subissue(
+                    &db,
+                    writer.as_ref(),
+                    parent_id,
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    &opts,
+                )
+            } else {
+                commands::create::run(
+                    &db,
+                    writer.as_ref(),
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    scheduled,
+                    due,
+                    &opts,
+                )
+            }
         }
 
         IssueCommands::Quick {
@@ -2011,6 +2071,8 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             template,
             label,
             parent,
+            scheduled,
+            due,
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
@@ -2022,30 +2084,32 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 crosslink_dir: Some(&crosslink_dir),
                 defer_id: false,
             };
-            parent.map_or_else(
-                || {
-                    commands::create::run(
-                        &db,
-                        writer.as_ref(),
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        template.as_deref(),
-                        &opts,
-                    )
-                },
-                |parent_id| {
-                    commands::create::run_subissue(
-                        &db,
-                        writer.as_ref(),
-                        parent_id,
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        &opts,
-                    )
-                },
-            )
+            if let Some(parent_id) = parent {
+                if scheduled.is_some() || due.is_some() {
+                    anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
+                }
+                commands::create::run_subissue(
+                    &db,
+                    writer.as_ref(),
+                    parent_id,
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    &opts,
+                )
+            } else {
+                commands::create::run(
+                    &db,
+                    writer.as_ref(),
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    scheduled,
+                    due,
+                    &opts,
+                )
+            }
         }
 
         IssueCommands::List {
@@ -2133,18 +2197,27 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             title,
             description,
             priority,
+            scheduled,
+            no_scheduled,
+            due,
+            no_due,
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
-            commands::update::run(
-                &db,
-                writer.as_ref(),
-                id,
-                title.as_deref(),
-                description.as_deref(),
-                priority.as_deref(),
-            )
+            let update = shared_writer::IssueUpdate {
+                title: title.as_deref(),
+                description: description
+                    .as_deref()
+                    .map_or(shared_writer::DescriptionUpdate::Unchanged, |s| {
+                        shared_writer::DescriptionUpdate::Set(s)
+                    }),
+                status: None,
+                priority: priority.as_deref(),
+                scheduled_at: scheduled_update(scheduled, no_scheduled),
+                due_at: scheduled_update(due, no_due),
+            };
+            commands::update::run(&db, writer.as_ref(), id, update)
         }
 
         IssueCommands::Close { id, no_changelog } => {
@@ -2375,6 +2448,8 @@ fn main() -> Result<()> {
             work,
             defer_id,
             parent,
+            scheduled,
+            due,
         } => dispatch_issue(
             IssueCommands::Create {
                 title,
@@ -2385,6 +2460,8 @@ fn main() -> Result<()> {
                 work,
                 defer_id,
                 parent,
+                scheduled,
+                due,
             },
             cli.quiet,
             cli.json,
@@ -2397,6 +2474,8 @@ fn main() -> Result<()> {
             template,
             label,
             parent,
+            scheduled,
+            due,
         } => dispatch_issue(
             IssueCommands::Quick {
                 title,
@@ -2405,6 +2484,8 @@ fn main() -> Result<()> {
                 template,
                 label,
                 parent,
+                scheduled,
+                due,
             },
             cli.quiet,
             cli.json,
@@ -2466,6 +2547,8 @@ fn main() -> Result<()> {
                     work,
                     defer_id: false,
                     parent,
+                    scheduled: None,
+                    due: None,
                 },
                 cli.quiet,
                 cli.json,
@@ -2531,6 +2614,8 @@ fn main() -> Result<()> {
                     work,
                     defer_id: false,
                     parent: Some(parent),
+                    scheduled: None,
+                    due: None,
                 },
                 cli.quiet,
                 cli.json,

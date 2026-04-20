@@ -69,6 +69,8 @@ struct SavedIssue {
     created_at: String,
     updated_at: String,
     closed_at: Option<String>,
+    scheduled_at: Option<String>,
+    due_at: Option<String>,
 }
 
 /// Tuple of comment fields saved from `SQLite` before hydration clears them.
@@ -140,7 +142,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         .conn
         .prepare(
             "SELECT id, uuid, title, description, status, priority, parent_id, \
-             created_by, created_at, updated_at, closed_at FROM issues WHERE uuid IS NOT NULL",
+             created_by, created_at, updated_at, closed_at, scheduled_at, due_at \
+             FROM issues WHERE uuid IS NOT NULL",
         )?
         .query_map([], |row| {
             Ok(SavedIssue {
@@ -155,6 +158,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
                 closed_at: row.get(10)?,
+                scheduled_at: row.get(11)?,
+                due_at: row.get(12)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -381,6 +386,8 @@ fn hydrate_issues(
         let created_at = issue.created_at.to_rfc3339();
         let updated_at = issue.updated_at.to_rfc3339();
         let closed_at = issue.closed_at.map(|dt| dt.to_rfc3339());
+        let scheduled_at = issue.scheduled_at.map(|dt| dt.to_rfc3339());
+        let due_at = issue.due_at.map(|dt| dt.to_rfc3339());
 
         db.insert_hydrated_issue(&HydratedIssue {
             id: display_id,
@@ -394,6 +401,8 @@ fn hydrate_issues(
             created_at: &created_at,
             updated_at: &updated_at,
             closed_at: closed_at.as_deref(),
+            scheduled_at: scheduled_at.as_deref(),
+            due_at: due_at.as_deref(),
         })?;
         stats.issues += 1;
 
@@ -566,6 +575,8 @@ fn restore_sqlite_only_issues(
             created_at: &row.created_at,
             updated_at: &row.updated_at,
             closed_at: row.closed_at.as_deref(),
+            scheduled_at: row.scheduled_at.as_deref(),
+            due_at: row.due_at.as_deref(),
         })?;
         stats.issues += 1;
     }
@@ -828,6 +839,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
             labels: vec![],
             comments: vec![],
             blockers: vec![],

@@ -1,3 +1,4 @@
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -234,6 +235,71 @@ pub fn validate_compact_name(name: &str) -> anyhow::Result<()> {
         "Composed name contains invalid characters: '{name}'"
     );
     Ok(())
+}
+
+// ── Scheduling date parsers (GH #361) ──────────────────────────────────
+//
+// Accept two input shapes:
+//   1. ISO 8601 date (`YYYY-MM-DD`) — the common case for task scheduling.
+//      For `--scheduled`, parsed to T00:00:00Z (start of day, UTC).
+//      For `--due`, parsed to T23:59:59Z (end of day, UTC).
+//   2. Full RFC 3339 datetime (e.g. `2026-03-20T14:00:00Z`) — passed through
+//      unchanged, bypassing the start/end-of-day convention. This is the
+//      escape hatch for callers who need a specific time.
+
+fn parse_bare_date(s: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
+}
+
+fn parse_rfc3339_as_utc(s: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+const fn date_at_time(d: NaiveDate, t: NaiveTime) -> DateTime<Utc> {
+    DateTime::<Utc>::from_naive_utc_and_offset(NaiveDateTime::new(d, t), Utc)
+}
+
+/// 23:59:59 is a static, known-valid time, but `NaiveTime::from_hms_opt`
+/// is fallible at the type level. Fall back to `NaiveTime::MIN` to
+/// satisfy `clippy::unwrap_used` without a panic path — the fallback is
+/// unreachable for these constant inputs, and the date-parser tests catch
+/// any regression immediately.
+fn end_of_day() -> NaiveTime {
+    NaiveTime::from_hms_opt(23, 59, 59).unwrap_or(NaiveTime::MIN)
+}
+
+/// Clap `value_parser` for `--scheduled`: `YYYY-MM-DD` → T00:00:00Z (start
+/// of day), or full RFC 3339 passed through. GH #361 REQ-11.
+///
+/// # Errors
+///
+/// Returns an error string if the input is neither a valid ISO date nor a
+/// valid RFC 3339 datetime.
+pub fn parse_scheduled_date(s: &str) -> Result<DateTime<Utc>, String> {
+    if let Some(d) = parse_bare_date(s) {
+        return Ok(date_at_time(d, NaiveTime::MIN));
+    }
+    parse_rfc3339_as_utc(s).ok_or_else(|| {
+        format!("expected YYYY-MM-DD or RFC 3339 datetime (e.g. 2026-03-20T14:00:00Z), got: {s}")
+    })
+}
+
+/// Clap `value_parser` for `--due`: `YYYY-MM-DD` → T23:59:59Z (end of day),
+/// or full RFC 3339 passed through. GH #361 REQ-11.
+///
+/// # Errors
+///
+/// Returns an error string if the input is neither a valid ISO date nor a
+/// valid RFC 3339 datetime.
+pub fn parse_due_date(s: &str) -> Result<DateTime<Utc>, String> {
+    if let Some(d) = parse_bare_date(s) {
+        return Ok(date_at_time(d, end_of_day()));
+    }
+    parse_rfc3339_as_utc(s).ok_or_else(|| {
+        format!("expected YYYY-MM-DD or RFC 3339 datetime (e.g. 2026-03-20T14:00:00Z), got: {s}")
+    })
 }
 
 #[cfg(test)]
@@ -513,5 +579,58 @@ mod tests {
     fn test_validate_compact_name_invalid_chars() {
         assert!(validate_compact_name("hello world").is_err());
         assert!(validate_compact_name("hello/world").is_err());
+    }
+
+    // ── Scheduling date parser tests (GH #361) ─────────────────────────
+
+    #[test]
+    fn test_parse_scheduled_date_iso_maps_to_start_of_day() {
+        // REQ-11 / AC-1: YYYY-MM-DD for --scheduled is T00:00:00Z.
+        let dt = parse_scheduled_date("2026-03-20").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-20T00:00:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_due_date_iso_maps_to_end_of_day() {
+        // REQ-11 / AC-1: YYYY-MM-DD for --due is T23:59:59Z.
+        let dt = parse_due_date("2026-03-25").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-25T23:59:59+00:00");
+    }
+
+    #[test]
+    fn test_parse_due_date_rfc3339_passthrough() {
+        // REQ-11 / AC-20: full RFC 3339 bypasses the end-of-day convention.
+        let dt = parse_due_date("2026-03-20T14:00:00Z").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-20T14:00:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_scheduled_date_rfc3339_passthrough() {
+        let dt = parse_scheduled_date("2026-03-20T09:30:00Z").unwrap();
+        assert_eq!(dt.to_rfc3339(), "2026-03-20T09:30:00+00:00");
+    }
+
+    #[test]
+    fn test_parse_scheduled_date_rejects_garbage() {
+        let err = parse_scheduled_date("not a date").unwrap_err();
+        assert!(
+            err.contains("YYYY-MM-DD") || err.contains("RFC 3339"),
+            "error message should hint at accepted formats: {err}"
+        );
+    }
+
+    #[test]
+    fn test_parse_due_date_rejects_empty() {
+        assert!(parse_due_date("").is_err());
+    }
+
+    #[test]
+    fn test_parse_date_rejects_invalid_month() {
+        assert!(parse_scheduled_date("2026-13-01").is_err());
+    }
+
+    #[test]
+    fn test_parse_date_rejects_invalid_day() {
+        assert!(parse_due_date("2026-02-31").is_err());
     }
 }

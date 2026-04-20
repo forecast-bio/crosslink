@@ -67,6 +67,12 @@ fn print_header(issue: &crate::models::Issue) {
     if let Some(closed) = issue.closed_at {
         println!("Closed: {}", closed.format("%Y-%m-%d %H:%M:%S"));
     }
+    if let Some(scheduled) = issue.scheduled_at {
+        println!("Scheduled: {}", scheduled.format("%Y-%m-%d"));
+    }
+    if let Some(due) = issue.due_at {
+        println!("Due: {}", due.format("%Y-%m-%d"));
+    }
 }
 
 fn print_labels(db: &Database, id: i64) -> Result<()> {

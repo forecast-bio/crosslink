@@ -148,6 +148,7 @@ pub struct CreateOpts<'a> {
     pub defer_id: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     db: &Database,
     writer: Option<&SharedWriter>,
@@ -155,8 +156,22 @@ pub fn run(
     description: Option<&str>,
     priority: &str,
     template: Option<&str>,
+    scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    due_at: Option<chrono::DateTime<chrono::Utc>>,
     opts: &CreateOpts<'_>,
 ) -> Result<()> {
+    // REQ-11 sanity: if both are set and scheduled is after due, warn but proceed.
+    // AC-13 — warning goes to stderr so it doesn't contaminate --quiet output on stdout.
+    if let (Some(s), Some(d)) = (scheduled_at, due_at) {
+        if s > d {
+            eprintln!(
+                "Warning: --scheduled ({}) is after --due ({}). Proceeding anyway.",
+                s.format("%Y-%m-%d"),
+                d.format("%Y-%m-%d")
+            );
+        }
+    }
+
     // Apply template if specified
     let (final_priority, final_description, template_label) = if let Some(tmpl_name) = template {
         let tmpl = get_template(tmpl_name).ok_or_else(|| {
@@ -203,7 +218,14 @@ pub fn run(
     }
 
     let id = if let Some(w) = writer {
-        let id = w.create_issue(db, title, final_description.as_deref(), &final_priority)?;
+        let id = w.create_issue(
+            db,
+            title,
+            final_description.as_deref(),
+            &final_priority,
+            scheduled_at,
+            due_at,
+        )?;
 
         // Auto-add label from template
         if let Some(lbl) = template_label {
@@ -217,6 +239,16 @@ pub fn run(
 
         id
     } else {
+        // Non-writer path: scheduling fields require the shared-writer path
+        // because direct-db creation doesn't plumb them into IssueFile JSON
+        // (which is the source of truth for hydration). Fail loudly rather
+        // than silently dropping the dates.
+        if scheduled_at.is_some() || due_at.is_some() {
+            bail!(
+                "Scheduling dates require the shared-writer path. \
+                 Run `crosslink agent init <id>` first to enable it."
+            );
+        }
         // Wrap create + labels in a transaction so a label failure
         // doesn't leave an issue without its labels.
         db.transaction(|| {
@@ -461,7 +493,18 @@ mod tests {
             crosslink_dir: None,
             defer_id: false,
         };
-        run(&db, None, "Test issue", None, "medium", None, &opts).unwrap();
+        run(
+            &db,
+            None,
+            "Test issue",
+            None,
+            "medium",
+            None,
+            None,
+            None,
+            &opts,
+        )
+        .unwrap();
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].title, "Test issue");
@@ -477,7 +520,18 @@ mod tests {
             crosslink_dir: None,
             defer_id: false,
         };
-        run(&db, None, "A bug", None, "medium", Some("bug"), &opts).unwrap();
+        run(
+            &db,
+            None,
+            "A bug",
+            None,
+            "medium",
+            Some("bug"),
+            None,
+            None,
+            &opts,
+        )
+        .unwrap();
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         assert_eq!(issues.len(), 1);
         let labels = db.get_labels(issues[0].id).unwrap();
@@ -495,7 +549,18 @@ mod tests {
             crosslink_dir: None,
             defer_id: false,
         };
-        run(&db, None, "Labeled issue", None, "high", None, &opts).unwrap();
+        run(
+            &db,
+            None,
+            "Labeled issue",
+            None,
+            "high",
+            None,
+            None,
+            None,
+            &opts,
+        )
+        .unwrap();
         let issues = db.list_issues(Some("all"), None, None).unwrap();
         let issue_labels = db.get_labels(issues[0].id).unwrap();
         assert_eq!(issue_labels.len(), 2);
@@ -530,7 +595,17 @@ mod tests {
             crosslink_dir: None,
             defer_id: false,
         };
-        let result = run(&db, None, "Bad priority", None, "urgent", None, &opts);
+        let result = run(
+            &db,
+            None,
+            "Bad priority",
+            None,
+            "urgent",
+            None,
+            None,
+            None,
+            &opts,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid priority"));
     }

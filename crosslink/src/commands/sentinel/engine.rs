@@ -359,7 +359,7 @@ fn create_sentinel_issue(
         &signal.body[..signal.body.len().min(2000)]
     );
     let issue_id = if let Some(w) = writer {
-        w.create_issue(db, &signal.title, Some(&description), "medium")?
+        w.create_issue(db, &signal.title, Some(&description), "medium", None, None)?
     } else {
         db.create_issue(&signal.title, Some(&description), "medium")?
     };

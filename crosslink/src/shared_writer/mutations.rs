@@ -2,7 +2,7 @@
 //! comments, labels, blockers, and relations.
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::cell::Cell;
 use uuid::Uuid;
 
@@ -13,8 +13,10 @@ use super::core::{PushOutcome, SharedWriter, WriteSet};
 
 /// Represents an update to a description field with three possible states:
 /// unchanged, cleared, or set to a new value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DescriptionUpdate<'a> {
     /// Do not modify the description.
+    #[default]
     Unchanged,
     /// Clear the description (set to `None`).
     Clear,
@@ -30,6 +32,70 @@ impl<'a> From<Option<Option<&'a str>>> for DescriptionUpdate<'a> {
             Some(Some(s)) => Self::Set(s),
         }
     }
+}
+
+/// Generic three-valued update for optional fields (GH #361). Use for any
+/// setter that needs to distinguish "leave alone" from "set to `None`" from
+/// "set to `Some(value)`".
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FieldUpdate<T> {
+    /// Do not modify the field.
+    #[default]
+    Unchanged,
+    /// Clear the field (set to `None`).
+    Clear,
+    /// Set the field to the given value.
+    Set(T),
+}
+
+impl<T> From<Option<Option<T>>> for FieldUpdate<T> {
+    fn from(opt: Option<Option<T>>) -> Self {
+        match opt {
+            None => Self::Unchanged,
+            Some(None) => Self::Clear,
+            Some(Some(v)) => Self::Set(v),
+        }
+    }
+}
+
+/// Field-level update for an existing issue. Every field defaults to
+/// "leave unchanged," so callers touch only what they want to change:
+///
+/// ```ignore
+/// writer.update_issue(&db, id, IssueUpdate {
+///     title: Some("renamed"),
+///     scheduled_at: FieldUpdate::Clear,
+///     ..Default::default()
+/// })?;
+/// ```
+///
+/// Replaces the previous 8-argument positional signature that was
+/// trivial to misuse at the call site (two adjacent `Option<&str>`
+/// parameters for status and priority were indistinguishable).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IssueUpdate<'a> {
+    pub title: Option<&'a str>,
+    pub description: DescriptionUpdate<'a>,
+    pub status: Option<&'a str>,
+    pub priority: Option<&'a str>,
+    pub scheduled_at: FieldUpdate<chrono::DateTime<chrono::Utc>>,
+    pub due_at: FieldUpdate<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Internal shape of a new-issue creation request, used to keep
+/// `create_issue_inner`'s signature narrow. The public `create_issue` /
+/// `create_subissue` entry points keep their positional-argument shape
+/// for backward compatibility with callers throughout the crate; this
+/// struct exists purely so the shared inner helper doesn't have to
+/// carry 8 positional parameters.
+#[derive(Debug, Clone, Copy)]
+struct IssueCreate<'a> {
+    title: &'a str,
+    description: Option<&'a str>,
+    priority: &'a str,
+    parent_uuid: Option<Uuid>,
+    scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    due_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Internal parameters for creating a comment (shared by `add_comment`
@@ -52,19 +118,19 @@ impl SharedWriter {
     fn create_issue_inner(
         &self,
         db: &Database,
-        title: &str,
-        description: Option<&str>,
-        priority: &str,
-        parent_uuid: Option<Uuid>,
+        create: IssueCreate<'_>,
         commit_msg: &str,
     ) -> Result<i64> {
         let uuid = Uuid::new_v4();
         let now = Utc::now();
-        let title_owned = title.to_string();
-        let desc_owned = description.map(std::string::ToString::to_string);
-        let priority_parsed: crate::models::Priority = priority.parse()?;
+        let title_owned = create.title.to_string();
+        let desc_owned = create.description.map(std::string::ToString::to_string);
+        let priority_parsed: crate::models::Priority = create.priority.parse()?;
         let agent_id = self.agent.agent_id.clone();
         let display_id = Cell::new(0i64);
+        let parent_uuid = create.parent_uuid;
+        let scheduled_at = create.scheduled_at;
+        let due_at = create.due_at;
 
         let outcome = self.write_commit_push(
             |writer| {
@@ -83,6 +149,8 @@ impl SharedWriter {
                     created_at: now,
                     updated_at: now,
                     closed_at: None,
+                    scheduled_at,
+                    due_at,
                     labels: vec![],
                     comments: vec![],
                     blockers: vec![],
@@ -122,7 +190,9 @@ impl SharedWriter {
 
     /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
     ///
-    /// Returns the assigned display ID.
+    /// Returns the assigned display ID. `scheduled_at` / `due_at` are
+    /// optional scheduling dates (GH #361); pass `None` for neither to
+    /// create a dateless issue.
     ///
     /// # Errors
     ///
@@ -134,20 +204,29 @@ impl SharedWriter {
         title: &str,
         description: Option<&str>,
         priority: &str,
+        scheduled_at: Option<DateTime<Utc>>,
+        due_at: Option<DateTime<Utc>>,
     ) -> Result<i64> {
         self.create_issue_inner(
             db,
-            title,
-            description,
-            priority,
-            None,
+            IssueCreate {
+                title,
+                description,
+                priority,
+                parent_uuid: None,
+                scheduled_at,
+                due_at,
+            },
             &format!("create issue: {title}"),
         )
     }
 
     /// Create a subissue under a parent.
     ///
-    /// Returns the assigned display ID for the child.
+    /// Returns the assigned display ID for the child. Subissues never carry
+    /// scheduling dates — those are a property of the parent deliverable
+    /// (GH #361, REQ-12). The CLI layer rejects `--scheduled`/`--due`
+    /// when `--parent` is present; this function does not accept them.
     ///
     /// # Errors
     ///
@@ -163,15 +242,22 @@ impl SharedWriter {
         let parent_uuid = self.resolve_uuid(parent_id, db)?;
         self.create_issue_inner(
             db,
-            title,
-            description,
-            priority,
-            Some(parent_uuid),
+            IssueCreate {
+                title,
+                description,
+                priority,
+                parent_uuid: Some(parent_uuid),
+                scheduled_at: None,
+                due_at: None,
+            },
             &format!("create subissue under #{parent_id}: {title}"),
         )
     }
 
-    /// Update an issue's title, description, status, or priority.
+    /// Update an issue's title, description, status, priority, or scheduling.
+    ///
+    /// Unspecified fields of `update` are left unchanged. See [`IssueUpdate`]
+    /// for the field-level semantics (Unchanged / Clear / Set).
     ///
     /// # Errors
     ///
@@ -181,19 +267,20 @@ impl SharedWriter {
         &self,
         db: &Database,
         display_id: i64,
-        title: Option<&str>,
-        description: DescriptionUpdate<'_>,
-        status: Option<&str>,
-        priority: Option<&str>,
+        update: IssueUpdate<'_>,
     ) -> Result<()> {
-        let title_owned = title.map(std::string::ToString::to_string);
-        let desc_update = description;
-        let status_parsed = status
+        let title_owned = update.title.map(std::string::ToString::to_string);
+        let desc_update = update.description;
+        let status_parsed = update
+            .status
             .map(str::parse::<crate::models::IssueStatus>)
             .transpose()?;
-        let priority_parsed = priority
+        let priority_parsed = update
+            .priority
             .map(str::parse::<crate::models::Priority>)
             .transpose()?;
+        let scheduled_at = update.scheduled_at;
+        let due_at = update.due_at;
 
         let _ = self.write_commit_push(
             |writer| {
@@ -211,6 +298,16 @@ impl SharedWriter {
                 }
                 if let Some(p) = priority_parsed {
                     issue.priority = p;
+                }
+                match scheduled_at {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => issue.scheduled_at = None,
+                    FieldUpdate::Set(dt) => issue.scheduled_at = Some(dt),
+                }
+                match due_at {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => issue.due_at = None,
+                    FieldUpdate::Set(dt) => issue.due_at = Some(dt),
                 }
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;

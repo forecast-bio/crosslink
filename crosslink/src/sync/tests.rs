@@ -2027,6 +2027,8 @@ fn test_verify_entry_signatures_unsigned_comments() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
         labels: vec![],
         comments: vec![
             CommentEntry {
@@ -2093,6 +2095,8 @@ fn test_verify_entry_signatures_with_fake_signature_no_allowed_signers() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
         labels: vec![],
         comments: vec![CommentEntry {
             id: 1,

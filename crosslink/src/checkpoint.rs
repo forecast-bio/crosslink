@@ -76,6 +76,12 @@ pub struct CompactIssue {
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
+    /// When the issue becomes actionable (GH #361).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<DateTime<Utc>>,
+    /// Hard deadline (GH #361).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub labels: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -235,6 +241,8 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
                 closed_at: None,
+                scheduled_at: None,
+                due_at: None,
                 labels: BTreeSet::from(["bug".to_string()]),
                 blockers: BTreeSet::new(),
                 related: BTreeSet::new(),
@@ -331,6 +339,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
             labels: BTreeSet::from(["a".to_string(), "b".to_string()]),
             blockers: BTreeSet::from([Uuid::new_v4()]),
             related: BTreeSet::new(),

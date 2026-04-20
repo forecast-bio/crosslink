@@ -213,6 +213,14 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
+    /// When the issue becomes actionable. `crosslink next` filters out
+    /// issues whose `scheduled_at` is still in the future. GH #361.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<DateTime<Utc>>,
+    /// Hard deadline. `crosslink next` boosts overdue issues (+100) and
+    /// warns when `due_at` is within 1 day. GH #361.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -293,6 +301,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
         };
 
         let json = serde_json::to_string(&issue).unwrap();
@@ -318,6 +328,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
         };
 
         let json = serde_json::to_string(&issue).unwrap();
@@ -339,6 +351,8 @@ mod tests {
             created_at: now,
             updated_at: now,
             closed_at: Some(now),
+            scheduled_at: None,
+            due_at: None,
         };
 
         let json = serde_json::to_string(&issue).unwrap();
@@ -359,6 +373,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
         };
 
         let json = serde_json::to_string(&issue).unwrap();
@@ -531,6 +547,8 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
                 closed_at: None,
+                scheduled_at: None,
+                due_at: None,
             };
 
             let json = serde_json::to_string(&issue).unwrap();
@@ -632,6 +650,8 @@ mod tests {
                 created_at: now,
                 updated_at: now,
                 closed_at: if is_closed { Some(now) } else { None },
+                scheduled_at: None,
+                due_at: None,
             };
 
             let json = serde_json::to_string(&issue).unwrap();
