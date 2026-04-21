@@ -94,6 +94,7 @@ new subcommand for log-scraping continuity.
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- Alerts page mutations don't invalidate alerts query; orphan_subissue close appears to no-op (#709)
 - Dashboard polish: token refresh UX + issue ordering + remote-repo hub data missing (#707)
 - Dashboard: project detail page blank on click + gh CLI auth fallback (#706)
 - Fix crosslink init: deploy agent-prompt-server.py (GH#554) (#677)
@@ -127,6 +128,12 @@ new subcommand for log-scraping continuity.
 - Add `INTENTIONAL` comments to deliberate error suppression patterns ([CL-419])
 
 ### Changed
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
 - P1.11: agent request protocol — hub-branch agents/<id>/requests/*.json + agent-side polling lib + kill/pause/resume/reprioritise verbs + audit log (#700)
 - P1.10: lock controls — claim, release, steal (#699)
 - P1.9: write surface — milestones + relations + blockers (#698)
