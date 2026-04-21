@@ -130,9 +130,11 @@ Navigate to **Settings → GitHub**.
 3. Click **Browse `<org>`**. The dashboard walks the org via the
    GitHub REST API and returns every repo that already has a
    `crosslink/hub` branch.
-4. Click **Track all** to clone + track the lot in one shot. Pass a
-   clone root (defaults to `~/crosslink-tracked`) if you don't want
-   them living next to your manual clones.
+4. Click **Track all** to clone + track the lot in one shot. Each
+   repo lands at `~/<owner>/<repo>` (so the filesystem discover
+   walker picks them up on subsequent runs). Pass a clone-root
+   override if you want them grouped under a subdirectory
+   (e.g. `~/code/<owner>/<repo>`).
 
 The token is stored AES-256-GCM encrypted in
 `~/.crosslink/dashboard.db`, keyed to the machine — see §7 Security.

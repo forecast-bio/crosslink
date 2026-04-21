@@ -453,7 +453,8 @@ export function useOrgRepos(org: string | null, enabled: boolean) {
 
 /// Walk an org and clone+track every repo with a `crosslink/hub` branch.
 ///
-/// - `cloneRoot` is optional; server default is `~/crosslink-tracked`.
+/// - `cloneRoot` is optional; server default is `$HOME` (so repos
+///   land at `~/<owner>/<repo>`).
 /// - When `init` is true, the server also runs `crosslink init` +
 ///   `crosslink agent init <agentId>` in each freshly-cloned repo so
 ///   dashboard write actions work without manual bootstrap.

@@ -224,7 +224,7 @@ export function SettingsGithub() {
         <p className="mb-3 text-xs text-muted-foreground">
           Paste any git URL (<code className="font-mono">https://…</code> or{" "}
           <code className="font-mono">git@…</code>) to clone it into{" "}
-          <code className="font-mono">~/crosslink-tracked/&lt;owner&gt;/&lt;repo&gt;</code>{" "}
+          <code className="font-mono">~/&lt;owner&gt;/&lt;repo&gt;</code>{" "}
           and start polling it. Independent of the PAT — useful for
           adding a single repo or one that's not in a browsable org.
         </p>
@@ -353,7 +353,7 @@ export function SettingsGithub() {
               <input
                 value={cloneRoot}
                 onChange={(e) => setCloneRoot(e.target.value)}
-                placeholder="clone root (defaults to ~/crosslink-tracked)"
+                placeholder="clone root (defaults to $HOME — repos land at ~/<owner>/<repo>)"
                 className="w-full rounded border bg-background px-2 py-1 text-sm"
               />
               <label className="flex cursor-pointer items-center gap-2 text-xs">

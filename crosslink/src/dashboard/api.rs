@@ -536,7 +536,8 @@ struct CloneRepoBody {
     /// Override slug. Defaults to derived from `url`.
     #[serde(default)]
     slug: Option<String>,
-    /// Clone-root override. Defaults to `$HOME/crosslink-tracked`.
+    /// Clone-root override. Defaults to `$HOME`, so repos land at
+    /// `~/<owner>/<repo>`.
     #[serde(default)]
     clone_root: Option<String>,
     /// Run `crosslink init --defaults` + `crosslink agent init` after
@@ -557,8 +558,8 @@ struct CloneRepoOutcome {
 
 /// `POST /api/v1/dashboard/clone`
 ///
-/// Clone an arbitrary git URL into `~/crosslink-tracked/<owner>/<repo>`
-/// (or a caller-provided root) and register it in the dashboard DB.
+/// Clone an arbitrary git URL into `~/<owner>/<repo>` (or a
+/// caller-provided `clone_root`) and register it in the dashboard DB.
 /// Optionally runs `crosslink init` + `crosslink agent init` in the
 /// fresh clone so writes work immediately.
 ///
@@ -589,9 +590,11 @@ async fn clone_repo(
         })?,
     };
 
+    // Default to `$HOME` so each repo lands at `~/<owner>/<repo>`
+    // — same as track-all and consistent with the discover walker
+    // which scans `$HOME` for crosslink-enabled repos.
     let clone_root = body.clone_root.clone().unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        format!("{home}/crosslink-tracked")
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
     });
 
     // If init was requested, require agent_id up front so we bail

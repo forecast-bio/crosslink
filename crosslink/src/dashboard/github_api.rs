@@ -192,8 +192,9 @@ async fn list_repos(
 
 #[derive(Debug, Deserialize)]
 struct TrackAllBody {
-    /// Root under which to clone new repos. Defaults to
-    /// `~/crosslink-tracked/<org>/<repo>`. Existing clones matching
+    /// Root under which to clone new repos. Defaults to `$HOME`, so
+    /// each repo lands at `~/<owner>/<repo>` — same place the
+    /// filesystem-discover walker scans. Existing clones matching
     /// the repo's slug are adopted in-place.
     #[serde(default)]
     clone_root: Option<String>,
@@ -233,9 +234,13 @@ async fn track_all(
         .await
         .map_err(|e| GitHubApiError::Upstream(e.to_string()))?;
 
+    // Default to `$HOME` so each repo lands at `~/<owner>/<repo>`
+    // alongside the user's other clones. The dashboard's
+    // filesystem-discover walker already scans `$HOME` for repos
+    // with `.crosslink/`, so this layout gets picked up natively
+    // without needing to special-case a "tracked" subdir.
     let clone_root = body.clone_root.clone().unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        format!("{home}/crosslink-tracked")
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
     });
 
     // Up-front validation: if init was requested, we need an agent_id
