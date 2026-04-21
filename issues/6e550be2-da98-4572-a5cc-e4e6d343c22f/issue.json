@@ -2,11 +2,12 @@
   "uuid": "6e550be2-da98-4572-a5cc-e4e6d343c22f",
   "display_id": 253,
   "title": "Add issue scheduling fields (scheduled_at / due_at)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-23T13:59:04.388095939Z",
-  "updated_at": "2026-03-23T18:43:35.862521179Z",
+  "updated_at": "2026-04-21T22:54:24.655431064Z",
+  "closed_at": "2026-04-21T22:54:24.655431064Z",
   "labels": [
     "feature",
     "enhancement"

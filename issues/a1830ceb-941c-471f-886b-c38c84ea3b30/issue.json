@@ -1,0 +1,14 @@
+{
+  "uuid": "a1830ceb-941c-471f-886b-c38c84ea3b30",
+  "display_id": 715,
+  "title": "Dashboard InitBanner doesn't refresh on init success + track-all init fails on subset of repos",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T22:06:05.606368334Z",
+  "updated_at": "2026-04-21T22:16:33.864346981Z",
+  "closed_at": "2026-04-21T22:16:33.864346981Z",
+  "labels": [
+    "bug"
+  ]
+}

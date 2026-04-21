@@ -2,11 +2,12 @@
   "uuid": "f942e46b-5a71-4639-b279-643aec99b957",
   "display_id": 210,
   "title": "Fix kickoff show-plan failing in agent worktrees",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-18T14:21:20.542138537Z",
-  "updated_at": "2026-03-18T14:21:34.900336909Z",
+  "updated_at": "2026-04-21T22:54:16.602367125Z",
+  "closed_at": "2026-04-21T22:54:16.602367125Z",
   "labels": [
     "bug"
   ]

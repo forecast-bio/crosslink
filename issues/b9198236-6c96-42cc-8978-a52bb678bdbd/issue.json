@@ -2,11 +2,12 @@
   "uuid": "b9198236-6c96-42cc-8978-a52bb678bdbd",
   "display_id": 346,
   "title": "Remove or document StaleLockInfo struct purpose in compaction",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:26:52.677082820Z",
-  "updated_at": "2026-03-26T13:26:55.903268598Z",
+  "updated_at": "2026-04-21T22:56:48.352189835Z",
+  "closed_at": "2026-04-21T22:56:48.352189835Z",
   "labels": [
     "enhancement"
   ]

@@ -1,0 +1,10 @@
+{
+  "uuid": "407b5c0f-acd5-416f-9658-164748f98b73",
+  "issue_uuid": "a1830ceb-941c-471f-886b-c38c84ea3b30",
+  "author": "anon-ab6221f8",
+  "content": "Shipped in 606c8e8a. Root cause: crosslink init --force short-circuits the 'Initializing database' step when .crosslink/.hub-cache/ already exists — exits 0 but leaves issues.db missing. Happened to ~half the track-all clones due to timing between the poll loop's ensure_hub_cache_worktree and the init subprocess. Fix: wipe_partial_crosslink_state now removes the hub-cache worktree properly (git worktree remove --force) AND nukes .crosslink/ entirely, so crosslink init sees a truly clean slate on retry. Hub-cache regenerates on the next poll tick via ensure_hub_cache_worktree. All 6 previously-broken repos retroactively initialised via POST /w/<slug>/init; all 15 tracked projects now write_capability=ready.",
+  "created_at": "2026-04-21T22:16:32.447125684Z",
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQLliBVgkgClrTKuZLm1xLLtFSd01utOy+a4PsZ2Txf08jtO87ZydhC1xro+xqjeP6tdDL8KNvi2QQmKAvbtB1Ak="
+}

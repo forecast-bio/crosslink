@@ -2,11 +2,12 @@
   "uuid": "c2799b91-bfa5-4ef5-9f01-e31e2c746175",
   "display_id": 552,
   "title": "Fix YAML injection in knowledge page creation handler",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:54:04.899708613Z",
-  "updated_at": "2026-03-26T13:54:09.597509938Z",
+  "updated_at": "2026-04-21T23:26:27.410852568Z",
+  "closed_at": "2026-04-21T23:26:27.410852568Z",
   "labels": [
     "security"
   ]

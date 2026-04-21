@@ -1,0 +1,10 @@
+{
+  "uuid": "8787b691-de56-4b94-a048-699402d22b70",
+  "issue_uuid": "a47a4ad0-b961-425a-b73f-232af0d7f4b2",
+  "author": "anon-ab6221f8",
+  "content": "Shipped in b9926fb8. Three clustered complaints:\n\n1. Lock Release vs Steal confusion — Alert detail now shows 'held by <agent>' + 'claimed <timestamp>' from useProject(slug), plus a semantic hint: 'Use Release only if you're the holder. Use Steal to take over a stale lock held by another agent.' User won't click Release blind anymore.\n\n2. Post-action invisibility — actions::run_cli now fast-forwards the hub-cache worktree (git reset --hard crosslink/hub) right after crosslink sync, so the frontend's mutation-triggered refetch sees the new state immediately instead of waiting for the next 5s poll tick. Applies to every write action (close/release/steal/comment/sign-backfill/etc). Skips reset if the hub-cache is dirty, same safety as poll::ensure_hub_cache_worktree.\n\n3. signature_invalid now has an actionable button — new POST /integrity/sign-backfill endpoint runs 'crosslink integrity sign-backfill --confirm' via run_cli. Frontend useSignBackfill hook + 'Run sign-backfill' button on the alert card.\n\n2 new vitest cases (lock-holder display, sign-backfill dispatch); full suite 103/103.",
+  "created_at": "2026-04-21T22:30:01.797957943Z",
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQAnkXZyDAE4bxR3wyKOgXaEwDiR32JLTSuLliCO+0FEacAzWst9uB+m78TIVhv9ZvueFxYEduaq32MCBTV85pw8="
+}

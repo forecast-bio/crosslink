@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Root cause: commit be839515 (2026-03-30, 'fix: consistent signing bypass for all hub-cache commits', closes #529) made crosslink init auto-write .crosslink/agent.json for hub-cache signing. is_agent_context() (introduced 2026-03-06 in 2b221468) treats agent.json presence as proof the session is a kickoff agent — an invariant that held until be839515 repurposed agent.json as a signing identity file written to main repos too. Plan: split identity from session-role via a role field on AgentConfig. crosslink init writes role=driver (signing only, not an agent). crosslink agent init (kickoff) writes role=agent. is_agent_context parses agent.json and only returns True on role=agent; cwd-in-.claude/worktrees/ kept as secondary signal for Claude-Code sub-agents. Backward-compat: missing role deserializes to None → treated as driver, which is correct for all existing main-repo agent.json files auto-created by crosslink init.",
   "created_at": "2026-04-20T12:59:06.036688084Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQFjCH+n8drQQWb5CfmRDJI3TSIrfrx3SGJaUEXkmdFkbzpPLHB38MnFlJqJ6OUuXH8ZiHreoXagCo0I/vAXYrAk="
 }

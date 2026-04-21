@@ -2,11 +2,12 @@
   "uuid": "33f6eee2-d2e2-47e6-a60a-9fa4669e4431",
   "display_id": 484,
   "title": "Accumulate partial failures in executor init instead of log-and-continue",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:44:25.765789079Z",
-  "updated_at": "2026-03-26T13:44:29.235976049Z",
+  "updated_at": "2026-04-21T23:01:34.137145669Z",
+  "closed_at": "2026-04-21T23:01:34.137145669Z",
   "labels": [
     "enhancement"
   ]

@@ -2,11 +2,12 @@
   "uuid": "c4f7cebc-a912-4951-bde8-5bcfcdb6d995",
   "display_id": 515,
   "title": "Consider cfg gate for Windows-only bail in preflight_check",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:48:44.089000783Z",
-  "updated_at": "2026-03-26T13:48:48.403592348Z",
+  "updated_at": "2026-04-21T23:02:55.129113707Z",
+  "closed_at": "2026-04-21T23:02:55.129113707Z",
   "labels": [
     "enhancement"
   ]

@@ -2,11 +2,12 @@
   "uuid": "9738a0bf-0ecc-4ae9-9c4f-863faf408284",
   "display_id": 513,
   "title": "Rename ContainerMode None to avoid collision with Option None",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:48:27.651146463Z",
-  "updated_at": "2026-03-26T13:48:32.624782432Z",
+  "updated_at": "2026-04-21T23:02:49.319408343Z",
+  "closed_at": "2026-04-21T23:02:49.319408343Z",
   "labels": [
     "enhancement"
   ]

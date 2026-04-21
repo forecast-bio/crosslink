@@ -2,11 +2,12 @@
   "uuid": "7b8f85a6-ba9e-4b30-8baa-08bbc32edc71",
   "display_id": 290,
   "title": "Restrict Database conn field visibility from pub crate to private",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:59.942945035Z",
-  "updated_at": "2026-03-26T13:22:01.864044795Z",
+  "updated_at": "2026-04-21T22:54:56.765501075Z",
+  "closed_at": "2026-04-21T22:54:56.765501075Z",
   "labels": [
     "enhancement"
   ]

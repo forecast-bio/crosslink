@@ -2,11 +2,12 @@
   "uuid": "44f745ff-0689-4f27-b2d7-294d04772b36",
   "display_id": 462,
   "title": "Extract infrastructure tool invocations from init behind abstraction",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:41:46.806629385Z",
-  "updated_at": "2026-03-26T13:41:52.170873652Z",
+  "updated_at": "2026-04-21T23:00:41.377897240Z",
+  "closed_at": "2026-04-21T23:00:41.377897240Z",
   "labels": [
     "enhancement"
   ]

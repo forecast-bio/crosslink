@@ -2,11 +2,12 @@
   "uuid": "f3de1608-6c29-40cd-96be-55d813078cae",
   "display_id": 672,
   "title": "sentinel: properly wire up unused code instead of removing/silencing",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T23:21:49.246665168Z",
-  "updated_at": "2026-04-10T23:21:53.955688679Z",
+  "updated_at": "2026-04-21T23:28:24.100236465Z",
+  "closed_at": "2026-04-21T23:28:24.100236465Z",
   "labels": [
     "bug"
   ]

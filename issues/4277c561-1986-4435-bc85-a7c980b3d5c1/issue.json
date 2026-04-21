@@ -3,11 +3,12 @@
   "display_id": 151,
   "title": "Integrate pre-flight check improvements for kickoff command: consolidate the inline prerequisite checks in run() and plan() with a unified preflight_check function that adds resolve_timeout_command() for macOS gtimeout support, PreflightResult struct that threads timeout_cmd through to launch_local() and plan(), and detailed platform-specific install instructions. Keep existing tests intact. Reference the worktree version at .worktrees/kickoff-pre-flight-check-for-required-external-commands-e-g/crosslink/src/commands/kickoff.rs for the target implementation.",
   "description": "Created by crosslink kickoff",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-07T01:26:01.815076Z",
-  "updated_at": "2026-03-07T01:26:03.319406Z",
+  "updated_at": "2026-04-21T22:35:48.112604662Z",
+  "closed_at": "2026-04-21T22:35:48.112604662Z",
   "labels": [
     "feature"
   ]

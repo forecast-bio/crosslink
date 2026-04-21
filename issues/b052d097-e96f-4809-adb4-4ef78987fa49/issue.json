@@ -2,11 +2,12 @@
   "uuid": "b052d097-e96f-4809-adb4-4ef78987fa49",
   "display_id": 509,
   "title": "Remove unused crosslink_dir parameter from build_design_doc_entries",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:47:41.042807677Z",
-  "updated_at": "2026-03-26T13:47:45.664247794Z",
+  "updated_at": "2026-04-21T23:02:38.006858257Z",
+  "closed_at": "2026-04-21T23:02:38.006858257Z",
   "labels": [
     "enhancement"
   ]

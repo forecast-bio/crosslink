@@ -2,11 +2,12 @@
   "uuid": "4c55dc40-f39a-4e54-b54e-b073fc34418b",
   "display_id": 332,
   "title": "Fix redundant disk IO in watermark migration read-write-read path",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:25:39.500720349Z",
-  "updated_at": "2026-03-26T13:25:42.154219119Z",
+  "updated_at": "2026-04-21T22:56:08.342629705Z",
+  "closed_at": "2026-04-21T22:56:08.342629705Z",
   "labels": [
     "enhancement"
   ]

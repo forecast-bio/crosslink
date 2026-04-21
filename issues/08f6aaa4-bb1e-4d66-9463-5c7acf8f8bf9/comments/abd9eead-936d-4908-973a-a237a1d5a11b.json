@@ -1,0 +1,10 @@
+{
+  "uuid": "abd9eead-936d-4908-973a-a237a1d5a11b",
+  "issue_uuid": "08f6aaa4-bb1e-4d66-9463-5c7acf8f8bf9",
+  "author": "anon-ab6221f8",
+  "content": "Shipped in 3576eae8. User called out the anti-pattern correctly — self-exe pin meant 'cargo install crosslink' didn't actually update dashboard subprocess behaviour. Now resolve_crosslink_bin() prefers PATH (canonical installed shape), falls back to self-exe only for dev workflows, with CROSSLINK_BIN env override for advanced cases.\n\nAlso fixed the FK constraint bug in untrack_with_path that was blocking cleanup of orphaned rows: the actions audit table FK to projects(id) had no ON DELETE clause, so projects with any dashboard-initiated writes (close/comment/lock/etc.) couldn't be untracked at all. Now NULLs out actions.project_id in a transaction before dropping the project row — audit history preserved as orphan rows.\n\nGrid is now clean: dollspace-gay/OpenClaudia, dollspace-gay/ferrotorch, forecast-bio/crosslink. Ready for the user to re-add forecast-bio repos via the new Clone & Track form (which defaults to $HOME).",
+  "created_at": "2026-04-21T21:24:49.725144260Z",
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQALW44aH63I76gdHcXdh+b0bsSYHKzvLtVCntZTDxV8qc7sDVBKnJDuiJG0xrA6Ey7RybyZRDlxQLZbTBTWMmAw="
+}

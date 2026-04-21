@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Parent issue tracking implementation of the crosslink dashboard feature designed in DESIGN-CROSSLINK-DASHBOARD.md (committed on feat/429-crosslink-dashboard as 6d019b38). Phase 1 (MVP) = 11 subissues (#690-#700), blocking relationships wired. Phase 2 (convenience) and Phase 3 (polish) will spawn subissues when we get there. First focus: #690 (P1.1 scaffolding). Design doc authoritative spec: GH #429 is the originating bug the feature resolves.",
   "created_at": "2026-04-20T18:01:26.128477505Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQBspV5/EhdE1JLydri7DR4psho/gseCkRfHOymEORBbe9toMGL+/rOdBdBZim5z266P947Ws4lRxotQYdga9Gg4="
 }

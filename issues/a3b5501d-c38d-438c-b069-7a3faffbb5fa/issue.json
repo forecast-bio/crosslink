@@ -2,11 +2,12 @@
   "uuid": "a3b5501d-c38d-438c-b069-7a3faffbb5fa",
   "display_id": 408,
   "title": "Remove unused root parameter from find_cargo_tomls_recurse",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:33:08.358632232Z",
-  "updated_at": "2026-03-26T13:33:10.914134493Z",
+  "updated_at": "2026-04-21T22:59:18.182674708Z",
+  "closed_at": "2026-04-21T22:59:18.182674708Z",
   "labels": [
     "enhancement"
   ]

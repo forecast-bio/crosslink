@@ -2,11 +2,12 @@
   "uuid": "2705ae15-995c-485a-81b0-e71420c5b300",
   "display_id": 377,
   "title": "Extract shared push-with-retry helper for write_commit_push variants",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:29:08.457729538Z",
-  "updated_at": "2026-03-26T13:29:10.393559869Z",
+  "updated_at": "2026-04-21T22:57:58.199872222Z",
+  "closed_at": "2026-04-21T22:57:58.199872222Z",
   "labels": [
     "enhancement"
   ]

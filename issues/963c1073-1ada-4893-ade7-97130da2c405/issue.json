@@ -2,11 +2,12 @@
   "uuid": "963c1073-1ada-4893-ade7-97130da2c405",
   "display_id": 476,
   "title": "Extract shared config types to eliminate init and config coupling",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:43:31.034027757Z",
-  "updated_at": "2026-03-26T13:43:34.491302739Z",
+  "updated_at": "2026-04-21T23:01:19.792880617Z",
+  "closed_at": "2026-04-21T23:01:19.792880617Z",
   "labels": [
     "enhancement"
   ]

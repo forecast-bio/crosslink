@@ -2,11 +2,12 @@
   "uuid": "715f080d-6cd4-4bbf-887f-9345a5eee0aa",
   "display_id": 306,
   "title": "Document inconsistent default status filter between list_issues and list_milestones",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:23:31.870206833Z",
-  "updated_at": "2026-03-26T13:23:33.959325565Z",
+  "updated_at": "2026-04-21T22:55:10.124278459Z",
+  "closed_at": "2026-04-21T22:55:10.124278459Z",
   "labels": [
     "enhancement"
   ]

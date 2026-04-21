@@ -2,11 +2,12 @@
   "uuid": "ccfd44bc-2052-47d1-86e9-99c9ae922ebe",
   "display_id": 335,
   "title": "Document lock reclaim behavior when same agent re-claims",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:25:51.947970215Z",
-  "updated_at": "2026-03-26T13:25:54.231460659Z",
+  "updated_at": "2026-04-21T22:56:16.963615401Z",
+  "closed_at": "2026-04-21T22:56:16.963615401Z",
   "labels": [
     "enhancement"
   ]

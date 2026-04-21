@@ -2,11 +2,12 @@
   "uuid": "4af94b4c-e3ea-4612-a8c1-c936aee28444",
   "display_id": 538,
   "title": "Use commit_hub_files consistently instead of raw git commands in swarm",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:52:07.567174321Z",
-  "updated_at": "2026-03-26T13:52:11.635445931Z",
+  "updated_at": "2026-04-21T23:03:55.017754924Z",
+  "closed_at": "2026-04-21T23:03:55.017754924Z",
   "labels": [
     "enhancement"
   ]

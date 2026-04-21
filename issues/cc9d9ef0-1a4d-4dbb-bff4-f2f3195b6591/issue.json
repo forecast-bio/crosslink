@@ -2,11 +2,12 @@
   "uuid": "cc9d9ef0-1a4d-4dbb-bff4-f2f3195b6591",
   "display_id": 382,
   "title": "Define status and priority constants to replace scattered magic strings",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:29:27.547404989Z",
-  "updated_at": "2026-03-26T13:29:29.365915366Z",
+  "updated_at": "2026-04-21T22:58:12.688112925Z",
+  "closed_at": "2026-04-21T22:58:12.688112925Z",
   "labels": [
     "enhancement"
   ]
