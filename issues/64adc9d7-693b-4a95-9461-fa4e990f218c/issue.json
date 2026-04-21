@@ -2,11 +2,12 @@
   "uuid": "64adc9d7-693b-4a95-9461-fa4e990f218c",
   "display_id": 473,
   "title": "Add unit tests for trust.rs and locks_cmd.rs pure logic functions",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:43:09.824653318Z",
-  "updated_at": "2026-03-26T13:43:13.710619554Z",
+  "updated_at": "2026-04-21T23:01:11.348187605Z",
+  "closed_at": "2026-04-21T23:01:11.348187605Z",
   "labels": [
     "enhancement"
   ]
