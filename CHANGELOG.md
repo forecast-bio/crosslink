@@ -93,6 +93,7 @@ new subcommand for log-scraping continuity.
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- Dashboard polish: token refresh UX + issue ordering + remote-repo hub data missing (#707)
 - Dashboard: project detail page blank on click + gh CLI auth fallback (#706)
 - Fix crosslink init: deploy agent-prompt-server.py (GH#554) (#677)
 - Fix kickoff env propagation: CLAUDE_CONFIG_DIR not reaching tmux agent (GH#555) (#676)
