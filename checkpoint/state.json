@@ -6,6 +6,10 @@
     "717": {
       "agent_id": "dashboard-bootstrap",
       "claimed_at": "2026-04-21T22:52:11.792891818Z"
+    },
+    "718": {
+      "agent_id": "dashboard-bootstrap",
+      "claimed_at": "2026-04-21T23:06:26.976357252Z"
     }
   },
   "issues": {},
@@ -104,11 +108,16 @@
       "agent_id": "dashboard-bootstrap",
       "agent_seq": 17,
       "timestamp": "2026-04-21T22:52:11.792891818Z"
+    },
+    {
+      "agent_id": "dashboard-bootstrap",
+      "agent_seq": 18,
+      "timestamp": "2026-04-21T23:06:26.976357252Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-04-21T22:52:11.792891818Z",
+    "timestamp": "2026-04-21T23:06:26.976357252Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 17
+    "agent_seq": 18
   }
 }
