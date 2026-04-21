@@ -2,12 +2,11 @@
   "uuid": "8b8ebd2d-9433-4f9c-a2f1-b6b0f9416235",
   "display_id": 511,
   "title": "Extract default agent container image as named constant",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:48:06.012697289Z",
-  "updated_at": "2026-04-21T23:02:43.534197329Z",
-  "closed_at": "2026-04-21T23:02:43.534197329Z",
+  "updated_at": "2026-03-26T13:48:11.813553794Z",
   "labels": [
     "enhancement"
   ]

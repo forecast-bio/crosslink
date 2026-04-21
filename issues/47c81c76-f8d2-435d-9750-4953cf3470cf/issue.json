@@ -2,12 +2,11 @@
   "uuid": "47c81c76-f8d2-435d-9750-4953cf3470cf",
   "display_id": 235,
   "title": "Fix smoke tests: auto-build dashboard and update stale assertions",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-19T21:40:09.511408Z",
-  "updated_at": "2026-04-21T22:54:19.370569649Z",
-  "closed_at": "2026-04-21T22:54:19.370569649Z",
+  "updated_at": "2026-03-19T21:40:14.199538Z",
   "labels": [
     "bug"
   ]

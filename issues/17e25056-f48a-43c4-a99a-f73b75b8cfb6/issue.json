@@ -2,12 +2,11 @@
   "uuid": "17e25056-f48a-43c4-a99a-f73b75b8cfb6",
   "display_id": 323,
   "title": "Document ownership relationship between CheckpointState and Counters",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:50.306044773Z",
-  "updated_at": "2026-04-21T22:55:48.650170470Z",
-  "closed_at": "2026-04-21T22:55:48.650170470Z",
+  "updated_at": "2026-03-26T13:24:53.334407625Z",
   "labels": [
     "enhancement"
   ]

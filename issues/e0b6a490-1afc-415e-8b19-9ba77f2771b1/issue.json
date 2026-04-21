@@ -2,12 +2,11 @@
   "uuid": "e0b6a490-1afc-415e-8b19-9ba77f2771b1",
   "display_id": 327,
   "title": "Use deterministic UUIDs in ordering-dependent hydration tests",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:25:10.651341421Z",
-  "updated_at": "2026-04-21T22:55:59.746171170Z",
-  "closed_at": "2026-04-21T22:55:59.746171170Z",
+  "updated_at": "2026-03-26T13:25:12.772792305Z",
   "labels": [
     "enhancement"
   ]

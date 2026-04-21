@@ -2,12 +2,11 @@
   "uuid": "ea485f69-83ff-4847-b174-3516159b8f58",
   "display_id": 539,
   "title": "Respect user git signing config instead of hardcoding no-gpg-sign",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:52:15.825644617Z",
-  "updated_at": "2026-04-21T23:03:57.738453123Z",
-  "closed_at": "2026-04-21T23:03:57.738453123Z",
+  "updated_at": "2026-03-26T13:52:18.705064287Z",
   "labels": [
     "enhancement"
   ]

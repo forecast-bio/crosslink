@@ -2,12 +2,11 @@
   "uuid": "e4b898fc-faeb-471d-a41f-19159c9265fc",
   "display_id": 420,
   "title": "Fix tag comma corruption in inline YAML array serialization",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:35:33.973397963Z",
-  "updated_at": "2026-04-21T22:59:47.764309057Z",
-  "closed_at": "2026-04-21T22:59:47.764309057Z",
+  "updated_at": "2026-03-26T13:35:37.850932012Z",
   "labels": [
     "bug"
   ]

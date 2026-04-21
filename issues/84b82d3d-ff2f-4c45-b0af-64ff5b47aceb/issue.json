@@ -2,12 +2,11 @@
   "uuid": "84b82d3d-ff2f-4c45-b0af-64ff5b47aceb",
   "display_id": 146,
   "title": "Fix auth token refresh",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-05T19:52:09.464999Z",
-  "updated_at": "2026-04-21T22:35:41.474359489Z",
-  "closed_at": "2026-04-21T22:35:41.474359489Z",
+  "updated_at": "2026-03-05T19:52:21.319019Z",
   "labels": [
     "bug"
   ]

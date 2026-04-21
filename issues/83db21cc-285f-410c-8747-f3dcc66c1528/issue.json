@@ -2,12 +2,11 @@
   "uuid": "83db21cc-285f-410c-8747-f3dcc66c1528",
   "display_id": 365,
   "title": "Check git config command results immediately in ensure_cache_git_identity",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:20.946898799Z",
-  "updated_at": "2026-04-21T22:57:33.503053239Z",
-  "closed_at": "2026-04-21T22:57:33.503053239Z",
+  "updated_at": "2026-03-26T13:28:23.165588952Z",
   "labels": [
     "bug"
   ]

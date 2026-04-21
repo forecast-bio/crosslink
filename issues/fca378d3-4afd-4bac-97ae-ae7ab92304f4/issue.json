@@ -2,12 +2,11 @@
   "uuid": "fca378d3-4afd-4bac-97ae-ae7ab92304f4",
   "display_id": 281,
   "title": "Replace poll-based timeout loop in verify_content with proper wait",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:11.661401338Z",
-  "updated_at": "2026-04-21T22:54:51.427265176Z",
-  "closed_at": "2026-04-21T22:54:51.427265176Z",
+  "updated_at": "2026-03-26T13:21:13.684616218Z",
   "labels": [
     "enhancement"
   ]

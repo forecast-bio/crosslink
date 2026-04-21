@@ -2,12 +2,11 @@
   "uuid": "439020db-deb4-4eb0-9dc0-b5ae431aaa8e",
   "display_id": 633,
   "title": "Wire cpitd clone detection into a hook or post-edit check",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T18:35:10.005693295Z",
-  "updated_at": "2026-04-21T23:26:41.704490565Z",
-  "closed_at": "2026-04-21T23:26:41.704490565Z",
+  "updated_at": "2026-03-26T18:35:12.805381983Z",
   "labels": [
     "feature"
   ]

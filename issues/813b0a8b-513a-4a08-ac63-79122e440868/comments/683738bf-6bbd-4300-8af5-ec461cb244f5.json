@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Phase 4.1 complete end-to-end. Backend (encrypted PAT storage + /github/config, /github/orgs/{org}/repos, /github/orgs/{org}/track-all) in 0aeecb36. Frontend (/settings/github page + 4 API hooks + 8 vitest cases) in 3869ec76.",
   "created_at": "2026-04-21T03:41:57.412750334Z",
-  "kind": "resolution",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQEo/5J9i508jUXbB+uAa0FYwWAJZBSMXbHQ6LqdqbctrUgb6dOUhcwkt+HLSNnkVKVaVtJYjKjY+ZNst/oOUUwM="
+  "kind": "resolution"
 }

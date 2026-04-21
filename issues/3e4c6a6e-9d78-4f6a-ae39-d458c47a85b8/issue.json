@@ -2,12 +2,11 @@
   "uuid": "3e4c6a6e-9d78-4f6a-ae39-d458c47a85b8",
   "display_id": 401,
   "title": "Extract Heartbeat and Keyring types from locks.rs into own modules",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:32:04.998592239Z",
-  "updated_at": "2026-04-21T22:58:57.202146237Z",
-  "closed_at": "2026-04-21T22:58:57.202146237Z",
+  "updated_at": "2026-03-26T13:32:08.333643011Z",
   "labels": [
     "enhancement"
   ]

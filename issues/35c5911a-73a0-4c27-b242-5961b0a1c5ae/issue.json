@@ -2,12 +2,11 @@
   "uuid": "35c5911a-73a0-4c27-b242-5961b0a1c5ae",
   "display_id": 537,
   "title": "Replace string comparisons with LiveStatus enum for agent status",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:51:59.326533559Z",
-  "updated_at": "2026-04-21T23:03:52.218760419Z",
-  "closed_at": "2026-04-21T23:03:52.218760419Z",
+  "updated_at": "2026-03-26T13:52:03.594947823Z",
   "labels": [
     "enhancement"
   ]

@@ -2,12 +2,11 @@
   "uuid": "c3ae6f39-5058-4b16-aee5-e6e4069e9c71",
   "display_id": 209,
   "title": "Fix --json flag for session status, issue tree, blocked, ready, and next commands",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-18T13:53:01.899030864Z",
-  "updated_at": "2026-04-21T22:54:13.942069405Z",
-  "closed_at": "2026-04-21T22:54:13.942069405Z",
+  "updated_at": "2026-03-18T13:53:19.022498823Z",
   "labels": [
     "bug"
   ]

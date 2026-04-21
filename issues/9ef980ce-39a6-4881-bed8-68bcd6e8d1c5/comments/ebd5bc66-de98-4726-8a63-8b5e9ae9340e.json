@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Implemented in 36e61a8a (alert engine + /alerts endpoint + WS alert events) and e7879bc7 (ci_failure + signature_invalid alerts).",
   "created_at": "2026-04-21T03:43:01.615054762Z",
-  "kind": "resolution",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQP5ngj9WPl5vp+3vtxDAIIIUnT7sssGY/Hgg9R57NIGs4MWRu95sXukPXfi6VCz68OdXBzeT9CMXNSh1+3uwggA="
+  "kind": "resolution"
 }

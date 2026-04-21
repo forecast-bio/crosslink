@@ -2,12 +2,11 @@
   "uuid": "442f0cd4-5561-420e-b8a7-0b96802ef48b",
   "display_id": 378,
   "title": "Define git error strings as named constants for locale resilience",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:29:12.424245241Z",
-  "updated_at": "2026-04-21T22:58:01.119977234Z",
-  "closed_at": "2026-04-21T22:58:01.119977234Z",
+  "updated_at": "2026-03-26T13:29:14.458944186Z",
   "labels": [
     "enhancement"
   ]

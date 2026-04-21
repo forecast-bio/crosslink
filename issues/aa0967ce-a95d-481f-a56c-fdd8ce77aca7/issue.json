@@ -2,12 +2,11 @@
   "uuid": "aa0967ce-a95d-481f-a56c-fdd8ce77aca7",
   "display_id": 320,
   "title": "Rename default_one function to express semantic intent",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:34.712256699Z",
-  "updated_at": "2026-04-21T22:55:40.138320335Z",
-  "closed_at": "2026-04-21T22:55:40.138320335Z",
+  "updated_at": "2026-03-26T13:24:36.854304649Z",
   "labels": [
     "enhancement"
   ]

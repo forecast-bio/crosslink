@@ -2,12 +2,11 @@
   "uuid": "dbd2d560-8b18-4f6e-8fb3-cd88405228e5",
   "display_id": 270,
   "title": "Document threat model for unprotected agent private keys",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:20:26.326636790Z",
-  "updated_at": "2026-04-21T22:54:35.463732748Z",
-  "closed_at": "2026-04-21T22:54:35.463732748Z",
+  "updated_at": "2026-03-26T13:20:29.004986821Z",
   "labels": [
     "security"
   ]

@@ -2,12 +2,11 @@
   "uuid": "41826c66-0abf-402a-a273-8b60adc4de28",
   "display_id": 318,
   "title": "Add validation of status and priority during hydration deserialization",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:17.561659657Z",
-  "updated_at": "2026-04-21T22:55:34.458513932Z",
-  "closed_at": "2026-04-21T22:55:34.458513932Z",
+  "updated_at": "2026-03-26T13:24:27.210679639Z",
   "labels": [
     "bug"
   ]

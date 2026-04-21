@@ -2,12 +2,11 @@
   "uuid": "db1fc1d4-322d-4fe1-ba6d-e03dd1493118",
   "display_id": 371,
   "title": "Add integration tests for push retry logic under concurrent conflict",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:44.442812408Z",
-  "updated_at": "2026-04-21T22:57:49.935529798Z",
-  "closed_at": "2026-04-21T22:57:49.935529798Z",
+  "updated_at": "2026-03-26T13:28:46.322868252Z",
   "labels": [
     "enhancement"
   ]

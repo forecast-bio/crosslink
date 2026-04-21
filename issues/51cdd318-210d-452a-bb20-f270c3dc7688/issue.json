@@ -2,12 +2,11 @@
   "uuid": "51cdd318-210d-452a-bb20-f270c3dc7688",
   "display_id": 315,
   "title": "Fix arbitrary depth cap of 10 in topo_sort_issues",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:05.964721957Z",
-  "updated_at": "2026-04-21T22:55:26.416116251Z",
-  "closed_at": "2026-04-21T22:55:26.416116251Z",
+  "updated_at": "2026-03-26T13:24:07.909529932Z",
   "labels": [
     "bug"
   ]
