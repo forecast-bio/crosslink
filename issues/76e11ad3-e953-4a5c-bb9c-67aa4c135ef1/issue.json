@@ -2,11 +2,12 @@
   "uuid": "76e11ad3-e953-4a5c-bb9c-67aa4c135ef1",
   "display_id": 183,
   "title": "Fix docs pre-publication issues: placeholder GIFs, TOC collapse, swarm SVG alignment",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T02:30:10.364476Z",
-  "updated_at": "2026-03-13T02:54:41.277573Z",
+  "updated_at": "2026-04-21T22:53:49.284790828Z",
+  "closed_at": "2026-04-21T22:53:49.284790828Z",
   "labels": [
     "bug"
   ]

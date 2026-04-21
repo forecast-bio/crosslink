@@ -3,11 +3,12 @@
   "display_id": 131,
   "title": "Add VHS tape and screenshot scripts for docs visuals",
   "description": "Create scripts directory in docs_src with VHS .tape files, termshot commands, and mermaid diagrams for documentation visual assets",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-04T02:56:26.990854Z",
-  "updated_at": "2026-03-04T02:56:28.748839Z",
+  "updated_at": "2026-04-21T22:35:38.778650887Z",
+  "closed_at": "2026-04-21T22:35:38.778650887Z",
   "labels": [
     "docs"
   ]

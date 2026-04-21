@@ -2,11 +2,12 @@
   "uuid": "8e708ecb-b3e2-430e-85fe-00976f7ee20c",
   "display_id": 430,
   "title": "Inject remote config as constructor parameter for KnowledgeManager",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:38:04.807252808Z",
-  "updated_at": "2026-03-26T13:38:07.157434209Z",
+  "updated_at": "2026-04-21T23:00:17.239713763Z",
+  "closed_at": "2026-04-21T23:00:17.239713763Z",
   "labels": [
     "enhancement"
   ]

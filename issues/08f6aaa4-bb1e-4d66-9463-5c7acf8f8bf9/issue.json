@@ -1,0 +1,14 @@
+{
+  "uuid": "08f6aaa4-bb1e-4d66-9463-5c7acf8f8bf9",
+  "display_id": 713,
+  "title": "Resolve crosslink binary via PATH first, not current_exe",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T21:17:50.777086544Z",
+  "updated_at": "2026-04-21T21:24:51.155482601Z",
+  "closed_at": "2026-04-21T21:24:51.155482601Z",
+  "labels": [
+    "bug"
+  ]
+}

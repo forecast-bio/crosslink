@@ -3,9 +3,10 @@
   "display_id": 187,
   "title": "Diagram polish pass: confetti blending, arrow fixes, layout, footer placement",
   "description": "Multi-item polish pass from session 7: (1) confetti multiplicative blending + 50% opacity + bigger dots, (2) SVG logos in tl;dr boxes, (3) session-workflow figure compression + arrow fixes + remove yellow pill, (4) center non-overflow figures, (5) multi-agent scaling + text color + pills + daemon + bottom block, (6) design-workflow straight arrows + styling + monospace commands, (7) no dashed lines anywhere, (8) footer below quarto next-page nav",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T18:28:06.165109Z",
-  "updated_at": "2026-03-13T23:29:18.492495Z"
+  "updated_at": "2026-04-21T22:53:57.677803122Z",
+  "closed_at": "2026-04-21T22:53:57.677803122Z"
 }

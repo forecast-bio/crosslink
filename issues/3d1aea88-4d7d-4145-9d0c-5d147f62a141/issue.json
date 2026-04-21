@@ -2,11 +2,12 @@
   "uuid": "3d1aea88-4d7d-4145-9d0c-5d147f62a141",
   "display_id": 416,
   "title": "Extract git operations behind trait for knowledge manager testability",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:34:35.780812527Z",
-  "updated_at": "2026-03-26T13:34:42.767319698Z",
+  "updated_at": "2026-04-21T22:59:36.448122613Z",
+  "closed_at": "2026-04-21T22:59:36.448122613Z",
   "labels": [
     "enhancement"
   ]

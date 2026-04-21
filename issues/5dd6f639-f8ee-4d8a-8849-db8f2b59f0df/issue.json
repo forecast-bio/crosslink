@@ -2,11 +2,12 @@
   "uuid": "5dd6f639-f8ee-4d8a-8849-db8f2b59f0df",
   "display_id": 419,
   "title": "Fix redundant double lowercasing in knowledge search_content",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:35:18.464420538Z",
-  "updated_at": "2026-03-26T13:35:23.455989369Z",
+  "updated_at": "2026-04-21T22:59:44.997133664Z",
+  "closed_at": "2026-04-21T22:59:44.997133664Z",
   "labels": [
     "enhancement"
   ]

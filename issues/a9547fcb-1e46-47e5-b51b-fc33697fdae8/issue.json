@@ -2,11 +2,12 @@
   "uuid": "a9547fcb-1e46-47e5-b51b-fc33697fdae8",
   "display_id": 636,
   "title": "Fix all clippy pedantic and nursery warnings across codebase",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-30T13:44:44.166119815Z",
-  "updated_at": "2026-03-30T13:44:46.774658872Z",
+  "updated_at": "2026-04-21T23:26:47.150736410Z",
+  "closed_at": "2026-04-21T23:26:47.150736410Z",
   "labels": [
     "fix"
   ]

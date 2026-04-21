@@ -2,10 +2,11 @@
   "uuid": "e490f329-dfaf-4c92-9095-aacc7354d17e",
   "display_id": 665,
   "title": "V2: outcome tracking + success rate metrics per model per rule",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T20:58:40.941417826Z",
-  "updated_at": "2026-04-10T20:58:40.941417826Z"
+  "updated_at": "2026-04-21T23:28:03.923855313Z",
+  "closed_at": "2026-04-21T23:28:03.923855313Z"
 }

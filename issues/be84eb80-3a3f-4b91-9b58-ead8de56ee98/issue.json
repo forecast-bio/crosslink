@@ -2,11 +2,12 @@
   "uuid": "be84eb80-3a3f-4b91-9b58-ead8de56ee98",
   "display_id": null,
   "title": "Add TypeScript types and Rust serde types for web dashboard API contract",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "driver--api-contract-and-shared-types-define-typescript-types-in",
   "created_at": "2026-03-10T03:18:03.859684028Z",
-  "updated_at": "2026-03-10T03:18:14.680558606Z",
+  "updated_at": "2026-04-21T23:28:58.298759681Z",
+  "closed_at": "2026-04-21T23:28:58.298759681Z",
   "labels": [
     "feature"
   ]

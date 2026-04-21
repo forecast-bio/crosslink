@@ -1,0 +1,10 @@
+{
+  "uuid": "268af4ba-12c4-4eb1-bf2b-55a1fe839628",
+  "issue_uuid": "6a191e74-1920-43b2-b772-41b969f660c1",
+  "author": "dashboard-bootstrap",
+  "content": "Shipped in d3e7772c. configure_signing is now role-aware:\n\n• AgentRole::Driver workspaces → hub-cache user.signingkey = driver's main-repo user.signingkey (the human's GitHub-registered key). Commits verify end-to-end on GitHub.\n• AgentRole::Agent worktrees (kickoff/swarm subagents) → hub-cache signs with agent's own SSH key. Distinct attribution; local verification via allowed_signers.\n\nOther changes:\n• crosslink agent init gained --role <driver|agent> (default 'agent' preserves kickoff behavior; dashboard retrofit passes --role driver explicitly).\n• configure_signing now runs unconditionally after key-gen (previously nested inside the Ok(keypair) arm, so --force on existing-key workspaces was a no-op).\n• Fixed /home/doll/crosslink/.crosslink/agent.json.role from 'agent' to 'driver'; re-ran agent init; hub-cache user.signingkey flipped from dashboard-bootstrap key to /home/doll/.ssh/id_ecdsa_signing (the driver's ED25519 key — filename is misleading, contents are ED25519 with fingerprint 6GbEO9g...).\n• New sync commit 9834eb7a verifies as 'Good git signature for driver@crosslink'.\n\nPast hub commits on origin signed with the dashboard-bootstrap key will remain unverified on GitHub unless the user adds that pub key as a signing key there. Flagged to the user.",
+  "created_at": "2026-04-21T23:24:16.469056359Z",
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQKHTuJG7dWMpiIWHi5JR42Jj9JYIqEeGP0YlSrr8hDs2HRKrQEdDre/mK1b180y0+ITm8z0PDPB5y3ZLvmIIjwc="
+}

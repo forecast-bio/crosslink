@@ -2,11 +2,12 @@
   "uuid": "73ae3b13-299d-4101-a376-fc8710811b4c",
   "display_id": 366,
   "title": "Document shallow-copy behavior in propagate_claude_hooks",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:25.324453732Z",
-  "updated_at": "2026-03-26T13:28:27.181095578Z",
+  "updated_at": "2026-04-21T22:57:36.249345873Z",
+  "closed_at": "2026-04-21T22:57:36.249345873Z",
   "labels": [
     "enhancement"
   ]

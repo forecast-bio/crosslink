@@ -2,11 +2,12 @@
   "uuid": "c85b4143-be7c-45ad-a7e1-f6faf1c1dc75",
   "display_id": 182,
   "title": "Fix CI concurrency conflict between push and PR triggers on release branches",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T01:39:51.231041Z",
-  "updated_at": "2026-03-13T02:01:09.463769Z",
+  "updated_at": "2026-04-21T22:53:46.573288228Z",
+  "closed_at": "2026-04-21T22:53:46.573288228Z",
   "labels": [
     "bug"
   ]

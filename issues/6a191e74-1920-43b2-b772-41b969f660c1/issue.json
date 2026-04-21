@@ -1,0 +1,14 @@
+{
+  "uuid": "6a191e74-1920-43b2-b772-41b969f660c1",
+  "display_id": 718,
+  "title": "Signing: human key always signs hub commits; agent keys only for identity",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "dashboard-bootstrap",
+  "created_at": "2026-04-21T23:06:23.756082321Z",
+  "updated_at": "2026-04-21T23:24:18.021254621Z",
+  "closed_at": "2026-04-21T23:24:18.021254621Z",
+  "labels": [
+    "bug"
+  ]
+}

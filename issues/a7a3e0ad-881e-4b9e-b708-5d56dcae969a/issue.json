@@ -2,11 +2,12 @@
   "uuid": "a7a3e0ad-881e-4b9e-b708-5d56dcae969a",
   "display_id": 178,
   "title": "Review GitHub issue #297",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-11T14:04:13.600375481Z",
-  "updated_at": "2026-03-11T14:04:15.360153399Z",
+  "updated_at": "2026-04-21T22:53:38.296610721Z",
+  "closed_at": "2026-04-21T22:53:38.296610721Z",
   "labels": [
     "enhancement"
   ]

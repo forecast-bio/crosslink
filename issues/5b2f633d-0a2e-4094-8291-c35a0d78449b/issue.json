@@ -2,11 +2,12 @@
   "uuid": "5b2f633d-0a2e-4094-8291-c35a0d78449b",
   "display_id": 542,
   "title": "Fix phase indexing display mismatch with scaffold phase in swarm",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:52:41.876113342Z",
-  "updated_at": "2026-03-26T13:52:46.898777776Z",
+  "updated_at": "2026-04-21T23:04:06.010877799Z",
+  "closed_at": "2026-04-21T23:04:06.010877799Z",
   "labels": [
     "bug"
   ]
