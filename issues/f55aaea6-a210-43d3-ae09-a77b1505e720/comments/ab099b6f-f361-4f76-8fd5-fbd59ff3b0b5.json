@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Chore: commit the CHANGELOG auto-add line for #703 Phase 5.2 so the branch state matches the closed issue.",
   "created_at": "2026-04-21T16:07:47.462792489Z",
-  "kind": "plan"
+  "kind": "plan",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQAlLErENEyQH8UpRhrkSbE0MIr5g44OmYACDbknUDhd/ZJpXzX9OuHIy3j834WjXjPx8frPvoSIvsjctzOqkCQk="
 }

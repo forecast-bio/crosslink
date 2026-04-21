@@ -2,11 +2,12 @@
   "uuid": "edc1383a-475e-48cf-8650-876399cf17db",
   "display_id": 517,
   "title": "Extract Run arm body from kickoff dispatch into separate function",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:48:59.865764332Z",
-  "updated_at": "2026-03-26T13:49:03.401955912Z",
+  "updated_at": "2026-04-21T23:03:00.739179149Z",
+  "closed_at": "2026-04-21T23:03:00.739179149Z",
   "labels": [
     "enhancement"
   ]

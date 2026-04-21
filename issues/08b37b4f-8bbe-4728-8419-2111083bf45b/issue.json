@@ -2,11 +2,12 @@
   "uuid": "08b37b4f-8bbe-4728-8419-2111083bf45b",
   "display_id": 364,
   "title": "Replace boolean force parameter with LockMode enum in lock functions",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:17.358403867Z",
-  "updated_at": "2026-03-26T13:28:19.106817929Z",
+  "updated_at": "2026-04-21T22:57:30.712604223Z",
+  "closed_at": "2026-04-21T22:57:30.712604223Z",
   "labels": [
     "enhancement"
   ]

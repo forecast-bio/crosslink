@@ -2,11 +2,12 @@
   "uuid": "2e481133-b457-461d-b5bb-e9544c41acd6",
   "display_id": 543,
   "title": "Replace LabeledIssue tuple with named struct in swarm types",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:52:49.942384973Z",
-  "updated_at": "2026-03-26T13:52:54.187418631Z",
+  "updated_at": "2026-04-21T23:04:08.807735059Z",
+  "closed_at": "2026-04-21T23:04:08.807735059Z",
   "labels": [
     "enhancement"
   ]

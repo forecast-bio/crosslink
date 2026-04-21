@@ -2,11 +2,12 @@
   "uuid": "63f803fe-47a4-4024-b2af-6257a345f484",
   "display_id": 411,
   "title": "Make seam detection constants configurable via SeamConfig struct",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:33:26.205500472Z",
-  "updated_at": "2026-03-26T13:33:30.143133032Z",
+  "updated_at": "2026-04-21T22:59:26.193917378Z",
+  "closed_at": "2026-04-21T22:59:26.193917378Z",
   "labels": [
     "enhancement"
   ]

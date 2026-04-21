@@ -2,11 +2,12 @@
   "uuid": "682c6f4c-1576-461f-9cba-d03c8d2c3d5f",
   "display_id": 405,
   "title": "Replace Vec with HashSet for Keyring trusted_fingerprints lookup",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:32:50.356725940Z",
-  "updated_at": "2026-03-26T13:32:53.665124148Z",
+  "updated_at": "2026-04-21T22:59:09.683569370Z",
+  "closed_at": "2026-04-21T22:59:09.683569370Z",
   "labels": [
     "enhancement"
   ]

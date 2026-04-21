@@ -3,11 +3,12 @@
   "display_id": 150,
   "title": "TUI: fix issues tab scroll and improve startup/tab-switch latency. Two bugs: (1) Issues tab scroll is broken - selection cursor moves past visible area but list doesn't scroll to follow, viewport never advances. Fix so selected entry is always visible. (2) Startup and tab-switch latency - noticeable delay on launch and switching to Agents tab from synchronous data loading. Introduce TUI-local cache that populates display immediately with stale/empty state, then updates asynchronously once real data arrives. See GitHub issue #240.",
   "description": "Created by crosslink kickoff",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "maxine-at-forecast--noether",
   "created_at": "2026-03-05T22:17:58.946974Z",
-  "updated_at": "2026-03-05T22:18:01.595826Z",
+  "updated_at": "2026-04-21T22:35:44.703578779Z",
+  "closed_at": "2026-04-21T22:35:44.703578779Z",
   "labels": [
     "feature"
   ]

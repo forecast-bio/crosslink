@@ -2,11 +2,12 @@
   "uuid": "b90cb618-9630-4301-b407-1df585556636",
   "display_id": 544,
   "title": "Add warning when fetch_existing_review_titles fails silently",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:52:58.683362734Z",
-  "updated_at": "2026-03-26T13:53:03.431558449Z",
+  "updated_at": "2026-04-21T23:04:11.756227549Z",
+  "closed_at": "2026-04-21T23:04:11.756227549Z",
   "labels": [
     "bug"
   ]

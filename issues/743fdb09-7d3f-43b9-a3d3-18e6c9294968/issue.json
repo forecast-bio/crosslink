@@ -2,11 +2,12 @@
   "uuid": "743fdb09-7d3f-43b9-a3d3-18e6c9294968",
   "display_id": 431,
   "title": "Simplify group_matches nesting in knowledge search",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:38:10.197702254Z",
-  "updated_at": "2026-03-26T13:38:12.385767289Z",
+  "updated_at": "2026-04-21T23:00:19.886710315Z",
+  "closed_at": "2026-04-21T23:00:19.886710315Z",
   "labels": [
     "enhancement"
   ]

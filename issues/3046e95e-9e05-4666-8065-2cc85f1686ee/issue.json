@@ -2,11 +2,12 @@
   "uuid": "3046e95e-9e05-4666-8065-2cc85f1686ee",
   "display_id": 345,
   "title": "Add test coverage for V1 materialization path in compaction",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:26:46.631383193Z",
-  "updated_at": "2026-03-26T13:26:49.789392497Z",
+  "updated_at": "2026-04-21T22:56:45.466769509Z",
+  "closed_at": "2026-04-21T22:56:45.466769509Z",
   "labels": [
     "enhancement"
   ]
