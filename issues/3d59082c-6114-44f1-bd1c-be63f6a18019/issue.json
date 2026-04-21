@@ -2,11 +2,12 @@
   "uuid": "3d59082c-6114-44f1-bd1c-be63f6a18019",
   "display_id": 316,
   "title": "Unify collection types between CompactIssue and IssueFile",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:09.630581831Z",
-  "updated_at": "2026-03-26T13:24:11.456978812Z",
+  "updated_at": "2026-04-21T22:55:29.181982951Z",
+  "closed_at": "2026-04-21T22:55:29.181982951Z",
   "labels": [
     "enhancement"
   ]
