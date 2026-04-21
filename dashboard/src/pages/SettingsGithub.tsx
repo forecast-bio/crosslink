@@ -224,9 +224,10 @@ export function SettingsGithub() {
         <p className="mb-3 text-xs text-muted-foreground">
           Paste any git URL (<code className="font-mono">https://…</code> or{" "}
           <code className="font-mono">git@…</code>) to clone it into{" "}
-          <code className="font-mono">~/&lt;owner&gt;/&lt;repo&gt;</code>{" "}
-          and start polling it. Independent of the PAT — useful for
-          adding a single repo or one that's not in a browsable org.
+          <code className="font-mono">~/&lt;repo&gt;</code>{" "}
+          (flat, next to your manual clones) and start polling it.
+          Independent of the PAT — useful for adding a single repo
+          or one that's not in a browsable org.
         </p>
         <form onSubmit={submitCloneByUrl} className="flex flex-col gap-2">
           <input
@@ -353,7 +354,7 @@ export function SettingsGithub() {
               <input
                 value={cloneRoot}
                 onChange={(e) => setCloneRoot(e.target.value)}
-                placeholder="clone root (defaults to $HOME — repos land at ~/<owner>/<repo>)"
+                placeholder="clone root (defaults to $HOME — repos land at ~/<repo>)"
                 className="w-full rounded border bg-background px-2 py-1 text-sm"
               />
               <label className="flex cursor-pointer items-center gap-2 text-xs">

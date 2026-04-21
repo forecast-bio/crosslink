@@ -131,10 +131,11 @@ Navigate to **Settings → GitHub**.
    GitHub REST API and returns every repo that already has a
    `crosslink/hub` branch.
 4. Click **Track all** to clone + track the lot in one shot. Each
-   repo lands at `~/<owner>/<repo>` (so the filesystem discover
-   walker picks them up on subsequent runs). Pass a clone-root
-   override if you want them grouped under a subdirectory
-   (e.g. `~/code/<owner>/<repo>`).
+   repo lands at `~/<repo>` — flat, next to your manual clones like
+   `~/crosslink` and `~/ferrotorch`. The filesystem-discover walker
+   picks them up on subsequent runs. Pass a clone-root override if
+   you want them grouped under a subdirectory
+   (e.g. `~/code/<repo>`).
 
 The token is stored AES-256-GCM encrypted in
 `~/.crosslink/dashboard.db`, keyed to the machine — see §7 Security.

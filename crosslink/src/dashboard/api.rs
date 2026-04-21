@@ -611,7 +611,11 @@ async fn clone_repo(
         None
     };
 
-    // Derive a target path `<clone_root>/<owner>/<repo>` from the slug.
+    // Derive a target path `<clone_root>/<repo>` from the slug — flat
+    // shape to match the user's existing manual clone layout
+    // (`~/crosslink`, `~/ferrotorch`, …) rather than nesting under
+    // `<owner>/`. Slug still carries the owner for dashboard
+    // identity; only the on-disk path drops it.
     let mut parts = slug.splitn(2, '/');
     let owner = parts.next().unwrap_or_default().to_string();
     let repo = parts.next().unwrap_or_default().to_string();
@@ -620,7 +624,7 @@ async fn clone_repo(
             "slug must be `owner/repo`, got `{slug}`"
         )));
     }
-    let target = std::path::PathBuf::from(&clone_root).join(&owner).join(&repo);
+    let target = std::path::PathBuf::from(&clone_root).join(&repo);
 
     // Clone + register all on the blocking pool.
     let slug_for_task = slug.clone();

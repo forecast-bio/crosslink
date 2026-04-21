@@ -193,9 +193,10 @@ async fn list_repos(
 #[derive(Debug, Deserialize)]
 struct TrackAllBody {
     /// Root under which to clone new repos. Defaults to `$HOME`, so
-    /// each repo lands at `~/<owner>/<repo>` — same place the
-    /// filesystem-discover walker scans. Existing clones matching
-    /// the repo's slug are adopted in-place.
+    /// each repo lands at `~/<repo>` (flat, matching the user's
+    /// manual-clone layout — `~/crosslink`, `~/ferrotorch`, not
+    /// `~/<owner>/<repo>`). Existing clones matching the repo's
+    /// slug are adopted in-place.
     #[serde(default)]
     clone_root: Option<String>,
     /// When `true`, run `crosslink init --defaults` and
@@ -266,7 +267,14 @@ async fn track_all(
     let mut skipped = Vec::new();
     for hit in hits {
         let slug = hit.full_name.clone();
-        let target = std::path::PathBuf::from(&clone_root).join(&hit.owner).join(&hit.repo);
+        // Clone directly into <clone_root>/<repo> — same flat shape
+        // the user already keeps manual clones in (`~/crosslink`,
+        // `~/ferrotorch`, etc.). If two orgs happen to share a repo
+        // name, `ensure_clone_and_track` will either adopt the
+        // existing clone in-place (`--slug` override resolves the
+        // collision) or surface the already-tracked error; either
+        // way we don't silently park one of them under a sub-path.
+        let target = std::path::PathBuf::from(&clone_root).join(&hit.repo);
         let result = tokio::task::spawn_blocking({
             let db_path = db_path.clone();
             let target = target.clone();
