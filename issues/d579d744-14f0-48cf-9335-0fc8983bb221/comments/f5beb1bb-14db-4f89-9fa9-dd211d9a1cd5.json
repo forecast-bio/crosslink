@@ -1,0 +1,8 @@
+{
+  "uuid": "f5beb1bb-14db-4f89-9fa9-dd211d9a1cd5",
+  "issue_uuid": "d579d744-14f0-48cf-9335-0fc8983bb221",
+  "author": "anon-ab6221f8",
+  "content": "Phase 5.3 shipped. Three frontend polish features landed in one commit:\n\n• Theme: dark (default) + light palette via .theme-light override in index.css, lib/theme.ts resolves 'system' against prefers-color-scheme with live OS-flip tracking, one-click ☀/☾ toggle in the top nav.\n\n• Audible alerts: WebAudio-synthesised tones (severity-specific: A4/D5/G5) via lib/alertSound.ts — no MP3 assets, zero bundle growth. Plays via api/ws.ts's new subscribeAlertOpens bus on dashboard_alerts_changed WS fires where opened>0 and severity matches the user's filter.\n\n• Preferences page: /settings/preferences with theme radio + audible toggle + severity checkboxes. lib/preferences.ts stores settings in localStorage with useSyncExternalStore-backed React hook, canonical-order dedupe on save, sanitization + tolerance for corrupted JSON on load.\n\nExplicit scope cuts: 'custom dashboards' (too vague for a single-PR implementation — needs its own design pass), per-project mute, notification snooze windows.\n\nTests: 25 new vitest cases across 4 files (preferences store, theme observer incl. media-listener lifecycle, alertSound bridge, SettingsPreferences UI). Full suite: 81/81 pass, tsc clean. No backend changes this phase.",
+  "created_at": "2026-04-21T16:17:05.934259971Z",
+  "kind": "result"
+}
