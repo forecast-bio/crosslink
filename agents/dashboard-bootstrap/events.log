@@ -19,3 +19,4 @@
 {"agent_id":"dashboard-bootstrap","agent_seq":19,"timestamp":"2026-04-21T23:24:19.306491824Z","event":{"type":"LockReleased","issue_display_id":718}}
 {"agent_id":"dashboard-bootstrap","agent_seq":20,"timestamp":"2026-04-21T23:29:28.229998167Z","event":{"type":"LockReleased","issue_display_id":717}}
 {"agent_id":"dashboard-bootstrap","agent_seq":21,"timestamp":"2026-04-21T23:29:49.777716115Z","event":{"type":"LockClaimed","issue_display_id":689}}
+{"agent_id":"dashboard-bootstrap","agent_seq":22,"timestamp":"2026-04-21T23:30:14.825374825Z","event":{"type":"LockClaimed","issue_display_id":717}}
