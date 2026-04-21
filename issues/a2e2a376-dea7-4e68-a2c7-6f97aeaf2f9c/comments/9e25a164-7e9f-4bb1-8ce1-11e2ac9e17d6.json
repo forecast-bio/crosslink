@@ -1,0 +1,8 @@
+{
+  "uuid": "9e25a164-7e9f-4bb1-8ce1-11e2ac9e17d6",
+  "issue_uuid": "a2e2a376-dea7-4e68-a2c7-6f97aeaf2f9c",
+  "author": "anon-ab6221f8",
+  "content": "Phase 5.2 shipped in 966f1002. Backend: webhook.rs (payload shapes for Slack/Discord/generic + reqwest dispatch w/ 5s timeout + URL masking + load/save_urls), webhook_api.rs (GET/PUT /api/v1/dashboard/webhooks). alerts_db::SyncStats gained opened_alerts: Vec<DerivedAlert> so poll.rs can iterate newly-fired alerts without a second DB query; poll_project spawns one fire-and-forget tokio task per (alert × URL). Frontend: /settings/webhooks page + useWebhooks/useSetWebhooks hooks + nav entry. 18 backend tests (13 webhook, 5 webhook_api) + 1 new alerts_db test + 7 vitest cases all passing; 56 frontend tests total, tsc + clippy clean. Deferred explicitly: email delivery (SMTP is too heavy — Slack/Discord/generic bridges cover it), per-URL test button, severity filters.",
+  "created_at": "2026-04-21T16:07:27.154205030Z",
+  "kind": "result"
+}
