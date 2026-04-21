@@ -1,0 +1,8 @@
+{
+  "uuid": "4ffc1492-a945-4c58-8eba-2f192d082295",
+  "issue_uuid": "87103181-681e-47c3-8e1a-ea930bebeb14",
+  "author": "anon-ab6221f8",
+  "content": "Phase 5.1 shipped in 4a545828. Backend: crosslink/src/dashboard/export.rs (4 endpoints under /api/v1/dashboard/export, 11 tests incl. RFC4180 escaping branches). Frontend: dashboard/src/lib/download.ts (auth-carrying blob downloader) + components/ExportMenu.tsx (CSV/JSON pill buttons, busy/error state) mounted on ProjectGrid and Alerts headers, 6 vitest cases. All 49 dashboard tests + tsc + clippy clean. Screenshot export deferred to a browser-side follow-up — no server hop needed.",
+  "created_at": "2026-04-21T15:40:33.375034881Z",
+  "kind": "result"
+}

@@ -1,0 +1,14 @@
+{
+  "uuid": "87103181-681e-47c3-8e1a-ea930bebeb14",
+  "display_id": 702,
+  "title": "Phase 5.1: dashboard export — projects.csv + alerts.csv endpoints + UI download buttons (GH #429)",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T03:43:51.196879277Z",
+  "updated_at": "2026-04-21T15:42:46.451198196Z",
+  "closed_at": "2026-04-21T15:42:46.451198196Z",
+  "labels": [
+    "feature"
+  ]
+}

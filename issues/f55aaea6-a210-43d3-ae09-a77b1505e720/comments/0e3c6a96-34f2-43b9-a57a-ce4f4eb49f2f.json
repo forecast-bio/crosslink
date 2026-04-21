@@ -1,0 +1,8 @@
+{
+  "uuid": "0e3c6a96-34f2-43b9-a57a-ce4f4eb49f2f",
+  "issue_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
+  "author": "anon-ab6221f8",
+  "content": "Dedupe CHANGELOG: the reopen+close cycle on #702 (to fix my earlier hand-written duplicate) caused the auto-add hook to fire twice, leaving two identical lines for #702. Dropping the second duplicate.",
+  "created_at": "2026-04-21T15:43:19.903514629Z",
+  "kind": "plan"
+}

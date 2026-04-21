@@ -1,8 +1,0 @@
-{
-  "uuid": "f0adaf1a-9d36-4433-b395-1519302793b2",
-  "issue_uuid": "ffeed805-1499-4fe2-8e39-d7a360808481",
-  "author": "anon-295fd0bb",
-  "content": "Wrote DESIGN-CROSSLINK-OPS.md at the repo root as the operational companion to DESIGN-CROSSLINK-DASHBOARD.md. 692 lines, 14 top-level sections covering install, first-run setup (start/track/discover/alerts/prefs), daily ops (grid/alerts/lock response/agent control/terminals), full config reference (CLI flags + config table keys + browser localStorage), backup & recovery with a reset-scenarios table, security posture (bind/auth/PAT/webhooks/write-path/multi-user), observability (logs + health + WS), a 9-item troubleshooting runbook tied to actual error messages, in-place upgrade procedure, known sharp edges (audio-gesture, serial poll, PAT obfuscation vs defense, etc.), FAQ, and a revision log. All content cross-checked against the implementation — CLI surface from DashboardCommands, config keys from github.rs/webhook.rs, bind/auth from server::run_with_dashboard_db, schema from db.rs, alert catalogue from alerts.rs. Audience is any operator running crosslink dashboard on their own machine; the design doc says WHY, this doc says HOW to operate it.",
-  "created_at": "2026-04-21T16:25:29.103125766Z",
-  "kind": "plan"
-}

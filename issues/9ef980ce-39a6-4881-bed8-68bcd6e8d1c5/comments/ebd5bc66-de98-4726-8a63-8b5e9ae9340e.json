@@ -1,0 +1,8 @@
+{
+  "uuid": "ebd5bc66-de98-4726-8a63-8b5e9ae9340e",
+  "issue_uuid": "9ef980ce-39a6-4881-bed8-68bcd6e8d1c5",
+  "author": "anon-ab6221f8",
+  "content": "Implemented in 36e61a8a (alert engine + /alerts endpoint + WS alert events) and e7879bc7 (ci_failure + signature_invalid alerts).",
+  "created_at": "2026-04-21T03:43:01.615054762Z",
+  "kind": "resolution"
+}

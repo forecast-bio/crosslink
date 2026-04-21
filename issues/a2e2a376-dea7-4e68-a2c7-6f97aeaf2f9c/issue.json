@@ -1,0 +1,15 @@
+{
+  "uuid": "a2e2a376-dea7-4e68-a2c7-6f97aeaf2f9c",
+  "display_id": 703,
+  "title": "Phase 5.2: dashboard webhook alerting — outbound Slack/Discord/generic JSON on alert fire (GH #429)",
+  "status": "closed",
+  "priority": "medium",
+  "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T15:46:23.355720015Z",
+  "updated_at": "2026-04-21T16:07:28.863091057Z",
+  "closed_at": "2026-04-21T16:07:28.863091057Z",
+  "labels": [
+    "feature"
+  ]
+}

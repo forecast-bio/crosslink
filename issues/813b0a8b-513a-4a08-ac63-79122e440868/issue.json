@@ -1,0 +1,14 @@
+{
+  "uuid": "813b0a8b-513a-4a08-ac63-79122e440868",
+  "display_id": 701,
+  "title": "Phase 4.1: GitHub PAT storage + token management endpoint (GH #429)",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T01:09:20.755576024Z",
+  "updated_at": "2026-04-21T03:42:07.999263218Z",
+  "closed_at": "2026-04-21T03:42:07.999263218Z",
+  "labels": [
+    "feature"
+  ]
+}

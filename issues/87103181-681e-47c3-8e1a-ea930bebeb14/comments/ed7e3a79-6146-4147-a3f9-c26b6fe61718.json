@@ -1,0 +1,8 @@
+{
+  "uuid": "ed7e3a79-6146-4147-a3f9-c26b6fe61718",
+  "issue_uuid": "87103181-681e-47c3-8e1a-ea930bebeb14",
+  "author": "anon-ab6221f8",
+  "content": "Resuming in-progress work: backend export.rs (11 tests), frontend download.ts + ExportMenu (6 tests) wired into ProjectGrid/Alerts. Verified auth/bootstrap.ts wraps globalThis.fetch so downloadAuthenticated picks up the bearer token automatically. All 49 dashboard vitest cases + typecheck + clippy clean. Committing the untracked files + 5 modified files as a single scoped commit.",
+  "created_at": "2026-04-21T15:39:51.391823951Z",
+  "kind": "plan"
+}

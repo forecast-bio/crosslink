@@ -1,0 +1,8 @@
+{
+  "uuid": "9bb8a417-600f-4ecf-9067-0d8c76ddced3",
+  "issue_uuid": "ffeed805-1499-4fe2-8e39-d7a360808481",
+  "author": "anon-ab6221f8",
+  "content": "Shipped DESIGN-CROSSLINK-OPS.md in 06196c99 at the repo root. 692 lines. Earlier result comments on this issue reflected the design-doc rename (OPS → DASHBOARD); the actually-asked followup was the operator runbook, which is what landed here. Paired with DESIGN-CROSSLINK-DASHBOARD.md it forms a two-doc set: design (why) + ops (how).",
+  "created_at": "2026-04-21T16:26:03.123353215Z",
+  "kind": "result"
+}

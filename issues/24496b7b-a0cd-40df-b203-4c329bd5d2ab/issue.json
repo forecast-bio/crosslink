@@ -1,0 +1,14 @@
+{
+  "uuid": "24496b7b-a0cd-40df-b203-4c329bd5d2ab",
+  "display_id": 709,
+  "title": "Alerts page mutations don't invalidate alerts query; orphan_subissue close appears to no-op",
+  "status": "closed",
+  "priority": "high",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T20:03:22.335154783Z",
+  "updated_at": "2026-04-21T20:08:18.818522735Z",
+  "closed_at": "2026-04-21T20:08:18.818522735Z",
+  "labels": [
+    "bug"
+  ]
+}
