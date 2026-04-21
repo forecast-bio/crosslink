@@ -2,6 +2,7 @@
 // renders a `ProjectTile` per row. Empty state has the same "no
 // projects tracked" help text that `crosslink dashboard list` prints.
 
+import { ExportMenu } from "@/components/ExportMenu";
 import { ProjectTile } from "@/components/ProjectTile";
 import { useProjects } from "@/api/client";
 
@@ -43,11 +44,18 @@ export function ProjectGrid() {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-6">
-      <header className="mb-4 flex items-baseline justify-between">
+      <header className="mb-4 flex items-baseline justify-between gap-4">
         <h1 className="text-xl font-semibold">Projects</h1>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {projects.length} tracked
-        </span>
+        <div className="flex items-center gap-3">
+          <ExportMenu
+            label="projects"
+            pathPrefix="/export/projects"
+            filenameStem="crosslink-projects"
+          />
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {projects.length} tracked
+          </span>
+        </div>
       </header>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {projects.map((p) => (

@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 
 import { useAlerts } from "@/api/client";
 import type { AlertSeverity } from "@/api/types";
+import { ExportMenu } from "@/components/ExportMenu";
 import { groupBySeverity, SEVERITY_ORDER } from "@/lib/alerts";
 
 const SEVERITY_CLASSES: Record<AlertSeverity, string> = {
@@ -50,11 +51,18 @@ export function Alerts() {
           ← All projects
         </Link>
       </nav>
-      <header className="mb-6 flex items-baseline justify-between">
+      <header className="mb-6 flex items-baseline justify-between gap-4">
         <h1 className="text-xl font-semibold">Alerts</h1>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {rows.length} open
-        </span>
+        <div className="flex items-center gap-3">
+          <ExportMenu
+            label="alerts"
+            pathPrefix="/export/alerts"
+            filenameStem="crosslink-alerts"
+          />
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {rows.length} open
+          </span>
+        </div>
       </header>
 
       {rows.length === 0 ? (

@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Phase 5.1: dashboard export — `projects.csv`/`projects.json` and
+  `alerts.csv`/`alerts.json` endpoints under `/api/v1/dashboard/export/*`,
+  plus CSV/JSON download buttons on the Projects grid and Alerts page
+  (GH #429) (#702)
+- Phase 4.1: GitHub PAT storage + token management endpoint (GH #429) (#701)
 
 #### Dashboard — multi-project control panel ([GH-429])
 
@@ -118,6 +123,17 @@ new subcommand for log-scraping continuity.
 - Add `INTENTIONAL` comments to deliberate error suppression patterns ([CL-419])
 
 ### Changed
+- P1.11: agent request protocol — hub-branch agents/<id>/requests/*.json + agent-side polling lib + kill/pause/resume/reprioritise verbs + audit log (#700)
+- P1.10: lock controls — claim, release, steal (#699)
+- P1.9: write surface — milestones + relations + blockers (#698)
+- P1.8: write surface — issues + labels (close, reopen, comment, update, label, unlabel) (#697)
+- P1.7: alert UI — banner, sidebar rail, /alerts page, desktop notifications (#696)
+- P1.6: alert engine — derived alerts (stale_lock, silent_agent, overdue_issue, ci_failure, unreachable, signature_invalid, orphan_subissue, hub_diverged, hub_parse_error, untrusted_signer, pending_request, compaction_lag) (#695)
+- P1.5: WebSocket live updates — push change notifications, frontend refetch-on-signal (#694)
+- P1.4: project grid (read-only frontend) — tile component, fetch projects, show counts (#693)
+- P1.3: REST API — projects + activity endpoints, bearer auth (#692)
+- P1.2: poll loop + single-project index — git-fetch every 5s, populate projects/project_state/activity (#691)
+- P1.1: scaffolding — crosslink dashboard subcommand + serve deprecation + empty SPA + SQLite bootstrap (#690)
 - Manual QA for PR #553 sentinel run + webhook tests (#678)
 - Manual QA for PR #553 sentinel run + webhook tests (#678)
 

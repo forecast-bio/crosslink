@@ -24,6 +24,7 @@ pub mod alerts;
 pub mod alerts_db;
 pub mod api;
 pub mod db;
+pub mod export;
 pub mod github;
 pub mod github_api;
 pub mod poll;
