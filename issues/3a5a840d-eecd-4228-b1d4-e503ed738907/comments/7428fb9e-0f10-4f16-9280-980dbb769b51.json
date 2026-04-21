@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "P1.1 scaffolding complete. 5 commits on feat/429-crosslink-dashboard: (1) design doc, (2) dashboard subcommand + serve deprecation, (3) per-user SQLite bootstrap, (4) dashboard/ prune, (5) rust-embed SPA bundling. End-to-end: crosslink dashboard binds, serves embedded bundle, SPA fallback works for client-side routes, /api/* paths still 404 correctly. 4731 tests pass.",
   "created_at": "2026-04-20T19:06:46.200420255Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQLekxPpaNI/Yj/xbqza0KBjir9qIrfH36CfFw6QVTIWo7ip4JbYyQXWiRPsNXU3U6dU++TW1+YeuMF8QaZWofwc="
 }

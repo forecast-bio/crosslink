@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Shipped in 09625074. End-to-end verified:\n\n• Hub data: fetch_hub now uses refspec +refs/heads/crosslink/hub:refs/heads/crosslink/hub + ensure_hub_cache_worktree creates .crosslink/.hub-cache/ via git worktree add (first run) or git reset --hard (subsequent). forecast-bio/atdata shows 6 open issues instead of 0, molten shows 325, etc.\n\n• Issue order: api::load_project_detail sorts open-before-closed, then display_id ascending, then uuid for local-only stragglers. Verified deterministic across successive fetches.\n\n• Token persistence: generate_auth_token reads/writes ~/.crosslink/.dashboard-token (0600 perms); first-run produces real 128-bit random (previously bugged — pid<<64 on u128 always left top 64 bits zero, giving the '0000000000…' prefix every token this session had). --rotate-token flag forces regeneration. Restart preserves the URL; open tabs no longer 401.\n\nAlso swept 7 pre-existing clippy -D warnings lints (let-else, doc backticks, const fn, Option<Option<>> allow+comment, as_ref().cloned, print_literal) in the same commit since they blocked cargo clippy --lib --bin crosslink -- -D warnings. All 36 dashboard module tests pass under ulimit -v 8388608 safety cap.",
   "created_at": "2026-04-21T17:47:01.929164841Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQEO/E/EKNnSb6wnjpbqaslUFagkvW/6xO4unB1SdYuNvWyUYjZNpxoBUB2vXqBkCGEQQrWCIOLyqMlDnicX1LQA="
 }

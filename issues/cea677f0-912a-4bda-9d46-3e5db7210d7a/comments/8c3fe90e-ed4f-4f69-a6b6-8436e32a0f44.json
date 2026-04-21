@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Implemented in c66af2aa (hub-branch reader + tile counter derivation) and 85d18fda (5s poll loop).",
   "created_at": "2026-04-21T03:42:43.634557611Z",
-  "kind": "resolution"
+  "kind": "resolution",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQIwEpLALVpOXjJSdlS8T98OsE4F0uPV3NeX8umGpbiaRnu6ZP4JLR5gDEPsKRfybVY23JGyT2ZY5qOlICGpwaAU="
 }
