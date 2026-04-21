@@ -2,12 +2,13 @@
   "uuid": "8b9860e9-2f4a-4a68-b0e9-54eef662fdf7",
   "display_id": 693,
   "title": "P1.4: project grid (read-only frontend) — tile component, fetch projects, show counts",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:33.856905751Z",
-  "updated_at": "2026-04-20T18:01:08.002852435Z",
+  "updated_at": "2026-04-21T03:42:54.522102142Z",
+  "closed_at": "2026-04-21T03:42:54.522102142Z",
   "blockers": [
     "8b7e40a5-e7dd-4255-85a0-5b3ed53332d7"
   ]
