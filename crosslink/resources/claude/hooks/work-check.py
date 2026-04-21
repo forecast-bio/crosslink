@@ -265,6 +265,60 @@ def is_issue_close_command(input_data):
     return None
 
 
+def check_control_flags(crosslink_dir):
+    """Block tool use when an operator has set the pause / kill flag
+    via the dashboard's agent-request protocol.
+
+    Calls `crosslink agent flags --strict` which exits 2 when blocking
+    flags are set. We re-emit a friendly explanation and exit 2
+    ourselves so the model sees a useful refusal, not a raw exit code.
+    """
+    if not crosslink_dir:
+        return
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["crosslink", "agent", "flags", "--strict"],
+            capture_output=True,
+            text=True,
+            cwd=crosslink_dir,
+            timeout=3,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # crosslink not on PATH or hung — fail open (don't block) so
+        # missing tooling never wedges Claude Code.
+        return
+    if proc.returncode == 0:
+        return
+    if proc.returncode == 2:
+        try:
+            state = json.loads(proc.stdout.strip())
+        except (json.JSONDecodeError, ValueError):
+            state = {}
+        if state.get("kill"):
+            print(
+                "AGENT KILL REQUESTED — an operator (dashboard or CLI) has "
+                "asked this agent to stop after the current tool use.\n"
+                "Acknowledge the request, summarise progress, then exit "
+                "your session cleanly. Do not attempt further tool calls."
+            )
+        else:
+            hint = state.get("reprioritise")
+            extra = ""
+            if hint:
+                extra = (
+                    f"\nReprioritise hint pending: switch focus to issue "
+                    f"#{hint.get('issue_id')} when resuming."
+                )
+            print(
+                "AGENT PAUSED — an operator has paused this agent via the "
+                "dashboard. Tool use is blocked until they resume.\n"
+                "Wait for the resume signal or explain to the user that "
+                "you've been paused." + extra
+            )
+        sys.exit(2)
+
+
 def main():
     try:
         input_data = json.load(sys.stdin)
@@ -276,6 +330,10 @@ def main():
     # Only check on Write, Edit, Bash
     if tool_name not in ('Write', 'Edit', 'Bash'):
         sys.exit(0)
+
+    # Operator-driven kill / pause flags from the dashboard's agent-
+    # request protocol take priority over everything else.
+    check_control_flags(find_crosslink_dir())
 
     # Allow Claude Code to manage its own memory/config in ~/.claude/
     if tool_name in ('Write', 'Edit') and is_claude_memory_path(input_data):

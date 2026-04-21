@@ -18,14 +18,17 @@
 //! Flags are plain filesystem existence checks so they're cheap and
 //! tolerant to concurrent writes. No schema, no locking.
 //!
-//! This module's read helpers (`is_paused`, `should_exit`,
-//! `read_reprioritise_hint`, `clear_reprioritise_hint`) target agent
-//! loops outside this PR — the poll pipeline here writes the flags,
-//! and separate agent-loop integrations consume them. Silence the
-//! dead-code lint so strict CI stays happy until those integrations
-//! land.
-
-#![allow(dead_code)]
+//! Consumers in this PR:
+//! - `crosslink agent flags [--strict]` — operator visibility +
+//!   `PreToolUse` hook integration (`--strict` exits 2 when paused/kill
+//!   so `.claude/hooks/work-check.py` can block tool use cleanly).
+//! - `crate::agent_requests::poll` — applies remote requests by
+//!   writing these flags.
+//!
+//! `clear_reprioritise_hint` is a public utility for agent-loop
+//! integrations that want to acknowledge they've consumed the hint.
+//! It's currently unused inside the crate so we suppress the warning
+//! at the function level rather than the whole module.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -137,6 +140,7 @@ pub fn set_reprioritise_hint(crosslink_dir: &Path, hint: &ReprioritiseHint) -> R
 ///
 /// # Errors
 /// Returns an error only if the hint exists and can't be removed.
+#[allow(dead_code)] // Consumed by external agent-loop integrations.
 pub fn clear_reprioritise_hint(crosslink_dir: &Path) -> Result<()> {
     let path = flag_dir(crosslink_dir).join(REPRIORITISE);
     if path.exists() {

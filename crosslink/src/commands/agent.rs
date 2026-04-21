@@ -72,6 +72,40 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
             list_requests(crosslink_dir, target.as_deref(), pending)
         }
         AgentCommands::PollRequests => poll_requests(crosslink_dir),
+        AgentCommands::Flags { strict } => {
+            show_flags(crosslink_dir, strict);
+            Ok(())
+        }
+    }
+}
+
+/// `crosslink agent flags [--strict]`
+///
+/// Reports whether `paused` / `kill` / `reprioritise` flags are set
+/// in `.crosslink/agent-flags/`. With `--strict`, exits 2 when either
+/// `paused` or `kill` is active so `PreToolUse` hooks can block tool
+/// invocation cleanly.
+fn show_flags(crosslink_dir: &Path, strict: bool) {
+    let paused = crate::agent_flags::is_paused(crosslink_dir);
+    let kill = crate::agent_flags::should_exit(crosslink_dir);
+    let hint = crate::agent_flags::read_reprioritise_hint(crosslink_dir)
+        .ok()
+        .flatten();
+
+    let json = serde_json::json!({
+        "paused": paused,
+        "kill": kill,
+        "reprioritise": hint.as_ref().map(|h| serde_json::json!({
+            "issue_id": h.issue_id,
+            "from_request_id": h.from_request_id,
+        })),
+    });
+    println!("{json}");
+
+    if strict && (paused || kill) {
+        // Exit code 2 = "blocked by control flag". Distinguishes from
+        // genuine errors (1) so hooks can pattern-match cleanly.
+        std::process::exit(2);
     }
 }
 

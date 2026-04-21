@@ -1207,6 +1207,17 @@ enum AgentCommands {
     /// Process pending control requests for this agent (applies
     /// pause/kill/reprioritise flags locally, writes acks to the hub)
     PollRequests,
+    /// Show local agent control flag state (paused / kill / reprioritise)
+    ///
+    /// Designed for hooks: `--json` output is `{paused, kill, reprioritise}`
+    /// where each value is a boolean (or null for `reprioritise`'s hint
+    /// payload). Exit code is non-zero only when --strict is set and a
+    /// blocking flag is active.
+    Flags {
+        /// Exit non-zero if `paused` or `kill` is set (use from `PreToolUse` hooks).
+        #[arg(long)]
+        strict: bool,
+    },
 }
 
 #[derive(Subcommand)]
