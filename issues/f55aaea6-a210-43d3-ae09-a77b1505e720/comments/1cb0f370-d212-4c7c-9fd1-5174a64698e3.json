@@ -1,0 +1,10 @@
+{
+  "uuid": "1cb0f370-d212-4c7c-9fd1-5174a64698e3",
+  "issue_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
+  "author": "dashboard-bootstrap",
+  "content": "Deleted stray /home/doll/crosslink/crosslink/.crosslink/ — was shadowing repo-root .crosslink due to find_crosslink_dir walk-up resolution. Re-hydrated top-level store from hub (720 issues, 1254 comments).",
+  "created_at": "2026-04-21T23:53:35.791882469Z",
+  "kind": "observation",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAayVTDLbsKABoyUgdD30nPPVkCnD9x/HBNMURpSGfWXgN+LkenkI/ZPzhDfFzrzOA+qN85kwoCu80h2yj//QyDA=="
+}
