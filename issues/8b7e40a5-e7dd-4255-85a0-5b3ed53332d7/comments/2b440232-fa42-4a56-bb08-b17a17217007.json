@@ -1,8 +1,0 @@
-{
-  "uuid": "2b440232-fa42-4a56-bb08-b17a17217007",
-  "issue_uuid": "8b7e40a5-e7dd-4255-85a0-5b3ed53332d7",
-  "author": "anon-ab6221f8",
-  "content": "Implemented in 2e9df4e4 (REST API for project list + detail).",
-  "created_at": "2026-04-21T03:42:47.968395215Z",
-  "kind": "resolution"
-}

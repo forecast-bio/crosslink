@@ -1,8 +1,0 @@
-{
-  "uuid": "2aefe872-9334-4cf4-9f32-4e5ba513cadc",
-  "issue_uuid": "d0b59565-5ba7-4ca1-bcf3-0c2f30807d71",
-  "author": "anon-ab6221f8",
-  "content": "Implemented across 295fa73a (driver-side write + read), fe6359d1 (agent-side polling + ack writer), d6c167ce (auto-poll on sync tick), 77f15fe3 (reader + CLI self-invocation fix).",
-  "created_at": "2026-04-21T03:43:26.900341957Z",
-  "kind": "resolution"
-}

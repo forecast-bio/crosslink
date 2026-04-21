@@ -1,8 +1,0 @@
-{
-  "uuid": "8c3fe90e-ed4f-4f69-a6b6-8436e32a0f44",
-  "issue_uuid": "cea677f0-912a-4bda-9d46-3e5db7210d7a",
-  "author": "anon-ab6221f8",
-  "content": "Implemented in c66af2aa (hub-branch reader + tile counter derivation) and 85d18fda (5s poll loop).",
-  "created_at": "2026-04-21T03:42:43.634557611Z",
-  "kind": "resolution"
-}

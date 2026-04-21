@@ -2,11 +2,10 @@
   "uuid": "e0b6a6ea-a5d9-4607-8d7d-c9f42e4d12da",
   "display_id": 697,
   "title": "P1.8: write surface — issues + labels (close, reopen, comment, update, label, unlabel)",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:43.056430321Z",
-  "updated_at": "2026-04-21T03:43:13.824151205Z",
-  "closed_at": "2026-04-21T03:43:13.824151205Z"
+  "updated_at": "2026-04-20T18:00:43.056430321Z"
 }

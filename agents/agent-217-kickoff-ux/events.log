@@ -1,0 +1,2 @@
+{"agent_id":"agent-217-kickoff-ux","agent_seq":1,"timestamp":"2026-03-19T01:44:17.744287Z","event":{"type":"LockClaimed","issue_display_id":217}}
+{"agent_id":"agent-217-kickoff-ux","agent_seq":2,"timestamp":"2026-03-19T19:07:38.206342Z","event":{"type":"LockReleased","issue_display_id":217}}

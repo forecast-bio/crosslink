@@ -1,0 +1,2 @@
+{"agent_id":"jus4","agent_seq":1,"timestamp":"2026-04-13T17:49:16.269169379Z","event":{"type":"LockClaimed","issue_display_id":679}}
+{"agent_id":"jus4","agent_seq":2,"timestamp":"2026-04-13T17:56:45.299642423Z","event":{"type":"LockReleased","issue_display_id":679}}

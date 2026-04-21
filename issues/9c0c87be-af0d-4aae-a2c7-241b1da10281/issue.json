@@ -2,13 +2,12 @@
   "uuid": "9c0c87be-af0d-4aae-a2c7-241b1da10281",
   "display_id": 696,
   "title": "P1.7: alert UI — banner, sidebar rail, /alerts page, desktop notifications",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:40.789513101Z",
-  "updated_at": "2026-04-21T03:43:09.296379604Z",
-  "closed_at": "2026-04-21T03:43:09.296379604Z",
+  "updated_at": "2026-04-20T18:01:12.446331231Z",
   "blockers": [
     "9ef980ce-39a6-4881-bed8-68bcd6e8d1c5"
   ]

@@ -2,13 +2,12 @@
   "uuid": "d0b59565-5ba7-4ca1-bcf3-0c2f30807d71",
   "display_id": 700,
   "title": "P1.11: agent request protocol — hub-branch agents/<id>/requests/*.json + agent-side polling lib + kill/pause/resume/reprioritise verbs + audit log",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:50.584896104Z",
-  "updated_at": "2026-04-21T03:43:29.188598175Z",
-  "closed_at": "2026-04-21T03:43:29.188598175Z",
+  "updated_at": "2026-04-21T00:07:24.894277689Z",
   "labels": [
     "e2e-test"
   ],

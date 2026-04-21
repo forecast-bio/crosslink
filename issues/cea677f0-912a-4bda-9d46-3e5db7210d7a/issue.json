@@ -2,13 +2,12 @@
   "uuid": "cea677f0-912a-4bda-9d46-3e5db7210d7a",
   "display_id": 691,
   "title": "P1.2: poll loop + single-project index — git-fetch every 5s, populate projects/project_state/activity",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:29.412630720Z",
-  "updated_at": "2026-04-21T03:42:45.850875068Z",
-  "closed_at": "2026-04-21T03:42:45.850875068Z",
+  "updated_at": "2026-04-20T18:01:03.239637639Z",
   "blockers": [
     "3a5a840d-eecd-4228-b1d4-e503ed738907"
   ]

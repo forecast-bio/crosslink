@@ -1,8 +1,0 @@
-{
-  "uuid": "bbffcc42-cf9c-458f-9422-dea9dc70785a",
-  "issue_uuid": "eed88100-2770-413e-b37d-a0ac2017a22f",
-  "author": "anon-ab6221f8",
-  "content": "Implemented in 8e855128 (WebSocket live updates for project tiles).",
-  "created_at": "2026-04-21T03:42:56.895718913Z",
-  "kind": "resolution"
-}

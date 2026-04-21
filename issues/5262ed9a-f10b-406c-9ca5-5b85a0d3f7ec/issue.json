@@ -2,11 +2,10 @@
   "uuid": "5262ed9a-f10b-406c-9ca5-5b85a0d3f7ec",
   "display_id": 698,
   "title": "P1.9: write surface — milestones + relations + blockers",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:45.517214301Z",
-  "updated_at": "2026-04-21T03:43:18.121393499Z",
-  "closed_at": "2026-04-21T03:43:18.121393499Z"
+  "updated_at": "2026-04-20T18:00:45.517214301Z"
 }
