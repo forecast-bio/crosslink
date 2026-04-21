@@ -457,12 +457,16 @@ pub(super) fn init_worktree_agent(
     if wt_crosslink.exists() {
         // Only init if not already configured
         if AgentConfig::load(&wt_crosslink)?.is_none() {
+            // Kickoff subagent worktree → `AgentRole::Agent` so hub
+            // commits from this worktree sign with the agent's own
+            // key and attribute distinctly. See #718.
             if let Err(e) = super::super::agent::init(
                 &wt_crosslink,
                 &agent_id,
                 Some(&format!("Kickoff agent for: {compact_name}")),
                 false, // generate dedicated signing key
                 false,
+                crate::identity::AgentRole::Agent,
             ) {
                 tracing::warn!("could not initialize agent identity in worktree: {e} — agent will work without its own identity");
             }

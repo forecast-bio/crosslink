@@ -15,13 +15,22 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
             description,
             no_key,
             force,
-        } => init(
-            crosslink_dir,
-            &agent_id,
-            description.as_deref(),
-            no_key,
-            force,
-        ),
+            role,
+        } => {
+            let parsed_role = match role.as_deref() {
+                Some("driver") => AgentRole::Driver,
+                Some("agent") | None => AgentRole::Agent,
+                Some(other) => bail!("invalid role {other:?}; expected 'driver' or 'agent'"),
+            };
+            init(
+                crosslink_dir,
+                &agent_id,
+                description.as_deref(),
+                no_key,
+                force,
+                parsed_role,
+            )
+        }
         AgentCommands::Status => status(crosslink_dir),
         AgentCommands::Prompt {
             session,
@@ -305,13 +314,14 @@ fn list_requests(crosslink_dir: &Path, target: Option<&str>, pending_only: bool)
     Ok(())
 }
 
-/// `crosslink agent init <agent-id> [-d "description"] [--no-key] [--force]`
+/// `crosslink agent init <agent-id> [-d "description"] [--no-key] [--force] [--role driver|agent]`
 pub fn init(
     crosslink_dir: &Path,
     agent_id: &str,
     description: Option<&str>,
     no_key: bool,
     force: bool,
+    role: AgentRole,
 ) -> Result<()> {
     match AgentConfig::load(crosslink_dir) {
         Ok(Some(_)) if force => {
@@ -327,12 +337,12 @@ pub fn init(
             );
         }
     }
-    // `crosslink agent init` creates an autonomous-agent identity (kickoff,
-    // swarm, sub-agent). Tag the role explicitly so the Claude Code hooks
-    // can distinguish this from a main-repo signing identity minted by
-    // `crosslink init` — see GH #566.
+    // Role drives downstream signing: `Driver` makes hub commits
+    // sign with the main repo's `user.signingkey` (the human's
+    // GitHub-registered key); `Agent` makes them sign with this
+    // agent's own key (subagent worktree attribution). See #718.
     let mut config =
-        AgentConfig::init_with_role(crosslink_dir, agent_id, description, AgentRole::Agent)?;
+        AgentConfig::init_with_role(crosslink_dir, agent_id, description, role)?;
 
     // Generate SSH key unless opted out
     if !no_key {
@@ -373,6 +383,20 @@ pub fn init(
                 println!("  Warning: Could not generate SSH key: {e}");
                 println!("  Signing will be unavailable. Use --no-key to suppress this warning.");
             }
+        }
+    }
+
+    // Re-run `configure_signing` unconditionally so that even in the
+    // key-already-existed path, or the `--no-key` path, the hub-cache
+    // worktree picks up the role-appropriate signing key (#718). The
+    // helper is idempotent and role-aware — driver workspaces get
+    // the human's GitHub-registered key, agent worktrees get the
+    // agent's own key.
+    if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+        if let Err(e) = sync.configure_signing(crosslink_dir) {
+            tracing::warn!(
+                "could not (re)configure commit signing after agent init: {e}"
+            );
         }
     }
 

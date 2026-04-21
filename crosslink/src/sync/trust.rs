@@ -4,7 +4,7 @@ use std::process::Command;
 
 use super::core::SyncManager;
 use super::SignatureVerification;
-use crate::identity::AgentConfig;
+use crate::identity::{AgentConfig, AgentRole};
 use crate::locks::Keyring;
 use crate::signing;
 
@@ -68,48 +68,114 @@ fn signingkey_value_is_path(value: &str) -> bool {
 impl SyncManager {
     /// Configure SSH signing in the hub cache worktree.
     ///
-    /// If the agent has an SSH key, sets `gpg.format=ssh`, `user.signingkey`,
-    /// and `commit.gpgsign=true` in the cache worktree's local git config.
-    /// This makes all subsequent commits on the hub branch automatically signed.
+    /// **Role-aware signing** (#718):
+    ///
+    /// - Main / driver workspaces (`agent.json.role == Driver` or
+    ///   no `agent.json`): sign hub commits with the DRIVER's SSH
+    ///   signing key (from the main repo's `user.signingkey`).
+    ///   That's the key the human registered on their GitHub
+    ///   account; commits verify end-to-end.
+    /// - Subagent worktrees (`agent.json.role == Agent`): sign with
+    ///   the agent's SSH key. That's the kickoff/swarm-scoped
+    ///   identity; commits attribute to the agent and verify
+    ///   locally via `allowed_signers`. GitHub shows them
+    ///   unverified unless the agent pub key has been registered
+    ///   there too.
+    ///
+    /// The agent's identity always lives in `agent.json` (who
+    /// initiated the action). Only the SIGNATURE bytes differ by
+    /// role — and critically, we never sign a driver-workspace's
+    /// commit with an agent key that GitHub doesn't know.
     ///
     /// # Errors
-    ///
-    /// Returns an error if loading agent config or configuring git signing fails.
+    /// Returns an error if configuring git signing fails.
     pub fn configure_signing(&self, crosslink_dir: &Path) -> Result<()> {
         if !self.cache_dir.exists() {
             return Ok(());
         }
 
-        let Some(agent) = AgentConfig::load(crosslink_dir)? else {
-            return Ok(());
-        };
-
-        let (Some(rel_key), Some(_fingerprint)) = (&agent.ssh_key_path, &agent.ssh_fingerprint)
-        else {
-            return Ok(());
-        };
-        let rel_key = rel_key.clone();
-
-        // Resolve private key path (relative to .crosslink/)
-        let private_key = self.crosslink_dir.join(&rel_key);
-        if !private_key.exists() {
-            // Agent key is gone (e.g. worktree cleaned up). Fall back to the
-            // driver's signing key so hub commits keep working (#506).
-            return self.fallback_to_driver_signing();
-        }
-
-        // Ensure allowed_signers file always exists so git's verify-commit
-        // correctly classifies signed commits. Without this, verify-commit
-        // reports "allowedSignersFile needs to be configured" which maps
-        // to Unsigned instead of Invalid (untrusted signer).
+        // Ensure allowed_signers file always exists so git's
+        // verify-commit correctly classifies signed commits,
+        // whatever key ends up signing.
         let allowed_signers = self.cache_dir.join("trust").join("allowed_signers");
         if !allowed_signers.exists() {
             signing::AllowedSigners::default().save(&allowed_signers)?;
         }
 
-        signing::configure_git_ssh_signing(&self.cache_dir, &private_key, Some(&allowed_signers))?;
+        // Determine whether this is a driver-owned workspace or an
+        // agent's subagent worktree. The role lives in agent.json;
+        // if agent.json is missing we default to driver (the main-
+        // repo case is the common one).
+        let is_agent_worktree = AgentConfig::load(crosslink_dir)?
+            .is_some_and(|c| matches!(c.role, AgentRole::Agent));
 
+        if is_agent_worktree {
+            // Subagent worktree — sign with the agent's key so the
+            // attribution is distinct.
+            if let Some(agent) = AgentConfig::load(crosslink_dir)? {
+                if let (Some(rel_key), Some(_)) =
+                    (&agent.ssh_key_path, &agent.ssh_fingerprint)
+                {
+                    let private_key = self.crosslink_dir.join(rel_key);
+                    if private_key.exists() {
+                        signing::configure_git_ssh_signing(
+                            &self.cache_dir,
+                            &private_key,
+                            Some(&allowed_signers),
+                        )?;
+                        return Ok(());
+                    }
+                }
+            }
+            // Agent worktree but key missing — fall through to
+            // driver key as a recovery path; better a verified
+            // driver commit than an unsigned one.
+        }
+
+        // Driver-owned workspace — or agent worktree missing its
+        // key. Prefer the driver's SSH signing key.
+        if let Some(driver_key) = self.driver_signing_key() {
+            if driver_key.exists() {
+                signing::configure_git_ssh_signing(
+                    &self.cache_dir,
+                    &driver_key,
+                    Some(&allowed_signers),
+                )?;
+                return Ok(());
+            }
+            tracing::warn!(
+                "driver signing key configured but not found at {}; disabling signing",
+                driver_key.display()
+            );
+        }
+
+        // Nothing usable — disable signing so commits still land.
+        tracing::warn!(
+            "no usable signing key for {} workspace; disabling hub-commit signing",
+            if is_agent_worktree { "agent" } else { "driver" }
+        );
+        signing::disable_git_signing(&self.cache_dir)?;
         Ok(())
+    }
+
+    /// Resolve the driver's SSH signing key path from the main repo's
+    /// git config. Returns the expanded absolute path if
+    /// `user.signingkey` points at an existing file; `None` if unset,
+    /// empty, or unparsable.
+    fn driver_signing_key(&self) -> Option<std::path::PathBuf> {
+        let output = Command::new("git")
+            .current_dir(&self.repo_root)
+            .args(["config", "user.signingkey"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if raw.is_empty() {
+            return None;
+        }
+        Some(expand_tilde(&raw))
     }
 
     /// Fall back to the driver's signing key when the agent key is missing.

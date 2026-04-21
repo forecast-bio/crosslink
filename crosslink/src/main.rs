@@ -1182,6 +1182,15 @@ enum AgentCommands {
         /// Overwrite existing agent configuration
         #[arg(long)]
         force: bool,
+        /// Role this identity plays — `driver` for the main human-
+        /// operated workspace (commits sign with the driver's
+        /// GitHub-registered key), `agent` for subagent worktrees
+        /// spawned by kickoff/swarm (commits sign with the agent's
+        /// own key for attribution). Default: `agent` — preserves
+        /// pre-#718 behaviour for kickoff/swarm flows; dashboard
+        /// retrofits pass `--role driver` explicitly.
+        #[arg(long, value_parser = ["driver", "agent"])]
+        role: Option<String>,
     },
     /// Show current agent identity
     Status,

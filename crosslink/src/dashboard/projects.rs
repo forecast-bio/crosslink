@@ -433,6 +433,12 @@ fn run_init_and_agent_inner(
     // We only enter this helper when `write_capability != Ready`
     // (i.e. driver-key.pub is missing), so overwriting the placeholder
     // is exactly what we want.
+    // Dashboard retrofit always initialises a DRIVER identity (the
+    // human's main workspace) — so hub commits sign with the
+    // GitHub-registered `user.signingkey` rather than an agent-
+    // scoped key GitHub doesn't know about (#718). Subagent
+    // worktrees go through kickoff/swarm and get `--role agent`
+    // from those flows, not this path.
     let agent_out = Command::new(cmd_name)
         .current_dir(workspace)
         .args([
@@ -441,6 +447,8 @@ fn run_init_and_agent_inner(
             agent_id,
             "-q",
             "--force",
+            "--role",
+            "driver",
             "--description",
             "dashboard auto-bootstrap",
         ])
