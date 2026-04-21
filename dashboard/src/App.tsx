@@ -14,6 +14,7 @@ import { AlertRail } from "@/components/AlertRail";
 import { Alerts } from "@/pages/Alerts";
 import { ProjectDetail } from "@/pages/ProjectDetail";
 import { ProjectGrid } from "@/pages/ProjectGrid";
+import { SettingsGithub } from "@/pages/SettingsGithub";
 import { Terminals } from "@/pages/Terminals";
 
 const queryClient = new QueryClient({
@@ -59,6 +60,9 @@ function TopNav() {
           <NavLink to="/terminals" className={linkClass}>
             Terminals
           </NavLink>
+          <NavLink to="/settings/github" className={linkClass}>
+            GitHub
+          </NavLink>
         </span>
       </div>
     </nav>
@@ -78,6 +82,7 @@ export function App() {
             <Route path="/project/*" element={<ProjectDetail />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/terminals" element={<Terminals />} />
+            <Route path="/settings/github" element={<SettingsGithub />} />
           </Routes>
         </div>
       </BrowserRouter>

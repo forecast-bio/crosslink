@@ -144,3 +144,31 @@ export interface AlertItem {
   resolved_at: string | null;
   acknowledged_at: string | null;
 }
+
+export interface GithubConfigView {
+  token_present: boolean;
+  token_fingerprint: string | null;
+  default_org: string | null;
+}
+
+export interface GithubConfigUpdate {
+  /** `""` deletes the stored token; `undefined` leaves it unchanged. */
+  token?: string;
+  /** `null` clears the default org; `undefined` leaves it unchanged. */
+  default_org?: string | null;
+}
+
+export interface GithubRepoHit {
+  owner: string;
+  repo: string;
+  full_name: string;
+  default_branch: string;
+  ssh_url: string;
+  https_url: string;
+  has_hub_branch: boolean;
+}
+
+export interface GithubTrackAllOutcome {
+  tracked: string[];
+  skipped: { slug: string; reason: string }[];
+}

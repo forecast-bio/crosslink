@@ -8,6 +8,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   AlertItem,
+  GithubConfigUpdate,
+  GithubConfigView,
+  GithubRepoHit,
+  GithubTrackAllOutcome,
   ProjectDetail,
   ProjectListItem,
   PtySession,
@@ -388,6 +392,65 @@ export function useSpawnPty() {
     },
     onSuccess: () =>
       client.invalidateQueries({ queryKey: ["pty", "sessions"] }),
+  });
+}
+
+/// Current GitHub integration config — token presence, masked
+/// fingerprint, and default org. Never exposes the raw token.
+export function useGithubConfig() {
+  return useQuery<GithubConfigView, ApiRequestError>({
+    queryKey: ["dashboard", "github", "config"],
+    queryFn: () => apiFetch<GithubConfigView>("/github/config"),
+    refetchOnWindowFocus: false,
+  });
+}
+
+/// Update the stored PAT and/or default org.
+/// - `token: ""` deletes the stored secret.
+/// - `default_org: null` clears the org.
+/// - Omitting a field leaves it unchanged.
+export function useSetGithubConfig() {
+  const client = useQueryClient();
+  return useMutation<GithubConfigView, ApiRequestError, GithubConfigUpdate>({
+    mutationFn: (body) => apiPost<GithubConfigView>("/github/config", body),
+    onSuccess: (data) => {
+      client.setQueryData(["dashboard", "github", "config"], data);
+    },
+  });
+}
+
+/// Enumerate crosslink-touched repos in `org`. Triggered on demand
+/// (not polled) because every call hits the GitHub REST API.
+export function useOrgRepos(org: string | null, enabled: boolean) {
+  return useQuery<GithubRepoHit[], ApiRequestError>({
+    queryKey: ["dashboard", "github", "org-repos", org],
+    queryFn: () =>
+      apiFetch<GithubRepoHit[]>(
+        `/github/orgs/${encodeURIComponent(org ?? "")}/repos`,
+      ),
+    enabled: enabled && !!org,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+}
+
+/// Walk an org and clone+track every repo with a `crosslink/hub` branch.
+/// `clone_root` is optional; the server defaults to `~/crosslink-tracked`.
+export function useTrackAllOrg() {
+  const client = useQueryClient();
+  return useMutation<
+    GithubTrackAllOutcome,
+    ApiRequestError,
+    { org: string; cloneRoot?: string }
+  >({
+    mutationFn: ({ org, cloneRoot }) =>
+      apiPost<GithubTrackAllOutcome>(
+        `/github/orgs/${encodeURIComponent(org)}/track-all`,
+        cloneRoot ? { clone_root: cloneRoot } : undefined,
+      ),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["dashboard", "projects"] });
+    },
   });
 }
 
