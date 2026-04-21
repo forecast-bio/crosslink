@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Phase 4.1: GitHub PAT storage + token management endpoint (GH #429) (#701)
 - Dashboard: detect + remedy tracked clones without crosslink init / agent config (#710)
 - Dashboard: make alerts clickable to expand with actions (#708)
 - crosslink dashboard discover: filesystem autodiscovery of crosslink-enabled repos (GH #429 followup) (#705)
