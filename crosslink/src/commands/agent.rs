@@ -128,17 +128,24 @@ fn request(
 
     let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?.ok_or_else(|| {
         anyhow::anyhow!(
-            "agent request requires shared-writer mode (run `crosslink agent init` first)"
+            "agent request requires hub access — run `crosslink sync` to initialize, or `crosslink agent init` for a full agent identity"
         )
     })?;
 
-    let driver = AgentConfig::load(crosslink_dir)?
-        .ok_or_else(|| anyhow::anyhow!("no agent config; run `crosslink agent init`"))?;
-
-    let requested_by = driver
-        .ssh_fingerprint
-        .clone()
-        .unwrap_or_else(|| format!("agent:{}", driver.agent_id));
+    // Drivers (operators) may not have run `crosslink agent init`;
+    // they have a `user.signingkey` in git but no agent.json. Fall
+    // back to that fingerprint so the dashboard can send requests
+    // without forcing operators through agent setup.
+    let requested_by = if let Some(driver) = AgentConfig::load(crosslink_dir)? {
+        driver
+            .ssh_fingerprint
+            .clone()
+            .unwrap_or_else(|| format!("agent:{}", driver.agent_id))
+    } else {
+        let workspace_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+        resolve_driver_signing_key(workspace_root)
+            .unwrap_or_else(|| "driver:unknown".to_string())
+    };
 
     let req = crate::agent_requests::AgentRequest {
         request_id: crate::agent_requests::new_request_id(),
@@ -167,6 +174,43 @@ fn request(
         }
     }
     Ok(())
+}
+
+/// Read `user.signingkey` from the workspace's git config and turn it
+/// into a fingerprint. Used as a fallback identity when no agent.json
+/// exists. Returns `None` if the config is unset or the key file
+/// can't be fingerprinted.
+fn resolve_driver_signing_key(workspace_root: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .args(["config", "user.signingkey"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    // user.signingkey can be either a raw fingerprint or a path to a
+    // public/private key file. If it's a path we fingerprint it; if
+    // not we just record what's there as the principal.
+    let path = std::path::Path::new(&raw);
+    if path.exists() {
+        let pub_path = if raw.ends_with(".pub") {
+            path.to_path_buf()
+        } else {
+            std::path::PathBuf::from(format!("{raw}.pub"))
+        };
+        if pub_path.exists() {
+            if let Ok(fp) = signing::get_key_fingerprint(&pub_path) {
+                return Some(fp);
+            }
+        }
+    }
+    Some(raw)
 }
 
 /// `crosslink agent requests [--target <id>] [--pending]`

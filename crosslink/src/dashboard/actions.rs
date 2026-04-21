@@ -88,7 +88,22 @@ pub async fn run_cli(
 
     let actor = resolve_actor(&project.clone_path).unwrap_or_else(|| "unknown".to_string());
 
-    let output = Command::new("crosslink")
+    // Invoke the same binary that's hosting the dashboard server — not
+    // whatever `crosslink` happens to be first on PATH. This prevents
+    // version skew between the dashboard (which knows about recently-
+    // added subcommands like `agent request`) and an older system-
+    // installed CLI. Falls back to PATH lookup when:
+    // - the current exe path can't be resolved (unusual), or
+    // - we're running inside a test binary (path contains /deps/),
+    //   since test binaries don't accept crosslink CLI args.
+    let self_exe = std::env::current_exe().ok();
+    let usable_self = self_exe.as_deref().filter(|p| {
+        !p.components()
+            .any(|c| c.as_os_str() == std::ffi::OsStr::new("deps"))
+    });
+    let cmd_name: std::ffi::OsString = usable_self
+        .map_or_else(|| "crosslink".into(), |p| p.as_os_str().to_os_string());
+    let output = Command::new(&cmd_name)
         .current_dir(&project.clone_path)
         .args(args)
         .output()

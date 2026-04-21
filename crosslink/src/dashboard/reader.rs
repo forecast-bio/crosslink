@@ -66,11 +66,17 @@ pub struct LockRecord {
 
 /// Read a snapshot of the hub branch from the given clone path.
 ///
-/// `clone_path` is expected to be the working tree of a clone with
-/// `crosslink/hub` checked out. Missing files are treated as empty
-/// rather than fatal errors — the snapshot tolerates repos that
-/// haven't yet populated every layer (fresh hubs, repos with no
-/// agents yet, etc.).
+/// `clone_path` is a crosslink workspace: the user's own working copy
+/// of the repo, which holds `.crosslink/.hub-cache/` as a worktree of
+/// the `crosslink/hub` branch. The reader prefers that cache (because
+/// the working tree might be on `develop` or another feature branch
+/// at any moment) and falls back to scanning `clone_path` directly
+/// for test fixtures / legacy setups that seed hub files at the root.
+///
+/// `git rev-parse` and `git log` operate against git refs so they work
+/// regardless of which branch the working tree is on — hub SHA and
+/// last-commit timestamp are accurate even when the working tree is
+/// on a feature branch.
 ///
 /// # Errors
 /// Returns an error only for structural failures that would make the
@@ -86,23 +92,29 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
     let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
     let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
 
-    let meta_dir = clone_path.join("meta");
+    // Prefer the hub-cache worktree (`.crosslink/.hub-cache/`) when it
+    // exists — that's where `crosslink sync` keeps `crosslink/hub`
+    // checked out. If it's missing we scan clone_path as a fallback
+    // (test fixtures + legacy setups live here).
+    let hub_root = resolve_hub_root(clone_path);
+
+    let meta_dir = hub_root.join("meta");
     let layout_version = if meta_dir.is_dir() {
         crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1)
     } else {
         1
     };
 
-    let issues_dir = clone_path.join("issues");
+    let issues_dir = hub_root.join("issues");
     let issues = if issues_dir.is_dir() {
         crate::issue_file::read_all_issue_files(&issues_dir).unwrap_or_default()
     } else {
         Vec::new()
     };
 
-    let agents = read_agent_heartbeats(clone_path);
-    let locks = read_locks(clone_path);
-    let agent_requests = read_agent_requests(clone_path, &agents);
+    let agents = read_agent_heartbeats(&hub_root);
+    let locks = read_locks(&hub_root);
+    let agent_requests = read_agent_requests(&hub_root, &agents);
 
     Ok(HubSnapshot {
         hub_sha,
@@ -113,6 +125,35 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
         agent_requests,
         last_commit_at,
     })
+}
+
+/// Pick the directory that contains hub-branch content for this
+/// workspace. Order:
+/// 1. `<clone>/crosslink/.crosslink/.hub-cache/` — nested workspace
+///    layout (the repo this project lives in).
+/// 2. `<clone>/.crosslink/.hub-cache/` — typical project layout.
+/// 3. `<clone>/` — bare clone or test fixture that seeds hub files
+///    at the root.
+///
+/// Only directories that actually have `issues/` or `agents/` content
+/// are considered valid hub roots; an empty `.hub-cache` (fresh clone
+/// before `crosslink sync` ran) falls through to the working tree.
+fn resolve_hub_root(clone_path: &Path) -> std::path::PathBuf {
+    let candidates = [
+        clone_path
+            .join("crosslink")
+            .join(".crosslink")
+            .join(".hub-cache"),
+        clone_path.join(".crosslink").join(".hub-cache"),
+    ];
+    for candidate in candidates {
+        if candidate.is_dir()
+            && (candidate.join("issues").is_dir() || candidate.join("agents").is_dir())
+        {
+            return candidate;
+        }
+    }
+    clone_path.to_path_buf()
 }
 
 /// Scan `agents/<id>/requests/` for every agent visible in the snapshot.
