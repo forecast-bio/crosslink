@@ -2,11 +2,12 @@
   "uuid": "56b53269-6a34-4f77-9e2c-b9461c0657cb",
   "display_id": 282,
   "title": "Split signing.rs god module into focused submodules",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:15.411537129Z",
-  "updated_at": "2026-03-26T13:21:17.314429579Z",
+  "updated_at": "2026-04-21T22:54:54.116882893Z",
+  "closed_at": "2026-04-21T22:54:54.116882893Z",
   "labels": [
     "enhancement"
   ]
