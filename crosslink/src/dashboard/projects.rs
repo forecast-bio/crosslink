@@ -222,9 +222,13 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
     let cmd_name: std::ffi::OsString = usable_self
         .map_or_else(|| "crosslink".into(), |p| p.as_os_str().to_os_string());
 
+    // `--force` lets init re-run cleanly when a previous retrofit left
+    // partial state (a stray `.crosslink/agent.json` without
+    // `issues.db` / `hook-config.json`). Idempotent on already-clean
+    // workspaces — init --force just refreshes hooks.
     let init_out = Command::new(&cmd_name)
         .current_dir(workspace)
-        .args(["init", "--defaults", "-q"])
+        .args(["init", "--defaults", "-q", "--force"])
         .output()
         .context("spawn `crosslink init`")?;
     if !init_out.status.success() {
@@ -232,6 +236,12 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
         bail!("crosslink init failed: {}", stderr.trim());
     }
 
+    // --force is load-bearing: `crosslink init --defaults` writes a
+    // placeholder `.crosslink/agent.json`, so an unforced
+    // `crosslink agent init` fails with "Agent already configured".
+    // We only enter this helper when `write_capability != Ready`
+    // (i.e. driver-key.pub is missing), so overwriting the placeholder
+    // is exactly what we want.
     let agent_out = Command::new(&cmd_name)
         .current_dir(workspace)
         .args([
@@ -239,6 +249,7 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
             "init",
             agent_id,
             "-q",
+            "--force",
             "--description",
             "dashboard auto-bootstrap",
         ])

@@ -140,6 +140,20 @@ export interface InitProjectBody {
   agent_id: string;
 }
 
+export interface CloneRepoArgs {
+  url: string;
+  slug?: string;
+  cloneRoot?: string;
+  init?: boolean;
+  agentId?: string;
+}
+
+export interface CloneRepoOutcome {
+  slug: string;
+  clone_path: string;
+  initialized: boolean;
+}
+
 export interface ApiError {
   error: string;
   status: number;

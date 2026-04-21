@@ -8,6 +8,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type {
+  CloneRepoOutcome,
   GithubConfigView,
   GithubRepoHit,
   GithubTrackAllOutcome,
@@ -39,6 +40,7 @@ const mocks = {
   useSetGithubConfig: vi.fn(),
   useOrgRepos: vi.fn(),
   useTrackAllOrg: vi.fn(),
+  useCloneRepo: vi.fn(),
 };
 
 vi.mock("@/api/client", async () => {
@@ -50,6 +52,7 @@ vi.mock("@/api/client", async () => {
     useOrgRepos: (org: string | null, enabled: boolean) =>
       mocks.useOrgRepos(org, enabled),
     useTrackAllOrg: () => mocks.useTrackAllOrg(),
+    useCloneRepo: () => mocks.useCloneRepo(),
   };
 });
 
@@ -89,6 +92,7 @@ beforeEach(() => {
   mocks.useSetGithubConfig.mockReturnValue(stubMutation());
   mocks.useOrgRepos.mockReturnValue(stubQuery<GithubRepoHit[] | undefined>(undefined));
   mocks.useTrackAllOrg.mockReturnValue(stubMutation());
+  mocks.useCloneRepo.mockReturnValue(stubMutation());
 });
 
 describe("SettingsGithub page", () => {
@@ -198,6 +202,55 @@ describe("SettingsGithub page", () => {
     const { SettingsGithub } = await import("../SettingsGithub");
     render(withClient(<SettingsGithub />));
     expect(screen.getByRole("button", { name: /browse my-org/i })).toBeDisabled();
+  });
+
+  it("Clone & track form posts URL + optional init/agentId", async () => {
+    const clone = stubMutation<CloneRepoOutcome, { url: string; init?: boolean; agentId?: string }>();
+    mocks.useCloneRepo.mockReturnValue(clone);
+    const { SettingsGithub } = await import("../SettingsGithub");
+    render(withClient(<SettingsGithub />));
+
+    fireEvent.change(screen.getByLabelText(/clone url/i), {
+      target: { value: "https://github.com/owner/repo.git" },
+    });
+    // Without init: slug undefined, init undefined — payload only has url.
+    fireEvent.click(screen.getByRole("button", { name: /clone & track/i }));
+    expect(clone.mutate).toHaveBeenCalledWith(
+      { url: "https://github.com/owner/repo.git", slug: undefined, init: false, agentId: undefined },
+      expect.any(Object),
+    );
+  });
+
+  it("Clone & track form with init toggled requires agent id", async () => {
+    const clone = stubMutation<CloneRepoOutcome, { url: string; init?: boolean; agentId?: string }>();
+    mocks.useCloneRepo.mockReturnValue(clone);
+    const { SettingsGithub } = await import("../SettingsGithub");
+    render(withClient(<SettingsGithub />));
+
+    fireEvent.change(screen.getByLabelText(/clone url/i), {
+      target: { value: "https://github.com/owner/repo.git" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /initialize after clone/i }),
+    );
+    // Without agent id: button disabled, warning shown.
+    const btn = screen.getByRole("button", { name: /clone & track/i });
+    expect(btn).toBeDisabled();
+    expect(screen.getByText(/agent id required/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/clone agent id/i), {
+      target: { value: "my-agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /clone & track/i }));
+    expect(clone.mutate).toHaveBeenCalledWith(
+      {
+        url: "https://github.com/owner/repo.git",
+        slug: undefined,
+        init: true,
+        agentId: "my-agent",
+      },
+      expect.any(Object),
+    );
   });
 
   it("Initialize checkbox reveals agent-id field and gates Track All", async () => {

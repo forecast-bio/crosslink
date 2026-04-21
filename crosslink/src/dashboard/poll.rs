@@ -325,26 +325,51 @@ async fn fetch_hub(clone_path: &Path) -> Result<()> {
 }
 
 /// Ensure a `.crosslink/.hub-cache/` worktree exists pointing at the
-/// local `crosslink/hub` ref. Idempotent:
-/// - If the worktree is missing, create it via `git worktree add`.
-/// - If it exists, fast-forward it via `git reset --hard`.
+/// local `crosslink/hub` ref. Idempotent and CLI-safe:
+/// - If the canonical worktree at `<clone>/.crosslink/.hub-cache/`
+///   is missing, create it with `git worktree add`.
+/// - If it exists and is CLEAN, fast-forward via `git reset --hard`.
+/// - If it exists and is DIRTY (e.g. `crosslink issue close` wrote
+///   new issue files but hasn't committed them yet), leave it alone.
+///   Resetting dirty state here would wipe the CLI's in-flight
+///   changes before the reader had a chance to observe them (#701).
 ///
-/// Best-effort: failures are logged and swallowed. A broken hub-cache
-/// just means the reader falls back to scanning the working tree (the
-/// legacy path), which is no worse than before this function existed.
+/// We deliberately do NOT touch the legacy nested worktree at
+/// `<clone>/crosslink/.crosslink/.hub-cache/` — [`super::reader::resolve_hub_root`]
+/// prefers the canonical outer path now, so the nested one falls
+/// through. Not managing it here avoids racing against whatever
+/// original tool created it.
+///
+/// Best-effort: failures are logged and swallowed. A broken
+/// hub-cache just means the reader falls back to scanning the
+/// working tree — no worse than before this function existed.
 async fn ensure_hub_cache_worktree(clone_path: &Path) {
     let cache_path = clone_path.join(".crosslink").join(".hub-cache");
 
-    // Create parent dir idempotently — `git worktree add` expects the
-    // immediate parent to exist.
     if let Some(parent) = cache_path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
 
     if cache_path.is_dir() {
-        // Already exists — fast-forward to the new hub tip. We use
-        // `reset --hard` against the ref name rather than a SHA so we
-        // don't have to query the tip separately.
+        // Skip reset if the worktree has uncommitted work — `crosslink
+        // issue close` et al write to the working tree and commit
+        // asynchronously via `crosslink sync`. Wiping those changes
+        // here would make every dashboard write invisible to the
+        // reader until the next sync.
+        let porcelain = Command::new("git")
+            .arg("-C")
+            .arg(&cache_path)
+            .args(["status", "--porcelain"])
+            .output()
+            .await;
+        let is_dirty = matches!(
+            porcelain,
+            Ok(out) if out.status.success() && !out.stdout.is_empty()
+        );
+        if is_dirty {
+            return;
+        }
+
         let status = Command::new("git")
             .arg("-C")
             .arg(&cache_path)
@@ -362,9 +387,7 @@ async fn ensure_hub_cache_worktree(clone_path: &Path) {
         return;
     }
 
-    // First-time setup. `--force` lets us proceed even if the path
-    // was left in a half-initialised state by a prior crash. The ref
-    // comes from the fetch above, so this is almost always cheap.
+    // First-time setup.
     let status = Command::new("git")
         .arg("-C")
         .arg(clone_path)

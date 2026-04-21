@@ -45,6 +45,7 @@ pub fn build_router() -> Router<AppState> {
         .route("/projects", get(list_projects))
         .route("/projects/{*slug}", get(get_project_detail))
         .route("/alerts", get(list_alerts))
+        .route("/clone", post(clone_repo))
         .route("/w/{owner}/{repo}/issues/{id}/close", post(close_issue))
         .route("/w/{owner}/{repo}/issues/{id}/reopen", post(reopen_issue))
         .route("/w/{owner}/{repo}/issues/{id}/comment", post(comment_issue))
@@ -525,6 +526,138 @@ struct InitProjectBody {
     /// Agent identifier for `crosslink agent init`. Alphanumeric +
     /// hyphens + underscores.
     agent_id: String,
+}
+
+/// Body for `POST /api/v1/dashboard/clone`.
+#[derive(Debug, Deserialize)]
+struct CloneRepoBody {
+    /// Git URL. Accepts `https://...`, `git@host:owner/repo.git`, etc.
+    url: String,
+    /// Override slug. Defaults to derived from `url`.
+    #[serde(default)]
+    slug: Option<String>,
+    /// Clone-root override. Defaults to `$HOME/crosslink-tracked`.
+    #[serde(default)]
+    clone_root: Option<String>,
+    /// Run `crosslink init --defaults` + `crosslink agent init` after
+    /// cloning so dashboard writes work right away.
+    #[serde(default)]
+    init: bool,
+    /// Required when `init` is true.
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneRepoOutcome {
+    slug: String,
+    clone_path: String,
+    initialized: bool,
+}
+
+/// `POST /api/v1/dashboard/clone`
+///
+/// Clone an arbitrary git URL into `~/crosslink-tracked/<owner>/<repo>`
+/// (or a caller-provided root) and register it in the dashboard DB.
+/// Optionally runs `crosslink init` + `crosslink agent init` in the
+/// fresh clone so writes work immediately.
+///
+/// This is the standalone counterpart to the PAT-gated `track-all`
+/// flow — lets operators add a single repo by URL without configuring
+/// GitHub enumeration.
+async fn clone_repo(
+    State(state): State<AppState>,
+    Json(body): Json<CloneRepoBody>,
+) -> Result<Json<CloneRepoOutcome>, ApiError> {
+    let db_path = state
+        .dashboard_db_path
+        .clone()
+        .ok_or_else(|| ApiError::bad_request("dashboard DB not configured"))?;
+
+    let url = body.url.trim().to_string();
+    if url.is_empty() {
+        return Err(ApiError::bad_request("url is required"));
+    }
+
+    // Derive slug from the URL if the caller didn't provide one.
+    let slug = match body.slug.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => s.to_string(),
+        None => super::projects::slug_from_remote_url(&url).ok_or_else(|| {
+            ApiError::bad_request(format!(
+                "could not derive slug from URL `{url}`; pass `slug` in the body as `owner/repo`"
+            ))
+        })?,
+    };
+
+    let clone_root = body.clone_root.clone().unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        format!("{home}/crosslink-tracked")
+    });
+
+    // If init was requested, require agent_id up front so we bail
+    // before the network fetch.
+    let init_agent_id = if body.init {
+        let id = body
+            .agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ApiError::bad_request("init=true requires agent_id"))?;
+        Some(id.to_string())
+    } else {
+        None
+    };
+
+    // Derive a target path `<clone_root>/<owner>/<repo>` from the slug.
+    let mut parts = slug.splitn(2, '/');
+    let owner = parts.next().unwrap_or_default().to_string();
+    let repo = parts.next().unwrap_or_default().to_string();
+    if owner.is_empty() || repo.is_empty() {
+        return Err(ApiError::bad_request(format!(
+            "slug must be `owner/repo`, got `{slug}`"
+        )));
+    }
+    let target = std::path::PathBuf::from(&clone_root).join(&owner).join(&repo);
+
+    // Clone + register all on the blocking pool.
+    let slug_for_task = slug.clone();
+    let outcome = tokio::task::spawn_blocking(
+        move || -> Result<CloneRepoOutcome, anyhow::Error> {
+            if !target.is_dir() {
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let status = std::process::Command::new("git")
+                    .args(["clone", "--quiet", &url, target.to_string_lossy().as_ref()])
+                    .status()?;
+                anyhow::ensure!(status.success(), "git clone failed for {url}");
+            }
+
+            let initialized = if let Some(ref aid) = init_agent_id {
+                if super::projects::write_capability(&target)
+                    != super::projects::WriteCapability::Ready
+                {
+                    super::projects::run_init_and_agent_in(&target, aid)?;
+                }
+                true
+            } else {
+                false
+            };
+
+            super::projects::track_at_path(&target, Some(&slug_for_task), &db_path)?;
+
+            Ok(CloneRepoOutcome {
+                slug: slug_for_task,
+                clone_path: target.to_string_lossy().into_owned(),
+                initialized,
+            })
+        },
+    )
+    .await
+    .map_err(|e| ApiError::internal(format!("clone task panicked: {e}")))?
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    Ok(Json(outcome))
 }
 
 /// `POST /api/v1/dashboard/w/{owner}/{repo}/init`

@@ -8,6 +8,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   AlertItem,
+  CloneRepoArgs,
+  CloneRepoOutcome,
   GithubConfigUpdate,
   GithubConfigView,
   GithubRepoHit,
@@ -489,6 +491,27 @@ export function useInitProject(slug: string) {
     mutationFn: ({ agentId }) =>
       apiPost<ActionResponse>(`/w/${slug}/init`, { agent_id: agentId }),
     onSuccess: () => invalidate(),
+  });
+}
+
+/// Clone an arbitrary git repo URL and register it as a tracked
+/// project. Optional `init` + `agentId` bootstrap the clone so
+/// write actions work right away. Standalone counterpart to the
+/// PAT-gated track-all flow.
+export function useCloneRepo() {
+  const client = useQueryClient();
+  return useMutation<CloneRepoOutcome, ApiRequestError, CloneRepoArgs>({
+    mutationFn: ({ url, slug, cloneRoot, init, agentId }) =>
+      apiPost<CloneRepoOutcome>("/clone", {
+        url,
+        slug: slug?.trim() || undefined,
+        clone_root: cloneRoot?.trim() || undefined,
+        init: init || undefined,
+        agent_id: agentId?.trim() || undefined,
+      }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["dashboard", "projects"] });
+    },
   });
 }
 

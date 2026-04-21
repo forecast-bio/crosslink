@@ -8,17 +8,19 @@
 import { useState, type FormEvent } from "react";
 
 import {
+  useCloneRepo,
   useGithubConfig,
   useOrgRepos,
   useSetGithubConfig,
   useTrackAllOrg,
 } from "@/api/client";
-import type { GithubTrackAllOutcome } from "@/api/types";
+import type { CloneRepoOutcome, GithubTrackAllOutcome } from "@/api/types";
 
 export function SettingsGithub() {
   const config = useGithubConfig();
   const setConfig = useSetGithubConfig();
   const trackAll = useTrackAllOrg();
+  const cloneRepo = useCloneRepo();
 
   const [tokenInput, setTokenInput] = useState("");
   const [orgInput, setOrgInput] = useState("");
@@ -29,6 +31,15 @@ export function SettingsGithub() {
   const [agentIdInput, setAgentIdInput] = useState("");
   const [trackOutcome, setTrackOutcome] =
     useState<GithubTrackAllOutcome | null>(null);
+
+  // Standalone clone-by-URL state (independent of PAT / org).
+  const [cloneUrl, setCloneUrl] = useState("");
+  const [cloneSlug, setCloneSlug] = useState("");
+  const [cloneInitToggle, setCloneInitToggle] = useState(false);
+  const [cloneAgentId, setCloneAgentId] = useState("");
+  const [cloneOutcome, setCloneOutcome] = useState<CloneRepoOutcome | null>(
+    null,
+  );
 
   const repos = useOrgRepos(browseOrg, browseRequested);
 
@@ -81,6 +92,33 @@ export function SettingsGithub() {
   const trackAllDisabled =
     trackAll.isPending ||
     (initOnTrack && agentIdInput.trim() === "");
+
+  function submitCloneByUrl(e: FormEvent) {
+    e.preventDefault();
+    const url = cloneUrl.trim();
+    if (!url) return;
+    if (cloneInitToggle && cloneAgentId.trim() === "") return;
+    cloneRepo.mutate(
+      {
+        url,
+        slug: cloneSlug.trim() || undefined,
+        init: cloneInitToggle,
+        agentId: cloneInitToggle ? cloneAgentId.trim() : undefined,
+      },
+      {
+        onSuccess: (outcome) => {
+          setCloneOutcome(outcome);
+          setCloneUrl("");
+          setCloneSlug("");
+        },
+      },
+    );
+  }
+
+  const cloneDisabled =
+    cloneRepo.isPending ||
+    cloneUrl.trim() === "" ||
+    (cloneInitToggle && cloneAgentId.trim() === "");
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-6">
@@ -177,6 +215,82 @@ export function SettingsGithub() {
             </span>
           )}
         </form>
+      </section>
+
+      <section className="mb-6 rounded border bg-card p-4">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Clone &amp; track a single repo
+        </h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Paste any git URL (<code className="font-mono">https://…</code> or{" "}
+          <code className="font-mono">git@…</code>) to clone it into{" "}
+          <code className="font-mono">~/crosslink-tracked/&lt;owner&gt;/&lt;repo&gt;</code>{" "}
+          and start polling it. Independent of the PAT — useful for
+          adding a single repo or one that's not in a browsable org.
+        </p>
+        <form onSubmit={submitCloneByUrl} className="flex flex-col gap-2">
+          <input
+            value={cloneUrl}
+            onChange={(e) => setCloneUrl(e.target.value)}
+            placeholder="git url (https://github.com/owner/repo.git or git@…)"
+            className="w-full rounded border bg-background px-2 py-1 font-mono text-sm"
+            aria-label="Clone URL"
+          />
+          <input
+            value={cloneSlug}
+            onChange={(e) => setCloneSlug(e.target.value)}
+            placeholder="slug override (optional, defaults to owner/repo from URL)"
+            className="w-full rounded border bg-background px-2 py-1 font-mono text-sm"
+            aria-label="Slug override"
+          />
+          <label className="flex cursor-pointer items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={cloneInitToggle}
+              onChange={(e) => setCloneInitToggle(e.target.checked)}
+            />
+            <span>
+              Initialize after clone (runs{" "}
+              <code className="font-mono">crosslink init</code> +{" "}
+              <code className="font-mono">crosslink agent init</code>)
+            </span>
+          </label>
+          {cloneInitToggle && (
+            <input
+              value={cloneAgentId}
+              onChange={(e) => setCloneAgentId(e.target.value)}
+              placeholder="agent id (alphanumeric, hyphens, underscores)"
+              className="w-full rounded border bg-background px-2 py-1 font-mono text-sm"
+              aria-label="Clone agent ID"
+            />
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="submit"
+              disabled={cloneDisabled}
+              className="rounded border px-2 py-1 text-xs hover:bg-accent/10 disabled:opacity-50"
+            >
+              {cloneRepo.isPending ? "Cloning…" : "Clone & track"}
+            </button>
+            {cloneInitToggle && cloneAgentId.trim() === "" && (
+              <span className="text-xs text-amber-500">
+                Agent id required when “Initialize” is on.
+              </span>
+            )}
+            {cloneRepo.error && (
+              <span className="text-xs text-rose-400">
+                {cloneRepo.error.message}
+              </span>
+            )}
+          </div>
+        </form>
+        {cloneOutcome && (
+          <p className="mt-3 text-xs text-emerald-500" role="status">
+            ✓ Cloned + tracked <code className="font-mono">{cloneOutcome.slug}</code>{" "}
+            at <code className="font-mono">{cloneOutcome.clone_path}</code>
+            {cloneOutcome.initialized ? " (initialized)" : ""}.
+          </p>
+        )}
       </section>
 
       <section className="mb-6 rounded border bg-card p-4">

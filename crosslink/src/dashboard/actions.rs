@@ -174,6 +174,36 @@ pub async fn run_cli(
     if let Some(e) = error {
         anyhow::bail!("{e}");
     }
+
+    // After a successful write, run `crosslink sync` in the same
+    // workspace to promote any still-uncommitted hub-branch state
+    // into actual commits + push to origin. Without this the CLI's
+    // "close issue" writes the new issue file to the hub-cache
+    // working tree but only commits it on the next explicit sync —
+    // meaning the dashboard's reader (and any other client polling
+    // origin) never sees the close until someone runs `crosslink
+    // sync` manually (#701).
+    //
+    // Best-effort: sync failures are logged but don't poison the
+    // primary action's success. The user already got their close;
+    // worst case the next 5-s poll tick tries again via a different
+    // path.
+    let sync_out = Command::new(&cmd_name)
+        .current_dir(&project.clone_path)
+        .args(["sync", "-q"])
+        .output()
+        .await;
+    if let Ok(out) = sync_out {
+        if !out.status.success() {
+            tracing::warn!(
+                "post-{verb} `crosslink sync` in {} exited {}: {}",
+                project.slug,
+                out.status.code().map_or_else(|| "signal".into(), |c| c.to_string()),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
+    }
+
     Ok(ActionResult { stdout, stderr })
 }
 

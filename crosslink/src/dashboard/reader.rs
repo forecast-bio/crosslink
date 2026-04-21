@@ -228,9 +228,16 @@ fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
 
 /// Pick the directory that contains hub-branch content for this
 /// workspace. Order:
-/// 1. `<clone>/crosslink/.crosslink/.hub-cache/` — nested workspace
-///    layout (the repo this project lives in).
-/// 2. `<clone>/.crosslink/.hub-cache/` — typical project layout.
+/// 1. `<clone>/.crosslink/.hub-cache/` — canonical project layout.
+///    This is where the dashboard's poll loop materialises the hub
+///    branch AND where `crosslink issue close` et al write their
+///    pending changes. Prefer it over #2 so dashboard writes become
+///    visible to the reader immediately, without waiting for a
+///    `crosslink sync` to flush them to the shared state.
+/// 2. `<clone>/crosslink/.crosslink/.hub-cache/` — legacy nested
+///    workspace layout. Kept as a fallback for historical setups
+///    where the crosslink state lives at a subpath of the repo
+///    (e.g. crosslink's own repo before the dashboard existed).
 /// 3. `<clone>/` — bare clone or test fixture that seeds hub files
 ///    at the root.
 ///
@@ -239,11 +246,11 @@ fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
 /// before `crosslink sync` ran) falls through to the working tree.
 fn resolve_hub_root(clone_path: &Path) -> std::path::PathBuf {
     let candidates = [
+        clone_path.join(".crosslink").join(".hub-cache"),
         clone_path
             .join("crosslink")
             .join(".crosslink")
             .join(".hub-cache"),
-        clone_path.join(".crosslink").join(".hub-cache"),
     ];
     for candidate in candidates {
         if candidate.is_dir()
