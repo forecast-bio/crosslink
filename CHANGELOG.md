@@ -100,6 +100,7 @@ new subcommand for log-scraping continuity.
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- Signing: human key always signs hub commits; agent keys only for identity (#718)
 - Fix piped shell commands in skill templates that fail permission checks (#254)
 - Fix hub cache recovery loop caused by tracked .hub-write-lock file (#634)
 - Fix auth token refresh (#146)
