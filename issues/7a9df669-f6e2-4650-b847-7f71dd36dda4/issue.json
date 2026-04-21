@@ -2,12 +2,11 @@
   "uuid": "7a9df669-f6e2-4650-b847-7f71dd36dda4",
   "display_id": 379,
   "title": "Build display_id to UUID index to avoid linear directory scans",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:29:16.191702391Z",
-  "updated_at": "2026-04-21T22:58:04.056703941Z",
-  "closed_at": "2026-04-21T22:58:04.056703941Z",
+  "updated_at": "2026-03-26T13:29:17.983147707Z",
   "labels": [
     "enhancement"
   ]

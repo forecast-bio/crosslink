@@ -2,12 +2,11 @@
   "uuid": "ecaea02f-0a45-464a-a50e-cf6e93f3bebb",
   "display_id": 192,
   "title": "Fix missing banner and wordmark SVGs in docs build",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-15T15:45:57.121726Z",
-  "updated_at": "2026-04-21T22:54:05.686757554Z",
-  "closed_at": "2026-04-21T22:54:05.686757554Z",
+  "updated_at": "2026-03-15T15:51:37.456889Z",
   "labels": [
     "bug"
   ]

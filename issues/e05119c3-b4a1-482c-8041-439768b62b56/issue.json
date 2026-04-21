@@ -3,12 +3,11 @@
   "display_id": 649,
   "title": "sentinel: autonomous maintenance daemon (GH#504)",
   "description": "Persistent command that monitors external sources and autonomously dispatches scoped maintenance tasks via kickoff. Design doc: .design/patrol-autonomous-maintenance.md. Parent tracking issue for all sentinel work across V0-V3.",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T18:48:08.711394619Z",
-  "updated_at": "2026-04-21T23:27:20.227984219Z",
-  "closed_at": "2026-04-21T23:27:20.227984219Z",
+  "updated_at": "2026-04-10T18:48:26.946336858Z",
   "labels": [
     "feature"
   ]

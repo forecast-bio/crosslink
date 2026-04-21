@@ -2,12 +2,11 @@
   "uuid": "4bc41490-6bd6-43a7-96df-1435034ddc2f",
   "display_id": 429,
   "title": "Fix heredoc indentation in knowledge init_cache index content",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:38:00.258244470Z",
-  "updated_at": "2026-04-21T23:00:14.235947711Z",
-  "closed_at": "2026-04-21T23:00:14.235947711Z",
+  "updated_at": "2026-03-26T13:38:02.501507650Z",
   "labels": [
     "enhancement"
   ]

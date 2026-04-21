@@ -2,12 +2,11 @@
   "uuid": "efbf2d1a-d0ad-44f6-b4a1-83fcebdaa4f9",
   "display_id": 295,
   "title": "Document FK constraint requirements for clear_shared_data callers",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:22:26.338248210Z",
-  "updated_at": "2026-04-21T22:55:02.121976661Z",
-  "closed_at": "2026-04-21T22:55:02.121976661Z",
+  "updated_at": "2026-03-26T13:22:28.941637077Z",
   "labels": [
     "bug"
   ]

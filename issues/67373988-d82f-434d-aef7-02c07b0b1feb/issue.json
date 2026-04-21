@@ -2,12 +2,11 @@
   "uuid": "67373988-d82f-434d-aef7-02c07b0b1feb",
   "display_id": 352,
   "title": "Fix push_heartbeat not acquiring hub write lock",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:27:29.518787017Z",
-  "updated_at": "2026-04-21T22:56:57.080519957Z",
-  "closed_at": "2026-04-21T22:56:57.080519957Z",
+  "updated_at": "2026-03-26T13:27:33.214713222Z",
   "labels": [
     "bug"
   ]

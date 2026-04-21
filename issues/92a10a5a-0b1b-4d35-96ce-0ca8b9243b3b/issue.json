@@ -2,12 +2,11 @@
   "uuid": "92a10a5a-0b1b-4d35-96ce-0ca8b9243b3b",
   "display_id": 276,
   "title": "Audit and remove legacy GPG fingerprint parsing if unused",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:20:50.595486486Z",
-  "updated_at": "2026-04-21T22:54:43.468292169Z",
-  "closed_at": "2026-04-21T22:54:43.468292169Z",
+  "updated_at": "2026-03-26T13:20:52.917118410Z",
   "labels": [
     "enhancement"
   ]

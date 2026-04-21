@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Plan: self-heal at the commit site (issue #565's option 3). Add SyncManager::repair_stale_signingkey that reads user.signingkey from the cache worktree, expands tilde, and if the value is a path that doesn't exist, delegates to the existing fallback_to_driver_signing to rewrite config.worktree (driver key if present, disable signing otherwise). Wire into git_commit_in_cache as a best-effort preamble so every commit self-heals. Factor tilde-expansion into a shared helper so both sites agree. Skip validation when signingkey value looks like literal key material ('ssh-...', '-----BEGIN') rather than a path. Tests: stale path gets repaired; valid path no-op; literal-key skipped; missing signingkey no-op.",
   "created_at": "2026-04-20T13:45:40.771925092Z",
-  "kind": "plan",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQMCWOvsls8xLuHwp0j6b+5RdLZak1Mf1AInvkTF4zPDiLrbtE+kho/bVLnuVhRcPPu4JmwapzfYVaQHq653HrAo="
+  "kind": "plan"
 }

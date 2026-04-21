@@ -2,11 +2,10 @@
   "uuid": "b99a2ecd-136b-4ff8-92b8-d9850ec5551e",
   "display_id": 669,
   "title": "V3: historical pattern detection",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T21:25:15.759968387Z",
-  "updated_at": "2026-04-21T23:28:15.339549631Z",
-  "closed_at": "2026-04-21T23:28:15.339549631Z"
+  "updated_at": "2026-04-10T21:25:15.759968387Z"
 }

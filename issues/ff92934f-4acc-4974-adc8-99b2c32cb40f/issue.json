@@ -2,12 +2,11 @@
   "uuid": "ff92934f-4acc-4974-adc8-99b2c32cb40f",
   "display_id": 375,
   "title": "Extract shared create_issue_inner to deduplicate create and subissue",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:59.785630255Z",
-  "updated_at": "2026-04-21T22:57:52.579857756Z",
-  "closed_at": "2026-04-21T22:57:52.579857756Z",
+  "updated_at": "2026-03-26T13:29:01.627173805Z",
   "labels": [
     "enhancement"
   ]

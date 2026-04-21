@@ -2,12 +2,11 @@
   "uuid": "cf8d2c80-6984-4695-bf70-235f73936531",
   "display_id": 179,
   "title": "Add history pruning for hub and knowledge branches (gh#297)",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-295fd0bb",
   "created_at": "2026-03-11T14:05:10.282798212Z",
-  "updated_at": "2026-04-21T22:53:40.921721973Z",
-  "closed_at": "2026-04-21T22:53:40.921721973Z",
+  "updated_at": "2026-03-11T14:09:04.727605111Z",
   "labels": [
     "enhancement"
   ]

@@ -2,12 +2,11 @@
   "uuid": "1165df13-3294-4c44-8615-ef7226aa03fa",
   "display_id": 389,
   "title": "Replace silent fallback in crosslink_dir parent with hard error",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:30:21.518504603Z",
-  "updated_at": "2026-04-21T22:58:32.363128654Z",
-  "closed_at": "2026-04-21T22:58:32.363128654Z",
+  "updated_at": "2026-03-26T13:30:23.638526302Z",
   "labels": [
     "bug"
   ]

@@ -2,12 +2,11 @@
   "uuid": "fdebd4cc-f608-4d27-b7ac-6409291383af",
   "display_id": 533,
   "title": "Fix detect_file_conflicts rebuilding HashMap inside per-file loop",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:51:27.850989620Z",
-  "updated_at": "2026-04-21T23:03:41.221017617Z",
-  "closed_at": "2026-04-21T23:03:41.221017617Z",
+  "updated_at": "2026-03-26T13:51:31.200207806Z",
   "labels": [
     "enhancement"
   ]

@@ -2,12 +2,11 @@
   "uuid": "d690efd9-74b1-432e-aeef-9dbb641c9042",
   "display_id": 398,
   "title": "Extract LockContext to eliminate duplicated IO in auto_steal path",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:31:29.897147844Z",
-  "updated_at": "2026-04-21T22:58:49.187083767Z",
-  "closed_at": "2026-04-21T22:58:49.187083767Z",
+  "updated_at": "2026-03-26T13:31:34.352680316Z",
   "labels": [
     "enhancement"
   ]

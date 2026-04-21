@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Design doc updated with all renames: crosslink ops -> crosslink dashboard throughout. File renamed to DESIGN-CROSSLINK-DASHBOARD.md. Added new section 16a (what we keep vs rewrite from existing dashboard/ directory — the prune-in-place list) and section 17 (crosslink serve deprecation plan with two-release sunset). Updated section 12 to call out that bundled dashboard directly resolves #429. Fixed ASCII architecture diagram alignment. 765 lines, 18 sections, zero residual 'ops' references.",
   "created_at": "2026-04-20T17:52:37.073904637Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQBF6cCE3yLEPyaBjJPzpcPLM1qyfoM4DU2cOpXnikmzdhd1gX3QfcHInjfD3azo4D80HBWzGqSOcfolc/GEuaAs="
+  "kind": "result"
 }

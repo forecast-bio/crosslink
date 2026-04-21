@@ -2,12 +2,11 @@
   "uuid": "79b3cfb6-2358-4ca0-96e5-0749f0191839",
   "display_id": 491,
   "title": "Consolidate duplicate ORCHESTRATOR_DIR constant across modules",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:45:12.956538692Z",
-  "updated_at": "2026-04-21T23:01:53.569211989Z",
-  "closed_at": "2026-04-21T23:01:53.569211989Z",
+  "updated_at": "2026-03-26T13:45:16.606846446Z",
   "labels": [
     "enhancement"
   ]

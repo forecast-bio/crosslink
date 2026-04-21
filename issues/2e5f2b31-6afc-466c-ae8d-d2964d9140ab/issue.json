@@ -2,12 +2,11 @@
   "uuid": "2e5f2b31-6afc-466c-ae8d-d2964d9140ab",
   "display_id": 680,
   "title": "Fix sentinel PR #553 QA defects: watch daemon, duration, findings harvest",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-13T18:08:10.421688801Z",
-  "updated_at": "2026-04-21T23:28:35.393367625Z",
-  "closed_at": "2026-04-21T23:28:35.393367625Z",
+  "updated_at": "2026-04-13T18:08:12.175730597Z",
   "labels": [
     "bug"
   ]

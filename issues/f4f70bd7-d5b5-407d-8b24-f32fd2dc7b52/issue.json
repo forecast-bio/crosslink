@@ -2,12 +2,11 @@
   "uuid": "f4f70bd7-d5b5-407d-8b24-f32fd2dc7b52",
   "display_id": 313,
   "title": "Fix write_watermark TOCTOU race in checkpoint read-modify-write",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:23:58.016138819Z",
-  "updated_at": "2026-04-21T22:55:20.844376821Z",
-  "closed_at": "2026-04-21T22:55:20.844376821Z",
+  "updated_at": "2026-03-26T13:23:59.935193143Z",
   "labels": [
     "bug"
   ]

@@ -2,12 +2,11 @@
   "uuid": "eda75c32-1f6f-4679-8e12-5fe721328b53",
   "display_id": 181,
   "title": "Update CLAUDE.md prompt injection to use refactored CLI API",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-12T06:15:31.733605Z",
-  "updated_at": "2026-04-21T22:53:43.768800756Z",
-  "closed_at": "2026-04-21T22:53:43.768800756Z",
+  "updated_at": "2026-03-12T21:55:16.644859Z",
   "labels": [
     "documentation"
   ]

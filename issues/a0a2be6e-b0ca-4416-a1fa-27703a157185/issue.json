@@ -2,12 +2,11 @@
   "uuid": "a0a2be6e-b0ca-4416-a1fa-27703a157185",
   "display_id": 367,
   "title": "Replace AtomicBool with std sync Once in read_tracker_remote",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:29.261622098Z",
-  "updated_at": "2026-04-21T22:57:39.029823381Z",
-  "closed_at": "2026-04-21T22:57:39.029823381Z",
+  "updated_at": "2026-03-26T13:28:31.246738282Z",
   "labels": [
     "enhancement"
   ]

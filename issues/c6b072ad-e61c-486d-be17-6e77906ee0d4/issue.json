@@ -2,12 +2,11 @@
   "uuid": "c6b072ad-e61c-486d-be17-6e77906ee0d4",
   "display_id": 506,
   "title": "Replace non-cryptographic entropy in rand_suffix with proper random",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:47:15.093931670Z",
-  "updated_at": "2026-04-21T23:02:29.694266473Z",
-  "closed_at": "2026-04-21T23:02:29.694266473Z",
+  "updated_at": "2026-03-26T13:47:20.166387303Z",
   "labels": [
     "bug"
   ]

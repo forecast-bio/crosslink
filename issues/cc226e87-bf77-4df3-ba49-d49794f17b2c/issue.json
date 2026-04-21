@@ -2,12 +2,11 @@
   "uuid": "cc226e87-bf77-4df3-ba49-d49794f17b2c",
   "display_id": 528,
   "title": "Fix pack_windows computing WindowFit twice per phase",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:50:45.614796235Z",
-  "updated_at": "2026-04-21T23:03:27.090631328Z",
-  "closed_at": "2026-04-21T23:03:27.090631328Z",
+  "updated_at": "2026-03-26T13:50:50.569696266Z",
   "labels": [
     "enhancement"
   ]
