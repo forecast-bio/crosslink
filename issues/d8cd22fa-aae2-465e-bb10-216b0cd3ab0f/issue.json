@@ -2,12 +2,11 @@
   "uuid": "d8cd22fa-aae2-465e-bb10-216b0cd3ab0f",
   "display_id": 336,
   "title": "Extract compact_inner to make lock scope explicit",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:25:56.288061034Z",
-  "updated_at": "2026-04-21T22:56:19.778177476Z",
-  "closed_at": "2026-04-21T22:56:19.778177476Z",
+  "updated_at": "2026-03-26T13:25:58.436659462Z",
   "labels": [
     "enhancement"
   ]

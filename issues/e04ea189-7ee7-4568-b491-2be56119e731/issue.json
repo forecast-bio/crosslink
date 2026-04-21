@@ -2,12 +2,11 @@
   "uuid": "e04ea189-7ee7-4568-b491-2be56119e731",
   "display_id": 486,
   "title": "Add execution state guard to mark_stage_running done and failed",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:44:38.937158457Z",
-  "updated_at": "2026-04-21T23:01:39.899697083Z",
-  "closed_at": "2026-04-21T23:01:39.899697083Z",
+  "updated_at": "2026-03-26T13:44:43.390106382Z",
   "labels": [
     "bug"
   ]

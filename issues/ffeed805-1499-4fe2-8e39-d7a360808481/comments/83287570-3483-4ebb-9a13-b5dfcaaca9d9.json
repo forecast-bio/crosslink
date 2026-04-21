@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Wrote DESIGN-CROSSLINK-OPS.md (683 lines) at repo root. Covers: goals + non-goals, 5 user stories, architecture diagram, SQLite schema (7 tables), REST + WebSocket API surface, frontend IA with SCADA tile grid, git-native agent-request protocol (extends hub branch layout), xterm.js PTY broker spec, alert catalogue, distribution via existing cargo install, 6 open questions with proposed resolutions, 5-phase rollout, 5 success criteria, appendix defending the architectural choices. Ready for review.",
   "created_at": "2026-04-20T17:24:23.352787018Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQDownnDfh3V2BkO3+39voEv/UgXK75NyCb3t62sdu56QfzUf5jBBz4YEH45PgqrbC9aVDWvLjF6HQOWt88nNaQA="
+  "kind": "result"
 }

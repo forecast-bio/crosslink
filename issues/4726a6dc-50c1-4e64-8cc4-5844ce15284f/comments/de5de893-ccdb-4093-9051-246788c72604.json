@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Implementing GH #361 per the design-doc revision in the issue's second comment (Q1 resolved: direct file mutation, no SchedulingUpdated event). Schema is actually at v16 so migration is 16->17 (original spec said 15->16). Approach: single branch with 4 logical commits — data model+DB, hydration+shared_writer, CLI+commands, tests. Using FieldUpdate<T>{Unchanged|Set|Clear} enum in update_issue rather than Option<Option<T>> for clarity. Using ripsed to bulk-add 'scheduled_at: None, due_at: None' to the ~91 Issue struct literals in tests, anchored on the preceding 'closed_at:' line.",
   "created_at": "2026-04-20T14:16:50.674503414Z",
-  "kind": "plan",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQI6mJZY0FM+WOBKQcjpeP+tH7bo3iLjuPWFwptE4sdyAeaGx3dRfCviAla0PGGU3J01x2mM0H0aoQSlgh2DRiQQ="
+  "kind": "plan"
 }

@@ -2,12 +2,11 @@
   "uuid": "2db15662-bd6e-4dbd-99d6-bd5539305762",
   "display_id": 457,
   "title": "Consolidate custom marker and file comparison between style and workflow",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:41:09.082248386Z",
-  "updated_at": "2026-04-21T23:00:27.787500974Z",
-  "closed_at": "2026-04-21T23:00:27.787500974Z",
+  "updated_at": "2026-03-26T13:41:12.764285317Z",
   "labels": [
     "enhancement"
   ]

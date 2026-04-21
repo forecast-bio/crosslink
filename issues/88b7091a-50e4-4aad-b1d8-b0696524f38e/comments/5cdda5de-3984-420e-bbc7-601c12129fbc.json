@@ -1,0 +1,10 @@
+{
+  "uuid": "5cdda5de-3984-420e-bbc7-601c12129fbc",
+  "issue_uuid": "88b7091a-50e4-4aad-b1d8-b0696524f38e",
+  "author": "dashboard-bootstrap",
+  "content": "Err-arm now reuses on-disk key on --force re-runs; agent.json retains ssh_key_path/fingerprint/pub_key. Verified end-to-end: hub commit signed with driver key SHA256:6GbEO9g...",
+  "created_at": "2026-04-21T23:40:09.297661602Z",
+  "kind": "result",
+  "signed_by": "SHA256:D5u0mVPzpRHWt7iJCRiC+lr0g4r7Cir9LODW5lwfFPg",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAghNRNVhmsARW+Z4juM8AHqhxtQBLTHzjiAjBHTbZifp4AAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwVqIuc1R9OQOyCbf5sLGThBzrSPgMBJiof099DRqxMsZE8CH0Pmcd1pFlLW/pr1ZmOU285eOhk6FTEQKZDAsCw=="
+}

@@ -2,12 +2,11 @@
   "uuid": "48c5853b-9ea8-4c95-8326-e7253b111d53",
   "display_id": 305,
   "title": "Replace .ok() with .optional() in single-row database queries",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:23:27.522455821Z",
-  "updated_at": "2026-04-21T22:55:07.448257917Z",
-  "closed_at": "2026-04-21T22:55:07.448257917Z",
+  "updated_at": "2026-03-26T13:23:29.810734940Z",
   "labels": [
     "bug"
   ]

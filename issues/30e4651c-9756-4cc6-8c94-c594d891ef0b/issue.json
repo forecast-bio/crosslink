@@ -2,13 +2,12 @@
   "uuid": "30e4651c-9756-4cc6-8c94-c594d891ef0b",
   "display_id": 653,
   "title": "V0: multi-layer deduplication (SeenSet + DB + GH comment)",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T18:49:04.448569149Z",
-  "updated_at": "2026-04-21T23:27:30.837306774Z",
-  "closed_at": "2026-04-21T23:27:30.837306774Z",
+  "updated_at": "2026-04-10T18:52:57.252676178Z",
   "blockers": [
     "58154131-6a7b-46d9-998f-ccf8b0e45d4d",
     "1474655d-0bc7-46f3-b6d0-d2cc56786871"

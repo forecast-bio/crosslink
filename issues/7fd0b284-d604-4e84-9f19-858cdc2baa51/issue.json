@@ -2,12 +2,11 @@
   "uuid": "7fd0b284-d604-4e84-9f19-858cdc2baa51",
   "display_id": 501,
   "title": "Unify plan.rs tmux launch logic with launch_local function",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:46:32.303197101Z",
-  "updated_at": "2026-04-21T23:02:15.791008649Z",
-  "closed_at": "2026-04-21T23:02:15.791008649Z",
+  "updated_at": "2026-03-26T13:46:36.733344494Z",
   "labels": [
     "enhancement"
   ]

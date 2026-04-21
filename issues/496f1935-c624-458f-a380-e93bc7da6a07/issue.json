@@ -2,12 +2,11 @@
   "uuid": "496f1935-c624-458f-a380-e93bc7da6a07",
   "display_id": 635,
   "title": "Add crosslink init --update with manifest-tracked safe upgrades",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-30T13:24:32.303282872Z",
-  "updated_at": "2026-04-21T23:26:44.510410320Z",
-  "closed_at": "2026-04-21T23:26:44.510410320Z",
+  "updated_at": "2026-03-30T13:25:11.974236704Z",
   "labels": [
     "feature"
   ]

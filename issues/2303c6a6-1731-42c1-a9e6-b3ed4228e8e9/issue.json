@@ -2,12 +2,11 @@
   "uuid": "2303c6a6-1731-42c1-a9e6-b3ed4228e8e9",
   "display_id": 324,
   "title": "Fix read_layout_version parent heuristic for issues directory path",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:55.567127835Z",
-  "updated_at": "2026-04-21T22:55:51.408285949Z",
-  "closed_at": "2026-04-21T22:55:51.408285949Z",
+  "updated_at": "2026-03-26T13:24:58.093681048Z",
   "labels": [
     "bug"
   ]

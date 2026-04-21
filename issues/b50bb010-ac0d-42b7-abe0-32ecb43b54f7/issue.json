@@ -2,12 +2,11 @@
   "uuid": "b50bb010-ac0d-42b7-abe0-32ecb43b54f7",
   "display_id": 467,
   "title": "Consolidate shell detection logic into shared ShellInfo struct",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:42:23.849005800Z",
-  "updated_at": "2026-04-21T23:00:54.920571401Z",
-  "closed_at": "2026-04-21T23:00:54.920571401Z",
+  "updated_at": "2026-03-26T13:42:27.876547793Z",
   "labels": [
     "enhancement"
   ]

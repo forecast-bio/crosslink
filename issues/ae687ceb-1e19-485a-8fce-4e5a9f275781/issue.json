@@ -2,12 +2,11 @@
   "uuid": "ae687ceb-1e19-485a-8fce-4e5a9f275781",
   "display_id": 474,
   "title": "Replace 11-parameter external_knowledge search with SearchOptions struct",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:43:17.103263835Z",
-  "updated_at": "2026-04-21T23:01:14.117152751Z",
-  "closed_at": "2026-04-21T23:01:14.117152751Z",
+  "updated_at": "2026-03-26T13:43:22.156024289Z",
   "labels": [
     "enhancement"
   ]

@@ -2,12 +2,11 @@
   "uuid": "18742457-6dc0-426d-9411-f09b9ad7f48e",
   "display_id": 639,
   "title": "Fix hub-write-lock recovery loop by gitignoring the lock file",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-30T18:11:20.001749468Z",
-  "updated_at": "2026-04-21T23:26:55.275810784Z",
-  "closed_at": "2026-04-21T23:26:55.275810784Z",
+  "updated_at": "2026-03-30T18:11:22.707814463Z",
   "labels": [
     "bug"
   ]

@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Implemented across 295fa73a (driver-side write + read), fe6359d1 (agent-side polling + ack writer), d6c167ce (auto-poll on sync tick), 77f15fe3 (reader + CLI self-invocation fix).",
   "created_at": "2026-04-21T03:43:26.900341957Z",
-  "kind": "resolution",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQHr4qkXTmuh3HgJi0ybierunQXUalL7NpbqdVowCUdZIhv8fpzZ+pTIkQa0Iu7k54sjMs/Q9MKXH9n+nesC0qQI="
+  "kind": "resolution"
 }

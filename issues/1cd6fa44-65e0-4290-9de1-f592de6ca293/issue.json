@@ -2,12 +2,11 @@
   "uuid": "1cd6fa44-65e0-4290-9de1-f592de6ca293",
   "display_id": 409,
   "title": "Add depth limit to walk_dir recursion to prevent stack overflow",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:33:13.626843125Z",
-  "updated_at": "2026-04-21T22:59:20.909127650Z",
-  "closed_at": "2026-04-21T22:59:20.909127650Z",
+  "updated_at": "2026-03-26T13:33:16.993594216Z",
   "labels": [
     "enhancement"
   ]

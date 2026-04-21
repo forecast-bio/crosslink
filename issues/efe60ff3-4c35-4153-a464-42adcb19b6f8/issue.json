@@ -2,12 +2,11 @@
   "uuid": "efe60ff3-4c35-4153-a464-42adcb19b6f8",
   "display_id": 385,
   "title": "Extract shared clear_stale_lock helper for steal and force_release",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:29:40.378412017Z",
-  "updated_at": "2026-04-21T22:58:20.893268040Z",
-  "closed_at": "2026-04-21T22:58:20.893268040Z",
+  "updated_at": "2026-03-26T13:29:45.138125287Z",
   "labels": [
     "enhancement"
   ]

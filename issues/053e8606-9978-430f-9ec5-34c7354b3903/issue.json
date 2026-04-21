@@ -2,12 +2,11 @@
   "uuid": "053e8606-9978-430f-9ec5-34c7354b3903",
   "display_id": 154,
   "title": "Add platform-specific remediation hints to preflight dependency checks",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "driver--add-platform-specific-remediation-hints-to-preflight",
   "created_at": "2026-03-08T19:19:26.363385Z",
-  "updated_at": "2026-04-21T22:53:26.832700773Z",
-  "closed_at": "2026-04-21T22:53:26.832700773Z",
+  "updated_at": "2026-03-08T19:22:05.474373Z",
   "labels": [
     "feature"
   ]

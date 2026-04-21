@@ -2,11 +2,10 @@
   "uuid": "8a79d1ed-f767-4b48-ad9a-5c9280fc2a77",
   "display_id": 667,
   "title": "V3: webhook receiver for real-time GH events (axum)",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T21:25:11.914340554Z",
-  "updated_at": "2026-04-21T23:28:09.654465091Z",
-  "closed_at": "2026-04-21T23:28:09.654465091Z"
+  "updated_at": "2026-04-10T21:25:11.914340554Z"
 }

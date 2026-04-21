@@ -2,12 +2,11 @@
   "uuid": "089bea61-c327-409d-a8b6-dd5fdb8200ff",
   "display_id": 427,
   "title": "Fix safe_page_path fallback defeating defense-in-depth on missing dir",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:37:47.475076364Z",
-  "updated_at": "2026-04-21T23:00:08.215998596Z",
-  "closed_at": "2026-04-21T23:00:08.215998596Z",
+  "updated_at": "2026-03-26T13:37:51.151775893Z",
   "labels": [
     "bug"
   ]

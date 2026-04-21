@@ -2,12 +2,11 @@
   "uuid": "23d3d359-4c6e-43bd-99cb-64c789a585ed",
   "display_id": 485,
   "title": "Cache topological sort in DAG to avoid recomputation per stage",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:44:32.176450701Z",
-  "updated_at": "2026-04-21T23:01:36.885402901Z",
-  "closed_at": "2026-04-21T23:01:36.885402901Z",
+  "updated_at": "2026-03-26T13:44:34.970662161Z",
   "labels": [
     "enhancement"
   ]

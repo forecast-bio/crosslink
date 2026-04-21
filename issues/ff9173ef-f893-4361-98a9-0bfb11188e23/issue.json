@@ -2,12 +2,11 @@
   "uuid": "ff9173ef-f893-4361-98a9-0bfb11188e23",
   "display_id": 339,
   "title": "Fix incremental compaction clearing all skew warnings non-cumulatively",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:26:14.012255411Z",
-  "updated_at": "2026-04-21T22:56:28.228775834Z",
-  "closed_at": "2026-04-21T22:56:28.228775834Z",
+  "updated_at": "2026-03-26T13:26:16.787670862Z",
   "labels": [
     "bug"
   ]

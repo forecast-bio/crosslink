@@ -2,12 +2,11 @@
   "uuid": "f8c1c67b-4b9b-4056-adb5-51e44d2e6761",
   "display_id": 536,
   "title": "Replace bare tuple with PhaseEstimate struct in estimate_phase_cost",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:51:50.349348299Z",
-  "updated_at": "2026-04-21T23:03:49.509306382Z",
-  "closed_at": "2026-04-21T23:03:49.509306382Z",
+  "updated_at": "2026-03-26T13:51:54.757309849Z",
   "labels": [
     "enhancement"
   ]

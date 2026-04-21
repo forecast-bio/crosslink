@@ -2,12 +2,11 @@
   "uuid": "3a67d321-99f2-48f3-8378-8ebacd1711a6",
   "display_id": 423,
   "title": "Use typed chrono dates instead of String in PageFrontmatter",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:36:04.459135808Z",
-  "updated_at": "2026-04-21T22:59:56.051779822Z",
-  "closed_at": "2026-04-21T22:59:56.051779822Z",
+  "updated_at": "2026-03-26T13:36:11.715831563Z",
   "labels": [
     "enhancement"
   ]

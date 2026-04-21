@@ -2,12 +2,11 @@
   "uuid": "f9e3c29b-044f-4002-8f24-66b88ec62c2d",
   "display_id": 497,
   "title": "Extract dispatch_launch into separate plan run and wizard functions",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:45:58.850175310Z",
-  "updated_at": "2026-04-21T23:02:04.388111135Z",
-  "closed_at": "2026-04-21T23:02:04.388111135Z",
+  "updated_at": "2026-03-26T13:46:02.753515479Z",
   "labels": [
     "enhancement"
   ]

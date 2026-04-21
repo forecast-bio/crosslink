@@ -2,12 +2,11 @@
   "uuid": "70ddecf6-edea-4963-8a3e-aef43f41cd6e",
   "display_id": 370,
   "title": "Fix hub_health_check doc comment mismatching unconditional index.lock removal",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:40.724122409Z",
-  "updated_at": "2026-04-21T22:57:47.193124380Z",
-  "closed_at": "2026-04-21T22:57:47.193124380Z",
+  "updated_at": "2026-03-26T13:28:42.609014946Z",
   "labels": [
     "enhancement"
   ]

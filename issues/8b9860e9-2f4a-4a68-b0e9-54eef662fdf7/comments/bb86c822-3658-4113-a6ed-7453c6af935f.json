@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Implemented in 1e8591cb (project grid + detail frontend).",
   "created_at": "2026-04-21T03:42:52.305197643Z",
-  "kind": "resolution",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQPp/zTZ3tsIqvRc6E6ZLOoxdpVRr/UsWJrnAogfPc3iBpjVcL5MRdKx/Y74cEHKg+0PHY1uQgUIjRV62Ts9AQQQ="
+  "kind": "resolution"
 }

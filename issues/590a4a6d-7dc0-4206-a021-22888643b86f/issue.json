@@ -2,12 +2,11 @@
   "uuid": "590a4a6d-7dc0-4206-a021-22888643b86f",
   "display_id": 458,
   "title": "Extract shared git_in_dir helper from prune migrate and other modules",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:41:16.769672404Z",
-  "updated_at": "2026-04-21T23:00:30.419868280Z",
-  "closed_at": "2026-04-21T23:00:30.419868280Z",
+  "updated_at": "2026-03-26T13:41:21.037974945Z",
   "labels": [
     "enhancement"
   ]

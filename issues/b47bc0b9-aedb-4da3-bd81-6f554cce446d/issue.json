@@ -2,12 +2,11 @@
   "uuid": "b47bc0b9-aedb-4da3-bd81-6f554cce446d",
   "display_id": 466,
   "title": "Optimize find_existing_clone_issue to batch query cpitd issues once",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:42:15.412762429Z",
-  "updated_at": "2026-04-21T23:00:52.122652245Z",
-  "closed_at": "2026-04-21T23:00:52.122652245Z",
+  "updated_at": "2026-03-26T13:42:19.818492739Z",
   "labels": [
     "enhancement"
   ]

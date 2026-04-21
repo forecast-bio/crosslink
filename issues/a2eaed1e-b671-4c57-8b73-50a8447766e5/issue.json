@@ -2,12 +2,11 @@
   "uuid": "a2eaed1e-b671-4c57-8b73-50a8447766e5",
   "display_id": 354,
   "title": "Document accepted risk of unsigned key-publication commits",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:27:40.577438529Z",
-  "updated_at": "2026-04-21T22:57:02.938586487Z",
-  "closed_at": "2026-04-21T22:57:02.938586487Z",
+  "updated_at": "2026-03-26T13:27:42.540690397Z",
   "labels": [
     "security"
   ]

@@ -2,12 +2,11 @@
   "uuid": "b355793d-0dc2-464c-8794-e2cc6ccb5022",
   "display_id": 532,
   "title": "Fix harvest_costs hardcoding model to opus regardless of config",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:51:20.099939153Z",
-  "updated_at": "2026-04-21T23:03:38.411956125Z",
-  "closed_at": "2026-04-21T23:03:38.411956125Z",
+  "updated_at": "2026-03-26T13:51:23.935334069Z",
   "labels": [
     "bug"
   ]
