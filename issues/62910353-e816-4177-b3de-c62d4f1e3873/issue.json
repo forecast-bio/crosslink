@@ -2,11 +2,12 @@
   "uuid": "62910353-e816-4177-b3de-c62d4f1e3873",
   "display_id": 279,
   "title": "Fix silently discarded stdin write result in signing verification",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:21:02.711620010Z",
-  "updated_at": "2026-03-26T13:21:05.762123691Z",
+  "updated_at": "2026-04-21T22:54:46.186091472Z",
+  "closed_at": "2026-04-21T22:54:46.186091472Z",
   "labels": [
     "bug"
   ]
