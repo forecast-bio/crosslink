@@ -2,10 +2,11 @@
   "uuid": "9ef980ce-39a6-4881-bed8-68bcd6e8d1c5",
   "display_id": 695,
   "title": "P1.6: alert engine — derived alerts (stale_lock, silent_agent, overdue_issue, ci_failure, unreachable, signature_invalid, orphan_subissue, hub_diverged, hub_parse_error, untrusted_signer, pending_request, compaction_lag)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "f55aaea6-a210-43d3-ae09-a77b1505e720",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T18:00:38.402933423Z",
-  "updated_at": "2026-04-20T18:00:38.402933423Z"
+  "updated_at": "2026-04-21T03:43:04.393581209Z",
+  "closed_at": "2026-04-21T03:43:04.393581209Z"
 }
