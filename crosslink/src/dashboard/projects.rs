@@ -210,24 +210,128 @@ pub fn track_with_init(
 /// Used by both the CLI (`crosslink dashboard track --init`) and
 /// the retrofit REST endpoint.
 ///
+/// Recovery path for partial state: `crosslink init --defaults
+/// --force` has a bug where, if `.crosslink/agent.json` exists but
+/// `.crosslink/issues.db` doesn't, it skips the "Initializing
+/// database" step entirely while reporting exit 0 — leaving the
+/// workspace perma-partial. We detect that case (issues.db still
+/// missing after a successful init) and retry once with the
+/// `.crosslink/` directory (minus `.hub-cache/`) wiped clean.
+///
 /// # Errors
 /// Returns an error describing which subprocess step failed and its
-/// stderr output.
+/// stderr output, or "init reported success but issues.db is still
+/// missing" after the retry.
 pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
     let cmd_name = resolve_crosslink_bin();
+
+    // First attempt.
+    run_init_and_agent_inner(&cmd_name, workspace, agent_id)?;
+    let issues_db = workspace.join(".crosslink").join("issues.db");
+    if issues_db.is_file() {
+        return Ok(());
+    }
+
+    // Partial-state recovery. `crosslink init --force` apparently
+    // short-circuits the DB bootstrap when SOME artifacts already
+    // exist, so we strip the artifacts it checks (everything except
+    // the hub-cache worktree — deleting a git worktree outside of
+    // `git worktree remove` leaves dangling admin refs).
+    tracing::warn!(
+        "crosslink init in {} produced no issues.db; cleaning partial \
+         state and retrying",
+        workspace.display()
+    );
+    wipe_partial_crosslink_state(workspace)?;
+    run_init_and_agent_inner(&cmd_name, workspace, agent_id)?;
+    if !issues_db.is_file() {
+        bail!(
+            "crosslink init in {} reported success but `.crosslink/issues.db` \
+             is still missing after a clean retry — the workspace may be on a \
+             filesystem that doesn't support SQLite, or the CLI build is \
+             broken. Investigate `crosslink init --defaults` manually there.",
+            workspace.display()
+        );
+    }
+    Ok(())
+}
+
+/// Wipe `.crosslink/` entirely so `crosslink init` can rebuild from
+/// scratch. `crosslink init --defaults --force` has a documented
+/// short-circuit when `.crosslink/.hub-cache/` already exists — it
+/// skips the `Initializing database` step and leaves `issues.db`
+/// missing even though it reports exit 0. Wiping the whole dir
+/// (including the hub-cache worktree, properly removed via
+/// `git worktree remove --force`) is the only reliable way to
+/// convince it to re-create the database.
+///
+/// The hub-cache gets re-materialized on the next poll tick by
+/// [`super::poll::ensure_hub_cache_worktree`], so nothing is lost.
+///
+/// Safe to call when `.crosslink/` doesn't exist — no-op in that
+/// case.
+fn wipe_partial_crosslink_state(workspace: &Path) -> Result<()> {
+    let dot_crosslink = workspace.join(".crosslink");
+    if !dot_crosslink.is_dir() {
+        return Ok(());
+    }
+
+    // If a hub-cache worktree exists, remove it via `git worktree
+    // remove --force` first so git's worktree admin state stays
+    // consistent. `remove --force` kills the worktree even if it has
+    // uncommitted changes (which is what we want — we're recovering
+    // from corruption).
+    let hub_cache = dot_crosslink.join(".hub-cache");
+    if hub_cache.is_dir() {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(workspace)
+            .args([
+                "worktree",
+                "remove",
+                "--force",
+                hub_cache.to_string_lossy().as_ref(),
+            ])
+            .output();
+        // `git worktree remove` can leave stale admin dirs in some
+        // edge cases (e.g. if the branch was force-updated elsewhere).
+        // `prune` sweeps those up. Best-effort.
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(workspace)
+            .args(["worktree", "prune"])
+            .output();
+    }
+
+    // Now the whole `.crosslink/` can be nuked — no more git admin
+    // refs inside. If the hub-cache removal above left the dir
+    // behind for any reason, `remove_dir_all` handles it.
+    std::fs::remove_dir_all(&dot_crosslink)
+        .with_context(|| format!("remove_dir_all {}", dot_crosslink.display()))?;
+    Ok(())
+}
+
+/// Single init+agent-init pass. Factored out of
+/// [`run_init_and_agent_in`] so the caller can retry on a cleaner
+/// slate when the first attempt produced inconsistent state.
+fn run_init_and_agent_inner(
+    cmd_name: &std::ffi::OsStr,
+    workspace: &Path,
+    agent_id: &str,
+) -> Result<()> {
 
     // `--force` lets init re-run cleanly when a previous retrofit left
     // partial state (a stray `.crosslink/agent.json` without
     // `issues.db` / `hook-config.json`). Idempotent on already-clean
     // workspaces — init --force just refreshes hooks.
-    let init_out = Command::new(&cmd_name)
+    let init_out = Command::new(cmd_name)
         .current_dir(workspace)
         .args(["init", "--defaults", "-q", "--force"])
         .output()
         .with_context(|| {
             format!(
                 "spawn `crosslink init` (binary: {}, workspace: {})",
-                std::path::Path::new(&cmd_name).display(),
+                std::path::Path::new(cmd_name).display(),
                 workspace.display()
             )
         })?;
@@ -249,7 +353,7 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
     // We only enter this helper when `write_capability != Ready`
     // (i.e. driver-key.pub is missing), so overwriting the placeholder
     // is exactly what we want.
-    let agent_out = Command::new(&cmd_name)
+    let agent_out = Command::new(cmd_name)
         .current_dir(workspace)
         .args([
             "agent",
@@ -264,7 +368,7 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
         .with_context(|| {
             format!(
                 "spawn `crosslink agent init` (binary: {}, workspace: {})",
-                std::path::Path::new(&cmd_name).display(),
+                std::path::Path::new(cmd_name).display(),
                 workspace.display()
             )
         })?;
