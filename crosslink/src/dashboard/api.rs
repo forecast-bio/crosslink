@@ -658,7 +658,7 @@ async fn clone_repo(
     )
     .await
     .map_err(|e| ApiError::internal(format!("clone task panicked: {e}")))?
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
 
     Ok(Json(outcome))
 }
@@ -706,7 +706,11 @@ async fn init_project(
     )
     .await
     .map_err(|e| ApiError::internal(format!("init task panicked: {e}")))?
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    // `{:#}` includes the anyhow context chain (e.g. the underlying
+    // OS error like "No such file or directory" under the
+    // "spawn `crosslink init`" wrapper) instead of just the top
+    // line. Without this, users see the wrapper and can't diagnose.
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
 
     Ok(Json(ActionResponse {
         stdout: outcome.0,
@@ -759,7 +763,7 @@ async fn close_issue(
         &["issue", "close", &id_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -781,7 +785,7 @@ async fn reopen_issue(
         &["issue", "reopen", &id_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -809,7 +813,7 @@ async fn comment_issue(
         &["issue", "comment", &id_str, &body.content],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -862,7 +866,7 @@ async fn block_issue(
         &["issue", "block", &id_str, &blocker_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -886,7 +890,7 @@ async fn unblock_issue(
         &["issue", "unblock", &id_str, &blocker_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -912,7 +916,7 @@ async fn relate_issue(
         &["issue", "relate", &id_str, &other_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -940,7 +944,7 @@ async fn label_issue(
         &["issue", "label", &id_str, &body.label],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -966,7 +970,7 @@ async fn unlabel_issue(
         &["issue", "unlabel", &id_str, &body.label],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1001,7 +1005,7 @@ async fn create_milestone(
         &args,
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1027,7 +1031,7 @@ async fn milestone_add_issue(
         &["milestone", "add", &id_str, &issue_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1051,7 +1055,7 @@ async fn milestone_remove_issue(
         &["milestone", "remove", &id_str, &issue_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1119,7 +1123,7 @@ async fn agent_request(
         &args,
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1152,7 +1156,7 @@ async fn claim_lock(
         &args,
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1174,7 +1178,7 @@ async fn release_lock(
         &["locks", "release", &id_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1199,7 +1203,7 @@ async fn steal_lock(
         &["locks", "steal", &id_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -1221,7 +1225,7 @@ async fn close_milestone(
         &["milestone", "close", &id_str],
     )
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(Json(ActionResponse {
         stdout: result.stdout,
         stderr: result.stderr,

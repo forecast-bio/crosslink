@@ -230,10 +230,23 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
         .current_dir(workspace)
         .args(["init", "--defaults", "-q", "--force"])
         .output()
-        .context("spawn `crosslink init`")?;
+        .with_context(|| {
+            format!(
+                "spawn `crosslink init` (binary: {}, workspace: {})",
+                std::path::Path::new(&cmd_name).display(),
+                workspace.display()
+            )
+        })?;
     if !init_out.status.success() {
-        let stderr = String::from_utf8_lossy(&init_out.stderr);
-        bail!("crosslink init failed: {}", stderr.trim());
+        let stderr = String::from_utf8_lossy(&init_out.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&init_out.stdout).trim().to_string();
+        bail!(
+            "crosslink init failed (exit {}): {}{}{}",
+            init_out.status.code().map_or_else(|| "signal".into(), |c| c.to_string()),
+            stderr,
+            if !stderr.is_empty() && !stdout.is_empty() { "; stdout: " } else { "" },
+            stdout,
+        );
     }
 
     // --force is load-bearing: `crosslink init --defaults` writes a
@@ -254,10 +267,23 @@ pub fn run_init_and_agent_in(workspace: &Path, agent_id: &str) -> Result<()> {
             "dashboard auto-bootstrap",
         ])
         .output()
-        .context("spawn `crosslink agent init`")?;
+        .with_context(|| {
+            format!(
+                "spawn `crosslink agent init` (binary: {}, workspace: {})",
+                std::path::Path::new(&cmd_name).display(),
+                workspace.display()
+            )
+        })?;
     if !agent_out.status.success() {
-        let stderr = String::from_utf8_lossy(&agent_out.stderr);
-        bail!("crosslink agent init failed: {}", stderr.trim());
+        let stderr = String::from_utf8_lossy(&agent_out.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&agent_out.stdout).trim().to_string();
+        bail!(
+            "crosslink agent init failed (exit {}): {}{}{}",
+            agent_out.status.code().map_or_else(|| "signal".into(), |c| c.to_string()),
+            stderr,
+            if !stderr.is_empty() && !stdout.is_empty() { "; stdout: " } else { "" },
+            stdout,
+        );
     }
     Ok(())
 }
