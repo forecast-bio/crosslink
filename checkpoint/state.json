@@ -16,8 +16,8 @@
       "claimed_at": "2026-03-24T18:55:42.108441Z"
     },
     "634": {
-      "agent_id": "maxine--basel",
-      "claimed_at": "2026-03-27T20:05:46.795790Z"
+      "agent_id": "dashboard-bootstrap",
+      "claimed_at": "2026-04-21T22:40:20.523309955Z"
     }
   },
   "issues": {},
@@ -71,11 +71,16 @@
       "agent_id": "dashboard-bootstrap",
       "agent_seq": 8,
       "timestamp": "2026-04-21T22:40:18.115505741Z"
+    },
+    {
+      "agent_id": "dashboard-bootstrap",
+      "agent_seq": 9,
+      "timestamp": "2026-04-21T22:40:20.523309955Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-04-21T22:40:18.115505741Z",
+    "timestamp": "2026-04-21T22:40:20.523309955Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 8
+    "agent_seq": 9
   }
 }
