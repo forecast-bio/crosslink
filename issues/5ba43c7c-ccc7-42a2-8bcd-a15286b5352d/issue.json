@@ -2,11 +2,12 @@
   "uuid": "5ba43c7c-ccc7-42a2-8bcd-a15286b5352d",
   "display_id": 523,
   "title": "Extract shared push_hub_changes helper for swarm archive and reset",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:50:00.870466670Z",
-  "updated_at": "2026-03-26T13:50:05.304342393Z",
+  "updated_at": "2026-04-21T23:03:11.751830325Z",
+  "closed_at": "2026-04-21T23:03:11.751830325Z",
   "labels": [
     "enhancement"
   ]
