@@ -2,11 +2,12 @@
   "uuid": "02c007ab-dc4b-4028-8f2d-6ce6b1c3cabf",
   "display_id": 351,
   "title": "Fix inconsistent stale lock threshold between V1 30min and V2 configurable",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:27:22.520221368Z",
-  "updated_at": "2026-03-26T13:27:26.295515337Z",
+  "updated_at": "2026-04-21T22:56:54.156021633Z",
+  "closed_at": "2026-04-21T22:56:54.156021633Z",
   "labels": [
     "bug"
   ]

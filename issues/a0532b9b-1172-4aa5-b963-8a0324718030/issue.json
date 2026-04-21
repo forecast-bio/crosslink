@@ -2,12 +2,13 @@
   "uuid": "a0532b9b-1172-4aa5-b963-8a0324718030",
   "display_id": 661,
   "title": "V1: in-flight agent tracking + concurrent limit enforcement",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T18:49:21.134925616Z",
-  "updated_at": "2026-04-10T18:53:17.072106081Z",
+  "updated_at": "2026-04-21T23:27:52.591454089Z",
+  "closed_at": "2026-04-21T23:27:52.591454089Z",
   "blockers": [
     "58154131-6a7b-46d9-998f-ccf8b0e45d4d",
     "db141eaf-3152-437a-9f89-24e7eb97ab3f"

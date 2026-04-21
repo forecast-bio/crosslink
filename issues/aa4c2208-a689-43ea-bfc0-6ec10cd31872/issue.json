@@ -2,11 +2,12 @@
   "uuid": "aa4c2208-a689-43ea-bfc0-6ec10cd31872",
   "display_id": 674,
   "title": "manual test sentinel commands from compiled binary",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-11T02:40:15.882403969Z",
-  "updated_at": "2026-04-11T02:40:20.737877505Z",
+  "updated_at": "2026-04-21T23:28:29.846181252Z",
+  "closed_at": "2026-04-21T23:28:29.846181252Z",
   "labels": [
     "test"
   ]

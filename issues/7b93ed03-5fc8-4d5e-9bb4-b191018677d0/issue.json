@@ -2,11 +2,12 @@
   "uuid": "7b93ed03-5fc8-4d5e-9bb4-b191018677d0",
   "display_id": 186,
   "title": "Diagram polish: confetti blending, arrow styling, layout fixes across all SVG generators",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-13T18:23:03.847928Z",
-  "updated_at": "2026-03-13T18:23:05.726364Z",
+  "updated_at": "2026-04-21T22:53:54.770361271Z",
+  "closed_at": "2026-04-21T22:53:54.770361271Z",
   "labels": [
     "enhancement"
   ]

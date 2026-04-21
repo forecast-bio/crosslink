@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "Shipped in f8923912. Root cause: the audit log showed close_issue actions succeeding end-to-end (CLI exited 0, hub issues 170 + 171 confirmed closed). What the user saw as a 'no-op' was purely frontend-visibility — useProjectMutations never invalidated ['dashboard','alerts'], so the alert stayed on-screen until the 5s polling fallback fired. Three fixes:\n\n1. useProjectMutations now invalidates the alerts query alongside projects + project-detail. Every write-surface mutation refreshes the alerts list immediately.\n\n2. AlertActions shows a role=status aria-live banner after a successful mutation with the kind-specific message + 'alert clears on the next poll tick' setting honest expectations.\n\n3. Comment textarea ungated from kind==='overdue_issue' — now renders for any issue-subject (orphan_subissue too). Previously the Comment button was a dead stub on orphan_subissue.\n\n17/17 Alerts tests pass (added 3); full frontend suite 98/98.",
   "created_at": "2026-04-21T20:08:17.264251672Z",
-  "kind": "result"
+  "kind": "result",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQMiyx0k7YjL+XLg6eyw7nlvSMX23nQewXBVvHR/bR54p/ZBU85vawKudoXcNE4jAteUdJZ5X98DVQxBtgxkXYgo="
 }

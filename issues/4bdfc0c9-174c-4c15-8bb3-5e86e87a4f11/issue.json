@@ -2,11 +2,12 @@
   "uuid": "4bdfc0c9-174c-4c15-8bb3-5e86e87a4f11",
   "display_id": 673,
   "title": "fix all clippy pedantic+nursery errors crate-wide",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-11T01:49:30.782756867Z",
-  "updated_at": "2026-04-11T01:49:32.475077246Z",
+  "updated_at": "2026-04-21T23:28:27.053255725Z",
+  "closed_at": "2026-04-21T23:28:27.053255725Z",
   "labels": [
     "bug"
   ]

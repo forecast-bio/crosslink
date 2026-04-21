@@ -2,10 +2,11 @@
   "uuid": "caa5eb67-215c-4092-958a-24ce06f2f589",
   "display_id": 666,
   "title": "V3: scheduled maintenance sweeps (lint drift, test coverage)",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T21:25:07.007482252Z",
-  "updated_at": "2026-04-10T21:25:07.007482252Z"
+  "updated_at": "2026-04-21T23:28:06.785385876Z",
+  "closed_at": "2026-04-21T23:28:06.785385876Z"
 }

@@ -2,11 +2,12 @@
   "uuid": "97219fcc-e327-458e-837d-480d9fb744f4",
   "display_id": 376,
   "title": "Extract shared add_comment_inner to deduplicate comment functions",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:29:03.561150379Z",
-  "updated_at": "2026-03-26T13:29:06.673346071Z",
+  "updated_at": "2026-04-21T22:57:55.439618471Z",
+  "closed_at": "2026-04-21T22:57:55.439618471Z",
   "labels": [
     "enhancement"
   ]

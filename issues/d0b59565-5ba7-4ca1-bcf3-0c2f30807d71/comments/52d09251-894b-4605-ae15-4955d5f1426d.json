@@ -4,5 +4,7 @@
   "author": "anon-ab6221f8",
   "content": "dashboard write surface E2E test — hit from curl",
   "created_at": "2026-04-21T00:07:00.359322085Z",
-  "kind": "note"
+  "kind": "note",
+  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQNx/sATaX3yw/Oo8akMTBfQ1ZNrQnBsuG0c9tNT1BStLa4y9BW8NsFW/qqD+Lc1TOBgvh0v5iM+cWMnIuEct9Q4="
 }

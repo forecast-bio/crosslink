@@ -1,0 +1,14 @@
+{
+  "uuid": "998b1cc9-4945-44fe-9766-60dca5fc2378",
+  "display_id": 717,
+  "title": "Bulk-close all crosslink issues stale >30d",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "dashboard-bootstrap",
+  "created_at": "2026-04-21T22:52:08.634473632Z",
+  "updated_at": "2026-04-21T23:29:26.905100209Z",
+  "closed_at": "2026-04-21T23:29:26.905100209Z",
+  "labels": [
+    "chore"
+  ]
+}

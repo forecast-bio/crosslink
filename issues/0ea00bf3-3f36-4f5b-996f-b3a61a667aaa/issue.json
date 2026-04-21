@@ -2,11 +2,12 @@
   "uuid": "0ea00bf3-3f36-4f5b-996f-b3a61a667aaa",
   "display_id": 330,
   "title": "Fix false-positive clock skew detection comparing against compaction time",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:25:31.695429766Z",
-  "updated_at": "2026-03-26T13:25:33.672814037Z",
+  "updated_at": "2026-04-21T22:56:02.582206051Z",
+  "closed_at": "2026-04-21T22:56:02.582206051Z",
   "labels": [
     "bug"
   ]

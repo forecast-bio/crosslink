@@ -2,11 +2,12 @@
   "uuid": "36c733a2-70b9-40ff-8d93-94b1b403f0a9",
   "display_id": 412,
   "title": "Fix non-deterministic order in agent_locks return value",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:33:32.632245763Z",
-  "updated_at": "2026-03-26T13:33:35.863191293Z",
+  "updated_at": "2026-04-21T22:59:29.048259294Z",
+  "closed_at": "2026-04-21T22:59:29.048259294Z",
   "labels": [
     "bug"
   ]

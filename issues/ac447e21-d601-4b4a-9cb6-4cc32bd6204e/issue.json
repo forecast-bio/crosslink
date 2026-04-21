@@ -2,11 +2,12 @@
   "uuid": "ac447e21-d601-4b4a-9cb6-4cc32bd6204e",
   "display_id": 483,
   "title": "Deduplicate unblocking logic between skip_stage and mark_done",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:44:19.697874203Z",
-  "updated_at": "2026-03-26T13:44:22.859648030Z",
+  "updated_at": "2026-04-21T23:01:31.289826953Z",
+  "closed_at": "2026-04-21T23:01:31.289826953Z",
   "labels": [
     "enhancement"
   ]

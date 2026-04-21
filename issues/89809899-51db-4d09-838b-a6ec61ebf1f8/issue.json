@@ -2,11 +2,12 @@
   "uuid": "89809899-51db-4d09-838b-a6ec61ebf1f8",
   "display_id": 265,
   "title": "Document bifurcated domain model between i64 IDs and UUID identity",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:19:46.347279030Z",
-  "updated_at": "2026-03-26T13:19:49.777951508Z",
+  "updated_at": "2026-04-21T22:54:30.092286566Z",
+  "closed_at": "2026-04-21T22:54:30.092286566Z",
   "labels": [
     "enhancement"
   ]

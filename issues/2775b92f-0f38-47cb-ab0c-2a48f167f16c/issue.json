@@ -2,11 +2,12 @@
   "uuid": "2775b92f-0f38-47cb-ab0c-2a48f167f16c",
   "display_id": 314,
   "title": "Add scope guard for foreign key toggle in hydration transaction",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:02.062652758Z",
-  "updated_at": "2026-03-26T13:24:04.017945488Z",
+  "updated_at": "2026-04-21T22:55:23.442349361Z",
+  "closed_at": "2026-04-21T22:55:23.442349361Z",
   "labels": [
     "bug"
   ]

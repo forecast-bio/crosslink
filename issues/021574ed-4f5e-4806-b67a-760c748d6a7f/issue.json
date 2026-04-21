@@ -2,11 +2,12 @@
   "uuid": "021574ed-4f5e-4806-b67a-760c748d6a7f",
   "display_id": 307,
   "title": "Replace N+1 cycle detection with recursive CTE query",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:23:35.938211549Z",
-  "updated_at": "2026-03-26T13:23:37.828384923Z",
+  "updated_at": "2026-04-21T22:55:12.928212773Z",
+  "closed_at": "2026-04-21T22:55:12.928212773Z",
   "labels": [
     "enhancement"
   ]

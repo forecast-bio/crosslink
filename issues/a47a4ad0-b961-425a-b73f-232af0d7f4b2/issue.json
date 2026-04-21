@@ -1,0 +1,14 @@
+{
+  "uuid": "a47a4ad0-b961-425a-b73f-232af0d7f4b2",
+  "display_id": 716,
+  "title": "Alert lock actions: surface holder + disambiguate Release vs Steal",
+  "status": "closed",
+  "priority": "medium",
+  "created_by": "anon-ab6221f8",
+  "created_at": "2026-04-21T22:18:09.403297015Z",
+  "updated_at": "2026-04-21T22:30:03.456402376Z",
+  "closed_at": "2026-04-21T22:30:03.456402376Z",
+  "labels": [
+    "bug"
+  ]
+}

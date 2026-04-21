@@ -2,11 +2,12 @@
   "uuid": "c28d25c9-082c-4fd0-9fde-c8b50fe78ca3",
   "display_id": 360,
   "title": "Add deprecated attribute to GpgVerification type alias",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:28:02.721945047Z",
-  "updated_at": "2026-03-26T13:28:04.564674307Z",
+  "updated_at": "2026-04-21T22:57:19.252210241Z",
+  "closed_at": "2026-04-21T22:57:19.252210241Z",
   "labels": [
     "enhancement"
   ]

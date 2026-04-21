@@ -2,11 +2,12 @@
   "uuid": "413db3b4-0dda-4d62-a78a-bf9caa389034",
   "display_id": 342,
   "title": "Use sort_by_cached_key to avoid O(N log N) string allocations in compaction",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:26:30.496289984Z",
-  "updated_at": "2026-03-26T13:26:33.569624958Z",
+  "updated_at": "2026-04-21T22:56:36.902732092Z",
+  "closed_at": "2026-04-21T22:56:36.902732092Z",
   "labels": [
     "enhancement"
   ]

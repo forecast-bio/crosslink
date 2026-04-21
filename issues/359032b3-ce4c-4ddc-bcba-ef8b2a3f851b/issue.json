@@ -2,11 +2,12 @@
   "uuid": "359032b3-ce4c-4ddc-bcba-ef8b2a3f851b",
   "display_id": 355,
   "title": "Reduce nesting in find_stale_locks_v2 functions",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:27:44.293248292Z",
-  "updated_at": "2026-03-26T13:27:46.031421777Z",
+  "updated_at": "2026-04-21T22:57:05.638444843Z",
+  "closed_at": "2026-04-21T22:57:05.638444843Z",
   "labels": [
     "enhancement"
   ]

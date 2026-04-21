@@ -2,11 +2,12 @@
   "uuid": "f150a620-0441-494a-aa3a-bfe622e010d9",
   "display_id": 514,
   "title": "Add diagnostic logging for Docker parsing failures in discover_agents",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:48:36.698963060Z",
-  "updated_at": "2026-03-26T13:48:40.148346982Z",
+  "updated_at": "2026-04-21T23:02:52.065837170Z",
+  "closed_at": "2026-04-21T23:02:52.065837170Z",
   "labels": [
     "enhancement"
   ]

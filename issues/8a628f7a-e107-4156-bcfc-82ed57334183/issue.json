@@ -2,11 +2,12 @@
   "uuid": "8a628f7a-e107-4156-bcfc-82ed57334183",
   "display_id": 292,
   "title": "Extract reusable query builder for dynamic SQL parameter construction",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:22:07.547154445Z",
-  "updated_at": "2026-03-26T13:22:09.433750083Z",
+  "updated_at": "2026-04-21T22:54:59.522466980Z",
+  "closed_at": "2026-04-21T22:54:59.522466980Z",
   "labels": [
     "enhancement"
   ]

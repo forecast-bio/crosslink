@@ -1,339 +1,941 @@
 [
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#711)",
-    "event_timestamp": "2026-04-21T23:35:54.045281962Z",
-    "commit_timestamp": "2026-04-21T23:40:55Z",
-    "skew_seconds": 300
+    "agent_id": "jus4",
+    "event_description": "LockClaimed(#679)",
+    "event_timestamp": "2026-04-13T17:49:16.269169379Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 701450
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#206)",
-    "event_timestamp": "2026-04-21T22:40:01.733027952Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3622
+    "agent_id": "jus4",
+    "event_description": "LockReleased(#679)",
+    "event_timestamp": "2026-04-13T17:56:45.299642423Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 701001
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#206)",
-    "event_timestamp": "2026-04-21T22:40:04.076250134Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3619
+    "agent_id": "jus4",
+    "event_description": "LockClaimed(#679)",
+    "event_timestamp": "2026-04-13T17:49:16.269169379Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 686172
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#213)",
-    "event_timestamp": "2026-04-21T22:40:06.460429439Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3617
+    "agent_id": "jus4",
+    "event_description": "LockReleased(#679)",
+    "event_timestamp": "2026-04-13T17:56:45.299642423Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 685723
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#213)",
-    "event_timestamp": "2026-04-21T22:40:08.717204493Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3615
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#231)",
-    "event_timestamp": "2026-04-21T22:40:11.010563773Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3612
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#231)",
-    "event_timestamp": "2026-04-21T22:40:13.354192570Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3610
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
+    "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
     "event_description": "LockClaimed(#252)",
-    "event_timestamp": "2026-04-21T22:40:15.736682198Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3608
+    "event_timestamp": "2026-03-22T01:53:15.201994Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2659611
   },
   {
-    "agent_id": "dashboard-bootstrap",
+    "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
     "event_description": "LockReleased(#252)",
-    "event_timestamp": "2026-04-21T22:40:18.115505741Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3605
+    "event_timestamp": "2026-03-22T03:37:26.378585Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2653360
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#634)",
-    "event_timestamp": "2026-04-21T22:40:20.523309955Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3603
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#634)",
-    "event_timestamp": "2026-04-21T22:40:22.841976299Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3601
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#254)",
-    "event_timestamp": "2026-04-21T22:40:25.290884252Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3598
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#254)",
-    "event_timestamp": "2026-04-21T22:40:27.639367435Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3596
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#203)",
-    "event_timestamp": "2026-04-21T22:40:29.962731256Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3594
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#203)",
-    "event_timestamp": "2026-04-21T22:40:32.206437539Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3591
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#258)",
-    "event_timestamp": "2026-04-21T22:40:34.390446653Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3589
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#258)",
-    "event_timestamp": "2026-04-21T22:40:36.619533517Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 3587
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#717)",
-    "event_timestamp": "2026-04-21T22:52:11.792891818Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 2892
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#718)",
-    "event_timestamp": "2026-04-21T23:06:26.976357252Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 2037
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#718)",
-    "event_timestamp": "2026-04-21T23:24:19.306491824Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 964
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#717)",
-    "event_timestamp": "2026-04-21T23:29:28.229998167Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 655
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#689)",
-    "event_timestamp": "2026-04-21T23:29:49.777716115Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 634
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#717)",
-    "event_timestamp": "2026-04-21T23:30:14.825374825Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 609
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#717)",
-    "event_timestamp": "2026-04-21T23:30:17.273171334Z",
-    "commit_timestamp": "2026-04-21T23:40:24Z",
-    "skew_seconds": 606
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#711)",
-    "event_timestamp": "2026-04-21T23:35:54.045281962Z",
-    "commit_timestamp": "2026-04-21T23:37:19Z",
-    "skew_seconds": 84
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#206)",
-    "event_timestamp": "2026-04-21T22:40:01.733027952Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3381
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#206)",
-    "event_timestamp": "2026-04-21T22:40:04.076250134Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3378
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#213)",
-    "event_timestamp": "2026-04-21T22:40:06.460429439Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3376
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#213)",
-    "event_timestamp": "2026-04-21T22:40:08.717204493Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3374
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#231)",
-    "event_timestamp": "2026-04-21T22:40:11.010563773Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3371
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#231)",
-    "event_timestamp": "2026-04-21T22:40:13.354192570Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3369
-  },
-  {
-    "agent_id": "dashboard-bootstrap",
+    "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
     "event_description": "LockClaimed(#252)",
-    "event_timestamp": "2026-04-21T22:40:15.736682198Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3367
+    "event_timestamp": "2026-03-22T16:20:47.643373Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2607559
   },
   {
-    "agent_id": "dashboard-bootstrap",
+    "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
+    "event_description": "LockClaimed(#252)",
+    "event_timestamp": "2026-03-22T01:53:15.201994Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2644333
+  },
+  {
+    "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
     "event_description": "LockReleased(#252)",
-    "event_timestamp": "2026-04-21T22:40:18.115505741Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3364
+    "event_timestamp": "2026-03-22T03:37:26.378585Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2638082
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#634)",
-    "event_timestamp": "2026-04-21T22:40:20.523309955Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3362
+    "agent_id": "maxine--basel--kickoff-graph-command-0fa7",
+    "event_description": "LockClaimed(#252)",
+    "event_timestamp": "2026-03-22T16:20:47.643373Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2592281
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#634)",
-    "event_timestamp": "2026-04-21T22:40:22.841976299Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3360
+    "agent_id": "agent-217-kickoff-ux",
+    "event_description": "LockClaimed(#217)",
+    "event_timestamp": "2026-03-19T01:44:17.744287Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2919349
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#254)",
-    "event_timestamp": "2026-04-21T22:40:25.290884252Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3357
+    "agent_id": "agent-217-kickoff-ux",
+    "event_description": "LockReleased(#217)",
+    "event_timestamp": "2026-03-19T19:07:38.206342Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2856748
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#254)",
-    "event_timestamp": "2026-04-21T22:40:27.639367435Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3355
+    "agent_id": "agent-217-kickoff-ux",
+    "event_description": "LockClaimed(#217)",
+    "event_timestamp": "2026-03-19T01:44:17.744287Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2904071
   },
   {
-    "agent_id": "dashboard-bootstrap",
+    "agent_id": "agent-217-kickoff-ux",
+    "event_description": "LockReleased(#217)",
+    "event_timestamp": "2026-03-19T19:07:38.206342Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2841470
+  },
+  {
+    "agent_id": "agent-206-ext-query",
+    "event_description": "LockClaimed(#206)",
+    "event_timestamp": "2026-03-18T00:05:25.280100Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3011681
+  },
+  {
+    "agent_id": "agent-206-ext-query",
+    "event_description": "LockClaimed(#206)",
+    "event_timestamp": "2026-03-18T00:05:25.280100Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2996403
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#196)",
+    "event_timestamp": "2026-03-15T22:10:46.433663Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3191360
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#197)",
+    "event_timestamp": "2026-03-15T22:44:13.171699Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3189353
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#197)",
+    "event_timestamp": "2026-03-16T23:01:14.495479Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3101932
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#202)",
+    "event_timestamp": "2026-03-17T00:17:08.230262Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3097378
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#202)",
+    "event_timestamp": "2026-03-17T00:18:32.447916Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3097294
+  },
+  {
+    "agent_id": "maxine--basel",
     "event_description": "LockClaimed(#203)",
-    "event_timestamp": "2026-04-21T22:40:29.962731256Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3353
+    "event_timestamp": "2026-03-17T18:29:21.280473Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3031845
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#203)",
-    "event_timestamp": "2026-04-21T22:40:32.206437539Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3350
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#207)",
+    "event_timestamp": "2026-03-18T00:11:26.298546Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3011320
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#258)",
-    "event_timestamp": "2026-04-21T22:40:34.390446653Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3348
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#207)",
+    "event_timestamp": "2026-03-18T00:13:10.670417Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3011216
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#258)",
-    "event_timestamp": "2026-04-21T22:40:36.619533517Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 3346
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#208)",
+    "event_timestamp": "2026-03-18T00:14:47.818793Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3011119
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#717)",
-    "event_timestamp": "2026-04-21T22:52:11.792891818Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 2651
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#208)",
+    "event_timestamp": "2026-03-18T00:17:27.461989Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 3010959
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#718)",
-    "event_timestamp": "2026-04-21T23:06:26.976357252Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 1796
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#211)",
+    "event_timestamp": "2026-03-18T17:49:49.841401Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2947817
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#718)",
-    "event_timestamp": "2026-04-21T23:24:19.306491824Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 723
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#211)",
+    "event_timestamp": "2026-03-18T17:59:47.546517Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2947219
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#717)",
-    "event_timestamp": "2026-04-21T23:29:28.229998167Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 414
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#212)",
+    "event_timestamp": "2026-03-18T18:00:35.968835Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2947171
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#689)",
-    "event_timestamp": "2026-04-21T23:29:49.777716115Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 393
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#212)",
+    "event_timestamp": "2026-03-18T18:03:18.033584Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2947008
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockClaimed(#717)",
-    "event_timestamp": "2026-04-21T23:30:14.825374825Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 368
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#213)",
+    "event_timestamp": "2026-03-18T20:47:33.245939Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2937153
   },
   {
-    "agent_id": "dashboard-bootstrap",
-    "event_description": "LockReleased(#717)",
-    "event_timestamp": "2026-04-21T23:30:17.273171334Z",
-    "commit_timestamp": "2026-04-21T23:36:23Z",
-    "skew_seconds": 365
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#214)",
+    "event_timestamp": "2026-03-18T20:49:09.779053Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2937057
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#214)",
+    "event_timestamp": "2026-03-18T20:50:37.996356Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2936969
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#215)",
+    "event_timestamp": "2026-03-18T20:55:47.101244Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2936659
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#215)",
+    "event_timestamp": "2026-03-18T20:59:59.526743Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2936407
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#216)",
+    "event_timestamp": "2026-03-18T22:45:29.199988Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2930077
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#216)",
+    "event_timestamp": "2026-03-18T23:01:24.295959Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2929122
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#213)",
+    "event_timestamp": "2026-03-18T23:48:44.626976Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2926282
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#226)",
+    "event_timestamp": "2026-03-19T17:28:11.403860Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2862715
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#226)",
+    "event_timestamp": "2026-03-19T17:31:06.643673Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2862540
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#233)",
+    "event_timestamp": "2026-03-19T20:05:34.534186Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2853272
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#235)",
+    "event_timestamp": "2026-03-19T21:40:18.552947Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2847588
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#235)",
+    "event_timestamp": "2026-03-20T18:36:52.221483Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2772194
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#246)",
+    "event_timestamp": "2026-03-20T18:54:44.947463Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2771122
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#246)",
+    "event_timestamp": "2026-03-20T18:55:01.304296Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2771105
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#247)",
+    "event_timestamp": "2026-03-20T19:06:51.681224Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2770395
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#247)",
+    "event_timestamp": "2026-03-20T19:08:38.595685Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2770288
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#248)",
+    "event_timestamp": "2026-03-20T19:22:31.114986Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2769455
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#248)",
+    "event_timestamp": "2026-03-20T19:35:07.789967Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2768699
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#249)",
+    "event_timestamp": "2026-03-20T20:14:51.622006Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2766315
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#249)",
+    "event_timestamp": "2026-03-20T20:19:18.786071Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2766048
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#251)",
+    "event_timestamp": "2026-03-21T19:14:34.061903Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2683532
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#251)",
+    "event_timestamp": "2026-03-22T16:40:20.770151Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2606386
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#251)",
+    "event_timestamp": "2026-03-22T16:49:37.557372Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2605829
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#254)",
+    "event_timestamp": "2026-03-23T23:43:23.565354Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2494603
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#251)",
+    "event_timestamp": "2026-03-24T00:29:17.187190Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2491849
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#233)",
+    "event_timestamp": "2026-03-24T00:29:23.979728Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2491843
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#196)",
+    "event_timestamp": "2026-03-24T00:29:51.927510Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2491815
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#255)",
+    "event_timestamp": "2026-03-24T01:46:26.834878Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2487220
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#255)",
+    "event_timestamp": "2026-03-24T01:48:40.679805Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2487086
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#256)",
+    "event_timestamp": "2026-03-24T18:37:42.676944Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2426544
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#256)",
+    "event_timestamp": "2026-03-24T18:40:35.051540Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2426371
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#257)",
+    "event_timestamp": "2026-03-24T18:48:13.483934Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2425913
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#257)",
+    "event_timestamp": "2026-03-24T18:49:21.820278Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2425845
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#259)",
+    "event_timestamp": "2026-03-24T23:54:48.542571Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2407518
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#259)",
+    "event_timestamp": "2026-03-25T00:15:10.354185Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2406296
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#634)",
+    "event_timestamp": "2026-03-27T20:05:46.795790Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2162060
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#642)",
+    "event_timestamp": "2026-03-30T22:16:26.192971Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 1895020
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#642)",
+    "event_timestamp": "2026-03-30T23:15:51.344217Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 1891455
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#643)",
+    "event_timestamp": "2026-03-31T21:24:44.178075Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 1811722
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#643)",
+    "event_timestamp": "2026-03-31T21:44:53.460270Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 1810513
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#682)",
+    "event_timestamp": "2026-04-17T18:03:50.710414Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 354976
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#683)",
+    "event_timestamp": "2026-04-17T22:35:36.224846Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 338670
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#682)",
+    "event_timestamp": "2026-04-18T00:15:08.916260Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 332698
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#683)",
+    "event_timestamp": "2026-04-18T00:15:13.462979Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 332693
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#196)",
+    "event_timestamp": "2026-03-15T22:10:46.433663Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 3176082
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#197)",
+    "event_timestamp": "2026-03-15T22:44:13.171699Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 3174075
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#197)",
+    "event_timestamp": "2026-03-16T23:01:14.495479Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 3086654
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#202)",
+    "event_timestamp": "2026-03-17T00:17:08.230262Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 3082100
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#202)",
+    "event_timestamp": "2026-03-17T00:18:32.447916Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 3082016
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#203)",
+    "event_timestamp": "2026-03-17T18:29:21.280473Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 3016567
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#207)",
+    "event_timestamp": "2026-03-18T00:11:26.298546Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2996042
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#207)",
+    "event_timestamp": "2026-03-18T00:13:10.670417Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2995938
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#208)",
+    "event_timestamp": "2026-03-18T00:14:47.818793Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2995841
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#208)",
+    "event_timestamp": "2026-03-18T00:17:27.461989Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2995681
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#211)",
+    "event_timestamp": "2026-03-18T17:49:49.841401Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2932539
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#211)",
+    "event_timestamp": "2026-03-18T17:59:47.546517Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2931941
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#212)",
+    "event_timestamp": "2026-03-18T18:00:35.968835Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2931893
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#212)",
+    "event_timestamp": "2026-03-18T18:03:18.033584Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2931730
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#213)",
+    "event_timestamp": "2026-03-18T20:47:33.245939Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2921875
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#214)",
+    "event_timestamp": "2026-03-18T20:49:09.779053Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2921779
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#214)",
+    "event_timestamp": "2026-03-18T20:50:37.996356Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2921691
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#215)",
+    "event_timestamp": "2026-03-18T20:55:47.101244Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2921381
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#215)",
+    "event_timestamp": "2026-03-18T20:59:59.526743Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2921129
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#216)",
+    "event_timestamp": "2026-03-18T22:45:29.199988Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2914799
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#216)",
+    "event_timestamp": "2026-03-18T23:01:24.295959Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2913844
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#213)",
+    "event_timestamp": "2026-03-18T23:48:44.626976Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2911004
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#226)",
+    "event_timestamp": "2026-03-19T17:28:11.403860Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2847437
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#226)",
+    "event_timestamp": "2026-03-19T17:31:06.643673Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2847262
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#233)",
+    "event_timestamp": "2026-03-19T20:05:34.534186Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2837994
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#235)",
+    "event_timestamp": "2026-03-19T21:40:18.552947Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2832310
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#235)",
+    "event_timestamp": "2026-03-20T18:36:52.221483Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2756916
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#246)",
+    "event_timestamp": "2026-03-20T18:54:44.947463Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2755844
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#246)",
+    "event_timestamp": "2026-03-20T18:55:01.304296Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2755827
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#247)",
+    "event_timestamp": "2026-03-20T19:06:51.681224Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2755117
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#247)",
+    "event_timestamp": "2026-03-20T19:08:38.595685Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2755010
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#248)",
+    "event_timestamp": "2026-03-20T19:22:31.114986Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2754177
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#248)",
+    "event_timestamp": "2026-03-20T19:35:07.789967Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2753421
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#249)",
+    "event_timestamp": "2026-03-20T20:14:51.622006Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2751037
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#249)",
+    "event_timestamp": "2026-03-20T20:19:18.786071Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2750770
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#251)",
+    "event_timestamp": "2026-03-21T19:14:34.061903Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2668254
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#251)",
+    "event_timestamp": "2026-03-22T16:40:20.770151Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2591108
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#251)",
+    "event_timestamp": "2026-03-22T16:49:37.557372Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2590551
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#254)",
+    "event_timestamp": "2026-03-23T23:43:23.565354Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2479325
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#251)",
+    "event_timestamp": "2026-03-24T00:29:17.187190Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2476571
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#233)",
+    "event_timestamp": "2026-03-24T00:29:23.979728Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2476565
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#196)",
+    "event_timestamp": "2026-03-24T00:29:51.927510Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2476537
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#255)",
+    "event_timestamp": "2026-03-24T01:46:26.834878Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2471942
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#255)",
+    "event_timestamp": "2026-03-24T01:48:40.679805Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2471808
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#256)",
+    "event_timestamp": "2026-03-24T18:37:42.676944Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2411266
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#256)",
+    "event_timestamp": "2026-03-24T18:40:35.051540Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2411093
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#257)",
+    "event_timestamp": "2026-03-24T18:48:13.483934Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2410635
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#257)",
+    "event_timestamp": "2026-03-24T18:49:21.820278Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2410567
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#259)",
+    "event_timestamp": "2026-03-24T23:54:48.542571Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2392240
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#259)",
+    "event_timestamp": "2026-03-25T00:15:10.354185Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2391018
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#634)",
+    "event_timestamp": "2026-03-27T20:05:46.795790Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2146782
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#642)",
+    "event_timestamp": "2026-03-30T22:16:26.192971Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 1879742
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#642)",
+    "event_timestamp": "2026-03-30T23:15:51.344217Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 1876177
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#643)",
+    "event_timestamp": "2026-03-31T21:24:44.178075Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 1796444
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#643)",
+    "event_timestamp": "2026-03-31T21:44:53.460270Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 1795235
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#682)",
+    "event_timestamp": "2026-04-17T18:03:50.710414Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 339698
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockClaimed(#683)",
+    "event_timestamp": "2026-04-17T22:35:36.224846Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 323392
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#682)",
+    "event_timestamp": "2026-04-18T00:15:08.916260Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 317420
+  },
+  {
+    "agent_id": "maxine--basel",
+    "event_description": "LockReleased(#683)",
+    "event_timestamp": "2026-04-18T00:15:13.462979Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 317415
   },
   {
     "agent_id": "dashboard-bootstrap",
@@ -460,5 +1062,19 @@
     "event_timestamp": "2026-04-21T23:06:26.976357252Z",
     "commit_timestamp": "2026-04-21T23:17:49Z",
     "skew_seconds": 682
+  },
+  {
+    "agent_id": "maxine--basel--config-system-overhaul-2e70",
+    "event_description": "LockClaimed(#231)",
+    "event_timestamp": "2026-03-19T18:19:12.276803Z",
+    "commit_timestamp": "2026-04-21T20:40:07Z",
+    "skew_seconds": 2859654
+  },
+  {
+    "agent_id": "maxine--basel--config-system-overhaul-2e70",
+    "event_description": "LockClaimed(#231)",
+    "event_timestamp": "2026-03-19T18:19:12.276803Z",
+    "commit_timestamp": "2026-04-21T16:25:29Z",
+    "skew_seconds": 2844376
   }
 ]

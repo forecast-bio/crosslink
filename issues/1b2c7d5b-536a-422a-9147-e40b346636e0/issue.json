@@ -2,11 +2,12 @@
   "uuid": "1b2c7d5b-536a-422a-9147-e40b346636e0",
   "display_id": 648,
   "title": "init --force ignores --dry-run flag",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T15:29:33.147187047Z",
-  "updated_at": "2026-04-10T15:29:44.667764379Z",
+  "updated_at": "2026-04-21T23:27:17.549782347Z",
+  "closed_at": "2026-04-21T23:27:17.549782347Z",
   "labels": [
     "bug"
   ]

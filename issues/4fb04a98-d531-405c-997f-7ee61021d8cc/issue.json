@@ -2,11 +2,12 @@
   "uuid": "4fb04a98-d531-405c-997f-7ee61021d8cc",
   "display_id": 407,
   "title": "Extract TestHarness builder to deduplicate lock_check test setup",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:33:03.469819855Z",
-  "updated_at": "2026-03-26T13:33:06.107797631Z",
+  "updated_at": "2026-04-21T22:59:15.542942098Z",
+  "closed_at": "2026-04-21T22:59:15.542942098Z",
   "labels": [
     "enhancement"
   ]

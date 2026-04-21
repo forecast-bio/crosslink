@@ -2,11 +2,12 @@
   "uuid": "7a8abab7-bc58-4859-a682-3ddce3dbf957",
   "display_id": 424,
   "title": "Document UTF-8 assumption in knowledge cache_path_str",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:36:23.429066625Z",
-  "updated_at": "2026-03-26T13:37:05.565009327Z",
+  "updated_at": "2026-04-21T22:59:59.011245566Z",
+  "closed_at": "2026-04-21T22:59:59.011245566Z",
   "labels": [
     "enhancement"
   ]

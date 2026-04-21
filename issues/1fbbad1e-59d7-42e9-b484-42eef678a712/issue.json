@@ -3,11 +3,12 @@
   "display_id": 679,
   "title": "[sentinel-qa] TEST-ONLY — DO NOT ACTION: check blank line consistency in crosslink --help output (PR #553 QA)",
   "description": "Sentinel signal: GH#560:replicate\n\n**This issue exists only to exercise the sentinel replicate dispatcher for PR #553 QA. Will be closed once verification is complete — DO NOT action, DO NOT merge any agent output.**\n\n## Observed (possibly)\n\nIt looks like `crosslink --help` may have inconsistent blank-line spacing between the `Commands:` section and the `Options:` section — sometimes one blank line, sometimes two. Purely cosmetic.\n\n## Expected\n\nConsistent single blank line between each section of the help output.\n\n## Agent task (replicate only)\n\n1. Capture `crosslink --help` stdout\n2. Write a test in `tests/` that parses section boundaries and asserts consistent spacing\n3. Run the test and report whether it fails or passes\n4. If the test passes (no inconsistency), record a `resolution` comment noting the issue could not be reproduced\n\nEither outcome — a failing test or a clean \"cannot reproduce\" — demonstrates the sentinel dispatch mechanism works.\n\n## Severity\n\nCosmetic only. No production impact.",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-13T17:44:43.533598213Z",
-  "updated_at": "2026-04-13T17:44:48.207685760Z",
+  "updated_at": "2026-04-21T23:28:32.764179Z",
+  "closed_at": "2026-04-21T23:28:32.764179Z",
   "labels": [
     "sentinel",
     "bug"

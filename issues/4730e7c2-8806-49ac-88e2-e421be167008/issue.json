@@ -2,11 +2,12 @@
   "uuid": "4730e7c2-8806-49ac-88e2-e421be167008",
   "display_id": 507,
   "title": "Remove unused signal variable in kickoff monitor stop",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:47:23.019180151Z",
-  "updated_at": "2026-03-26T13:47:27.429016189Z",
+  "updated_at": "2026-04-21T23:02:32.365019672Z",
+  "closed_at": "2026-04-21T23:02:32.365019672Z",
   "labels": [
     "enhancement"
   ]

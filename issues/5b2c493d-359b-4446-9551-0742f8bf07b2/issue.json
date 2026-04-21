@@ -2,11 +2,12 @@
   "uuid": "5b2c493d-359b-4446-9551-0742f8bf07b2",
   "display_id": 526,
   "title": "Fix git add -A in swarm merge staging all files including credentials",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:50:22.275486404Z",
-  "updated_at": "2026-03-26T13:50:25.661527678Z",
+  "updated_at": "2026-04-21T23:03:20.286659244Z",
+  "closed_at": "2026-04-21T23:03:20.286659244Z",
   "labels": [
     "security"
   ]
