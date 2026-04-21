@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- crosslink dashboard discover: filesystem autodiscovery of crosslink-enabled repos (GH #429 followup) (#705)
 - Write DESIGN-CROSSLINK-OPS.md (GH #429 followup) (#688)
 - Phase 5.3: dashboard polish — theme toggle + audible alerts + preferences page (GH #429) (#704)
 - Phase 5.2: dashboard webhook alerting — outbound Slack/Discord/generic JSON on alert fire (GH #429) (#703)
