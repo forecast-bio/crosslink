@@ -3,11 +3,12 @@
   "display_id": 205,
   "title": "Kickoff agent issue creates are local-only — need automatic sync to hub",
   "description": "Issues created by kickoff agents in worktrees (via crosslink quick/create) are written to the worktree's local issues.db but never synced back to the hub branch. The kickoff prompt (kickoff.rs:837) claims the db is shared via crosslink/hub, but in practice init_worktree_agent() creates a fresh db (via crosslink init --force) and sync only hydrates FROM the hub. Agent writes don't flow back because git push is blocked. Fix: kickoff agents should automatically sync their issue mutations to the hub branch, either via crosslink sync at regular intervals or by writing directly to issue files on the hub branch.",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-18T00:03:26.109146Z",
-  "updated_at": "2026-03-18T00:03:38.363305Z",
+  "updated_at": "2026-04-21T22:54:11.119134264Z",
+  "closed_at": "2026-04-21T22:54:11.119134264Z",
   "labels": [
     "bug"
   ]
