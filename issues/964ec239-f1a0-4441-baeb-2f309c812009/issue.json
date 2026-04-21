@@ -2,11 +2,12 @@
   "uuid": "964ec239-f1a0-4441-baeb-2f309c812009",
   "display_id": 238,
   "title": "Fix work-check hook to recognize local issue L-prefix",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-18T13:05:28.426022486Z",
-  "updated_at": "2026-03-18T13:05:38.615891415Z",
+  "updated_at": "2026-04-21T22:54:22.002330486Z",
+  "closed_at": "2026-04-21T22:54:22.002330486Z",
   "labels": [
     "bug"
   ]
