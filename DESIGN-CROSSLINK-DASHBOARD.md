@@ -635,6 +635,15 @@ rely on the hub branch's git history.
 
 ## 14. Phased rollout
 
+> **Note on PR shape**: the project owner elected to ship Phases 1–3
+> (and as much of 4–5 as falls out naturally) on a *single* PR rather
+> than stacking one PR per phase. The "phased" framing below describes
+> the logical milestones inside that one PR, not separate reviews.
+> Commit boundaries within the branch (`git log feat/429-crosslink-
+> dashboard`) preserve the ordering for reviewers who want to walk it
+> progressively.
+
+
 ### Phase 1 — Read-only MVP (2-3 PRs)
 
 - Subcommand scaffolding, bound to 127.0.0.1, bearer-token auth
