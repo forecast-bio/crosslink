@@ -2,11 +2,12 @@
   "uuid": "c1bb279f-505a-4b11-960c-d5df6c4dc3b4",
   "display_id": 392,
   "title": "Replace double-Option parameter with UpdateFields struct in update_issue",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:30:42.712392989Z",
-  "updated_at": "2026-03-26T13:30:46.360908932Z",
+  "updated_at": "2026-04-21T22:58:40.800167336Z",
+  "closed_at": "2026-04-21T22:58:40.800167336Z",
   "labels": [
     "enhancement"
   ]
