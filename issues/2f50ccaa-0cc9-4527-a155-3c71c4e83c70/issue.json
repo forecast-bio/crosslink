@@ -2,11 +2,12 @@
   "uuid": "2f50ccaa-0cc9-4527-a155-3c71c4e83c70",
   "display_id": 340,
   "title": "Simplify verbose fully-qualified codec path in prune_events",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:26:19.366397197Z",
-  "updated_at": "2026-03-26T13:26:22.339373937Z",
+  "updated_at": "2026-04-21T22:56:31.109021776Z",
+  "closed_at": "2026-04-21T22:56:31.109021776Z",
   "labels": [
     "enhancement"
   ]
