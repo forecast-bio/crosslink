@@ -76,3 +76,5 @@ maxine-at-forecast--noether--clock-skew@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NT
 backfill@crosslink ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBHtCmOJf2exv735MdNJBcGbWNxYw/JXXulXDzUjU9OpMi+WVJ80BmyVDMznZRXeubP0Qs2YVSUFaJy0N8is4qRg= texas@dollspace
 dashboard-bootstrap@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKAFUqDzWVSnKzFSwxXGJnYbeAKRh6R8a58miF0ekCQT crosslink-agent:dashboard-bootstrap@dollspace
 driver@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKo+flEdaJYO8NPs2cLlm7FqczNhZVbMbKNZfq5/HUnw doll@dollspace
+# approved by doll at 2026-04-21 23:32:28 UTC
+jus4@crosslink ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHIz6j+6yCnl/ihv2NE3I1ZN1iLYXhRWTVixqK8cB/Eg crosslink-agent:jus4@dollspace
