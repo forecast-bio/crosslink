@@ -96,6 +96,7 @@ new subcommand for log-scraping continuity.
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- Change default clone_root from ~/crosslink-tracked to $HOME (#711)
 - Alerts page mutations don't invalidate alerts query; orphan_subissue close appears to no-op (#709)
 - Dashboard polish: token refresh UX + issue ordering + remote-repo hub data missing (#707)
 - Dashboard: project detail page blank on click + gh CLI auth fallback (#706)
