@@ -148,13 +148,56 @@ Live interactive terminal UI built with ratatui:
 - **Milestones & Config tabs** — Project overview at a glance
 - Mouse support, command palette (`Ctrl-P`), clipboard export, keyboard help (`?`)
 
-### Web Dashboard
+### Multi-Project Dashboard
+
+Operator-grade SCADA-style control panel for every crosslink-touched
+repo on your machine. Live tiles, drill-down per project, alerts rail,
+and full CLI parity for writes (close issues, comment, label,
+milestones, lock release/steal, send agent control requests).
+
+```bash
+crosslink dashboard track ~/work/forecast-bio/api
+crosslink dashboard track ~/work/forecast-bio/web
+crosslink dashboard list
+crosslink dashboard serve --port 3100
+```
+
+The serve command prints a localhost URL with a one-shot bearer token
+embedded — open the URL in any browser. Default binding is
+`127.0.0.1:3100` (use SSH forwarding for remote access).
+
+What you get on each tile:
+- Open / overdue / blocked / stale-lock counters with severity colors
+- Per-project alerts (stale lock, silent agent, overdue issue,
+  CI failure, signature invalid, orphan subissue, unreachable project)
+- Live updates via WebSocket — no manual refresh
+
+What you can do per project (drill-down):
+- Issues: close, reopen, comment, label / unlabel, block / unblock,
+  relate, view full description and metadata
+- Milestones: create, attach / detach issues, close
+- Locks: release, steal stale locks
+- Agents: send control requests (kill / pause / resume / reprioritise)
+  via the git-native protocol (design doc §9)
+
+Every write is audited to the local `~/.crosslink/dashboard.db`
+and shells out to the same `crosslink` CLI an operator would
+type — zero drift between dashboard and command line.
+
+> Replaces the older `crosslink serve` (single-project web view).
+> `crosslink serve` still works but prints a deprecation warning
+> pointing at `crosslink dashboard serve`. See
+> `DESIGN-CROSSLINK-DASHBOARD.md` for architecture details.
+
+### Web Dashboard (legacy)
 
 ```bash
 crosslink serve
 ```
 
-Browser-based dashboard for visual project oversight — charts, drag-and-drop, and real-time agent monitoring.
+Single-project browser dashboard — kept for compatibility with
+existing scripts / muscle memory. Prefer `crosslink dashboard
+serve` for new work.
 
 ### Maintenance
 
