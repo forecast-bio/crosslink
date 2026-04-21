@@ -2,11 +2,12 @@
   "uuid": "8fd25405-bc68-4031-9bdf-a0b6749e1465",
   "display_id": 319,
   "title": "Move misplaced use anyhow Context import to top of issue_file.rs",
-  "status": "open",
+  "status": "closed",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:24:30.004485395Z",
-  "updated_at": "2026-03-26T13:24:32.190355387Z",
+  "updated_at": "2026-04-21T22:55:37.304817935Z",
+  "closed_at": "2026-04-21T22:55:37.304817935Z",
   "labels": [
     "enhancement"
   ]
