@@ -3,12 +3,11 @@
   "display_id": 174,
   "title": "gh issues #299 and #301",
   "description": "Created by crosslink kickoff",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "maxine--basel",
   "created_at": "2026-03-10T23:49:01.997731Z",
-  "updated_at": "2026-04-21T22:53:32.797060106Z",
-  "closed_at": "2026-04-21T22:53:32.797060106Z",
+  "updated_at": "2026-03-11T00:42:15.044839Z",
   "labels": [
     "feature"
   ]

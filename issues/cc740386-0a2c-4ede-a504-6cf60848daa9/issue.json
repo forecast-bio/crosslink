@@ -2,12 +2,11 @@
   "uuid": "cc740386-0a2c-4ede-a504-6cf60848daa9",
   "display_id": 475,
   "title": "Add input validation rejecting empty labels in label add command",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:43:24.236686466Z",
-  "updated_at": "2026-04-21T23:01:16.927051851Z",
-  "closed_at": "2026-04-21T23:01:16.927051851Z",
+  "updated_at": "2026-03-26T13:43:27.323129572Z",
   "labels": [
     "bug"
   ]

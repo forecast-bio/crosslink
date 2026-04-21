@@ -2,12 +2,11 @@
   "uuid": "85291d95-170e-4ed6-8ca8-55129cfdfe0b",
   "display_id": 535,
   "title": "Remove no-op budget_aware parameter from swarm fix function",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:51:41.619766206Z",
-  "updated_at": "2026-04-21T23:03:46.675739563Z",
-  "closed_at": "2026-04-21T23:03:46.675739563Z",
+  "updated_at": "2026-03-26T13:51:45.828630100Z",
   "labels": [
     "enhancement"
   ]

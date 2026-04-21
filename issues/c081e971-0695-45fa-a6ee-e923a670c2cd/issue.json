@@ -2,12 +2,11 @@
   "uuid": "c081e971-0695-45fa-a6ee-e923a670c2cd",
   "display_id": 534,
   "title": "Fix resolve_swarm silently falling back on corrupt active.json",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:51:34.635514927Z",
-  "updated_at": "2026-04-21T23:03:43.950333551Z",
-  "closed_at": "2026-04-21T23:03:43.950333551Z",
+  "updated_at": "2026-03-26T13:51:38.101585687Z",
   "labels": [
     "bug"
   ]

@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Shipped in a33f20f5. Whole alert row now clickable (+ Enter/Space keyboard); expansion surfaces kind-specific actions:\n\n• lock:<id>: Release / Steal\n• agent:<id>: Pause / Resume / Kill (via the git-native agent request protocol)\n• issue:<id>: Close + inline Comment textarea (overdue_issue, orphan_subissue)\n• project:<slug> / commit:<sha> / no-subject: Open project → link only\n\nReuses all existing write-surface hooks so audit/signing/hub-push behave identically to the project-detail flow. Project link in the summary + action buttons stopPropagation so clicks on them don't also toggle expansion. Local-only issues (UUID, no display_id) hide the action buttons since the CLI write surface only accepts numeric IDs.\n\nAccessibility: role=button + aria-expanded + aria-label per row. parseSubjectRef exported for tests. 14 new vitest cases (parseSubjectRef edge cases, collapsed/expanded, keyboard toggle, each kind's action set, subject-less fallback, local-only hide, link-doesn't-toggle); full suite 95/95.",
   "created_at": "2026-04-21T18:01:06.521519432Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQJDYVrsb3nPa/KSrdImj6Vedb/5EXYRnOC76HaA2owOD8ZrH9XpvmJzLEC0w3HRx1ipsO5JqTj88B9sWXWU7fgA="
+  "kind": "result"
 }

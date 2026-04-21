@@ -2,12 +2,11 @@
   "uuid": "c2867042-3d8d-4229-ba3a-2f3c50cfbef7",
   "display_id": 492,
   "title": "Extract LLM backend behind trait for testable decomposition",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:45:20.248267586Z",
-  "updated_at": "2026-04-21T23:01:56.245496620Z",
-  "closed_at": "2026-04-21T23:01:56.245496620Z",
+  "updated_at": "2026-03-26T13:45:23.266439789Z",
   "labels": [
     "enhancement"
   ]

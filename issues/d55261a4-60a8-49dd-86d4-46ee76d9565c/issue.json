@@ -2,12 +2,11 @@
   "uuid": "d55261a4-60a8-49dd-86d4-46ee76d9565c",
   "display_id": 503,
   "title": "Remove dead code plan_age_display function in kickoff pipeline",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:46:50.745712710Z",
-  "updated_at": "2026-04-21T23:02:21.460301192Z",
-  "closed_at": "2026-04-21T23:02:21.460301192Z",
+  "updated_at": "2026-03-26T13:46:54.685617178Z",
   "labels": [
     "enhancement"
   ]

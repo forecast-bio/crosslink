@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Implementation complete across 4 logical commits on feat/361-issue-scheduling-fields: (1) data model + DB schema v16->v17 migration; (2) SharedWriter create_issue/update_issue threading + FieldUpdate<T> enum; (3) CLI flags on Create/Quick/Update + dispatch + commands/create.rs, update.rs, show.rs, next.rs; (4) 24 new behavioural tests covering AC-1, AC-7, AC-8, AC-9, AC-11, AC-16, AC-20 + REQ-11 and the show/parse/serde roundtrips. Full suite 4715 pass, 0 fail. Fmt + clippy -D warnings clean. Ready for push + PR.",
   "created_at": "2026-04-20T15:29:07.473067510Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQGMhHKvo8vDKr4yjoM+RCYCMG/q0B728FOz1yqyJEU2Wzj/F1n/AQ9ILc+bpv2NDvJJTerJMlE8V6d6/jEdczg0="
+  "kind": "result"
 }

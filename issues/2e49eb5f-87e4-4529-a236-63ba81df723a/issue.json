@@ -2,12 +2,11 @@
   "uuid": "2e49eb5f-87e4-4529-a236-63ba81df723a",
   "display_id": 337,
   "title": "Log warning when compaction lock file removal fails in Drop",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:26:01.859183141Z",
-  "updated_at": "2026-04-21T22:56:22.588268666Z",
-  "closed_at": "2026-04-21T22:56:22.588268666Z",
+  "updated_at": "2026-03-26T13:26:05.799547552Z",
   "labels": [
     "bug"
   ]

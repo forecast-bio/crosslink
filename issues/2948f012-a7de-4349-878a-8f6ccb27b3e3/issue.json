@@ -2,12 +2,11 @@
   "uuid": "2948f012-a7de-4349-878a-8f6ccb27b3e3",
   "display_id": 577,
   "title": "Extract ConfigTab sub-state into focused composable structs",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:57:32.216542102Z",
-  "updated_at": "2026-04-21T23:26:36.072935837Z",
-  "closed_at": "2026-04-21T23:26:36.072935837Z",
+  "updated_at": "2026-03-26T13:57:35.590518968Z",
   "labels": [
     "enhancement"
   ]

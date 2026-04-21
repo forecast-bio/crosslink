@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Implemented in 2e9df4e4 (REST API for project list + detail).",
   "created_at": "2026-04-21T03:42:47.968395215Z",
-  "kind": "resolution",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQB0I6SdT3DU/zY9ve/ma+oNqw6Wgui+61nJlGLkSLCkgT6pcuJvF+pU8jfJRr08o5aKhAPX2ORFplfGphRZVgQM="
+  "kind": "resolution"
 }

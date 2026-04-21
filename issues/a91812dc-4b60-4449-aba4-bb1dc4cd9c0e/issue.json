@@ -2,12 +2,11 @@
   "uuid": "a91812dc-4b60-4449-aba4-bb1dc4cd9c0e",
   "display_id": 662,
   "title": "sentinel: close V0/V1 design doc gaps",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T20:50:01.549499179Z",
-  "updated_at": "2026-04-21T23:27:55.394606990Z",
-  "closed_at": "2026-04-21T23:27:55.394606990Z",
+  "updated_at": "2026-04-10T20:50:15.775929771Z",
   "labels": [
     "feature"
   ]

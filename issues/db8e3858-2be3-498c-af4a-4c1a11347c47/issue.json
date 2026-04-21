@@ -2,12 +2,11 @@
   "uuid": "db8e3858-2be3-498c-af4a-4c1a11347c47",
   "display_id": 403,
   "title": "Deduplicate V1 and V2 code blocks in auto_steal_if_configured",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:32:30.172072324Z",
-  "updated_at": "2026-04-21T22:59:02.465322461Z",
-  "closed_at": "2026-04-21T22:59:02.465322461Z",
+  "updated_at": "2026-03-26T13:32:40.748801132Z",
   "labels": [
     "enhancement"
   ]

@@ -2,12 +2,11 @@
   "uuid": "a7929544-d732-4abd-b8ec-c878408c2a94",
   "display_id": 505,
   "title": "Fix watchdog nudge injecting raw text into shell after agent exit",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:47:05.976915936Z",
-  "updated_at": "2026-04-21T23:02:26.958429087Z",
-  "closed_at": "2026-04-21T23:02:26.958429087Z",
+  "updated_at": "2026-03-26T13:47:10.862467263Z",
   "labels": [
     "security"
   ]

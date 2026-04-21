@@ -2,13 +2,12 @@
   "uuid": "64618797-15a4-48cc-a24f-608b03705fae",
   "display_id": 655,
   "title": "V0: result collection + structured GH comment posting",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T18:49:09.558437180Z",
-  "updated_at": "2026-04-21T23:27:36.060641101Z",
-  "closed_at": "2026-04-21T23:27:36.060641101Z",
+  "updated_at": "2026-04-10T18:53:00.663176573Z",
   "blockers": [
     "db141eaf-3152-437a-9f89-24e7eb97ab3f"
   ]

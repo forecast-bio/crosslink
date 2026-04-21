@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Shipped in c9e920c3. Live API confirms detection works — forecast-bio/imaging shows 'agent_missing' (matching the release_lock failure the audit log surfaced), forecast-bio/atdata and 7 other track-all'd clones show 'not_initialized', the 5 properly-set-up repos (crosslink, ferrotorch, OpenClaudia, feral, tabular) show 'ready'.\n\nTwo remediation paths both work end-to-end:\n• At clone time: Settings → GitHub → tick 'Initialize cloned repos', enter agent id, Track All. Backend runs crosslink init + crosslink agent init in each clone before registering.\n• After the fact: /project/<slug> shows an amber InitBanner at the top when not ready with an inline agent-id input + Initialize button that hits POST /w/{slug}/init.\n\nThe Alerts page now hides action buttons on non-ready projects and shows a NotReadyNotice pointing to the project detail page's init banner, so users don't click Close/Release/Steal and watch nothing happen like before.\n\nTests: 5 new write_capability unit tests + 1 new SettingsGithub integration test; full backend projects 23/23, frontend 99/99 (both under ulimit safety cap).",
   "created_at": "2026-04-21T20:32:26.022576516Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQIzy+ZcU8d9mMUHXxf/G2PkE16nsxnrXdB/Uu8XmQuctyuMLc+NrhK9LFA1y/H43pZ+3KjBxPnYo4pnEhLrHTAI="
+  "kind": "result"
 }

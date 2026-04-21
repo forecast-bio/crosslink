@@ -2,12 +2,11 @@
   "uuid": "1a885c5a-c729-4954-a81f-7abb2f18386f",
   "display_id": 468,
   "title": "Remove unused _shell_name field from InitWalkthroughApp",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:42:32.449762884Z",
-  "updated_at": "2026-04-21T23:00:57.480824869Z",
-  "closed_at": "2026-04-21T23:00:57.480824869Z",
+  "updated_at": "2026-03-26T13:42:36.431728893Z",
   "labels": [
     "enhancement"
   ]

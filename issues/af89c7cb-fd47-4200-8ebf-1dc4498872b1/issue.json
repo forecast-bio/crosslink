@@ -2,12 +2,11 @@
   "uuid": "af89c7cb-fd47-4200-8ebf-1dc4498872b1",
   "display_id": 493,
   "title": "Inline or relocate broadcast_event utility method on executor",
-  "status": "closed",
+  "status": "open",
   "priority": "low",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-26T13:45:26.371327996Z",
-  "updated_at": "2026-04-21T23:01:58.847102631Z",
-  "closed_at": "2026-04-21T23:01:58.847102631Z",
+  "updated_at": "2026-03-26T13:45:30.282190640Z",
   "labels": [
     "enhancement"
   ]

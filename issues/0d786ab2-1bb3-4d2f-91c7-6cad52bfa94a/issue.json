@@ -2,12 +2,11 @@
   "uuid": "0d786ab2-1bb3-4d2f-91c7-6cad52bfa94a",
   "display_id": 671,
   "title": "sentinel: QA audit — remove allow(dead_code), wire up unused code",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T22:06:36.133193371Z",
-  "updated_at": "2026-04-21T23:28:21.094590124Z",
-  "closed_at": "2026-04-21T23:28:21.094590124Z",
+  "updated_at": "2026-04-10T22:06:37.995747228Z",
   "labels": [
     "bug"
   ]

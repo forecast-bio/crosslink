@@ -2,12 +2,11 @@
   "uuid": "f9808e17-7759-42a7-9801-a08b4e580450",
   "display_id": 637,
   "title": "Document team and solo presets in README and CLI help text",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-03-30T17:09:38.027933889Z",
-  "updated_at": "2026-04-21T23:26:49.829915516Z",
-  "closed_at": "2026-04-21T23:26:49.829915516Z",
+  "updated_at": "2026-03-30T17:09:54.916817748Z",
   "labels": [
     "docs"
   ]

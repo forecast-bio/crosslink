@@ -2,12 +2,11 @@
   "uuid": "b42e49af-f559-4de5-8fba-64a884bb1efc",
   "display_id": 254,
   "title": "Fix piped shell commands in skill templates that fail permission checks",
-  "status": "closed",
+  "status": "open",
   "priority": "high",
   "created_by": "maxine--basel",
   "created_at": "2026-03-23T23:43:17.899963Z",
-  "updated_at": "2026-04-21T22:41:02.002879740Z",
-  "closed_at": "2026-04-21T22:41:02.002879740Z",
+  "updated_at": "2026-03-23T23:43:19.446735Z",
   "labels": [
     "bug"
   ]

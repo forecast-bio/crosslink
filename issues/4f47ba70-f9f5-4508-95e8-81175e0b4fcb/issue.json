@@ -2,13 +2,12 @@
   "uuid": "4f47ba70-f9f5-4508-95e8-81175e0b4fcb",
   "display_id": 657,
   "title": "V0: Sonnet->Opus automatic model escalation",
-  "status": "closed",
+  "status": "open",
   "priority": "medium",
   "parent_uuid": "e05119c3-b4a1-482c-8041-439768b62b56",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-10T18:49:13.348055529Z",
-  "updated_at": "2026-04-21T23:27:41.405003848Z",
-  "closed_at": "2026-04-21T23:27:41.405003848Z",
+  "updated_at": "2026-04-10T18:53:06.232855864Z",
   "blockers": [
     "30e4651c-9756-4cc6-8c94-c594d891ef0b",
     "64618797-15a4-48cc-a24f-608b03705fae"

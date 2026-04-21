@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Phase 5.3 shipped. Three frontend polish features landed in one commit:\n\n• Theme: dark (default) + light palette via .theme-light override in index.css, lib/theme.ts resolves 'system' against prefers-color-scheme with live OS-flip tracking, one-click ☀/☾ toggle in the top nav.\n\n• Audible alerts: WebAudio-synthesised tones (severity-specific: A4/D5/G5) via lib/alertSound.ts — no MP3 assets, zero bundle growth. Plays via api/ws.ts's new subscribeAlertOpens bus on dashboard_alerts_changed WS fires where opened>0 and severity matches the user's filter.\n\n• Preferences page: /settings/preferences with theme radio + audible toggle + severity checkboxes. lib/preferences.ts stores settings in localStorage with useSyncExternalStore-backed React hook, canonical-order dedupe on save, sanitization + tolerance for corrupted JSON on load.\n\nExplicit scope cuts: 'custom dashboards' (too vague for a single-PR implementation — needs its own design pass), per-project mute, notification snooze windows.\n\nTests: 25 new vitest cases across 4 files (preferences store, theme observer incl. media-listener lifecycle, alertSound bridge, SettingsPreferences UI). Full suite: 81/81 pass, tsc clean. No backend changes this phase.",
   "created_at": "2026-04-21T16:17:05.934259971Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQOHobmnFrHrw9FkdmXeS3UXiqUVNkxSKEMxU7zC3r9JzoJzUUwdetM/B96bV2liOxqREZcFhCWWUlBYI9iXu/Qw="
+  "kind": "result"
 }

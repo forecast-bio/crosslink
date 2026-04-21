@@ -4,7 +4,5 @@
   "author": "anon-ab6221f8",
   "content": "Shipped in c7d9683a. `crosslink dashboard discover [--root <P>...] [--depth N] [--track]` walks a bounded set of dev roots, matches directories that have BOTH `.git` and `.crosslink/` at the root, skips the usual noise list (node_modules/target/.venv/.cache/hidden dirs), and reports a SLUG/TRACKED?/PATH table. With --track it promotes new hits via the existing projects::track entry point. Symlink-loop defence via canonical-path visited-set; doesn't follow symlinks. 5 unit tests in a temp-dir fixture. Verified against the user's $HOME: found 3 repos (forecast-bio/crosslink, dollspace-gay/OpenClaudia, dollspace-gay/ferrotorch), --track promoted the two new ones, all three tiles populated on the live dashboard within one poll tick.",
   "created_at": "2026-04-21T16:46:05.512287975Z",
-  "kind": "result",
-  "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
-  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQBveZlCmz7Q4hx1Z+mazTHe15ytNIQKUZ3qXKWJJuwOdKv8dCxmCZfo4np8l9JQ+WqD6rz/9JX3TiL/I0Fy3gAg="
+  "kind": "result"
 }
