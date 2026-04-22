@@ -2,11 +2,12 @@
   "uuid": "b93375ab-94ea-4138-9e95-2aca9b413a32",
   "display_id": 685,
   "title": "Restore agent/human-driver hook separation broken by auto-agent-init in crosslink init (see #566)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T12:58:39.965602812Z",
-  "updated_at": "2026-04-20T12:58:53.458062955Z",
+  "updated_at": "2026-04-22T01:26:51.958134019Z",
+  "closed_at": "2026-04-22T01:26:51.958134019Z",
   "labels": [
     "bug"
   ]
