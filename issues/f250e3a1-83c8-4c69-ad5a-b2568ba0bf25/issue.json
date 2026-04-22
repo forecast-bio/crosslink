@@ -2,11 +2,12 @@
   "uuid": "f250e3a1-83c8-4c69-ad5a-b2568ba0bf25",
   "display_id": 684,
   "title": "Fix crosslink design passing invalid --prompt flag to claude CLI",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T12:36:42.224254967Z",
-  "updated_at": "2026-04-20T12:37:10.602008325Z",
+  "updated_at": "2026-04-22T01:26:45.654830335Z",
+  "closed_at": "2026-04-22T01:26:45.654830335Z",
   "labels": [
     "bug"
   ]
