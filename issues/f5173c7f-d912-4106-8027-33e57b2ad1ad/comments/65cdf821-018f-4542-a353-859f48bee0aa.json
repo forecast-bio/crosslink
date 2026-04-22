@@ -1,0 +1,10 @@
+{
+  "uuid": "65cdf821-018f-4542-a353-859f48bee0aa",
+  "issue_uuid": "f5173c7f-d912-4106-8027-33e57b2ad1ad",
+  "author": "dashboard-bootstrap",
+  "content": "Root cause: portable_pty's spawn path on the macOS CI runner rejects /bin/true with ENOENT, even though the file exists. The test_spawn_echo_completes_with_exit_zero test succeeds because it goes through /bin/sh -c. Fix: replace /bin/true with /bin/sh -c ':' to match the working test's pattern and sidestep the runner edge case.",
+  "created_at": "2026-04-22T00:27:32.568083779Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALdHBo22si/74lclfpRGJj729OALQ71Ms06bl8a7obGT5E9RBVUgPNaSEumnWNl2L66n8IlJoEmXPGjN1mjUYBA=="
+}
