@@ -1,0 +1,10 @@
+{
+  "uuid": "d286e842-863f-42bb-b1bb-fb5c1cada40c",
+  "issue_uuid": "f5173c7f-d912-4106-8027-33e57b2ad1ad",
+  "author": "dashboard-bootstrap",
+  "content": "Shipped as 437480b7. All 3 pty tests pass locally; fmt + clippy clean.",
+  "created_at": "2026-04-22T00:27:48.871594562Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABANhsB0APdRJXt8HOGmEzUavI9yJABaZhXf7M3uB7DbH2WnLyIN0wnoi5HyjKq9uv5Qg1g7PkBQ8yJjFe+J56hDA=="
+}
