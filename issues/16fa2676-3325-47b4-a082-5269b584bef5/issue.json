@@ -2,11 +2,12 @@
   "uuid": "16fa2676-3325-47b4-a082-5269b584bef5",
   "display_id": 719,
   "title": "cargo fmt + clippy cleanup after signing work",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "dashboard-bootstrap",
   "created_at": "2026-04-22T00:02:48.226564205Z",
-  "updated_at": "2026-04-22T00:02:49.791365892Z",
+  "updated_at": "2026-04-22T00:03:49.111012420Z",
+  "closed_at": "2026-04-22T00:03:49.111012420Z",
   "labels": [
     "cleanup"
   ]
