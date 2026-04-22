@@ -1,0 +1,10 @@
+{
+  "uuid": "060bb932-0d39-4dac-801f-bc8b622eb0f4",
+  "issue_uuid": "16fa2676-3325-47b4-a082-5269b584bef5",
+  "author": "dashboard-bootstrap",
+  "content": "fmt reflowed dashboard/sync/trust/state/webhook; fixed clippy single_match_else (agent.rs), unnecessary_map_or (sync/tests.rs), unnecessary_trailing_comma (webhook.rs); updated agent init() callers in tests for new role param",
+  "created_at": "2026-04-22T00:03:30.073595711Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAJZtKu7JvzC+PJgM1MG2CMwCe5CQbIj9DV8UXPzj6GJ5naCaRqWXVMr08P45Q2DF4eYBEaTFEfJZ6ciRA0aSgDg=="
+}
