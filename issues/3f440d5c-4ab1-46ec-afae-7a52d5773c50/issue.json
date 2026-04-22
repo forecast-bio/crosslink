@@ -2,11 +2,12 @@
   "uuid": "3f440d5c-4ab1-46ec-afae-7a52d5773c50",
   "display_id": 686,
   "title": "Auto-repair stale user.signingkey in hub-cache config.worktree after agent worktree deletion (#565)",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "anon-ab6221f8",
   "created_at": "2026-04-20T13:45:15.321655538Z",
-  "updated_at": "2026-04-20T13:45:30.073351662Z",
+  "updated_at": "2026-04-22T01:26:46.912862961Z",
+  "closed_at": "2026-04-22T01:26:46.912862961Z",
   "labels": [
     "bug"
   ]
