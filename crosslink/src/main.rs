@@ -3228,20 +3228,13 @@ fn main() -> Result<()> {
             }
             DashboardCommands::Untrack { slug } => dashboard::projects::untrack(&slug),
             DashboardCommands::List => dashboard::projects::list(),
-            DashboardCommands::Discover {
-                root,
-                depth,
-                track,
-            } => {
+            DashboardCommands::Discover { root, depth, track } => {
                 let opts = if root.is_empty() {
                     let mut o = dashboard::discover::DiscoverOptions::defaults();
                     o.depth = depth;
                     o
                 } else {
-                    dashboard::discover::DiscoverOptions {
-                        roots: root,
-                        depth,
-                    }
+                    dashboard::discover::DiscoverOptions { roots: root, depth }
                 };
                 let db_path = dashboard::db::DashboardDb::default_path()?;
                 let db = dashboard::db::DashboardDb::open(&db_path)?;
@@ -3267,8 +3260,7 @@ fn main() -> Result<()> {
                     );
                 }
                 if track {
-                    let to_track: Vec<_> =
-                        hits.iter().filter(|h| !h.already_tracked).collect();
+                    let to_track: Vec<_> = hits.iter().filter(|h| !h.already_tracked).collect();
                     if to_track.is_empty() {
                         println!("\nAll {} hits already tracked.", hits.len());
                     } else {

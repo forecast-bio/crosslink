@@ -266,10 +266,8 @@ fn load_project_list(db_path: &std::path::Path) -> Result<Vec<ProjectListItem>, 
     let rows = stmt
         .query_map([], |row| {
             let clone_path: String = row.get(7)?;
-            let write_capability = super::projects::write_capability(
-                std::path::Path::new(&clone_path),
-            )
-            .as_str();
+            let write_capability =
+                super::projects::write_capability(std::path::Path::new(&clone_path)).as_str();
             Ok(ProjectListItem {
                 slug: row.get(0)?,
                 status: row.get(1)?,
@@ -585,7 +583,12 @@ async fn clone_repo(
     }
 
     // Derive slug from the URL if the caller didn't provide one.
-    let slug = match body.slug.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let slug = match body
+        .slug
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s.to_string(),
         None => super::projects::slug_from_remote_url(&url).ok_or_else(|| {
             ApiError::bad_request(format!(
@@ -597,9 +600,10 @@ async fn clone_repo(
     // Default to `$HOME` so each repo lands at `~/<owner>/<repo>`
     // — same as track-all and consistent with the discover walker
     // which scans `$HOME` for crosslink-enabled repos.
-    let clone_root = body.clone_root.clone().unwrap_or_else(|| {
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
-    });
+    let clone_root = body
+        .clone_root
+        .clone()
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
 
     // If init was requested, require agent_id up front so we bail
     // before the network fetch.
@@ -632,8 +636,8 @@ async fn clone_repo(
 
     // Clone + register all on the blocking pool.
     let slug_for_task = slug.clone();
-    let outcome = tokio::task::spawn_blocking(
-        move || -> Result<CloneRepoOutcome, anyhow::Error> {
+    let outcome =
+        tokio::task::spawn_blocking(move || -> Result<CloneRepoOutcome, anyhow::Error> {
             if !target.is_dir() {
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent)?;
@@ -662,11 +666,10 @@ async fn clone_repo(
                 clone_path: target.to_string_lossy().into_owned(),
                 initialized,
             })
-        },
-    )
-    .await
-    .map_err(|e| ApiError::internal(format!("clone task panicked: {e}")))?
-    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("clone task panicked: {e}")))?
+        .map_err(|e| ApiError::internal(format!("{e:#}")))?;
 
     Ok(Json(outcome))
 }
@@ -695,8 +698,8 @@ async fn init_project(
 
     // Move into a blocking task — both shells do real FS work.
     let clone_path = project.clone_path.clone();
-    let outcome = tokio::task::spawn_blocking(
-        move || -> Result<(String, String), anyhow::Error> {
+    let outcome =
+        tokio::task::spawn_blocking(move || -> Result<(String, String), anyhow::Error> {
             if super::projects::write_capability(&clone_path)
                 == super::projects::WriteCapability::Ready
             {
@@ -710,15 +713,14 @@ async fn init_project(
                 format!("Initialised {} with agent {agent_id}", project.slug),
                 String::new(),
             ))
-        },
-    )
-    .await
-    .map_err(|e| ApiError::internal(format!("init task panicked: {e}")))?
-    // `{:#}` includes the anyhow context chain (e.g. the underlying
-    // OS error like "No such file or directory" under the
-    // "spawn `crosslink init`" wrapper) instead of just the top
-    // line. Without this, users see the wrapper and can't diagnose.
-    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("init task panicked: {e}")))?
+        // `{:#}` includes the anyhow context chain (e.g. the underlying
+        // OS error like "No such file or directory" under the
+        // "spawn `crosslink init`" wrapper) instead of just the top
+        // line. Without this, users see the wrapper and can't diagnose.
+        .map_err(|e| ApiError::internal(format!("{e:#}")))?;
 
     Ok(Json(ActionResponse {
         stdout: outcome.0,

@@ -3093,9 +3093,9 @@ fn test_repair_stale_signingkey_no_worktree_override_is_noop() {
                 .then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
         })
         .filter(|s| !s.is_empty());
-    let global_key_exists_or_absent = global_key.as_ref().map_or(true, |k| {
-        std::path::Path::new(k).exists() || k.starts_with("ssh-")
-    });
+    let global_key_exists_or_absent = global_key
+        .as_ref()
+        .is_none_or(|k| std::path::Path::new(k).exists() || k.starts_with("ssh-"));
     if !global_key_exists_or_absent {
         // Skip — host has a stale global signingkey; not our test scenario.
         return;

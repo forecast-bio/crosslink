@@ -94,10 +94,7 @@ fn generate_auth_token() -> String {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(
-                    &path,
-                    std::fs::Permissions::from_mode(0o600),
-                );
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
             }
         }
         return fresh;
@@ -120,7 +117,9 @@ fn token_path() -> Option<PathBuf> {
 }
 
 fn is_valid_hex_token(s: &str) -> bool {
-    s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase()))
+    s.len() == 32
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase()))
 }
 
 fn fresh_hex_token() -> String {

@@ -245,7 +245,9 @@ pub fn load_urls(db: &DashboardDb) -> Result<Vec<String>> {
             |v: String| Ok(Some(v)),
         )?;
 
-    let Some(raw) = value else { return Ok(Vec::new()) };
+    let Some(raw) = value else {
+        return Ok(Vec::new());
+    };
     let urls: Vec<String> =
         serde_json::from_str(&raw).context("decoding stored webhook.urls JSON")?;
     Ok(urls)
@@ -258,8 +260,10 @@ pub fn load_urls(db: &DashboardDb) -> Result<Vec<String>> {
 /// Propagates any `SQLite` error.
 pub fn save_urls(db: &DashboardDb, urls: &[String]) -> Result<()> {
     if urls.is_empty() {
-        db.conn
-            .execute("DELETE FROM config WHERE key = ?1", params![KEY_WEBHOOK_URLS])?;
+        db.conn.execute(
+            "DELETE FROM config WHERE key = ?1",
+            params![KEY_WEBHOOK_URLS],
+        )?;
         return Ok(());
     }
     let payload = serde_json::to_string(urls).context("encoding webhook.urls JSON")?;
@@ -297,10 +301,7 @@ pub async fn dispatch(url: &str, notification: &AlertNotification) -> Result<()>
     if !status.is_success() {
         let body_snippet = resp.text().await.unwrap_or_default();
         let trimmed = body_snippet.chars().take(200).collect::<String>();
-        anyhow::bail!(
-            "webhook {} returned {status}: {trimmed}",
-            mask_url(url),
-        );
+        anyhow::bail!("webhook {} returned {status}: {trimmed}", mask_url(url));
     }
     Ok(())
 }
@@ -311,10 +312,7 @@ pub async fn dispatch(url: &str, notification: &AlertNotification) -> Result<()>
 pub async fn dispatch_all(urls: &[String], notification: &AlertNotification) {
     for url in urls {
         if let Err(e) = dispatch(url, notification).await {
-            tracing::warn!(
-                "webhook dispatch failed for {}: {e:#}",
-                mask_url(url),
-            );
+            tracing::warn!("webhook dispatch failed for {}: {e:#}", mask_url(url),);
         }
     }
 }
@@ -346,9 +344,7 @@ mod tests {
 
     #[test]
     fn test_is_discord_url() {
-        assert!(is_discord_url(
-            "https://discord.com/api/webhooks/123/abc"
-        ));
+        assert!(is_discord_url("https://discord.com/api/webhooks/123/abc"));
         assert!(is_discord_url(
             "https://discordapp.com/api/webhooks/123/abc"
         ));

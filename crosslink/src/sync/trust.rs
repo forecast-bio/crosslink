@@ -106,16 +106,14 @@ impl SyncManager {
         // agent's subagent worktree. The role lives in agent.json;
         // if agent.json is missing we default to driver (the main-
         // repo case is the common one).
-        let is_agent_worktree = AgentConfig::load(crosslink_dir)?
-            .is_some_and(|c| matches!(c.role, AgentRole::Agent));
+        let is_agent_worktree =
+            AgentConfig::load(crosslink_dir)?.is_some_and(|c| matches!(c.role, AgentRole::Agent));
 
         if is_agent_worktree {
             // Subagent worktree — sign with the agent's key so the
             // attribution is distinct.
             if let Some(agent) = AgentConfig::load(crosslink_dir)? {
-                if let (Some(rel_key), Some(_)) =
-                    (&agent.ssh_key_path, &agent.ssh_fingerprint)
-                {
+                if let (Some(rel_key), Some(_)) = (&agent.ssh_key_path, &agent.ssh_fingerprint) {
                     let private_key = self.crosslink_dir.join(rel_key);
                     if private_key.exists() {
                         signing::configure_git_ssh_signing(

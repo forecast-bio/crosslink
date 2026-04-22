@@ -399,7 +399,6 @@ fn run_init_and_agent_inner(
     workspace: &Path,
     agent_id: &str,
 ) -> Result<()> {
-
     // `--force` lets init re-run cleanly when a previous retrofit left
     // partial state (a stray `.crosslink/agent.json` without
     // `issues.db` / `hook-config.json`). Idempotent on already-clean
@@ -420,9 +419,16 @@ fn run_init_and_agent_inner(
         let stdout = String::from_utf8_lossy(&init_out.stdout).trim().to_string();
         bail!(
             "crosslink init failed (exit {}): {}{}{}",
-            init_out.status.code().map_or_else(|| "signal".into(), |c| c.to_string()),
+            init_out
+                .status
+                .code()
+                .map_or_else(|| "signal".into(), |c| c.to_string()),
             stderr,
-            if !stderr.is_empty() && !stdout.is_empty() { "; stdout: " } else { "" },
+            if !stderr.is_empty() && !stdout.is_empty() {
+                "; stdout: "
+            } else {
+                ""
+            },
             stdout,
         );
     }
@@ -461,13 +467,24 @@ fn run_init_and_agent_inner(
             )
         })?;
     if !agent_out.status.success() {
-        let stderr = String::from_utf8_lossy(&agent_out.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&agent_out.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&agent_out.stderr)
+            .trim()
+            .to_string();
+        let stdout = String::from_utf8_lossy(&agent_out.stdout)
+            .trim()
+            .to_string();
         bail!(
             "crosslink agent init failed (exit {}): {}{}{}",
-            agent_out.status.code().map_or_else(|| "signal".into(), |c| c.to_string()),
+            agent_out
+                .status
+                .code()
+                .map_or_else(|| "signal".into(), |c| c.to_string()),
             stderr,
-            if !stderr.is_empty() && !stdout.is_empty() { "; stdout: " } else { "" },
+            if !stderr.is_empty() && !stdout.is_empty() {
+                "; stdout: "
+            } else {
+                ""
+            },
             stdout,
         );
     }

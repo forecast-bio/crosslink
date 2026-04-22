@@ -168,7 +168,9 @@ pub fn unseal(value: &str, db_path: &std::path::Path) -> Option<String> {
     let key_bytes = derive_machine_key(db_path);
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     let cipher = Aes256Gcm::new(key);
-    let pt = cipher.decrypt(Nonce::from_slice(&nonce_bytes), ct.as_ref()).ok()?;
+    let pt = cipher
+        .decrypt(Nonce::from_slice(&nonce_bytes), ct.as_ref())
+        .ok()?;
     String::from_utf8(pt).ok()
 }
 
@@ -178,10 +180,8 @@ pub fn unseal(value: &str, db_path: &std::path::Path) -> Option<String> {
 /// Returns an error for DB failures or encryption failures.
 pub fn set_token(db: &DashboardDb, token: &str, db_path: &std::path::Path) -> Result<()> {
     if token.is_empty() {
-        db.conn.execute(
-            "DELETE FROM config WHERE key = ?1",
-            params![KEY_TOKEN],
-        )?;
+        db.conn
+            .execute("DELETE FROM config WHERE key = ?1", params![KEY_TOKEN])?;
         return Ok(());
     }
     let sealed = seal(token, db_path)?;
@@ -284,7 +284,8 @@ pub fn set_plain(db: &DashboardDb, key: &str, value: Option<&str>) -> Result<()>
             params![key, v],
         )?;
     } else {
-        db.conn.execute("DELETE FROM config WHERE key = ?1", params![key])?;
+        db.conn
+            .execute("DELETE FROM config WHERE key = ?1", params![key])?;
     }
     Ok(())
 }

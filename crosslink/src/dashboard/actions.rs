@@ -188,7 +188,9 @@ pub async fn run_cli(
             tracing::warn!(
                 "post-{verb} `crosslink sync` in {} exited {}: {}",
                 project.slug,
-                out.status.code().map_or_else(|| "signal".into(), |c| c.to_string()),
+                out.status
+                    .code()
+                    .map_or_else(|| "signal".into(), |c| c.to_string()),
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }
@@ -204,10 +206,7 @@ pub async fn run_cli(
     // Skip the reset if the worktree has uncommitted state —
     // something else (concurrent CLI call) is mid-write; don't
     // wipe their progress. Same safety as poll::ensure_hub_cache_worktree.
-    let hub_cache = project
-        .clone_path
-        .join(".crosslink")
-        .join(".hub-cache");
+    let hub_cache = project.clone_path.join(".crosslink").join(".hub-cache");
     if hub_cache.is_dir() {
         let porcelain = Command::new("git")
             .arg("-C")

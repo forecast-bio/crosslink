@@ -72,8 +72,7 @@ async fn get_webhooks(
     let urls = tokio::task::spawn_blocking(move || -> Result<Vec<String>, WebhookApiError> {
         let db = DashboardDb::open(&db_path)
             .map_err(|e| WebhookApiError::Internal(format!("open db: {e}")))?;
-        webhook::load_urls(&db)
-            .map_err(|e| WebhookApiError::Internal(format!("load urls: {e}")))
+        webhook::load_urls(&db).map_err(|e| WebhookApiError::Internal(format!("load urls: {e}")))
     })
     .await
     .map_err(|e| WebhookApiError::Internal(format!("task panicked: {e}")))??;
@@ -95,9 +94,7 @@ async fn put_webhooks(
             continue;
         }
         if let Err(reason) = webhook::validate_url(&trimmed) {
-            return Err(WebhookApiError::BadRequest(format!(
-                "{trimmed}: {reason}"
-            )));
+            return Err(WebhookApiError::BadRequest(format!("{trimmed}: {reason}")));
         }
         cleaned.push(trimmed);
     }
@@ -107,8 +104,7 @@ async fn put_webhooks(
             .map_err(|e| WebhookApiError::Internal(format!("open db: {e}")))?;
         webhook::save_urls(&db, &cleaned)
             .map_err(|e| WebhookApiError::Internal(format!("save urls: {e}")))?;
-        webhook::load_urls(&db)
-            .map_err(|e| WebhookApiError::Internal(format!("reload urls: {e}")))
+        webhook::load_urls(&db).map_err(|e| WebhookApiError::Internal(format!("reload urls: {e}")))
     })
     .await
     .map_err(|e| WebhookApiError::Internal(format!("task panicked: {e}")))??;

@@ -240,9 +240,10 @@ async fn track_all(
     // filesystem-discover walker already scans `$HOME` for repos
     // with `.crosslink/`, so this layout gets picked up natively
     // without needing to special-case a "tracked" subdir.
-    let clone_root = body.clone_root.clone().unwrap_or_else(|| {
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
-    });
+    let clone_root = body
+        .clone_root
+        .clone()
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
 
     // Up-front validation: if init was requested, we need an agent_id
     // before we start any clones — rejecting here saves the user from
@@ -282,7 +283,16 @@ async fn track_all(
             let https_url = hit.https_url.clone();
             let slug = slug.clone();
             let init = init_config.clone();
-            move || ensure_clone_and_track(&db_path, &target, &ssh_url, &https_url, &slug, init.as_deref())
+            move || {
+                ensure_clone_and_track(
+                    &db_path,
+                    &target,
+                    &ssh_url,
+                    &https_url,
+                    &slug,
+                    init.as_deref(),
+                )
+            }
         })
         .await
         .map_err(|e| GitHubApiError::Internal(format!("track task panicked: {e}")))?;
@@ -323,7 +333,12 @@ fn ensure_clone_and_track(
             std::fs::create_dir_all(parent)?;
         }
         let clone_res = std::process::Command::new("git")
-            .args(["clone", "--quiet", ssh_url, target.to_string_lossy().as_ref()])
+            .args([
+                "clone",
+                "--quiet",
+                ssh_url,
+                target.to_string_lossy().as_ref(),
+            ])
             .status();
         let cloned = matches!(clone_res, Ok(s) if s.success());
         if !cloned {
@@ -345,9 +360,7 @@ fn ensure_clone_and_track(
     // is idempotent-on-Ready (skips if .crosslink/ + driver-key.pub
     // are already in place).
     if let Some(agent_id) = init_agent_id {
-        if super::projects::write_capability(target)
-            != super::projects::WriteCapability::Ready
-        {
+        if super::projects::write_capability(target) != super::projects::WriteCapability::Ready {
             super::projects::run_init_and_agent_in(target, agent_id)?;
         }
     }
@@ -395,9 +408,8 @@ async fn enumerate_org_crosslink_repos(org: &str, token: &str) -> Result<Vec<Rep
     let mut out = Vec::new();
     let mut page = 1u32;
     loop {
-        let url = format!(
-            "https://api.github.com/orgs/{org}/repos?per_page=100&page={page}&type=all"
-        );
+        let url =
+            format!("https://api.github.com/orgs/{org}/repos?per_page=100&page={page}&type=all");
         let resp = client
             .get(&url)
             .bearer_auth(token)

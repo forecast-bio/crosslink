@@ -341,8 +341,7 @@ pub fn init(
     // sign with the main repo's `user.signingkey` (the human's
     // GitHub-registered key); `Agent` makes them sign with this
     // agent's own key (subagent worktree attribution). See #718.
-    let mut config =
-        AgentConfig::init_with_role(crosslink_dir, agent_id, description, role)?;
+    let mut config = AgentConfig::init_with_role(crosslink_dir, agent_id, description, role)?;
 
     // Generate SSH key unless opted out
     if !no_key {
@@ -397,9 +396,7 @@ pub fn init(
                         let path = crosslink_dir.join("agent.json");
                         if let Ok(json) = serde_json::to_string_pretty(&config) {
                             let _ = std::fs::write(&path, json);
-                            println!(
-                                "  SSH key: reused existing key (commit signing enabled)"
-                            );
+                            println!("  SSH key: reused existing key (commit signing enabled)");
                         }
                     } else {
                         println!("  Warning: Could not reuse existing SSH key: {e}");
@@ -423,9 +420,7 @@ pub fn init(
     // agent's own key.
     if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
         if let Err(e) = sync.configure_signing(crosslink_dir) {
-            tracing::warn!(
-                "could not (re)configure commit signing after agent init: {e}"
-            );
+            tracing::warn!("could not (re)configure commit signing after agent init: {e}");
         }
     }
 
@@ -969,7 +964,15 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", Some("Test agent"), true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            Some("Test agent"),
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -982,8 +985,23 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
-        let result = init(&crosslink_dir, "worker-2", None, true, false);
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
+        let result = init(
+            &crosslink_dir,
+            "worker-2",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        );
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -997,8 +1015,24 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
-        init(&crosslink_dir, "worker-2", Some("New agent"), true, true).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
+        init(
+            &crosslink_dir,
+            "worker-2",
+            Some("New agent"),
+            true,
+            true,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-2");
@@ -1014,7 +1048,15 @@ mod tests {
         // Write invalid JSON
         std::fs::write(crosslink_dir.join("agent.json"), "not valid json").unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -1033,7 +1075,15 @@ mod tests {
         )
         .unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -1055,7 +1105,15 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "my-agent", Some("My agent"), true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "my-agent",
+            Some("My agent"),
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
         status(&crosslink_dir).unwrap();
     }
 }

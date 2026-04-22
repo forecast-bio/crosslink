@@ -318,7 +318,10 @@ fn json_response(filename: &str, body: String) -> Response {
 async fn export_projects_csv(State(state): State<AppState>) -> Result<Response, ExportError> {
     let db_path = require_db_path(&state)?;
     let rows = load_projects(db_path).await?;
-    Ok(csv_response("crosslink-projects.csv", projects_to_csv(&rows)))
+    Ok(csv_response(
+        "crosslink-projects.csv",
+        projects_to_csv(&rows),
+    ))
 }
 
 async fn export_projects_json(State(state): State<AppState>) -> Result<Response, ExportError> {
@@ -364,11 +367,7 @@ mod tests {
         (state, dir)
     }
 
-    fn seed_project(
-        db_path: &std::path::Path,
-        slug: &str,
-        clone_path: &std::path::Path,
-    ) -> i64 {
+    fn seed_project(db_path: &std::path::Path, slug: &str, clone_path: &std::path::Path) -> i64 {
         let db = DashboardDb::open(db_path).unwrap();
         db.conn
             .execute(
