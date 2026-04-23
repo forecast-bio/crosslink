@@ -1,0 +1,10 @@
+{
+  "uuid": "c2ca700f-9eac-4959-8cad-e3ae7b86643f",
+  "issue_uuid": "9448fd71-bc44-4152-8299-367abaca496f",
+  "author": "dashboard-bootstrap",
+  "content": "Installed uv 0.11.7 and verified both crosslink-knowledge and crosslink-safe-fetch MCP servers now connect. Open Targets failure is an unrelated upstream outage (left open for monitoring — not a local fix).",
+  "created_at": "2026-04-23T13:04:31.117791534Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAoFVDmGnHk6OrkfTa4axTvMIua3Dx/gVD+ArVihRphYRJLFzWdq8HI2pg07icfD/ChlCzXXD6ZyafC2A4t/V1CQ=="
+}
