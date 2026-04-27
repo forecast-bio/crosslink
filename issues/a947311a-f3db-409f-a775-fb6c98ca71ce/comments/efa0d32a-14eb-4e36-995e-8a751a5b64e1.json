@@ -1,0 +1,10 @@
+{
+  "uuid": "efa0d32a-14eb-4e36-995e-8a751a5b64e1",
+  "issue_uuid": "a947311a-f3db-409f-a775-fb6c98ca71ce",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: 1) Locate the 'sync: auto-stage dirty hub state' string to find originator. 2) Audit shared_writer/core.rs (per prior-art #466). 3) Verify all git operations that emit this commit explicitly bind to hub-cache via -C or by chdir/git-dir, not ambient cwd. 4) Add branch-prefix hard-block per issue suggestion: refuse to commit hub-recovery content if HEAD branch is not the tracker branch. 5) Write a regression test.",
+  "created_at": "2026-04-27T17:19:38.222530261Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvGo7S8g3LithyIoXC2NoEbDi/jYoxqwnesIi1f8xsH4Vun6RmTQzfum6QubLA+XSbqkWGBoKiZjWV0dsWvYtBQ=="
+}
