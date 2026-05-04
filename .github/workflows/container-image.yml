@@ -242,6 +242,19 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
 
+      # GHCR creates new packages as PRIVATE by default on first publish,
+      # regardless of repo visibility. Until the package is manually flipped
+      # to public via Settings -> Packages, even pulling a tag we just
+      # pushed in the same workflow requires auth — hence the login here.
+      # When the package is public this step is harmless (login still works,
+      # subsequent pulls just don't need it).
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Pull image
         run: docker pull --platform ${{ matrix.platform }} ${{ needs.publish-image.outputs.primary_tag }}
 
