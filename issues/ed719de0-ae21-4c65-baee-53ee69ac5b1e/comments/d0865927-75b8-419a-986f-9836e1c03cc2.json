@@ -1,0 +1,10 @@
+{
+  "uuid": "d0865927-75b8-419a-986f-9836e1c03cc2",
+  "issue_uuid": "ed719de0-ae21-4c65-baee-53ee69ac5b1e",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: commit the GH#576 implementation as one logical unit. 7 files: new .github/workflows/container-image.yml (multi-arch musl build matrix, develop->:nightly, v*->:version+:latest, PR build-only, smoke-verify with manifest jq assertion); Dockerfile + entrypoint.sh both de-hardcoded for arch via TARGETARCH/dpkg; .gitignore excludes container/crosslink-* artifacts; justfile gets build-image + push-image recipes; launch.rs format_container_launch_error helper with 5 unit tests covering positive cases (not found / denied / no such image / case-insensitive) and the anti-misdirection negative case; docs_src/guides/container-agents.qmd updated to reflect the GHCR-published reality and the new local recipe. Conventional commit message refs both the GH#576 upstream issue and the local #727 design issue. Architect verdict: APPROVE.",
+  "created_at": "2026-05-04T20:15:28.774068346Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwQMELC58o91eyrT9lovOAsDMIZHgkBEbKAnsUMaB+ijL1amypf/uM5HAoiE4bNwncgNQxzKOheEgPZIv4XJzBA=="
+}
