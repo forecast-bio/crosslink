@@ -1,0 +1,10 @@
+{
+  "uuid": "6f91c590-811b-4fbf-8a53-d5b78f9e3de9",
+  "issue_uuid": "ed719de0-ae21-4c65-baee-53ee69ac5b1e",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: cross build now compiles past the libsqlite3-sys link failure but hits a new error — rust-embed's compile-time check for ../dashboard/dist/ fails because cross mounts only the crate dir (crosslink/) as /project, putting ../dashboard/ outside the mount. build.rs's placeholder-write fallback also fails (different filesystem perms inside the cross container). Fix: add crosslink/Cross.toml with a pre-build directive that creates /dashboard/dist/ with permissive perms inside the cross container's filesystem. cross's pre-build runs at image-build time and the result persists in the cross-image, so build.rs (which then runs at cargo-build time inside that image) can drop its placeholder index.html into the now-writable directory and rust-embed sees it at compile time. Single new file. Surgical to the cross-only path; no impact on native amd64 build.",
+  "created_at": "2026-05-04T20:43:06.745104871Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvozBnA3PHP/lKc7QpSYB6f40WrLGl1MzKd6wwbtrWoaJSFU2iujpAEoEfhjaCY6AHRKZef2wGUq4baCXTrZXAw=="
+}
