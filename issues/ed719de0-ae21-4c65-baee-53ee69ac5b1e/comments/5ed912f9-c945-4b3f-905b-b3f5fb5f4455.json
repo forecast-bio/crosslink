@@ -1,0 +1,10 @@
+{
+  "uuid": "5ed912f9-c945-4b3f-905b-b3f5fb5f4455",
+  "issue_uuid": "ed719de0-ae21-4c65-baee-53ee69ac5b1e",
+  "author": "dashboard-bootstrap",
+  "content": "Result: committed 2ec6ecd5. New file crosslink/Cross.toml (+31 lines). Pre-build directive creates /dashboard/dist/ with 0777 perms inside the cross container's filesystem so build.rs can write the dashboard placeholder there at cargo-build time, satisfying rust-embed's compile-time folder check. Surgical: only the arm64 cross target loads Cross.toml; native amd64 build is untouched. TOML validated. Pushed-by-user state: fast-forward on top of 7dd76ed3, PR #578 picks up automatically. Branch state: 4 commits ahead of develop.",
+  "created_at": "2026-05-04T20:44:22.085085204Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA2pI15AukxxE4Bh8PYSNoZjuyNBYVY54LJtTkZ0AmBcGYJf4XFFQ9FG1QwznHfvqfwZSSeUrhbxfradnJ1jA4Aw=="
+}
