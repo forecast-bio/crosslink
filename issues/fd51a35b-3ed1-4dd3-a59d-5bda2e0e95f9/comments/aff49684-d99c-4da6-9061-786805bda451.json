@@ -1,0 +1,10 @@
+{
+  "uuid": "aff49684-d99c-4da6-9061-786805bda451",
+  "issue_uuid": "fd51a35b-3ed1-4dd3-a59d-5bda2e0e95f9",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: two-part fix. (1) smoke-verify job needs a docker login step before docker pull — currently only publish-image authenticates with GITHUB_TOKEN, so smoke-verify hits 'unauthorized' against the just-pushed (private-by-default) GHCR package. Adding the same docker/login-action@v3 step that publish-image uses. (2) The deeper issue: GH#576's whole point was 'users can pull without manual auth' — but GHCR creates packages as private on first publish, and the only way to make them public is a manual admin action via the package settings page. CI fix unblocks the workflow; the manual step unblocks the actual user-facing feature. Documenting the manual step in the PR body + adding a CHANGELOG note + considering whether to add a one-time bootstrap script. Need to verify whether linking the package to the repo (which happens automatically on first push) inherits the repo's visibility — I think it does for new packages, but the existing :nightly was published before any visibility setting was made, so it may need explicit toggling.",
+  "created_at": "2026-05-04T21:24:49.887178459Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA+c2EXrlHC2Ql7zihcpdOnpjdvb4u7ulcsFngh0KglKf1KSkZ5eMcOv7sZj0MYdTUu+amQS0T5mXbulmBkIXMBA=="
+}
