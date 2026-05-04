@@ -1,0 +1,10 @@
+{
+  "uuid": "a2b9467d-6d2b-441c-8b8b-15b48d217371",
+  "issue_uuid": "68a57297-6f8e-480c-80b2-c631ab26ba70",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: cargo fmt on the test file collapsed two short assert!() blocks onto single lines. Cosmetic-only follow-up commit.",
+  "created_at": "2026-05-04T14:53:38.509939497Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA7EJdP1v9CErI0D2vmNjglJZrl7iYa+lNkp50oVpfj1iakSwtbn2NMMchsuF7JrcvknV6uBBUxY/g1Y2otphRAQ=="
+}
