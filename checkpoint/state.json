@@ -2,12 +2,7 @@
   "next_display_id": 1,
   "next_comment_id": 1,
   "display_id_map": {},
-  "locks": {
-    "726": {
-      "agent_id": "dashboard-bootstrap",
-      "claimed_at": "2026-05-04T14:36:05.443539928Z"
-    }
-  },
+  "locks": {},
   "issues": {},
   "unsigned_event_warnings": [
     {
@@ -137,8 +132,8 @@
     }
   ],
   "watermark": {
-    "timestamp": "2026-05-04T14:36:05.443539928Z",
+    "timestamp": "2026-05-04T19:32:11.965897101Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 39
+    "agent_seq": 40
   }
 }
