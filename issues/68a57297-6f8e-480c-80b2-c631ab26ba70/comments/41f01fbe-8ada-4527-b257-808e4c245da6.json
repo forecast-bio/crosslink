@@ -1,0 +1,10 @@
+{
+  "uuid": "41f01fbe-8ada-4527-b257-808e4c245da6",
+  "issue_uuid": "68a57297-6f8e-480c-80b2-c631ab26ba70",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: vendor 18 skills from ~/.claude/skills/ into crosslink/resources/claude/skills/ (deleting the redundant rust-gpu-discipline.skill ZIP archive). Add generate_skills_file() in build.rs that recursively walks the dir and emits skills_gen.rs with one include_str!() const per file plus a SKILL_FILES tuple array. Walker is defensive: skips non-UTF-8 files with a cargo:warning so future binary assets don't break the build. In init/mod.rs, include skills_gen.rs and add a deploy loop alongside the existing commands deploy that creates .claude/skills/<name>/ subdirs and writes each file. Mirror the pattern in managed_files() so --update tracks skills via the manifest. Add test_init_deploys_claude_skills integration test asserting both single-file skills (architect, commit, etc.) and the multi-file rust-gpu-discipline skill land correctly.",
+  "created_at": "2026-05-04T14:50:12.798631098Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvadRrVURbLYTrvlTNiIdyFF3tLlS3kMrlhIR4PL1GMgmjgRkAl/Y0/mjx9YWfT0qAISjBPAPW0HP2Mo1zi7ZAQ=="
+}
