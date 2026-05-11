@@ -112,6 +112,14 @@ TTL in seconds for cached URL → repo resolution results (e.g. parsing `https:/
 
 Map of named aliases for external repositories, used by commands that accept `--repo <alias>`. Stored as `repo-alias.<name>` keys -- set with `crosslink config set repo-alias.upstream https://github.com/owner/repo`. Default: `{}` (none).
 
+### `crosslink_binary`
+
+Explicit absolute path to the `crosslink` binary used by the Python hook scripts when shelling out. String. Default: unset (hooks fall back to `$PATH`, then common install locations like `~/.cargo/bin/crosslink`). Set this when `crosslink` lives somewhere unusual or when multiple installs need disambiguating -- e.g. `crosslink config set crosslink_binary /opt/forecast/bin/crosslink`.
+
+### `context_budget_chars`
+
+Estimated character budget the `prompt-guard.py` hook uses to warn before context exhaustion. Integer. Default: `1000000` (1M chars, roughly aligned with a 200k-token window). Set to `0` (or any non-positive value) to disable the guard entirely.
+
 ### `sandbox.command` {#sandbox-command}
 
 Optional sandbox-wrapper command applied to local kickoff launches. String. Default: unset (no sandboxing). When set, the kickoff agent's `claude` invocation is prefixed with this command; the value must be a binary on `$PATH` accepting the command to run as its trailing argument. See [Local sandbox alternative](../guides/container-agents.qmd#local-sandbox-alternative) in the container-agents guide for usage notes.
@@ -160,6 +168,46 @@ Lint commands the agent runs as part of its self-validation pass at the end of a
 ### `agent_overrides.agent_test_commands`
 
 Test commands the agent runs as part of its self-validation pass. Auto-populated during `crosslink init` from detected project conventions (e.g. `["cargo test", "npm test"]`); leave empty to disable. Default: `[]`.
+
+&nbsp;
+
+---
+
+## Watchdog configuration
+
+The `watchdog` block controls the per-kickoff sidecar that detects stalled local agents and sends a "continue" nudge to their tmux session. It applies only to local (non-container) kickoffs -- container agents have their own timeout enforcement via `--stop-timeout`. The block is read by `read_watchdog_config` in the kickoff launcher; omitting any sub-key keeps its default.
+
+```json
+{
+  "watchdog": {
+    "enabled": true,
+    "staleness_secs": 300,
+    "max_nudges": 5,
+    "check_interval_secs": 120,
+    "grace_period_secs": 300
+  }
+}
+```
+
+### `watchdog.enabled`
+
+Master switch for the per-kickoff watchdog sidecar. Bool. Default: `true`. When `false`, no watchdog process is spawned alongside local kickoffs and stalled agents are left alone until the overall `--timeout` fires.
+
+### `watchdog.staleness_secs`
+
+Seconds without a heartbeat before the watchdog considers an agent stalled and sends a nudge. Integer. Default: `300` (5 minutes). Heartbeats are written by the `PostToolUse` hook on every tool call, so a healthy agent refreshes this every few seconds.
+
+### `watchdog.max_nudges`
+
+Maximum number of "continue" nudges the watchdog will send before giving up and exiting. Integer. Default: `5`. Once exhausted, the watchdog leaves the tmux session running but stops trying to revive it -- the surrounding `--timeout` will eventually clean up.
+
+### `watchdog.check_interval_secs`
+
+Seconds between watchdog poll cycles. Integer. Default: `120` (2 minutes). Lower values catch stalls faster at the cost of slightly more shell wake-ups; this is rarely worth tuning.
+
+### `watchdog.grace_period_secs`
+
+Seconds the watchdog waits after launch before its first check, giving the agent time to start up and write its first heartbeat. Integer. Default: `300` (5 minutes). If your kickoffs are reliably idle for longer than this at the start (e.g. slow toolchain installs in the worktree), raise it.
 
 &nbsp;
 
