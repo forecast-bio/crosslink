@@ -1,0 +1,10 @@
+{
+  "uuid": "bbeaa68e-1bd1-462f-a201-70a725e94f29",
+  "issue_uuid": "02be3f85-6420-400f-812a-ecb62594d3ff",
+  "author": "dashboard-bootstrap",
+  "content": "Implementation: auth fallback chain in entrypoint.sh (credentials.json → /host-auth/*.env → env passthrough); launch.rs forwards CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY via 'docker -e NAME' (no value, tokens stay out of ps) and overlay-binds the --doc target :ro. run.rs writes .kickoff-doc.json breadcrumb + chmod 0444 the worktree doc. prompt.rs adds 'Design Document — Canonical Input' stanza. helpers.rs gains verify_protected_doc (Match/Mismatch/Missing/NotProtected). monitor.rs surfaces integrity in status and report.",
+  "created_at": "2026-05-11T17:25:40.690177764Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAINlubDhiyQU/vrimTV0vZ9PhT3j7tGw9e7csTa3L1wANi7r/pz/TchL9TFPSoGZQcZdqzc8iNVi9w1GjWaJ8Cw=="
+}
