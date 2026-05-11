@@ -1,12 +1,12 @@
 {
   "uuid": "1b7c7508-f67b-40d7-b52b-ebfa4d3cbfb8",
   "display_id": 730,
-  "title": "Fix GH#581: add kickoff.skip_permissions config key",
+  "title": "Fix GH#581: document how agent permissions are configured (agent config files, not --skip-permissions)",
   "status": "open",
   "priority": "medium",
   "created_by": "dashboard-bootstrap",
   "created_at": "2026-05-11T17:45:22.470152847Z",
-  "updated_at": "2026-05-11T17:45:23.966298355Z",
+  "updated_at": "2026-05-11T17:46:21.675193474Z",
   "labels": [
     "feature"
   ]
