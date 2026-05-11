@@ -1,0 +1,10 @@
+{
+  "uuid": "d5e431d1-e534-45c6-a3bc-3070a7f4bb70",
+  "issue_uuid": "1b7c7508-f67b-40d7-b52b-ebfa4d3cbfb8",
+  "author": "dashboard-bootstrap",
+  "content": "Three surfaces edited: (1) docs_src/guides/kickoff.qmd — new '### Configuring agent permissions' subsection at end of '## Controlled agent execution', contrasting persistent .claude/settings.json (allowedTools + permissions blocks) with the per-invocation --skip-permissions flag; (2) docs_src/guides/container-agents.qmd — extended the existing --dangerously-skip-permissions paragraph with a follow-up pointing at the persistent mechanism, cross-linked to the kickoff guide section; (3) src/main.rs — tightened both --skip-permissions doc-comments (kickoff run + kickoff plan variants) so --help itself surfaces the contrast. Verified rendered --help output. cargo fmt --check clean, cargo check clean. No new tests — pure docs/help-text change with no behavioral surface.",
+  "created_at": "2026-05-11T17:53:22.938906106Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUMgsEpqfVMMcw2JFtLVNiJb+w0qY4FR8hpftRXCw7jC/IolQkH4KPLCHuweJT2rwwDdcNn4Zuqtjvf6kqj/2CA=="
+}
