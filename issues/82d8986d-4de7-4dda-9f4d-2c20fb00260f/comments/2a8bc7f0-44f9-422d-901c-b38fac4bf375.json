@@ -1,0 +1,10 @@
+{
+  "uuid": "2a8bc7f0-44f9-422d-901c-b38fac4bf375",
+  "issue_uuid": "82d8986d-4de7-4dda-9f4d-2c20fb00260f",
+  "author": "dashboard-bootstrap",
+  "content": "Out of scope but worth noting: read_watchdog_config in src/commands/kickoff/launch.rs reads 5 more keys directly from hook-config.json (watchdog.enabled / staleness_secs / max_nudges / check_interval_secs / grace_period_secs) — same shape as sandbox.command and agent_overrides, also undocumented, not in the user's list of 19. Left untouched here to keep scope tight; suitable follow-up issue if you want them documented.",
+  "created_at": "2026-05-11T18:39:02.482633555Z",
+  "kind": "observation",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA4/bM9c4sc2wuuO1zCjn9vMf9HQTh7FfiAgcxPJ2mR+JujEmanLipMulP/6dguXaYWqhvFNm89HsaA0dud3UPCg=="
+}
