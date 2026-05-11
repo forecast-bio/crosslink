@@ -311,8 +311,7 @@ fn protect_design_doc(worktree_dir: &Path, rel: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ =
-            std::fs::set_permissions(&worktree_doc, std::fs::Permissions::from_mode(0o444));
+        let _ = std::fs::set_permissions(&worktree_doc, std::fs::Permissions::from_mode(0o444));
     }
 
     Ok(())
