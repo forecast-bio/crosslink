@@ -1,0 +1,10 @@
+{
+  "uuid": "b1c329f6-be68-452a-8940-a2d10b05544a",
+  "display_id": 733,
+  "title": "Fix GH#584: worktree .git unresolvable in container + allowedTools blocks build tools",
+  "status": "open",
+  "priority": "high",
+  "created_by": "dashboard-bootstrap",
+  "created_at": "2026-05-11T19:20:59.250241501Z",
+  "updated_at": "2026-05-11T19:20:59.250241501Z"
+}
