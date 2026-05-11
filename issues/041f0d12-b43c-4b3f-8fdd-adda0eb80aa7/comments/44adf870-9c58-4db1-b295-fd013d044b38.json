@@ -1,0 +1,10 @@
+{
+  "uuid": "44adf870-9c58-4db1-b295-fd013d044b38",
+  "issue_uuid": "041f0d12-b43c-4b3f-8fdd-adda0eb80aa7",
+  "author": "dashboard-bootstrap",
+  "content": "Two surfaces drop --force: (1) crosslink/resources/container/entrypoint.sh:131 — container's init call inside the agent's container; (2) crosslink/src/commands/kickoff/launch.rs:439 — host-side init_worktree_agent that runs against a freshly-created worktree before the container starts. Both were the same bug pattern and the issue's symptom requires BOTH to be fixed (host runs first, then container runs again — either one re-templates). Plain 'crosslink init' short-circuits at mod.rs:751 when .crosslink/ and .claude/ both exist (the common case for any worktree checked out from a branch that committed them), so the init becomes a no-op. Kept --skip-signing and --defaults on the host call to suppress the TUI walkthrough on the rare path where init actually has work to do. cargo fmt clean, clippy clean, kickoff tests 149/149 pass.",
+  "created_at": "2026-05-11T19:04:42.122705974Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAgzkD48+fEOBb2v2EvorLUr1KpTmenTAL5tM6QpPjH2AeosPCMZBCdAT6goq6DmS/XJLwZ2Q/nbMm9zT3QO5vBg=="
+}
