@@ -1600,7 +1600,12 @@ enum KickoffCommands {
         /// Path to a design document (markdown) with structured requirements
         #[arg(long, value_name = "PATH")]
         doc: Option<PathBuf>,
-        /// Pass --dangerously-skip-permissions to the claude CLI (for sandboxed agents)
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// One-shot override that bypasses ALL Claude permission prompts for
+        /// this launch. Persistent policy lives in the worktree's
+        /// .claude/settings.json (allowedTools / permissions blocks); reach
+        /// for that instead of this flag for repeatable configuration.
         #[arg(long)]
         skip_permissions: bool,
     },
@@ -1720,7 +1725,11 @@ enum KickoffCommands {
         /// Print the prompt without launching
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Pass --dangerously-skip-permissions to the claude CLI
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// One-shot override that bypasses ALL Claude permission prompts.
+        /// Persistent policy lives in the worktree's .claude/settings.json
+        /// (allowedTools / permissions blocks).
         #[arg(long)]
         skip_permissions: bool,
     },

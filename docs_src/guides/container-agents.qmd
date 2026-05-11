@@ -152,6 +152,8 @@ The same crosslink hooks that enforce policy in local sessions also run inside c
 
 This means you can use `--dangerously-skip-permissions` for the Claude Code CLI inside the container (to avoid interactive trust prompts) while still maintaining policy enforcement through hooks.
 
+That CLI flag is a **per-invocation override**, not a configuration. Persistent agent permissions are set in the worktree's `.claude/settings.json` -- specifically the `allowedTools` array and Claude Code's `permissions` block -- which crosslink writes via `init` and preserves across `init --force` merges. If you find yourself passing `--skip-permissions` to every container kickoff, the right move is to add the relevant tool patterns to `allowedTools` instead, so the agent runs unattended for that surface while every other tool still prompts. See [Configuring agent permissions](kickoff.qmd#configuring-agent-permissions) in the kickoff guide for the full contrast.
+
 &nbsp;
 
 ---

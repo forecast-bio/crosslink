@@ -226,6 +226,17 @@ The background agent operates under the same crosslink hook enforcement as inter
 
 &nbsp;
 
+### Configuring agent permissions
+
+Agent permissions live in the **agent config file** -- `.claude/settings.json` in the worktree, written by `crosslink init` from crosslink's template. They are *not* configured through any `crosslink config` key. There are two levers, and they answer different questions:
+
+- **Persistent policy (`.claude/settings.json`)** -- the `allowedTools` array (and Claude Code's `permissions.allow` / `permissions.deny` blocks) decide which tools the agent may run without prompting on *every* run. Edit this file to teach a repo "agents may always run `npm test`" or "agents may never run `curl`". Crosslink's `init` merges its defaults with whatever the file already contains, so hand-edits are preserved across `init --force`.
+- **Per-invocation override (`--skip-permissions`)** -- the `crosslink kickoff run --skip-permissions` flag passes `--dangerously-skip-permissions` to the Claude CLI for that single launch, bypassing *all* prompts. It is a one-shot dial, not a setting. Reach for it when you have decided the surrounding environment (sandbox, container, isolated worktree, hook policy) makes the agent's blast radius acceptable. Do not reach for it as a substitute for configuring `allowedTools`.
+
+If you find yourself passing `--skip-permissions` on every kickoff, that's a signal to add the relevant tool patterns to `allowedTools` in `.claude/settings.json` instead -- agents will then run unattended for the allowed surface without giving up the prompt for everything else. See [Claude Code's settings reference](https://docs.claude.com/en/docs/claude-code/settings) for the full schema of `allowedTools` and `permissions`.
+
+&nbsp;
+
 ---
 
 ## Managing kickoffs
