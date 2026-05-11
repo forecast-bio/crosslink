@@ -101,8 +101,14 @@ pub fn run(
     std::fs::write(worktree_dir.join(".kickoff-slug"), &compact_name)
         .context("Failed to write .kickoff-slug sentinel")?;
 
-    // 4. Detect project conventions
-    let conventions = detect_conventions(&root);
+    // 4. Detect project conventions, then extend with any explicit additions
+    //    from `hook-config.json`'s `kickoff.allowed_tools` array so projects
+    //    can teach the kickoff agent about tools detection doesn't pick up
+    //    automatically. See GH#584.
+    let mut conventions = detect_conventions(&root);
+    conventions
+        .allowed_tools
+        .extend(read_kickoff_allowed_tools(crosslink_dir));
 
     // 5. Build the prompt
     let prompt = build_prompt(opts, issue_id, &branch_name, &conventions);
@@ -217,6 +223,7 @@ pub fn run(
             let container_id = launch_container(
                 mode,
                 &worktree_dir,
+                &root,
                 opts.image,
                 &agent_id,
                 opts.model,

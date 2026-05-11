@@ -120,6 +120,16 @@ Explicit absolute path to the `crosslink` binary used by the Python hook scripts
 
 Estimated character budget the `prompt-guard.py` hook uses to warn before context exhaustion. Integer. Default: `1000000` (1M chars, roughly aligned with a 200k-token window). Set to `0` (or any non-positive value) to disable the guard entirely.
 
+### `kickoff.allowed_tools`
+
+Extra `--allowedTools` patterns appended to the kickoff agent's CLI invocation. String array. Default: `[]`. Use when convention detection misses a tool the agent needs (e.g. manifests buried more than one directory deep, custom build wrappers, MCP server tool names). The list is *additive* to the auto-detected toolset -- it adds, it does not replace -- and entries should be in Claude Code's allowedTools pattern format:
+
+```bash
+crosslink config set kickoff.allowed_tools '["Bash(cargo *)", "Bash(make deploy *)", "mcp__tidewave__execute_sql_query"]'
+```
+
+Auto-detection already handles `Bash(cargo *)`, `Bash(npm *)`, `Bash(uv *)`, `Bash(pytest *)`, `Bash(go *)`, `Bash(just *)`, and `Bash(make *)` when the corresponding manifest exists at the repo root or one directory level deep -- reach for this key when your layout puts manifests deeper, or when you need a pattern detection doesn't cover.
+
 ### `sandbox.command` {#sandbox-command}
 
 Optional sandbox-wrapper command applied to local kickoff launches. String. Default: unset (no sandboxing). When set, the kickoff agent's `claude` invocation is prefixed with this command; the value must be a binary on `$PATH` accepting the command to run as its trailing argument. See [Local sandbox alternative](../guides/container-agents.qmd#local-sandbox-alternative) in the container-agents guide for usage notes.
