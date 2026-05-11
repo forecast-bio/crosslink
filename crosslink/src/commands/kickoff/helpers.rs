@@ -119,6 +119,104 @@ pub(crate) fn extract_criteria(
     }
 }
 
+/// Subdirectories skipped by [`has_manifest`] when scanning one level deep.
+///
+/// These contain vendored / build / cache artifacts whose manifests should
+/// never light up toolchain support for the parent project (e.g. a stray
+/// `Cargo.toml` deep inside `node_modules/` is not signal). The list also
+/// includes infra dotdirs so we don't pull in `.crosslink/`'s own config.
+const SKIP_SCAN_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "vendor",
+    "venv",
+    "env",
+    "__pycache__",
+    ".git",
+    ".worktrees",
+    ".crosslink",
+    ".claude",
+    ".venv",
+    ".env",
+    ".cache",
+    ".idea",
+    ".vscode",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".cargo",
+    ".rustup",
+];
+
+/// Return `true` when `repo_root` contains `filename` at the root or exactly
+/// one directory level deep (skipping hidden and vendored/build dirs).
+///
+/// Catches the common monorepo layout where the canonical build manifest
+/// lives in a named subdirectory -- e.g. `crosslink/Cargo.toml` here, or
+/// `<repo>/santana-core/Cargo.toml` in santana. Without this, kickoff
+/// agents in such repos see no Rust/Python/etc. tools in `--allowedTools`
+/// and end up sandbox-denied for `cargo`, `uv`, etc. See GH#584.
+fn has_manifest(repo_root: &Path, filename: &str) -> bool {
+    if repo_root.join(filename).is_file() {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir(repo_root) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // Skip hidden dirs except the few explicitly listed in SKIP_SCAN_DIRS
+        // (those are listed so future readers see why they're excluded).
+        if name.starts_with('.') {
+            continue;
+        }
+        if SKIP_SCAN_DIRS.contains(&name) {
+            continue;
+        }
+        if path.join(filename).is_file() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Read additional `--allowedTools` patterns from
+/// `hook-config.json`'s `kickoff.allowed_tools` array.
+///
+/// Returns an empty vector when the file is missing, unparseable, or has no
+/// such key. Project owners use this to extend the kickoff agent's tool
+/// surface beyond what convention detection picks up automatically -- e.g.
+/// when the project's manifests live two or more levels deep, or when the
+/// agent needs a tool the auto-detect doesn't know about. See GH#584.
+pub(crate) fn read_kickoff_allowed_tools(crosslink_dir: &Path) -> Vec<String> {
+    let config_path = crosslink_dir.join("hook-config.json");
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return Vec::new();
+    };
+    parsed
+        .get("kickoff")
+        .and_then(|k| k.get("allowed_tools"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Detect project conventions from the repo root.
 pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     let mut conv = ProjectConventions {
@@ -128,7 +226,7 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     };
 
     // Rust
-    if repo_root.join("Cargo.toml").is_file() || repo_root.join("crosslink/Cargo.toml").is_file() {
+    if has_manifest(repo_root, "Cargo.toml") {
         conv.test_command = Some("cargo test".to_string());
         conv.lint_commands
             .push("cargo clippy -- -D warnings".to_string());
@@ -137,7 +235,7 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     }
 
     // Node/TypeScript
-    if repo_root.join("package.json").is_file() {
+    if has_manifest(repo_root, "package.json") {
         if conv.test_command.is_none() {
             conv.test_command = Some("npm test".to_string());
         }
@@ -146,17 +244,18 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     }
 
     // Python
-    if repo_root.join("pyproject.toml").is_file() || repo_root.join("requirements.txt").is_file() {
+    if has_manifest(repo_root, "pyproject.toml") || has_manifest(repo_root, "requirements.txt") {
         if conv.test_command.is_none() {
             conv.test_command = Some("uv run pytest".to_string());
         }
         conv.lint_commands.push("ruff check .".to_string());
         conv.allowed_tools.push("Bash(uv *)".to_string());
         conv.allowed_tools.push("Bash(python3 *)".to_string());
+        conv.allowed_tools.push("Bash(pytest *)".to_string());
     }
 
     // Go
-    if repo_root.join("go.mod").is_file() {
+    if has_manifest(repo_root, "go.mod") {
         if conv.test_command.is_none() {
             conv.test_command = Some("go test ./...".to_string());
         }
@@ -165,12 +264,12 @@ pub(crate) fn detect_conventions(repo_root: &Path) -> ProjectConventions {
     }
 
     // Just
-    if repo_root.join("justfile").is_file() || repo_root.join("Justfile").is_file() {
+    if has_manifest(repo_root, "justfile") || has_manifest(repo_root, "Justfile") {
         conv.allowed_tools.push("Bash(just *)".to_string());
     }
 
     // Make
-    if repo_root.join("Makefile").is_file() || repo_root.join("makefile").is_file() {
+    if has_manifest(repo_root, "Makefile") || has_manifest(repo_root, "makefile") {
         conv.allowed_tools.push("Bash(make *)".to_string());
     }
 

@@ -258,6 +258,140 @@ fn test_detect_conventions_node() {
     assert!(conv.allowed_tools.contains(&"Bash(npm *)".to_string()));
 }
 
+// --- GH#584: convention detection scans one level deep ---
+
+#[test]
+fn test_detect_conventions_rust_in_subdir() {
+    // Monorepo layout: Cargo.toml lives one directory level deep. Detection
+    // should still light up Rust tools. This is the santana-style case
+    // GH#584 calls out -- where the previous narrow detection missed
+    // anything outside the repo root.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("santana-core")).unwrap();
+    std::fs::write(dir.path().join("santana-core/Cargo.toml"), "[package]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "expected Bash(cargo *) when Cargo.toml is one level deep, got {:?}",
+        conv.allowed_tools
+    );
+}
+
+#[test]
+fn test_detect_conventions_rust_two_levels_deep_not_detected() {
+    // Contract: only ONE level deep matches. Two levels deep would risk
+    // false positives from vendored crates in unusual structures.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crates/foo")).unwrap();
+    std::fs::write(dir.path().join("crates/foo/Cargo.toml"), "[package]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        !conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "two-levels-deep Cargo.toml should not trigger detection; got {:?}",
+        conv.allowed_tools
+    );
+}
+
+#[test]
+fn test_detect_conventions_python_in_subdir_with_pytest() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("python-svc")).unwrap();
+    std::fs::write(dir.path().join("python-svc/pyproject.toml"), "[project]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(conv.allowed_tools.contains(&"Bash(uv *)".to_string()));
+    assert!(
+        conv.allowed_tools.contains(&"Bash(pytest *)".to_string()),
+        "GH#584 explicitly mentioned pytest as a missing tool"
+    );
+}
+
+#[test]
+fn test_detect_conventions_skips_node_modules() {
+    // A stray Cargo.toml inside node_modules/ must NOT enable cargo tools
+    // for the parent project. SKIP_SCAN_DIRS guards against this.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir_all(dir.path().join("node_modules/weird-pkg")).unwrap();
+    std::fs::write(
+        dir.path().join("node_modules/weird-pkg/Cargo.toml"),
+        "[package]",
+    )
+    .unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        !conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "Cargo.toml inside node_modules/ must not enable cargo tools"
+    );
+}
+
+#[test]
+fn test_detect_conventions_skips_hidden_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".cache/leaky")).unwrap();
+    std::fs::write(dir.path().join(".cache/leaky/Cargo.toml"), "[package]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        !conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "manifests under hidden dirs must not enable tooling"
+    );
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_returns_empty_when_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    // No hook-config.json present.
+    assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_returns_configured_array() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("hook-config.json"),
+        r#"{
+          "kickoff": {
+            "allowed_tools": ["Bash(cargo *)", "Bash(make deploy *)"]
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let tools = read_kickoff_allowed_tools(dir.path());
+    assert_eq!(
+        tools,
+        vec![
+            "Bash(cargo *)".to_string(),
+            "Bash(make deploy *)".to_string()
+        ]
+    );
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_returns_empty_when_key_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("hook-config.json"),
+        r#"{"tracking_mode": "strict"}"#,
+    )
+    .unwrap();
+
+    assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_tolerates_malformed_json() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hook-config.json"), "not valid json").unwrap();
+
+    // Best-effort: malformed config silently yields empty, doesn't panic.
+    assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
+}
+
 #[test]
 fn test_rand_suffix_range() {
     let s = rand_suffix();

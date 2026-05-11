@@ -627,10 +627,17 @@ pub(super) fn launch_local(
 /// document passed via `--doc`. It is overlay-bind-mounted read-only on top of
 /// the writable workspace mount so the agent physically cannot edit the
 /// canonical design input. See GH#580.
+///
+/// `host_repo_root` is the host path to the main repo (the worktree's parent
+/// repo). The main repo's `.git/` directory is bind-mounted at its host
+/// absolute path inside the container so the worktree's `.git` file -- which
+/// contains an absolute `gitdir: <host>/.git/worktrees/<branch>/` reference
+/// -- resolves and git operations inside the container work. See GH#584.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
     worktree_dir: &Path,
+    host_repo_root: &Path,
     image: &str,
     agent_id: &str,
     model: &str,
@@ -689,6 +696,22 @@ pub(super) fn launch_container(
         "-e".to_string(),
         format!("AGENT_ID={}", agent_id),
     ];
+
+    // Bind-mount the main repo's `.git/` at its host absolute path. The
+    // worktree's `.git` is a single file containing an absolute
+    // `gitdir: <host>/.git/worktrees/<branch>/` pointer; without this mount
+    // that pointer dangles inside the container and every git operation
+    // (status, diff, commit, sync) fails. We mount rw because the per-
+    // worktree subdir under `.git/worktrees/<branch>/` legitimately needs
+    // writes (HEAD, index, refs) for the agent to commit. Hook policy still
+    // blocks the genuinely destructive ops (`push --force`, `reset --hard`,
+    // etc.) regardless of mount mode. See GH#584.
+    let host_git_dir = host_repo_root.join(".git");
+    if host_git_dir.exists() {
+        let git_path = host_git_dir.to_string_lossy();
+        args.push("-v".to_string());
+        args.push(format!("{git_path}:{git_path}:rw"));
+    }
 
     // Pass UID/GID to container for user remapping (non-Windows only)
     if let Some((uid, gid)) = &uid_gid {

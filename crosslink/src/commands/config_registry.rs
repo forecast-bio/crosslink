@@ -97,6 +97,13 @@ pub static REGISTRY: &[ConfigKey] = &[
         hot_swappable: true,
     },
     ConfigKey {
+        key: "kickoff.allowed_tools",
+        config_type: ConfigType::StringArray,
+        description: "Extra Bash tool patterns appended to the kickoff agent's --allowedTools list",
+        group: ConfigGroup::Agents,
+        hot_swappable: true,
+    },
+    ConfigKey {
         key: "signing_enforcement",
         config_type: ConfigType::Enum(&["disabled", "audit", "enforced"]),
         description: "SSH signature verification level for coordination branch",
