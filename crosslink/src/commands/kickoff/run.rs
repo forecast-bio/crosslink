@@ -1,6 +1,6 @@
 // E-ana tablet — kickoff run: main entry point for `crosslink kickoff run`
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::db::Database;
 use crate::shared_writer::SharedWriter;
@@ -135,6 +135,16 @@ pub fn run(
             .context("Failed to write .kickoff-metadata.json")?;
     }
 
+    // 6d. Protect the canonical design doc passed via `--doc` from agent edits.
+    //     Writes a `.kickoff-doc.json` breadcrumb (consumed by post-run
+    //     validation in monitor::report) and applies chmod 0444 so even
+    //     non-container kickoffs flag accidental rewrites. The container
+    //     mode adds a read-only overlay mount on top. See GH#580.
+    let protected_doc_rel = resolve_worktree_relative_doc(opts.doc_path, &root);
+    if let Some(rel) = protected_doc_rel.as_deref() {
+        protect_design_doc(&worktree_dir, rel)?;
+    }
+
     // 7. Exclude kickoff files from git
     exclude_kickoff_files(&worktree_dir)?;
 
@@ -212,6 +222,7 @@ pub fn run(
                 opts.model,
                 &allowed_tools,
                 opts.timeout,
+                protected_doc_rel.as_deref(),
             )?;
 
             if opts.quiet {
@@ -245,4 +256,64 @@ pub fn run(
     }
 
     Ok(compact_name)
+}
+
+/// Resolve a `--doc <path>` CLI argument to a path relative to the repo root.
+///
+/// Returns `None` when the doc lies outside the repo or cannot be canonicalized
+/// (e.g. the user passed a path that doesn't exist on disk yet). The container
+/// `:ro` mount and the breadcrumb both need the worktree-relative form because
+/// the worktree mirrors the repo's directory structure.
+fn resolve_worktree_relative_doc(doc_path: Option<&str>, repo_root: &Path) -> Option<PathBuf> {
+    let raw = doc_path?;
+    let candidate = Path::new(raw);
+    let absolute = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(candidate)
+    };
+    let canonical = absolute.canonicalize().ok()?;
+    let canonical_root = repo_root.canonicalize().ok()?;
+    canonical
+        .strip_prefix(&canonical_root)
+        .ok()
+        .map(Path::to_path_buf)
+}
+
+/// Stage the design doc as a protected canonical input inside the worktree.
+///
+/// Writes `.kickoff-doc.json` (so post-run validation can detect drift) and
+/// applies chmod 0444 to the doc itself. Both steps are best-effort: if the
+/// worktree doesn't carry the doc yet — e.g. fresh design that wasn't
+/// committed — there's nothing to protect and we return Ok(()).
+fn protect_design_doc(worktree_dir: &Path, rel: &Path) -> Result<()> {
+    let worktree_doc = worktree_dir.join(rel);
+    if !worktree_doc.is_file() {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&worktree_doc)
+        .with_context(|| format!("Failed to read design doc at {}", worktree_doc.display()))?;
+    let doc_hash = super::pipeline::compute_doc_hash(&content);
+
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: rel.to_string_lossy().into_owned(),
+        doc_hash,
+    };
+    let json = serde_json::to_string_pretty(&breadcrumb)
+        .context("Failed to serialize kickoff doc breadcrumb")?;
+    std::fs::write(worktree_dir.join(".kickoff-doc.json"), json)
+        .context("Failed to write .kickoff-doc.json")?;
+
+    // chmod 0444 is advisory — a determined agent can flip it back — but it
+    // pairs with the KICKOFF.md instruction and the post-run hash check to
+    // make accidental rewrites loud rather than silent.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ =
+            std::fs::set_permissions(&worktree_doc, std::fs::Permissions::from_mode(0o444));
+    }
+
+    Ok(())
 }

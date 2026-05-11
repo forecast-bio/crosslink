@@ -615,6 +615,12 @@ pub(super) fn launch_local(
 }
 
 /// Launch the agent in a Docker or Podman container.
+///
+/// `protected_doc_rel`, when `Some`, is the worktree-relative path of the design
+/// document passed via `--doc`. It is overlay-bind-mounted read-only on top of
+/// the writable workspace mount so the agent physically cannot edit the
+/// canonical design input. See GH#580.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
     worktree_dir: &Path,
@@ -623,6 +629,7 @@ pub(super) fn launch_container(
     model: &str,
     allowed_tools: &str,
     timeout: Duration,
+    protected_doc_rel: Option<&Path>,
 ) -> Result<String> {
     let runtime_cmd = match runtime {
         ContainerMode::Docker => "docker",
@@ -684,6 +691,34 @@ pub(super) fn launch_container(
             "-e".to_string(),
             format!("HOST_GID={gid}"),
         ]);
+    }
+
+    // Forward Claude auth env vars from the host when set. Using the
+    // `-e NAME` form (no value) tells the runtime to pull the value from
+    // the parent process env, so tokens don't appear in `ps`. macOS hosts
+    // — where the Keychain holds the OAuth credential rather than
+    // `~/.claude/.credentials.json` — rely on this passthrough. See GH#580.
+    for var in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
+        if std::env::var(var).is_ok_and(|v| !v.is_empty()) {
+            args.push("-e".to_string());
+            args.push(var.to_string());
+        }
+    }
+
+    // Overlay-bind the design doc read-only so the agent cannot rewrite the
+    // canonical `--doc` input. Mounting a single file on top of a writable
+    // parent mount is supported by both docker and podman. See GH#580.
+    if let Some(rel) = protected_doc_rel {
+        let host_doc = worktree_dir.join(rel);
+        if host_doc.is_file() {
+            let container_path = format!("/workspaces/repo/{}", rel.display());
+            args.push("-v".to_string());
+            args.push(format!(
+                "{}:{}:ro",
+                host_doc.to_string_lossy(),
+                container_path
+            ));
+        }
     }
 
     // Image and command

@@ -303,6 +303,7 @@ pub(crate) const KICKOFF_EXCLUDE_PATTERNS: &[&str] = &[
     ".kickoff-status",
     ".kickoff-slug",
     ".kickoff-metadata.json",
+    ".kickoff-doc.json",
     "PLAN_KICKOFF.md",
     ".kickoff-plan.json",
     ".kickoff-criteria.json",
@@ -315,6 +316,75 @@ pub(crate) fn missing_exclude_patterns(existing_content: &str) -> Vec<&'static s
         .filter(|pattern| !existing_content.lines().any(|l| l.trim() == **pattern))
         .copied()
         .collect()
+}
+
+/// Outcome of comparing the on-disk design doc against the launch-time hash.
+///
+/// Returned by [`verify_protected_doc`]; consumed by `monitor::report` /
+/// `monitor::status` so they can warn loudly when the agent rewrote the
+/// canonical input it was given via `--doc`. See GH#580.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DocIntegrity {
+    /// No `.kickoff-doc.json` breadcrumb — `--doc` wasn't used. Nothing to check.
+    NotProtected,
+    /// SHA-256 of the current file matches the recorded launch-time hash.
+    Match { rel_path: String },
+    /// The current file's SHA-256 differs from the recorded hash. The agent
+    /// — or some other writer — modified the canonical design doc.
+    Mismatch {
+        rel_path: String,
+        expected: String,
+        actual: String,
+    },
+    /// The breadcrumb exists but the on-disk doc has gone missing or could
+    /// not be read. Indicates an outright deletion or rename.
+    Missing { rel_path: String, reason: String },
+}
+
+/// Compare the worktree's design doc against the hash recorded at launch.
+///
+/// Reads `.kickoff-doc.json` (written by `kickoff run` when `--doc` was used),
+/// re-hashes the file it points at, and returns a structured verdict. Any I/O
+/// or parse failure short of "breadcrumb missing entirely" surfaces as
+/// `DocIntegrity::Missing` so callers can render a clear message.
+pub(crate) fn verify_protected_doc(worktree_dir: &Path) -> DocIntegrity {
+    let breadcrumb_path = worktree_dir.join(".kickoff-doc.json");
+    let Ok(raw) = std::fs::read_to_string(&breadcrumb_path) else {
+        return DocIntegrity::NotProtected;
+    };
+    let breadcrumb: KickoffDocBreadcrumb = match serde_json::from_str(&raw) {
+        Ok(b) => b,
+        Err(e) => {
+            return DocIntegrity::Missing {
+                rel_path: ".kickoff-doc.json".to_string(),
+                reason: format!("malformed breadcrumb: {e}"),
+            };
+        }
+    };
+
+    let doc_path = worktree_dir.join(&breadcrumb.rel_path);
+    let content = match std::fs::read_to_string(&doc_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return DocIntegrity::Missing {
+                rel_path: breadcrumb.rel_path,
+                reason: format!("cannot read on-disk doc: {e}"),
+            };
+        }
+    };
+    let actual = super::pipeline::compute_doc_hash(&content);
+
+    if actual == breadcrumb.doc_hash {
+        DocIntegrity::Match {
+            rel_path: breadcrumb.rel_path,
+        }
+    } else {
+        DocIntegrity::Mismatch {
+            rel_path: breadcrumb.rel_path,
+            expected: breadcrumb.doc_hash,
+            actual,
+        }
+    }
 }
 
 /// Derive a tmux session name from a compact name (or legacy slug).

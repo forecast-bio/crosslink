@@ -114,7 +114,38 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         }
     }
 
+    // Surface design-doc integrity. If `--doc` was used at launch we recorded
+    // a SHA-256 in `.kickoff-doc.json`; comparing it to the on-disk file
+    // catches the case where the agent rewrote the canonical input. GH#580.
+    print_doc_integrity(&worktree_dir);
+
     Ok(())
+}
+
+/// Print a one-line summary of design-doc integrity status.
+///
+/// Silent when `--doc` wasn't used (no `.kickoff-doc.json` breadcrumb).
+/// Otherwise prints a Doc-integrity line — green-ish for match, an explicit
+/// warning header for mismatch or missing-doc cases.
+fn print_doc_integrity(worktree_dir: &Path) {
+    match verify_protected_doc(worktree_dir) {
+        DocIntegrity::NotProtected => {}
+        DocIntegrity::Match { rel_path } => {
+            println!("Doc:       {rel_path} (sha256 matches launch hash)");
+        }
+        DocIntegrity::Mismatch {
+            rel_path,
+            expected,
+            actual,
+        } => {
+            println!("Doc:       {rel_path} — MISMATCH: canonical design doc was modified");
+            println!("           expected {expected}");
+            println!("           actual   {actual}");
+        }
+        DocIntegrity::Missing { rel_path, reason } => {
+            println!("Doc:       {rel_path} — UNAVAILABLE: {reason}");
+        }
+    }
 }
 
 /// Discover all kickoff agents by scanning worktrees, tmux sessions, and Docker containers.
@@ -804,6 +835,17 @@ pub fn report(crosslink_dir: &Path, agent: &str, format: ReportFormat) -> Result
                 serde_json::from_str(&content).context("Failed to parse .kickoff-report.json")?;
             for w in validate_kickoff_report(&r) {
                 tracing::warn!("{}", w);
+            }
+            // Surface design-doc integrity (GH#580) alongside report warnings.
+            if let DocIntegrity::Mismatch {
+                rel_path,
+                expected,
+                actual,
+            } = verify_protected_doc(&worktree_dir)
+            {
+                tracing::error!(
+                    "design doc {rel_path} was modified during the run (expected {expected}, actual {actual})"
+                );
             }
             print!("{}", format_report_table(&r));
         }

@@ -380,6 +380,7 @@ fn test_missing_exclude_patterns_empty_file() {
             ".kickoff-status",
             ".kickoff-slug",
             ".kickoff-metadata.json",
+            ".kickoff-doc.json",
             "PLAN_KICKOFF.md",
             ".kickoff-plan.json",
             ".kickoff-criteria.json",
@@ -403,7 +404,7 @@ fn test_missing_exclude_patterns_one_present() {
 #[test]
 fn test_missing_exclude_patterns_all_present() {
     let patterns = missing_exclude_patterns(
-        "KICKOFF.md\n.kickoff-status\n.kickoff-slug\n.kickoff-metadata.json\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
+        "KICKOFF.md\n.kickoff-status\n.kickoff-slug\n.kickoff-metadata.json\n.kickoff-doc.json\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
     );
     assert!(patterns.is_empty());
 }
@@ -411,9 +412,110 @@ fn test_missing_exclude_patterns_all_present() {
 #[test]
 fn test_missing_exclude_patterns_with_whitespace() {
     let patterns = missing_exclude_patterns(
-        "  KICKOFF.md  \n  .kickoff-status  \n  .kickoff-slug  \n  .kickoff-metadata.json  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
+        "  KICKOFF.md  \n  .kickoff-status  \n  .kickoff-slug  \n  .kickoff-metadata.json  \n  .kickoff-doc.json  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
     );
     assert!(patterns.is_empty());
+}
+
+// ==================== Design-doc integrity (GH#580) ====================
+
+#[test]
+fn test_verify_protected_doc_not_protected_without_breadcrumb() {
+    let tmp = tempfile::tempdir().unwrap();
+    // No .kickoff-doc.json present → NotProtected.
+    assert!(matches!(
+        verify_protected_doc(tmp.path()),
+        DocIntegrity::NotProtected
+    ));
+}
+
+#[test]
+fn test_verify_protected_doc_match_on_unchanged_doc() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc_rel = ".design/foo.md";
+    let body = "# Foo design\n\nContents.\n";
+    std::fs::write(tmp.path().join(doc_rel), body).unwrap();
+
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: doc_rel.to_string(),
+        doc_hash: super::pipeline::compute_doc_hash(body),
+    };
+    std::fs::write(
+        tmp.path().join(".kickoff-doc.json"),
+        serde_json::to_string(&breadcrumb).unwrap(),
+    )
+    .unwrap();
+
+    match verify_protected_doc(tmp.path()) {
+        DocIntegrity::Match { rel_path } => assert_eq!(rel_path, doc_rel),
+        other => panic!("expected Match, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_verify_protected_doc_mismatch_on_edited_doc() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc_rel = ".design/foo.md";
+    let original = "# Foo design\n\nOriginal contents.\n";
+    let modified = "# Foo design\n\nAgent rewrote this section.\n";
+
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: doc_rel.to_string(),
+        doc_hash: super::pipeline::compute_doc_hash(original),
+    };
+    std::fs::write(
+        tmp.path().join(".kickoff-doc.json"),
+        serde_json::to_string(&breadcrumb).unwrap(),
+    )
+    .unwrap();
+    // On-disk file diverges from the recorded hash.
+    std::fs::write(tmp.path().join(doc_rel), modified).unwrap();
+
+    match verify_protected_doc(tmp.path()) {
+        DocIntegrity::Mismatch {
+            rel_path,
+            expected,
+            actual,
+        } => {
+            assert_eq!(rel_path, doc_rel);
+            assert_eq!(expected, super::pipeline::compute_doc_hash(original));
+            assert_eq!(actual, super::pipeline::compute_doc_hash(modified));
+        }
+        other => panic!("expected Mismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_verify_protected_doc_missing_when_doc_deleted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let doc_rel = ".design/foo.md";
+    // Write breadcrumb but never create the doc itself.
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: doc_rel.to_string(),
+        doc_hash: super::pipeline::compute_doc_hash("placeholder"),
+    };
+    std::fs::write(
+        tmp.path().join(".kickoff-doc.json"),
+        serde_json::to_string(&breadcrumb).unwrap(),
+    )
+    .unwrap();
+
+    match verify_protected_doc(tmp.path()) {
+        DocIntegrity::Missing { rel_path, .. } => assert_eq!(rel_path, doc_rel),
+        other => panic!("expected Missing, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_verify_protected_doc_missing_on_malformed_breadcrumb() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join(".kickoff-doc.json"), "not json").unwrap();
+    assert!(matches!(
+        verify_protected_doc(tmp.path()),
+        DocIntegrity::Missing { .. }
+    ));
 }
 
 #[test]

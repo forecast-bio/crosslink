@@ -61,6 +61,22 @@ pub struct KickoffMetadata {
     pub timeout_secs: u64,
 }
 
+/// Breadcrumb written at launch when `--doc <path>` is supplied
+/// (`.kickoff-doc.json`).
+///
+/// Carries the worktree-relative path and the SHA-256 of the canonical
+/// content as captured at launch time. Consumed by post-run validation in
+/// `monitor::report` / `monitor::status` to detect whether the agent
+/// rewrote the design doc it was supposed to treat as read-only input.
+/// See GH#580.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KickoffDocBreadcrumb {
+    /// Path of the protected design doc, relative to the worktree root.
+    pub rel_path: String,
+    /// `sha256:<hex>` of the design doc's content at launch time.
+    pub doc_hash: String,
+}
+
 /// Options for `crosslink kickoff run`.
 pub struct KickoffOpts<'a> {
     pub description: &'a str,
