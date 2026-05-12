@@ -35,6 +35,126 @@ pub use crate::signing::SignatureVerification;
 pub use self::core::SyncManager;
 pub use self::locks::LockMode;
 
+/// Categorization of a `git push` failure for actionable diagnostics.
+///
+/// Substring matching on the raw stderr is brittle (the three push sites
+/// each maintained their own list and silently miscategorized misconfigured-
+/// remote failures as `(offline)`); this enum gives callers a single
+/// vocabulary to act on. See GH#586.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PushFailure {
+    /// Network unreachable, DNS failed, connection timed out. Transient —
+    /// the local cache stays consistent and the push will succeed on a
+    /// later attempt once connectivity returns. Worth a `tracing::warn!`
+    /// so the user knows state didn't propagate, but not an error.
+    Offline,
+    /// Remote name doesn't resolve to a usable git endpoint. Repeatable
+    /// and fixable: the user needs to point `tracker_remote` at an
+    /// existing remote or `git remote add` the missing one. `tracing::error!`
+    /// with actionable guidance.
+    RemoteMisconfigured { remote: String, detail: String },
+    /// Push rejected because the local branch is behind. Callers typically
+    /// pull-and-retry; only surface as an error when retries are exhausted.
+    NonFastForward,
+    /// SSH key denied, HTTP 401/403, missing token. Actionable error.
+    AuthFailed,
+    /// Anything not in the above buckets. Carries the raw stderr so
+    /// callers can surface it verbatim.
+    Other(String),
+}
+
+/// Classify a `git push` stderr blob into a `PushFailure` variant.
+///
+/// Patterns are matched in **specificity order** — auth phrases first
+/// (some of them also match the offline patterns), then
+/// remote-misconfigured, then non-fast-forward, then offline, with
+/// everything else falling through to `Other`. The `remote` argument
+/// is the remote name that was being pushed to; it gets carried into
+/// `RemoteMisconfigured` so callers can render a precise hint.
+pub(crate) fn classify_push_failure(err_str: &str, remote: &str) -> PushFailure {
+    // 1. Auth — check first because failed auth often also produces
+    //    "Could not read from remote repository" lower in the stderr,
+    //    which would otherwise match the Offline bucket.
+    let auth_markers = [
+        "Permission denied",
+        "Authentication failed",
+        "publickey",
+        " 403 ",
+        " 401 ",
+        "fatal: Authentication",
+    ];
+    if auth_markers.iter().any(|m| err_str.contains(m)) {
+        return PushFailure::AuthFailed;
+    }
+
+    // 2. Remote misconfigured — explicit diagnostic git emits when the
+    //    remote name doesn't resolve to a real git endpoint (either
+    //    because it isn't a configured remote, or because its URL is
+    //    junk).
+    let misconfigured_markers = [
+        "does not appear to be a git repository",
+        "Repository not found",
+        "is not a valid remote name",
+    ];
+    if misconfigured_markers.iter().any(|m| err_str.contains(m)) {
+        return PushFailure::RemoteMisconfigured {
+            remote: remote.to_string(),
+            detail: err_str.to_string(),
+        };
+    }
+
+    // 3. Non-fast-forward — local is behind remote.
+    if err_str.contains("! [rejected]") || err_str.contains("non-fast-forward") {
+        return PushFailure::NonFastForward;
+    }
+
+    // 4. Offline — network/DNS/route layer.
+    let offline_markers = [
+        "Could not resolve host",
+        "Could not read from remote",
+        "Connection timed out",
+        "Network is unreachable",
+        "Temporary failure in name resolution",
+        "No route to host",
+    ];
+    if offline_markers.iter().any(|m| err_str.contains(m)) {
+        return PushFailure::Offline;
+    }
+
+    PushFailure::Other(err_str.to_string())
+}
+
+impl PushFailure {
+    /// Render an actionable user-facing message for non-offline failure
+    /// modes. The caller decides log level (`warn!` for offline,
+    /// `error!` for everything else); this helper centralizes the text.
+    pub(crate) fn user_message(&self, action: &str) -> String {
+        match self {
+            PushFailure::Offline => {
+                format!("push failed (offline), {action} saved locally only")
+            }
+            PushFailure::RemoteMisconfigured { remote, .. } => format!(
+                "push failed: remote '{remote}' is not a valid git endpoint. \
+                 Configure it with `crosslink config set tracker_remote <existing-remote>`, \
+                 or add a new one with `git remote add {remote} <url>`. \
+                 Local state for {action} is preserved."
+            ),
+            PushFailure::NonFastForward => format!(
+                "push failed: local branch is behind remote (non-fast-forward). \
+                 Run `crosslink sync` to reconcile. {action} saved locally."
+            ),
+            PushFailure::AuthFailed => format!(
+                "push failed: authentication denied by the remote. \
+                 Check your SSH key (`ssh -T git@<host>`) or your auth token. \
+                 {action} saved locally."
+            ),
+            PushFailure::Other(detail) => {
+                format!("push failed with unexpected error: {detail}. {action} saved locally.")
+            }
+        }
+    }
+}
+
 /// Read the configured tracker remote name from `.crosslink/hook-config.json`.
 ///
 /// Returns the value of `tracker_remote` if set, otherwise `"origin"`.

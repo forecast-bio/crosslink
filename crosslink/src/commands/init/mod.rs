@@ -303,6 +303,114 @@ fn init_agent_identity(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Detect the project's git remote and align `tracker_remote` in
+/// `hook-config.json` with reality so the value is visible/editable
+/// on disk rather than depending on the runtime fallback in
+/// `sync::read_tracker_remote`.
+///
+/// The embedded template ships with `"tracker_remote": "origin"` as
+/// the default. This function:
+///
+///   - leaves a manually-edited value alone (anything other than the
+///     literal default `"origin"`) so `init --force` doesn't clobber
+///     local customizations;
+///   - leaves `"origin"` alone when the repo either has an `origin`
+///     remote (configured or not, the value is the right placeholder)
+///     OR has no remotes at all (then `origin` is the conventional
+///     placeholder the user can fill in later);
+///   - upgrades `"origin"` to the actual remote name when the repo has
+///     a single non-origin remote, or multiple remotes none of which
+///     are `origin` (alphabetically first wins — deterministic, no
+///     prompt; the user can `crosslink config set tracker_remote
+///     <name>` to override).
+///
+/// The byte-equality preservation in the no-change cases is what
+/// keeps `crosslink workflow diff --check` happy: any re-serialize
+/// would reorder keys (`serde_json`'s default `Map` is a `BTreeMap`)
+/// and drift the file from the embedded template. See GH#586.
+fn populate_tracker_remote(config_path: &Path, project_root: &Path) -> Result<()> {
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    let raw = fs::read_to_string(config_path)?;
+    let mut config: serde_json::Value = serde_json::from_str(&raw)?;
+
+    let current = config
+        .get("tracker_remote")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Anything other than the literal template default is a manual
+    // edit — never touch it.
+    if let Some(v) = &current {
+        if v != "origin" {
+            return Ok(());
+        }
+    }
+
+    let detected = match detect_git_remotes(project_root).as_slice() {
+        [] => None,
+        [only] => Some(only.clone()),
+        many if many.iter().any(|r| r == "origin") => Some("origin".to_string()),
+        many => Some(many[0].clone()),
+    };
+
+    // Decide the new value (or no-op).
+    let new_value = match (current.as_deref(), detected.as_deref()) {
+        // Template-default + (no detected OR detected is also "origin"):
+        // file already matches reality. No-op preserves byte-equality
+        // with the embedded template so `workflow diff --check` passes.
+        (Some("origin"), None | Some("origin")) => return Ok(()),
+        // Template-default + repo has a real non-origin remote: upgrade.
+        (Some("origin"), Some(other)) => other.to_string(),
+        // Key absent (older config or hand-edit removed it): restore
+        // it from detection or fall back to the template default.
+        (None, Some(d)) => d.to_string(),
+        (None, None) => "origin".to_string(),
+        // Manual non-default — short-circuited at the top of the
+        // function. This arm is unreachable but exhausts the match.
+        (Some(_), _) => return Ok(()),
+    };
+
+    if let serde_json::Value::Object(map) = &mut config {
+        map.insert(
+            "tracker_remote".to_string(),
+            serde_json::Value::String(new_value),
+        );
+    }
+
+    let output = serde_json::to_string_pretty(&config)?;
+    fs::write(config_path, format!("{output}\n"))?;
+    Ok(())
+}
+
+/// List git remote names in `project_root` via `git remote`. Returns
+/// an empty vector when git fails, when the directory isn't a repo, or
+/// when no remotes are configured. Result is sorted to make the
+/// "alphabetically first" tiebreaker in [`populate_tracker_remote`]
+/// deterministic across hosts.
+fn detect_git_remotes(project_root: &Path) -> Vec<String> {
+    let output = std::process::Command::new("git")
+        .current_dir(project_root)
+        .args(["remote"])
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let mut remotes: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    remotes.sort();
+    remotes
+}
+
 /// Detect project lint/test commands and populate `agent_overrides` in
 /// hook-config.json so kickoff agents can self-validate their work (#495).
 ///
@@ -882,6 +990,12 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
 
     // Auto-detect lint/test commands for agent overrides (#495)
     populate_agent_tool_commands(&config_path, path)?;
+
+    // Detect the git remote and write `tracker_remote` so the value is
+    // visible on disk rather than relying on the runtime fallback
+    // in `sync::read_tracker_remote`. Idempotent — preserves manual
+    // values across `init --force`. See GH#586.
+    populate_tracker_remote(&config_path, path)?;
 
     // Write .crosslink/.gitignore for multi-agent files
     let crosslink_gitignore = crosslink_dir.join(".gitignore");
@@ -2536,5 +2650,216 @@ mod tests {
             manifest.files[".claude/hooks/prompt-guard.py"].sha256, expected_hash,
             "Manifest hash should match on-disk file for non-merged files"
         );
+    }
+
+    // =========================================================================
+    // GH#586: populate_tracker_remote + detect_git_remotes
+    // =========================================================================
+
+    /// Helper: write a minimal `hook-config.json` to a tempdir. Mirrors the
+    /// embedded template's shape but only includes the keys our tests care
+    /// about so we can assert before/after on the `tracker_remote` field.
+    fn write_minimal_hook_config(dir: &Path, body: &str) -> std::path::PathBuf {
+        let crosslink_dir = dir.join(".crosslink");
+        fs::create_dir_all(&crosslink_dir).unwrap();
+        let path = crosslink_dir.join("hook-config.json");
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    /// Helper: add a git remote. Tests construct several different remote
+    /// configurations via this helper to exercise the selection rules.
+    fn add_remote(repo: &Path, name: &str, url: &str) {
+        let out = std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["remote", "add", name, url])
+            .output()
+            .expect("git remote add failed");
+        assert!(
+            out.status.success(),
+            "git remote add {name}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn test_detect_git_remotes_empty_when_no_remotes() {
+        let dir = test_dir();
+        let remotes = detect_git_remotes(dir.path());
+        assert!(
+            remotes.is_empty(),
+            "fresh repo with no remotes should yield empty list; got {remotes:?}"
+        );
+    }
+
+    #[test]
+    fn test_detect_git_remotes_single() {
+        let dir = test_dir();
+        add_remote(dir.path(), "origin", "https://github.com/me/repo.git");
+        assert_eq!(detect_git_remotes(dir.path()), vec!["origin".to_string()]);
+    }
+
+    #[test]
+    fn test_detect_git_remotes_sorted() {
+        let dir = test_dir();
+        add_remote(dir.path(), "upstream", "https://github.com/up/r.git");
+        add_remote(dir.path(), "fork", "https://github.com/me/r.git");
+        add_remote(dir.path(), "origin", "https://github.com/me/r.git");
+        // Sorted output makes the alphabetically-first tiebreaker in
+        // populate_tracker_remote deterministic.
+        assert_eq!(
+            detect_git_remotes(dir.path()),
+            vec![
+                "fork".to_string(),
+                "origin".to_string(),
+                "upstream".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_writes_single_remote() {
+        let dir = test_dir();
+        add_remote(dir.path(), "upstream", "https://example.com/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), "{}");
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("upstream"),
+            "single remote should be selected unconditionally"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_prefers_origin_when_multiple() {
+        let dir = test_dir();
+        add_remote(dir.path(), "fork", "https://github.com/me/r.git");
+        add_remote(dir.path(), "origin", "https://github.com/me/r.git");
+        add_remote(dir.path(), "upstream", "https://github.com/up/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), "{}");
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("origin")
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_falls_back_alphabetically_without_origin() {
+        let dir = test_dir();
+        add_remote(dir.path(), "upstream", "https://github.com/up/r.git");
+        add_remote(dir.path(), "fork", "https://github.com/me/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), "{}");
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("fork"),
+            "without origin, the alphabetically-first remote wins"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_writes_origin_when_no_remotes() {
+        // User's pick: zero remotes still writes `origin` so the value is
+        // visible in the config and the user can change it without
+        // re-running init.
+        let dir = test_dir();
+        let cfg = write_minimal_hook_config(dir.path(), "{}");
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("origin")
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_upgrades_default_when_repo_has_non_origin_only() {
+        // Embedded template default + single non-origin remote → upgrade.
+        let dir = test_dir();
+        add_remote(dir.path(), "upstream", "https://example.com/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), r#"{"tracker_remote": "origin"}"#);
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("upstream"),
+            "default 'origin' should be upgraded when the repo has a different real remote"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_byte_equal_noop_when_default_matches_reality() {
+        // The critical case for `workflow diff --check`: when the on-disk
+        // value already matches what populate would have chosen (or
+        // when no remote is configured and "origin" is the placeholder),
+        // the function must leave the file byte-for-byte unchanged so
+        // serde's BTreeMap re-serialization doesn't reorder keys.
+        let dir = test_dir();
+        // Case A: zero remotes — "origin" is the conventional placeholder.
+        let cfg = write_minimal_hook_config(
+            dir.path(),
+            "{\n  \"a_key\": 1,\n  \"tracker_remote\": \"origin\",\n  \"z_key\": 2\n}",
+        );
+        let before = fs::read_to_string(&cfg).unwrap();
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+        let after = fs::read_to_string(&cfg).unwrap();
+        assert_eq!(
+            before, after,
+            "file must be byte-identical when value matches detection"
+        );
+
+        // Case B: an `origin` remote actually exists.
+        add_remote(dir.path(), "origin", "https://example.com/r.git");
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+        let after_b = fs::read_to_string(&cfg).unwrap();
+        assert_eq!(
+            before, after_b,
+            "file must stay byte-identical when current 'origin' matches detected 'origin'"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_preserves_manual_value() {
+        let dir = test_dir();
+        add_remote(dir.path(), "origin", "https://github.com/me/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), r#"{"tracker_remote": "custom-name"}"#);
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("custom-name"),
+            "manually-set tracker_remote must survive populate (idempotency)"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_noop_when_config_missing() {
+        let dir = test_dir();
+        let cfg = dir.path().join(".crosslink/hook-config.json");
+        // No fs::write — file doesn't exist.
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+        assert!(!cfg.exists(), "should not create config when missing");
     }
 }

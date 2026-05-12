@@ -328,28 +328,34 @@ impl SharedWriter {
                 Ok(_) => return Ok(PushOutcome::Pushed),
                 Err(e) => {
                     let err_str = e.to_string();
-                    if err_str.contains("Could not resolve host")
-                        || err_str.contains("Could not read from remote")
-                    {
-                        tracing::warn!(
-                            "Warning: push failed (offline), changes saved locally only: {}",
-                            message
-                        );
-                        return Ok(PushOutcome::LocalOnly);
-                    }
-                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                        if attempt < MAX_RETRIES - 1 {
-                            self.check_divergence()?;
-                            self.recover_from_push_conflict(remote)?;
-                            continue;
+                    match crate::sync::classify_push_failure(&err_str, remote) {
+                        crate::sync::PushFailure::Offline => {
+                            tracing::warn!("push failed (offline), {message} saved locally only");
+                            return Ok(PushOutcome::LocalOnly);
                         }
-                        tracing::warn!(
-                            "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
-                            MAX_RETRIES, message
-                        );
-                        return Ok(PushOutcome::LocalOnly);
+                        // Misconfigured / auth / unknown: surface loudly so
+                        // the user sees a real config bug rather than a
+                        // generic (offline) warning. Local cache state is
+                        // consistent so we still return LocalOnly. GH#586.
+                        f @ (crate::sync::PushFailure::RemoteMisconfigured { .. }
+                        | crate::sync::PushFailure::AuthFailed
+                        | crate::sync::PushFailure::Other(_)) => {
+                            tracing::error!("{}", f.user_message(message));
+                            return Ok(PushOutcome::LocalOnly);
+                        }
+                        crate::sync::PushFailure::NonFastForward => {
+                            if attempt < MAX_RETRIES - 1 {
+                                self.check_divergence()?;
+                                self.recover_from_push_conflict(remote)?;
+                                continue;
+                            }
+                            tracing::warn!(
+                                "push failed after {} retries (conflict), {message} saved locally only",
+                                MAX_RETRIES
+                            );
+                            return Ok(PushOutcome::LocalOnly);
+                        }
                     }
-                    return Err(e);
                 }
             }
         }

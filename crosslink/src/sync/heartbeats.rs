@@ -57,30 +57,40 @@ impl SyncManager {
         let push_result = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]);
         if let Err(e) = &push_result {
             let err_str = e.to_string();
-            if err_str.contains("Could not resolve host")
-                || err_str.contains("Could not read from remote")
-            {
-                tracing::warn!("heartbeat push failed (offline), changes saved locally only");
-                return Ok(());
-            }
-            // If push is rejected (conflict), clean dirty state and try pull+push once
-            if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                // Bail if local has diverged too far — sign of a rebase loop
-                self.check_divergence()?;
-
-                self.clean_dirty_state()?;
-                if self
-                    .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
-                    .is_err()
-                {
-                    self.hub_health_check();
-                    self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
+            match super::classify_push_failure(&err_str, &self.remote) {
+                super::PushFailure::Offline => {
+                    tracing::warn!("heartbeat push failed (offline), changes saved locally only");
+                    return Ok(());
                 }
-                if let Err(retry_err) = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]) {
-                    tracing::warn!(
-                        "heartbeat push failed after retry (conflict), changes saved locally only: {}",
-                        retry_err
-                    );
+                // Repeatable, user-fixable failure modes get tracing::error
+                // with actionable guidance. Local state is consistent so
+                // we don't fail the heartbeat write. GH#586.
+                f @ (super::PushFailure::RemoteMisconfigured { .. }
+                | super::PushFailure::AuthFailed
+                | super::PushFailure::Other(_)) => {
+                    tracing::error!("{}", f.user_message("heartbeat"));
+                    return Ok(());
+                }
+                // If push is rejected (conflict), clean dirty state and
+                // try pull+push once.
+                super::PushFailure::NonFastForward => {
+                    // Bail if local has diverged too far — sign of a rebase loop
+                    self.check_divergence()?;
+
+                    self.clean_dirty_state()?;
+                    if self
+                        .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
+                        .is_err()
+                    {
+                        self.hub_health_check();
+                        self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
+                    }
+                    if let Err(retry_err) = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]) {
+                        tracing::warn!(
+                            "heartbeat push failed after retry (conflict), changes saved locally only: {}",
+                            retry_err
+                        );
+                    }
                 }
             }
         }

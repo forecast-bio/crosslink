@@ -721,28 +721,43 @@ impl SyncManager {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     let err_str = e.to_string();
-                    if err_str.contains("Could not resolve host")
-                        || err_str.contains("Could not read from remote")
-                    {
-                        return Ok(()); // Offline — commit is local
-                    }
-                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                        if attempt < 2 {
-                            self.check_divergence()?;
-                            // Pull to sync with remote before retry (#473).
-                            // If pull fails, run health check and try once more.
-                            if self
-                                .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
-                                .is_err()
-                            {
-                                self.hub_health_check();
-                                self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
-                            }
-                            continue;
+                    match super::classify_push_failure(&err_str, &self.remote) {
+                        // True offline — local commit is intact, push retries
+                        // on next call. Stays silent here (this path runs on
+                        // every lock claim/release; warn would spam). GH#586.
+                        super::PushFailure::Offline => return Ok(()),
+                        // Misconfigured / auth / unknown: surface loudly so
+                        // the user knows to act. State stays consistent
+                        // locally so we don't fail the lock operation.
+                        f @ (super::PushFailure::RemoteMisconfigured { .. }
+                        | super::PushFailure::AuthFailed
+                        | super::PushFailure::Other(_)) => {
+                            tracing::error!("{}", f.user_message("lock"));
+                            return Ok(());
                         }
-                        bail!("Push failed after 3 retries for locks.json");
+                        // Local is behind — pull-and-retry the existing way.
+                        super::PushFailure::NonFastForward => {
+                            if attempt < 2 {
+                                self.check_divergence()?;
+                                // Pull to sync with remote before retry (#473).
+                                // If pull fails, run health check and try once more.
+                                if self
+                                    .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
+                                    .is_err()
+                                {
+                                    self.hub_health_check();
+                                    self.git_in_cache(&[
+                                        "pull",
+                                        "--rebase",
+                                        &self.remote,
+                                        HUB_BRANCH,
+                                    ])?;
+                                }
+                                continue;
+                            }
+                            bail!("Push failed after 3 retries for locks.json");
+                        }
                     }
-                    return Err(e);
                 }
             }
         }

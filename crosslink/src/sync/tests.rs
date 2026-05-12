@@ -3291,3 +3291,120 @@ fn test_repair_stale_signingkey_cache_missing_is_noop() {
     let repaired = manager.repair_stale_signingkey().unwrap();
     assert!(!repaired);
 }
+
+// ============================================================================
+// GH#586: structured push-failure classifier
+// ============================================================================
+
+#[test]
+fn classify_push_failure_offline_dns() {
+    let stderr = "fatal: unable to access 'https://github.com/foo/bar.git/': \
+                   Could not resolve host: github.com";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::Offline
+    );
+}
+
+#[test]
+fn classify_push_failure_offline_unreachable() {
+    let stderr = "fatal: unable to access remote: Network is unreachable";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::Offline
+    );
+}
+
+#[test]
+fn classify_push_failure_offline_timeout() {
+    let stderr = "ssh: connect to host github.com port 22: Connection timed out";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::Offline
+    );
+}
+
+#[test]
+fn classify_push_failure_remote_misconfigured() {
+    // What git emits when 'origin' isn't a real remote.
+    let stderr = "fatal: 'bogus' does not appear to be a git repository\n\
+                  fatal: Could not read from remote repository.";
+    match classify_push_failure(stderr, "bogus") {
+        PushFailure::RemoteMisconfigured { remote, .. } => assert_eq!(remote, "bogus"),
+        other => panic!("expected RemoteMisconfigured, got {other:?}"),
+    }
+}
+
+#[test]
+fn classify_push_failure_remote_misconfigured_not_found() {
+    // GitHub's 404 response phrasing.
+    let stderr = "remote: Repository not found.\nfatal: repository 'https://...' not found";
+    assert!(matches!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::RemoteMisconfigured { .. }
+    ));
+}
+
+#[test]
+fn classify_push_failure_non_fast_forward() {
+    let stderr = "To github.com:foo/bar.git\n ! [rejected]        main -> main (non-fast-forward)";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::NonFastForward
+    );
+}
+
+#[test]
+fn classify_push_failure_auth_publickey() {
+    // Common SSH auth-failure stderr.
+    let stderr = "git@github.com: Permission denied (publickey).\n\
+                  fatal: Could not read from remote repository.";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::AuthFailed
+    );
+}
+
+#[test]
+fn classify_push_failure_auth_token() {
+    let stderr = "remote: HTTP 403 forbidden\nfatal: Authentication failed";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::AuthFailed
+    );
+}
+
+#[test]
+fn classify_push_failure_other_falls_through() {
+    let stderr = "fatal: some entirely novel git failure";
+    match classify_push_failure(stderr, "origin") {
+        PushFailure::Other(detail) => assert!(detail.contains("novel git failure")),
+        other => panic!("expected Other, got {other:?}"),
+    }
+}
+
+#[test]
+fn classify_push_failure_auth_beats_offline_when_both_present() {
+    // Failed SSH auth typically produces 'Could not read from remote' too.
+    // The classifier must pick Auth, not Offline.
+    let stderr = "git@github.com: Permission denied (publickey).\n\
+                  fatal: Could not read from remote repository.";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::AuthFailed
+    );
+}
+
+#[test]
+fn push_failure_user_message_includes_remote_name() {
+    let failure = PushFailure::RemoteMisconfigured {
+        remote: "upstream".to_string(),
+        detail: "detail".to_string(),
+    };
+    let msg = failure.user_message("comment");
+    assert!(
+        msg.contains("'upstream'"),
+        "message should name the remote: {msg}"
+    );
+    assert!(msg.contains("crosslink config set tracker_remote"));
+}
