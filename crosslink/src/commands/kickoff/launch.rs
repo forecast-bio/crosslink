@@ -144,15 +144,25 @@ pub(super) fn spawn_watchdog(
 /// so any `CLAUDE_CONFIG_DIR` set by the caller is silently lost (#555).
 /// Baking it into the command string bypasses tmux env handling entirely.
 ///
+/// The `CLAUDE_CONFIG_DIR=val` assignment is folded into the existing `env`
+/// argv (between `-u CLAUDECODE` and `claude`) rather than placed as a shell
+/// prefix. Shell prefix assignments (`VAR=val cmd`) are positional — they
+/// only take effect when `VAR=val` precedes the *leading* command name. With
+/// `timeout` (or any other wrapper) at column zero, a shell-prefix assignment
+/// degenerates into a literal positional arg and `timeout` tries to exec it
+/// as a binary path (`ENOENT`). Folding the assignment into `env`'s argv is
+/// robust to additional wrappers prepended later (nice, chrt, bwrap, etc.).
+/// See GH#587.
+///
 /// When `sandbox_command` is set, the claude invocation is wrapped:
 /// ```text
-/// timeout 3600s my-sandbox --project-dir /path -- CLAUDE_CONFIG_DIR='/p' env -u CLAUDECODE claude ...
+/// timeout 3600s my-sandbox --project-dir /path -- env -u CLAUDECODE CLAUDE_CONFIG_DIR='/p' claude ...
 /// ```
 /// Without sandbox:
 /// ```text
-/// timeout 3600s CLAUDE_CONFIG_DIR='/p' env -u CLAUDECODE claude ...
+/// timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/p' claude ...
 /// ```
-/// When `claude_config_dir` is `None`, the prefix is omitted.
+/// When `claude_config_dir` is `None`, the assignment is omitted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_agent_command(
     timeout_cmd: &str,
@@ -172,10 +182,11 @@ pub(super) fn build_agent_command(
     } else {
         ""
     };
-    // Shell prefix assignments (`VAR=value command`) set the variable in the
-    // environment passed to `command` only — they don't mutate the outer
-    // shell's env, so this is a per-invocation override.
-    let env_prefix = claude_config_dir
+    // Fold `CLAUDE_CONFIG_DIR=val` into env(1)'s argv so the assignment takes
+    // effect regardless of what wraps the resulting command (timeout, sandbox
+    // wrappers, etc.). `env` accepts `KEY=val` between options and the
+    // command, mutating only the environment passed to the exec'd process.
+    let env_assignment = claude_config_dir
         .filter(|v| !v.is_empty())
         .map(|v| format!("CLAUDE_CONFIG_DIR={} ", shell_escape_arg(v)))
         .unwrap_or_default();
@@ -183,7 +194,7 @@ pub(super) fn build_agent_command(
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
     let claude_cmd = format!(
-        "{env_prefix}env -u CLAUDECODE claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
+        "env -u CLAUDECODE {env_assignment}claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
     );
     sandbox_command.map_or_else(
         || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),

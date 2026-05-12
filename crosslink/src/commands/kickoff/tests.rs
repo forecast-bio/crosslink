@@ -1817,9 +1817,11 @@ fn test_build_agent_command_plan_kickoff() {
 
 #[test]
 fn test_build_agent_command_propagates_claude_config_dir() {
-    // When the caller has CLAUDE_CONFIG_DIR set, it should be baked into the
-    // shell command string as a prefix assignment — this bypasses tmux's
-    // frozen-at-startup env (#555).
+    // When the caller has CLAUDE_CONFIG_DIR set, it must be baked into the
+    // shell command string so it bypasses tmux's frozen-at-startup env
+    // (#555). GH#587 required folding the assignment into env(1)'s argv
+    // rather than emitting it as a shell prefix — see build_agent_command
+    // docstring for why.
     let cmd = build_agent_command(
         "timeout",
         3600,
@@ -1833,7 +1835,7 @@ fn test_build_agent_command_propagates_claude_config_dir() {
     );
     assert_eq!(
         cmd,
-        "timeout 3600s CLAUDE_CONFIG_DIR='/Users/me/.claude-work' env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
+        "timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
     );
 }
 
@@ -1877,9 +1879,9 @@ fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
 
 #[test]
 fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
-    // The env prefix must live on the claude side of the sandbox boundary
-    // so the sandboxed claude process inherits the variable, not the
-    // sandbox wrapper itself.
+    // The env assignment must live on the claude side of the sandbox
+    // boundary so the sandboxed claude process inherits the variable, not
+    // the sandbox wrapper itself. Folded into env(1)'s argv per GH#587.
     let cmd = build_agent_command(
         "timeout",
         3600,
@@ -1892,8 +1894,171 @@ fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
         Some("/Users/me/.claude-work"),
     );
     assert!(cmd.contains(
-        "bwrap --bind '/tmp/my-worktree' /workspace -- CLAUDE_CONFIG_DIR='/Users/me/.claude-work' env -u CLAUDECODE claude"
+        "bwrap --bind '/tmp/my-worktree' /workspace -- env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude"
     ));
+}
+
+// ============================================================================
+// GH#587: integration tests that actually parse the constructed command line
+// through a shell. The string-shape unit tests above check what we emit; these
+// tests check that what we emit is what a shell will execute correctly. The
+// 0.8.0 regression would have been caught here — the shell-prefix form
+// `timeout 3600s CCD=val env ... claude ...` parsed as a literal positional
+// arg to timeout and never reached claude.
+// ============================================================================
+
+/// Stub `claude` shim used by the integration tests. Prints
+/// `CCD=<CLAUDE_CONFIG_DIR>` to stdout and exits 0. Ignores all CLI args so
+/// the real flag plumbing doesn't interfere with the assertion.
+#[cfg(unix)]
+fn write_claude_stub(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let stub = dir.join("claude");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf 'CCD=%s\\n' \"$CLAUDE_CONFIG_DIR\"\nexit 0\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+fn run_built_command_in_bash(
+    cmd: &str,
+    cwd: &std::path::Path,
+    extra_path: &std::path::Path,
+) -> std::process::Output {
+    let path = format!(
+        "{}:{}",
+        extra_path.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    std::process::Command::new("bash")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(cwd)
+        .env("PATH", &path)
+        .output()
+        .expect("failed to spawn bash")
+}
+
+#[test]
+#[cfg(unix)]
+fn test_build_agent_command_env_var_actually_reaches_claude() {
+    // GH#587 regression test: the command string must parse correctly when
+    // executed through a shell, with CLAUDE_CONFIG_DIR landing in the env
+    // that the (stub) `claude` process sees. The 0.8.0 build placed the
+    // assignment after `timeout` where shell grammar treats it as a
+    // literal positional arg — `timeout` then tried to exec
+    // `CLAUDE_CONFIG_DIR=...` as a binary and bailed with ENOENT.
+    let tmp = tempfile::tempdir().unwrap();
+    write_claude_stub(tmp.path());
+    std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
+
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        tmp.path(),
+        false,
+        Some("/expected/value"),
+    );
+
+    let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "command failed:\n  status: {:?}\n  stdout: {stdout}\n  stderr: {stderr}\n  cmd: {cmd}",
+        output.status
+    );
+    assert!(
+        stdout.contains("CCD=/expected/value"),
+        "CLAUDE_CONFIG_DIR did not reach claude:\n  stdout: {stdout}\n  cmd: {cmd}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
+    // Same parse-and-execute test but with a sandbox wrapper. The wrapper
+    // sits between `timeout` and the env+claude pair, so the env
+    // assignment must still ride along on env(1)'s argv (not as a
+    // shell prefix that would silently degenerate to a positional arg).
+    let tmp = tempfile::tempdir().unwrap();
+    write_claude_stub(tmp.path());
+    std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
+
+    // Trivial pass-through "sandbox" — just `env --` so it consumes its
+    // tail without altering behavior. Lets the assertion exercise the
+    // wrap-around-claude code path without needing bwrap/firejail
+    // installed on the test host.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        Some("env --"),
+        tmp.path(),
+        false,
+        Some("/sandbox-passthrough/value"),
+    );
+
+    let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "command failed:\n  status: {:?}\n  stdout: {stdout}\n  stderr: {stderr}\n  cmd: {cmd}",
+        output.status
+    );
+    assert!(
+        stdout.contains("CCD=/sandbox-passthrough/value"),
+        "CLAUDE_CONFIG_DIR did not reach claude through sandbox:\n  stdout: {stdout}\n  cmd: {cmd}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_build_agent_command_omitted_env_var_does_not_break_launch() {
+    // When CLAUDE_CONFIG_DIR isn't set on the host, the constructed command
+    // must still execute cleanly — no stray empty assignment that confuses
+    // env(1), and the stub claude reports an empty CCD value.
+    let tmp = tempfile::tempdir().unwrap();
+    write_claude_stub(tmp.path());
+    std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
+
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        tmp.path(),
+        false,
+        None,
+    );
+
+    let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "command failed:\n  status: {:?}\n  stdout: {stdout}\n  stderr: {stderr}\n  cmd: {cmd}",
+        output.status
+    );
+    assert!(
+        stdout.contains("CCD="),
+        "expected stub to print CCD= line:\n  stdout: {stdout}"
+    );
 }
 
 #[test]
