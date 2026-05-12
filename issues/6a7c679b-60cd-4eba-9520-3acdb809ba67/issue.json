@@ -1,12 +1,12 @@
 {
   "uuid": "6a7c679b-60cd-4eba-9520-3acdb809ba67",
   "display_id": 734,
-  "title": "Fix GH#593 + audit shipped skills (architect update, exclude red-team)",
+  "title": "Fix GH#593: design skill prelude fragility + sync architect skill",
   "status": "open",
   "priority": "high",
   "created_by": "dashboard-bootstrap",
   "created_at": "2026-05-12T19:16:25.366470500Z",
-  "updated_at": "2026-05-12T19:16:26.812122551Z",
+  "updated_at": "2026-05-12T19:21:12.257355256Z",
   "labels": [
     "bug"
   ]
