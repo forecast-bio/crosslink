@@ -1,0 +1,10 @@
+{
+  "uuid": "f9257341-9545-46dd-8727-7599d2b96349",
+  "issue_uuid": "d684b80e-23b2-4abd-b550-2a213d1c7096",
+  "author": "dashboard-bootstrap",
+  "content": "All three fixes landed in one commit per scope choice. (1) hook-config.json embedded template gains tracker_remote: 'origin' so the value is visible on disk; init.rs's new populate_tracker_remote() detects git remotes via 'git remote' and upgrades from 'origin' to a non-origin remote when the template default doesn't match reality. Decision matrix preserves byte-equality with the embedded template in the matches-reality case (so workflow diff --check keeps passing). Manual non-default values are short-circuited at the top so init --force never clobbers them. (2) Structured PushFailure classifier in sync/mod.rs with Auth → RemoteMisconfigured → NonFastForward → Offline → Other ordering (Auth checked first because failed auth often emits 'Could not read from remote' too — Offline would have miscategorized). All three push call sites (sync/cache.rs, sync/heartbeats.rs, shared_writer/core.rs) now share the classifier. (3) Per user choice 'warn for offline, error for misconfigured': tracing::warn! for Offline preserves existing UX; tracing::error! for RemoteMisconfigured/AuthFailed/Other with PushFailure::user_message() rendering actionable guidance ('crosslink config set tracker_remote ...', 'crosslink sync', 'check SSH key'). 22 new tests (11 classifier covering all 5 buckets + ordering edge case, 11 init helper covering detect_git_remotes + populate_tracker_remote decision matrix including byte-equality preservation). Full suite: 2842 passed (2820 baseline + 22 new). cargo fmt + clippy clean.",
+  "created_at": "2026-05-12T20:22:40.837713568Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAKjkXX95BhHLeA3rEl5p7SeKaEkAw8DpUuQTZ8hd133pKbohIHkVgTcc8Vwu9T/l+jV66v50ocTvJeFKRlNHzBA=="
+}
