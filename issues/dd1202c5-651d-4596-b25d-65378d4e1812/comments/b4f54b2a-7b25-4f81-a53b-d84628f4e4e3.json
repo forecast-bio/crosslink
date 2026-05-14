@@ -1,0 +1,8 @@
+{
+  "uuid": "b4f54b2a-7b25-4f81-a53b-d84628f4e4e3",
+  "issue_uuid": "dd1202c5-651d-4596-b25d-65378d4e1812",
+  "author": "anon-b9326049",
+  "content": "Committed c27d4a5b on fix/739-tui-string-placeholder. Five fixes in one commit: (1) build_config no longer emits the (text) placeholder for ConfigType::String keys; (2) populate_tracker_remote and read_tracker_remote auto-repair / fall-back on the corrupt value; (3) sync_cmd now publishes the hub branch when local is ahead — closes the multi-agent bootstrap race; (4) classifier picks up the four NonFastForward variants git emits for concurrent-ref-update races; (5) cpitd 0.3.0 schema alias. 8 new tests + 4 previously-failing smoke tests now pass. Full suite green, fmt clean, zero new clippy errors. Waiting on push to open the PR to develop.",
+  "created_at": "2026-05-14T06:17:38.590960838Z",
+  "kind": "result"
+}
