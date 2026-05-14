@@ -103,8 +103,25 @@ pub(crate) fn classify_push_failure(err_str: &str, remote: &str) -> PushFailure 
         };
     }
 
-    // 3. Non-fast-forward — local is behind remote.
-    if err_str.contains("! [rejected]") || err_str.contains("non-fast-forward") {
+    // 3. Non-fast-forward — local is behind remote. Git emits this
+    //    family in several shapes depending on whether the rejection
+    //    came from the local pre-push check, the remote update hook,
+    //    or the concurrent-update race (two clients pushing the same
+    //    ref with the same expected old SHA). All variants map to
+    //    the same recovery action (pull/rebase + retry), so they
+    //    share a bucket. Pre-fix, the concurrent-claim race
+    //    miscategorized "cannot lock ref" / "remote rejected" as
+    //    `Other` and silently returned "saved locally" while both
+    //    agents thought they won the lock.
+    let non_ff_markers = [
+        "! [rejected]",
+        "! [remote rejected]",
+        "non-fast-forward",
+        "cannot lock ref",
+        "incorrect old value provided",
+        "failed to push some refs",
+    ];
+    if non_ff_markers.iter().any(|m| err_str.contains(m)) {
         return PushFailure::NonFastForward;
     }
 
@@ -162,6 +179,7 @@ impl PushFailure {
 /// `SyncManager::remote_exists()` to validate the remote.
 pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
     static WARNED: Once = Once::new();
+    static CORRUPT_WARNED: Once = Once::new();
 
     let config_path = crosslink_dir.join("hook-config.json");
     let configured = std::fs::read_to_string(&config_path)
@@ -173,6 +191,26 @@ pub fn read_tracker_remote(crosslink_dir: &Path) -> String {
         });
 
     if let Some(remote) = configured {
+        // GH#739 — pre-fix builds of the init walkthrough wrote the
+        // TUI placeholder "(text)" into hook-config.json for every
+        // `ConfigType::String` key. Detect that here and warn the
+        // user once, falling back to "origin" so sync doesn't bail
+        // with a (correct but unhelpful) RemoteMisconfigured error.
+        // The permanent fix is `crosslink config set tracker_remote
+        // <name>` or `crosslink init --force` (which now auto-repairs
+        // the corrupt placeholder).
+        if remote == "(text)" {
+            CORRUPT_WARNED.call_once(|| {
+                tracing::warn!(
+                    "tracker_remote in {} is the corrupt placeholder \"(text)\" \
+                     (GH#739). Falling back to \"origin\". Repair with: \
+                     `crosslink config set tracker_remote <name>` or \
+                     `crosslink init --force`.",
+                    config_path.display()
+                );
+            });
+            return "origin".to_string();
+        }
         return remote;
     }
 

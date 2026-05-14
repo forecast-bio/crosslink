@@ -840,6 +840,30 @@ fn test_read_tracker_remote_custom_value() {
     assert_eq!(remote, "upstream");
 }
 
+#[test]
+fn test_read_tracker_remote_falls_back_when_corrupt_placeholder() {
+    // GH#739: older builds of the init walkthrough wrote the literal
+    // UI placeholder "(text)" into hook-config.json for every
+    // ConfigType::String key. read_tracker_remote() must detect this
+    // corrupt sentinel and fall back to "origin" so push/sync don't
+    // fail with the (correct but unhelpful) RemoteMisconfigured("(text)")
+    // error. The permanent fix is `crosslink config set tracker_remote
+    // <name>` or `crosslink init --force`.
+    let dir = tempdir().unwrap();
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(
+        crosslink_dir.join("hook-config.json"),
+        r#"{"tracker_remote":"(text)"}"#,
+    )
+    .unwrap();
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "origin",
+        "corrupt '(text)' placeholder must fall back to 'origin'"
+    );
+}
+
 // ------------------------------------------------------------------
 // SyncManager::new() with hook-config.json having a tracker_remote key
 // ------------------------------------------------------------------
@@ -3604,6 +3628,42 @@ fn classify_push_failure_remote_misconfigured_not_found() {
 #[test]
 fn classify_push_failure_non_fast_forward() {
     let stderr = "To github.com:foo/bar.git\n ! [rejected]        main -> main (non-fast-forward)";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::NonFastForward
+    );
+}
+
+#[test]
+fn classify_push_failure_concurrent_ref_lock_is_non_ff() {
+    // When two clients push the same ref simultaneously with the
+    // same expected old SHA, git's bare-repo update logic rejects
+    // the second push with "cannot lock ref" / "remote rejected" /
+    // "incorrect old value provided". Before the fix, the classifier
+    // miscategorized this as `Other`, the call site returned LocalOnly
+    // ("saved locally"), and both agents thought they had won the
+    // lock. Verify the rejection now lands in `NonFastForward` so
+    // `claim_lock_v2`'s retry path runs and one agent correctly
+    // returns `Contended`.
+    let stderr = "remote: error: cannot lock ref 'refs/heads/crosslink/hub': \
+                  is at abc123 but expected def456\n\
+                  To /tmp/bare.git\n\
+                  ! [remote rejected] crosslink/hub -> crosslink/hub \
+                  (incorrect old value provided)\n\
+                  error: failed to push some refs to '/tmp/bare.git'";
+    assert_eq!(
+        classify_push_failure(stderr, "origin"),
+        PushFailure::NonFastForward,
+        "concurrent-ref-lock rejection must be classified as NonFastForward so the \
+         caller's retry/recovery path runs"
+    );
+}
+
+#[test]
+fn classify_push_failure_remote_rejected_variant() {
+    // Bare "! [remote rejected]" (without the "cannot lock ref"
+    // prefix) — also a non-fast-forward family.
+    let stderr = "To /tmp/r.git\n ! [remote rejected] main -> main (some hook reason)";
     assert_eq!(
         classify_push_failure(stderr, "origin"),
         PushFailure::NonFastForward

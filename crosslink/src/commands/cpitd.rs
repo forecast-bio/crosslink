@@ -34,7 +34,16 @@ use crate::utils::format_issue_id;
 
 #[derive(Debug, Deserialize)]
 struct CpitdOutput {
+    #[serde(default)]
     clone_reports: Vec<CpitdCloneReport>,
+    /// `total_pairs` is the field name in cpitd ≤ 0.2.x; cpitd 0.3.0
+    /// renamed it to `total_groups` to reflect the move from "pairs of
+    /// files" to "N-way clone groups". Accept either via `serde(alias)`
+    /// so the empty-output path doesn't fail to parse. The full schema
+    /// migration for non-empty `clone_reports` (new `locations` model
+    /// vs. old `file_a`/`file_b`/`groups`) is a separate concern —
+    /// this annotation just unblocks the "no clones found" path.
+    #[serde(default, alias = "total_groups")]
     total_pairs: usize,
 }
 

@@ -341,10 +341,11 @@ fn populate_tracker_remote(config_path: &Path, project_root: &Path) -> Result<()
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    // Anything other than the literal template default is a manual
+    // Anything other than the literal template default ("origin") or
+    // the legacy corrupt placeholder "(text)" (GH#739) is a manual
     // edit — never touch it.
     if let Some(v) = &current {
-        if v != "origin" {
+        if v != "origin" && v != "(text)" {
             return Ok(());
         }
     }
@@ -364,10 +365,14 @@ fn populate_tracker_remote(config_path: &Path, project_root: &Path) -> Result<()
         (Some("origin"), None | Some("origin")) => return Ok(()),
         // Template-default + repo has a real non-origin remote: upgrade.
         (Some("origin"), Some(other)) => other.to_string(),
-        // Key absent (older config or hand-edit removed it): restore
-        // it from detection or fall back to the template default.
-        (None, Some(d)) => d.to_string(),
-        (None, None) => "origin".to_string(),
+        // Key absent (older config or hand-edit removed it) OR the
+        // corrupt "(text)" placeholder from pre-#739 builds. Both are
+        // treated as "no real value present": restore from detection,
+        // or fall back to the template default. No byte-equality
+        // preservation in the "(text)" case since the existing value
+        // is wrong by definition.
+        (Some("(text)") | None, Some(d)) => d.to_string(),
+        (Some("(text)") | None, None) => "origin".to_string(),
         // Manual non-default — short-circuited at the top of the
         // function. This arm is unreachable but exhausts the match.
         (Some(_), _) => return Ok(()),
@@ -2861,5 +2866,66 @@ mod tests {
         // No fs::write — file doesn't exist.
         populate_tracker_remote(&cfg, dir.path()).unwrap();
         assert!(!cfg.exists(), "should not create config when missing");
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_repairs_text_placeholder_with_detected() {
+        // GH#739: older builds wrote the literal UI placeholder
+        // "(text)" into hook-config.json. populate_tracker_remote must
+        // treat that as repairable (not as a manual edit) and overwrite
+        // it with the detected remote.
+        let dir = test_dir();
+        add_remote(dir.path(), "origin", "https://github.com/me/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), r#"{"tracker_remote": "(text)"}"#);
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("origin"),
+            "corrupt '(text)' placeholder must be repaired to the detected remote"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_repairs_text_placeholder_without_remotes() {
+        // GH#739: even when no git remotes are configured yet, the
+        // corrupt "(text)" placeholder must be replaced with the
+        // template default "origin" so subsequent operations don't
+        // fail with RemoteMisconfigured('(text)').
+        let dir = test_dir();
+        let cfg = write_minimal_hook_config(dir.path(), r#"{"tracker_remote": "(text)"}"#);
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("origin"),
+            "corrupt '(text)' must fall back to 'origin' when no remotes are detected"
+        );
+    }
+
+    #[test]
+    fn test_populate_tracker_remote_repairs_text_placeholder_to_non_origin() {
+        // GH#739: when the repo's only remote is non-origin, the
+        // repair path must use the detected name (same upgrade path
+        // as the template default).
+        let dir = test_dir();
+        add_remote(dir.path(), "upstream", "https://example.com/r.git");
+        let cfg = write_minimal_hook_config(dir.path(), r#"{"tracker_remote": "(text)"}"#);
+
+        populate_tracker_remote(&cfg, dir.path()).unwrap();
+
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            after.get("tracker_remote").and_then(|v| v.as_str()),
+            Some("upstream"),
+            "corrupt '(text)' must upgrade to the only non-origin remote"
+        );
     }
 }

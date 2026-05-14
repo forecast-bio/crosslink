@@ -414,6 +414,21 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
 
     println!("Cache: {}", sync.cache_path().display());
 
+    // Publish any local-only hub commits to the remote. Bootstrap,
+    // signing-key registration, and (pre-v2) layout migrations all
+    // produce commits in the hub cache that would otherwise sit
+    // unpushed until the operator happened to call a SharedWriter
+    // path (`create`, `comment`, etc.). On a fresh remote that
+    // creates a race window where a second agent's `init_cache`
+    // sees the empty remote, creates its own orphan branch, and
+    // then can never rebase onto the first agent's eventual push
+    // (the bootstrap commits look "previously applied"). Pushing
+    // here closes that window. See `push_hub_if_ahead` for the
+    // error-handling contract.
+    if let Err(e) = sync.push_hub_if_ahead() {
+        tracing::warn!("post-sync hub push failed: {e}");
+    }
+
     // Verify commit signature (SSH or GPG)
     let verification = sync.verify_locks_signature()?;
     match &verification {

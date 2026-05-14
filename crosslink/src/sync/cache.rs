@@ -766,4 +766,90 @@ impl SyncManager {
         // happen. Treat as an error rather than silently returning Ok.
         bail!("Push loop completed without returning — this is a bug")
     }
+
+    /// Push the local hub branch to the configured remote if (and only
+    /// if) there are local commits ahead of the remote, OR the remote
+    /// branch doesn't exist yet.
+    ///
+    /// Returns `Ok(true)` if a push was attempted and succeeded,
+    /// `Ok(false)` if no push was needed (or the push was classified
+    /// as a recoverable transient — offline, misconfigured, etc.).
+    /// Push failures are logged via the structured `PushFailure`
+    /// classifier (GH#586) and never bubble up: the local hub state
+    /// stays consistent, and the next `sync` retries.
+    ///
+    /// This exists because `sync_cmd` previously did not push at all —
+    /// pushes only happened lazily via `SharedWriter::commit_*` when
+    /// issues/comments/etc. were written. That left a multi-agent
+    /// race: agent A's first sync would bootstrap the hub locally
+    /// (registering signing keys, initializing layout) but never
+    /// publish those commits. If agent B inited between A's bootstrap
+    /// sync and A's first write, B's `init_cache` saw an empty remote,
+    /// created its own orphan branch, and then could not rebase onto
+    /// A's eventual push because the bootstrap commits looked
+    /// "already applied". Pushing at the end of sync closes that
+    /// window.
+    pub fn push_hub_if_ahead(&self) -> Result<bool> {
+        // No cache → nothing to push.
+        if !self.cache_dir.exists() {
+            return Ok(false);
+        }
+
+        // Check whether the remote already has the branch. If it
+        // doesn't, we always want to push (even if `count_unpushed_commits`
+        // returns 0 — which it would, because the rev-list against a
+        // non-existent remote ref errors out).
+        let remote_has_hub = self
+            .git_in_repo(&["ls-remote", "--heads", &self.remote, HUB_BRANCH])
+            .is_ok_and(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty());
+
+        if remote_has_hub && self.count_unpushed_commits() == 0 {
+            return Ok(false);
+        }
+
+        // Use the hub write lock to serialize with concurrent writes
+        // (#457). Without this, a parallel SharedWriter::commit may
+        // race the push and produce a non-fast-forward.
+        let _lock_guard = self.acquire_lock()?;
+
+        let push_result = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]);
+        match push_result {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                let err_str = e.to_string();
+                match super::classify_push_failure(&err_str, &self.remote) {
+                    // Transient. Local state is fine; next sync retries.
+                    super::PushFailure::Offline => Ok(false),
+                    // Surface loudly via the classifier; don't fail
+                    // sync — it has already done useful local work
+                    // (hydration, locks, etc.) that the user should
+                    // benefit from.
+                    f @ (super::PushFailure::RemoteMisconfigured { .. }
+                    | super::PushFailure::AuthFailed
+                    | super::PushFailure::Other(_)) => {
+                        tracing::error!("{}", f.user_message("sync"));
+                        Ok(false)
+                    }
+                    // Local is behind. The preceding `fetch` + rebase
+                    // in `sync_cmd` already attempted to reconcile; if
+                    // it couldn't, the local branch has diverged and
+                    // needs human intervention. Warn and bail out of
+                    // the push without failing the whole sync.
+                    super::PushFailure::NonFastForward => {
+                        tracing::warn!(
+                            "push deferred: local hub branch has diverged from {}/{}. \
+                             Run `crosslink sync` again or resolve manually with \
+                             `cd {} && git log --oneline {}/{}..HEAD`.",
+                            self.remote,
+                            HUB_BRANCH,
+                            self.cache_dir.display(),
+                            self.remote,
+                            HUB_BRANCH
+                        );
+                        Ok(false)
+                    }
+                }
+            }
+        }
+    }
 }
