@@ -983,6 +983,58 @@ mod integration {
         drop(work_dir);
     }
 
+    // --- git_commit_in_cache_with_args() / git_in_cache() error messages ---
+
+    #[test]
+    fn test_git_commit_in_cache_includes_stdout_on_failure() {
+        // Regression test for #601: when `git commit` exits non-zero because
+        // there is nothing staged, the diagnostic ("nothing to commit,
+        // working tree clean") goes to stdout, NOT stderr. Capturing only
+        // stderr produced empty failure messages and made the substring
+        // "nothing to commit" guards in write_commit_push dead code.
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+
+        // The hub cache is already at a clean commit from init_cache(); a
+        // commit with nothing staged must fail with "nothing to commit".
+        let err = writer
+            .git_commit_in_cache_with_args(&["-m", "no-op"])
+            .expect_err("commit must fail when nothing is staged");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("nothing to commit"),
+            "error must surface git's 'nothing to commit' status (which it \
+             writes to stdout) to the caller; got: {msg}"
+        );
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_git_in_cache_includes_stdout_on_failure() {
+        // Companion to the test above: `git_in_cache` shares the same
+        // stderr-only capture bug (#601). Verify it surfaces stdout content
+        // too. `git rev-parse --verify <nonexistent>` is a clean reproducer
+        // where the actual error message goes to stderr, but we still want
+        // both streams in the bail so callers see the full picture.
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+
+        let err = writer
+            .git_in_cache(&["rev-parse", "--verify", "refs/heads/nonexistent-branch"])
+            .expect_err("rev-parse must fail on a missing ref");
+        let msg = err.to_string();
+
+        // The error message should include both stream labels so we know
+        // the new capture path is wired in (rather than the old
+        // stderr-only format).
+        assert!(
+            msg.contains("stdout:") && msg.contains("stderr:"),
+            "error must label both captured streams; got: {msg}"
+        );
+        drop(work_dir);
+    }
+
     // --- create_issue() ---
 
     #[test]

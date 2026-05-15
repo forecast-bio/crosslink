@@ -1054,8 +1054,19 @@ impl SharedWriter {
             .output()
             .with_context(|| format!("Failed to run git {args:?} in cache"))?;
         if !output.status.success() {
+            // Capture BOTH streams (#601). Some git status messages — most
+            // notably "nothing to commit, working tree clean" — go to
+            // stdout, not stderr. Capturing only stderr produced empty
+            // failure messages and silently disabled the substring-based
+            // no-op guards in the push paths below.
+            let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {args:?} in cache failed: {stderr}");
+            bail!(
+                "git {args:?} in cache failed ({}):\nstdout: {}\nstderr: {}",
+                output.status,
+                stdout.trim(),
+                stderr.trim(),
+            );
         }
         Ok(output)
     }
@@ -1157,8 +1168,20 @@ impl SharedWriter {
             .output()
             .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
         if !output.status.success() {
+            // Capture BOTH streams (#601). `git commit`'s "nothing to
+            // commit, working tree clean" status message goes to stdout,
+            // so capturing only stderr produced empty failure messages.
+            // The substring-based no-op guards in `write_commit_push` and
+            // `emit_compact_push` rely on this message being visible in
+            // the error string they inspect.
+            let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git commit {args:?} in cache failed: {stderr}");
+            bail!(
+                "git commit {args:?} in cache failed ({}):\nstdout: {}\nstderr: {}",
+                output.status,
+                stdout.trim(),
+                stderr.trim(),
+            );
         }
         Ok(output)
     }
