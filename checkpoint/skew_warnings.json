@@ -939,6 +939,20 @@
   },
   {
     "agent_id": "dashboard-bootstrap",
+    "event_description": "LockReleased(#744)",
+    "event_timestamp": "2026-05-15T18:33:38.013516724Z",
+    "commit_timestamp": "2026-05-15T18:36:47Z",
+    "skew_seconds": 188
+  },
+  {
+    "agent_id": "dashboard-bootstrap",
+    "event_description": "LockClaimed(#744)",
+    "event_timestamp": "2026-05-15T18:34:11.597610774Z",
+    "commit_timestamp": "2026-05-15T18:36:47Z",
+    "skew_seconds": 155
+  },
+  {
+    "agent_id": "dashboard-bootstrap",
     "event_description": "LockClaimed(#206)",
     "event_timestamp": "2026-04-21T22:40:01.733027952Z",
     "commit_timestamp": "2026-04-21T23:53:11Z",
