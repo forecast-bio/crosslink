@@ -1616,6 +1616,23 @@ enum KickoffCommands {
         /// for that instead of this flag for repeatable configuration.
         #[arg(long)]
         skip_permissions: bool,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions`. Claude
+        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
+        /// `default`, `dontAsk`, `plan`. `auto` is the common choice
+        /// for unattended runs on the host (`--container none`) — the
+        /// permission classifier stays active for anomalous calls.
+        /// Mutually exclusive with `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
     },
     /// Check status of a running kickoff agent (no args = pipeline overview)
     Status {
@@ -1740,6 +1757,21 @@ enum KickoffCommands {
         /// (allowedTools / permissions blocks).
         #[arg(long)]
         skip_permissions: bool,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions`. Claude
+        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
+        /// `default`, `dontAsk`, `plan`. Mutually exclusive with
+        /// `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
     },
 }
 
@@ -3011,6 +3043,7 @@ fn main() -> Result<()> {
                 issue: None,
                 dry_run: false,
                 skip_permissions: false,
+                permission_mode: None,
             });
             commands::kickoff::dispatch(
                 action,

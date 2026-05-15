@@ -174,14 +174,30 @@ pub(super) fn build_agent_command(
     worktree_dir: &Path,
     skip_permissions: bool,
     claude_config_dir: Option<&str>,
+    permission_mode: Option<&str>,
 ) -> String {
     use crate::utils::shell_escape_arg;
 
-    let skip_flag = if skip_permissions {
-        " --dangerously-skip-permissions"
-    } else {
-        ""
+    // Resolve permission posture for the spawned claude session:
+    //   1. `permission_mode`, if given, emits `--permission-mode <value>`.
+    //      Claude supports `acceptEdits`, `auto`, `bypassPermissions`,
+    //      `default`, `dontAsk`, `plan` (see GH#603).
+    //   2. Otherwise, `skip_permissions = true` emits the legacy
+    //      `--dangerously-skip-permissions` (full bypass).
+    //   3. Otherwise no flag — claude prompts for every tool.
+    // CLI parsing in main.rs marks `--permission-mode` as
+    // `conflicts_with("skip_permissions")` so reaching case 1 with
+    // `skip_permissions = true` is impossible from the public surface;
+    // internal callers (the wizard's WizardStage::Run path) pass both
+    // as defaults (None / false) and let this resolution stand.
+    let permission_flag_owned: String = match (permission_mode, skip_permissions) {
+        (Some(mode), _) if !mode.is_empty() => {
+            format!(" --permission-mode {}", shell_escape_arg(mode))
+        }
+        (_, true) => " --dangerously-skip-permissions".to_string(),
+        _ => String::new(),
     };
+    let skip_flag = permission_flag_owned.as_str();
     // Fold `CLAUDE_CONFIG_DIR=val` into env(1)'s argv so the assignment takes
     // effect regardless of what wraps the resulting command (timeout, sandbox
     // wrappers, etc.). `env` accepts `KEY=val` between options and the
@@ -552,6 +568,7 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
 
 /// Launch the agent as a local tmux process.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn launch_local(
     worktree_dir: &Path,
     session_name: &str,
@@ -562,6 +579,7 @@ pub(super) fn launch_local(
     sandbox_command: Option<&str>,
     crosslink_dir: &Path,
     skip_permissions: bool,
+    permission_mode: Option<&str>,
 ) -> Result<()> {
     // Create the tmux session
     let output = Command::new("tmux")
@@ -598,6 +616,7 @@ pub(super) fn launch_local(
         worktree_dir,
         skip_permissions,
         claude_config_dir.as_deref(),
+        permission_mode,
     );
 
     // Write initial status sentinel BEFORE sending the command.

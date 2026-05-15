@@ -740,6 +740,7 @@ pub fn launch(
             design_doc: None,
             doc_path: None,
             skip_permissions: false,
+            permission_mode: None,
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {

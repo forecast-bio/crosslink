@@ -92,6 +92,11 @@ pub struct KickoffOpts<'a> {
     pub design_doc: Option<&'a super::super::design_doc::DesignDoc>,
     pub doc_path: Option<&'a str>,
     pub skip_permissions: bool,
+    /// Optional claude `--permission-mode <mode>` (GH#603). When set,
+    /// overrides `skip_permissions`'s `--dangerously-skip-permissions`
+    /// with the finer-grained mode (acceptEdits/auto/bypassPermissions/
+    /// default/dontAsk/plan). CLI marks the flags as mutually exclusive.
+    pub permission_mode: Option<&'a str>,
 }
 
 /// A single criterion verdict in the validation report.

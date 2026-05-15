@@ -63,6 +63,7 @@ pub fn dispatch(
             branch,
             doc,
             skip_permissions,
+            permission_mode,
         } => {
             let parsed_doc = if let Some(ref path) = doc {
                 let content = std::fs::read_to_string(path)
@@ -89,6 +90,7 @@ pub fn dispatch(
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
                 skip_permissions,
+                permission_mode: permission_mode.as_deref(),
             };
             // Update pipeline state if launching from a design doc
             if let Some(ref doc_path) = doc {
@@ -169,6 +171,7 @@ pub fn dispatch(
             issue,
             dry_run,
             skip_permissions,
+            permission_mode,
         } => dispatch_launch(
             crosslink_dir,
             db,
@@ -185,6 +188,7 @@ pub fn dispatch(
             issue,
             dry_run,
             skip_permissions,
+            permission_mode.as_deref(),
         ),
     }
 }
@@ -210,6 +214,7 @@ fn dispatch_launch(
     issue: Option<i64>,
     dry_run: bool,
     skip_permissions: bool,
+    permission_mode: Option<&str>,
 ) -> Result<()> {
     // Non-interactive: --plan or --run flag provided
     if do_plan {
@@ -273,6 +278,7 @@ fn dispatch_launch(
             design_doc: parsed_doc.as_ref(),
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
             skip_permissions,
+            permission_mode,
         };
         if let Some(ref doc_path) = doc {
             let _ = pipeline::mark_running(doc_path, "pending", "pending", issue);
@@ -356,6 +362,7 @@ fn dispatch_launch(
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc_path_str.as_deref(),
                 skip_permissions: false,
+                permission_mode: None,
             };
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())

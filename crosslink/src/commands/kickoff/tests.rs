@@ -145,6 +145,7 @@ fn test_build_prompt_contains_essentials() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -177,6 +178,7 @@ fn test_build_prompt_ci_verification() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -206,6 +208,7 @@ fn test_build_prompt_thorough_verification() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -885,6 +888,7 @@ fn test_build_prompt_local_has_no_ci_or_adversarial() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -914,6 +918,7 @@ fn test_build_prompt_contains_blocked_actions() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -944,6 +949,7 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -974,6 +980,7 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -1016,6 +1023,7 @@ fn test_build_prompt_with_design_doc() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
 
@@ -1161,6 +1169,7 @@ fn test_build_prompt_with_design_doc_open_questions() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
 
@@ -1332,6 +1341,7 @@ fn test_build_prompt_with_criteria_includes_validation() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(prompt.contains("Spec Validation"));
@@ -1372,6 +1382,7 @@ fn test_build_prompt_without_criteria_no_validation() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(!prompt.contains("Spec Validation"));
@@ -1409,6 +1420,7 @@ fn test_build_prompt_validation_ordering() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     let test_pos = prompt.find("Run tests").expect("should have test section");
@@ -1754,6 +1766,7 @@ fn test_build_agent_command_without_sandbox() {
         Path::new("/tmp/worktree"),
         false,
         None,
+        None,
     );
     assert_eq!(
         cmd,
@@ -1773,6 +1786,7 @@ fn test_build_agent_command_with_sandbox() {
         Path::new("/tmp/my-worktree"),
         false,
         None,
+        None,
     );
     assert!(cmd.starts_with("timeout 3600s bwrap --bind '/tmp/my-worktree' /workspace --"));
     assert!(cmd.contains("env -u CLAUDECODE claude"));
@@ -1790,12 +1804,93 @@ fn test_build_agent_command_with_skip_permissions() {
         Path::new("/tmp/worktree"),
         true,
         None,
+        None,
     );
     assert!(
         cmd.contains("--dangerously-skip-permissions"),
         "Should include skip permissions flag"
     );
     assert!(cmd.contains("claude --dangerously-skip-permissions --model 'opus'"));
+}
+
+#[test]
+fn test_build_agent_command_with_permission_mode_auto() {
+    // GH#603: --permission-mode <mode> emits claude's --permission-mode flag
+    // with the value shell-escaped.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+        None,
+        Some("auto"),
+    );
+    assert!(
+        cmd.contains("--permission-mode 'auto'"),
+        "permission_mode=auto should emit --permission-mode 'auto', got: {cmd}"
+    );
+    assert!(
+        !cmd.contains("--dangerously-skip-permissions"),
+        "permission_mode must not coexist with --dangerously-skip-permissions"
+    );
+}
+
+#[test]
+fn test_build_agent_command_permission_mode_wins_over_skip_permissions() {
+    // Defense in depth: even if both flags are set (CLI parsing should
+    // reject this via conflicts_with, but internal callers might not),
+    // permission_mode takes precedence and skip_permissions's
+    // --dangerously-skip-permissions is suppressed.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        true,
+        None,
+        Some("acceptEdits"),
+    );
+    assert!(
+        cmd.contains("--permission-mode 'acceptEdits'"),
+        "permission_mode should win over skip_permissions, got: {cmd}"
+    );
+    assert!(
+        !cmd.contains("--dangerously-skip-permissions"),
+        "skip_permissions must be suppressed when permission_mode is set, got: {cmd}"
+    );
+}
+
+#[test]
+fn test_build_agent_command_empty_permission_mode_treated_as_none() {
+    // An empty string should be treated the same as None — falling back
+    // to skip_permissions resolution (or no flag).
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        true,
+        None,
+        Some(""),
+    );
+    assert!(
+        !cmd.contains("--permission-mode"),
+        "empty permission_mode must not emit the flag, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--dangerously-skip-permissions"),
+        "with skip_permissions=true and empty permission_mode, the legacy flag wins, got: {cmd}"
+    );
 }
 
 #[test]
@@ -1809,6 +1904,7 @@ fn test_build_agent_command_plan_kickoff() {
         None,
         Path::new("/tmp/worktree"),
         false,
+        None,
         None,
     );
     assert!(cmd.starts_with("gtimeout 1800s"));
@@ -1832,6 +1928,7 @@ fn test_build_agent_command_propagates_claude_config_dir() {
         Path::new("/tmp/worktree"),
         false,
         Some("/Users/me/.claude-work"),
+        None,
     );
     assert_eq!(
         cmd,
@@ -1853,6 +1950,7 @@ fn test_build_agent_command_omits_empty_claude_config_dir() {
         Path::new("/tmp/worktree"),
         false,
         Some(""),
+        None,
     );
     assert!(!cmd.contains("CLAUDE_CONFIG_DIR="));
     assert!(cmd.starts_with("timeout 3600s env -u CLAUDECODE claude"));
@@ -1873,6 +1971,7 @@ fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
         Path::new("/tmp/worktree"),
         false,
         Some("/weird/it's-a-path"),
+        None,
     );
     assert!(cmd.contains("CLAUDE_CONFIG_DIR='/weird/it'\\''s-a-path'"));
 }
@@ -1892,6 +1991,7 @@ fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
         Path::new("/tmp/my-worktree"),
         false,
         Some("/Users/me/.claude-work"),
+        None,
     );
     assert!(cmd.contains(
         "bwrap --bind '/tmp/my-worktree' /workspace -- env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude"
@@ -1984,6 +2084,7 @@ fn test_build_agent_command_env_var_actually_reaches_claude() {
         tmp.path(),
         false,
         Some("/expected/value"),
+        None,
     );
 
     let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
@@ -2035,6 +2136,7 @@ fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
         tmp.path(),
         false,
         Some("/sandbox-passthrough/value"),
+        None,
     );
 
     let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
@@ -2076,6 +2178,7 @@ fn test_build_agent_command_omitted_env_var_does_not_break_launch() {
         None,
         tmp.path(),
         false,
+        None,
         None,
     );
 
@@ -2352,6 +2455,7 @@ fn test_build_prompt_contains_report_json_schema() {
         design_doc: Some(&doc),
         doc_path: Some("test.md"),
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -2399,6 +2503,7 @@ fn test_build_prompt_contains_validation_section() {
         design_doc: Some(&doc),
         doc_path: Some("test.md"),
         skip_permissions: false,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
 
