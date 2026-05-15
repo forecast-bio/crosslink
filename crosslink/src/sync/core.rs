@@ -179,8 +179,17 @@ impl SyncManager {
             .output()
             .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
         if !output.status.success() {
+            // Capture BOTH streams (#601). `git commit`'s "nothing to
+            // commit" status message goes to stdout, not stderr — without
+            // this, "nothing to commit" failures surfaced as empty errors.
+            let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git commit {args:?} in cache failed: {stderr}");
+            bail!(
+                "git commit {args:?} in cache failed ({}):\nstdout: {}\nstderr: {}",
+                output.status,
+                stdout.trim(),
+                stderr.trim(),
+            );
         }
         Ok(output)
     }
@@ -198,8 +207,17 @@ impl SyncManager {
             .output()
             .with_context(|| format!("Failed to run git {args:?} in cache"))?;
         if !output.status.success() {
+            // Capture BOTH streams (#601). Some git diagnostics — including
+            // hook output and certain push rejections — go to stdout, not
+            // stderr; capturing only stderr drops those details.
+            let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {args:?} in cache failed: {stderr}");
+            bail!(
+                "git {args:?} in cache failed ({}):\nstdout: {}\nstderr: {}",
+                output.status,
+                stdout.trim(),
+                stderr.trim(),
+            );
         }
         Ok(output)
     }
