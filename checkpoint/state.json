@@ -57,7 +57,7 @@
     },
     "744": {
       "agent_id": "dashboard-bootstrap",
-      "claimed_at": "2026-05-15T16:10:54.356606937Z"
+      "claimed_at": "2026-05-15T18:34:11.597610774Z"
     }
   },
   "issues": {},
@@ -186,11 +186,21 @@
       "agent_id": "dashboard-bootstrap",
       "agent_seq": 23,
       "timestamp": "2026-04-21T23:30:17.273171334Z"
+    },
+    {
+      "agent_id": "dashboard-bootstrap",
+      "agent_seq": 65,
+      "timestamp": "2026-05-15T18:33:38.013516724Z"
+    },
+    {
+      "agent_id": "dashboard-bootstrap",
+      "agent_seq": 66,
+      "timestamp": "2026-05-15T18:34:11.597610774Z"
     }
   ],
   "watermark": {
-    "timestamp": "2026-05-15T16:10:54.356606937Z",
+    "timestamp": "2026-05-15T18:34:11.597610774Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 64
+    "agent_seq": 66
   }
 }
