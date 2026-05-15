@@ -866,6 +866,15 @@ impl SharedWriter {
     }
 
     /// Write files from a `WriteSet` to the cache directory and update counters.
+    ///
+    /// Uses [`crate::utils::atomic_write`] for the `JSON` writes (#604).
+    /// `std::fs::write` is open-truncate-write — if the process dies
+    /// mid-write the target file is left half-populated and subsequent
+    /// reads fail with a `JSON` parse error until the user runs
+    /// `git checkout HEAD -- <path>`. The temp-file + atomic-rename
+    /// approach makes the write all-or-nothing relative to process
+    /// crashes, which is the only #604 failure mode that doesn't
+    /// self-heal on the next successful mutation.
     fn apply_write_set(&self, write_set: &WriteSet) -> Result<()> {
         if !write_set.use_git_rm {
             for (rel_path, content) in &write_set.files {
@@ -882,7 +891,7 @@ impl SharedWriter {
                 if let Some(parent) = full.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                std::fs::write(&full, content)?;
+                crate::utils::atomic_write(&full, content)?;
 
                 // Clean up stale V1 flat file when writing V2 directory
                 // format (#428). The sync-level cleanup_stale_layout_files()

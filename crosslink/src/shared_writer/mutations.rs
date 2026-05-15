@@ -1,5 +1,41 @@
 //! Issue mutation operations: create, update, close, reopen, delete,
 //! comments, labels, blockers, and relations.
+//!
+//! # Multi-store consistency (re: #604)
+//!
+//! Each public mutation here layers three persistence steps —
+//! `JSON` write to the hub cache, git commit (+push), then `SQLite`
+//! re-hydration. These three are intentionally NOT transactional in
+//! the ACID-across-stores sense. The relationships are:
+//!
+//! - **git commits are the canonical event log.** The hub branch is
+//!   the source of truth that other agents synchronize against.
+//! - **The per-issue `JSON` files are a current-state view written
+//!   inside each commit.** They live in the same commit as their
+//!   own update, so they can't drift from the log: any reader that
+//!   trusts `git log + git show` sees the same state as any reader
+//!   that opens the working tree files.
+//! - **`SQLite` is a derived cache** rebuilt by `hydrate_to_sqlite`
+//!   from the `JSON` view after every successful mutation.
+//!
+//! The "failure modes table" in #604 enumerates five interleavings
+//! of partial failure across these three steps. Four of them
+//! (commit-fails, push-fails, hydrate-fails, post-commit-`SQLite`-fails)
+//! self-heal on the next successful mutation — the next `git add`
+//! picks up any straggling `JSON` modification, the next `hydrate`
+//! retries, and the next sync push catches up. Mode #4 alone (a
+//! process crash mid-write leaving a truncated `JSON` file on disk)
+//! is genuinely non-recoverable without manual `git checkout`, and
+//! is fixed in `apply_write_set` by switching to
+//! [`crate::utils::atomic_write`] (temp file + POSIX rename).
+//!
+//! We considered the issue's "events as source of truth, derived
+//! stores rebuilt by replay" suggestion but concluded it would
+//! over-couple stores that are designed to be eventually
+//! consistent. The hub branch is *already* the canonical event log;
+//! the per-issue `JSON` is part of the commit, not a separate store
+//! that can drift from it. The actual gap was crash atomicity, and
+//! the fix is local to the write step.
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
