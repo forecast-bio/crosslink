@@ -18,6 +18,7 @@ pub mod external_knowledge;
 pub mod import;
 pub mod init;
 pub mod integrity_cmd;
+pub mod integrity_drift;
 pub mod intervene;
 pub mod kickoff;
 pub mod knowledge;

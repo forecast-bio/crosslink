@@ -1534,9 +1534,17 @@ enum IntegrityCommands {
     },
     /// Verify `SQLite` matches JSON issue files
     Hydration {
-        /// Re-hydrate `SQLite` from JSON
+        /// Re-hydrate `SQLite` from JSON. Tries to re-emit SQLite-only
+        /// state back to JSON first; falls back to refusing destructive
+        /// repair unless `--accept-data-loss` is also given.
         #[arg(long)]
         repair: bool,
+        /// Allow `--repair` to destroy SQLite rows that have no JSON
+        /// representation (comments, time entries). A snapshot of the
+        /// pre-repair database is always written under
+        /// `.crosslink/integrity/` regardless of this flag.
+        #[arg(long)]
+        accept_data_loss: bool,
     },
     /// Check for stale or orphaned locks
     Locks {
