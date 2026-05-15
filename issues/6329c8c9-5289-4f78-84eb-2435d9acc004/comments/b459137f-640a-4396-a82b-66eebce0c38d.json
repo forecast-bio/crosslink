@@ -1,0 +1,10 @@
+{
+  "uuid": "b459137f-640a-4396-a82b-66eebce0c38d",
+  "issue_uuid": "6329c8c9-5289-4f78-84eb-2435d9acc004",
+  "author": "dashboard-bootstrap",
+  "content": "Fix #602: 4-part repair safety net for integrity hydration --repair.\n\n(1) Snapshot: every --repair run writes .crosslink/integrity/hydration-backup-<utc-ts>.sqlite via VACUUM INTO before touching shared data. Self-contained, WAL-safe, no new feature flags.\n\n(2) Content drift detection: new commands::integrity_drift::detect() builds a JSON-derived view in a temp SQLite, ATTACHes to the main connection, and SQL-diffs every shared table (labels, deps, relations, comments, milestone_issues, time_entries) plus sqlite-only issues. Catches divergence the count check missed.\n\n(3) Re-emit (SQLite -> JSON): re_emit() calls SharedWriter.{add_label, add_blocker, add_relation, set_milestone_on_issues} for each detected SQLite-only row, writing them back through the git event log. Comments/time_entries cannot be re-emitted (no JSON representation / no writer API).\n\n(4) --accept-data-loss flag: when drift includes unrecoverable rows (comments, time_entries) or a writer isn't available, --repair refuses without the flag and points the user at the snapshot.\n\nTests: 2875 pass (+9). Clippy clean -D warnings. New files: db/snapshot.rs, commands/integrity_drift.rs.",
+  "created_at": "2026-05-15T14:20:19.936680755Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABALuBDkLoX2j1/jFXY2ozFW6MR4k5kSJe9rrartNexEpDFgF1ns+xqf9wlGRIdbjAVoePNzG6VFmQSO/9O8v1bAg=="
+}
