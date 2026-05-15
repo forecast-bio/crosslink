@@ -1,0 +1,10 @@
+{
+  "uuid": "b09dcfc8-aa0e-4e2e-a6c0-72cde8170a6f",
+  "issue_uuid": "cdd4d1e9-c4d3-4336-b166-2772ff0bb4dd",
+  "author": "dashboard-bootstrap",
+  "content": "Fix #604 (mode #4): switch apply_write_set's JSON write from std::fs::write to crate::utils::atomic_write (temp file + POSIX rename). Closes the only non-self-healing failure mode the issue's table enumerates (process crash mid-write leaving a half-populated file on disk). Modes #1, #3, #5 self-heal on next successful mutation; mode #2 was already accepted as eventually consistent. Inline doc-comment on mutations.rs explains the three-store consistency model and why we declined the larger event-sourcing restructure. Full diagnosis posted as GH#604 comment. Tests: 2878 pass. Clippy -D warnings -W unwrap_used -W expect_used clean. Fmt clean.",
+  "created_at": "2026-05-15T19:22:23.336896564Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAW5xekDmmT5o45ZTkWv2BtpRoQmLOrRgFteLlah33ZWQpuyMTs7dcJkSygq2qqbXngK/g4rm5JjJozBAxMeU8BA=="
+}
