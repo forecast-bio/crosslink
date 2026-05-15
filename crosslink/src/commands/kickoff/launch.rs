@@ -568,7 +568,6 @@ pub(super) fn exclude_kickoff_files(worktree_dir: &Path) -> Result<()> {
 
 /// Launch the agent as a local tmux process.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn launch_local(
     worktree_dir: &Path,
     session_name: &str,
