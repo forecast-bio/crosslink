@@ -345,7 +345,12 @@ pub fn init(
 
     // Generate SSH key unless opted out
     if !no_key {
-        let keys_dir = crosslink_dir.join("keys");
+        // GH#610: store keys under the main repo's `.crosslink/keys/` so
+        // they outlive `git worktree remove` of an agent worktree. The
+        // worktree-scoped `user.signingkey` on the hub-cache (which is
+        // also rooted in the main repo) then references a stable path.
+        let host_crosslink = signing::host_crosslink_dir(crosslink_dir);
+        let keys_dir = host_crosslink.join("keys");
         match signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
             Ok(keypair) => {
                 // Store relative path from .crosslink/
@@ -382,9 +387,20 @@ pub fn init(
                 // On --force re-runs, key-gen errors with "already exists".
                 // Reuse the on-disk key; otherwise agent.json loses
                 // ssh_key_path and shared_writer silently disables signing.
+                // GH#610: prefer the host-side keys dir (where new agents
+                // store their keys) and fall back to the worktree-local
+                // path for legacy agents whose keys predate the relocation.
                 let rel_path = format!("keys/{agent_id}_ed25519");
-                let private_path = crosslink_dir.join(&rel_path);
-                let public_path = crosslink_dir.join(format!("keys/{agent_id}_ed25519.pub"));
+                let host_private = host_crosslink.join(&rel_path);
+                let host_public = host_crosslink.join(format!("keys/{agent_id}_ed25519.pub"));
+                let (private_path, public_path) = if host_private.exists() && host_public.exists() {
+                    (host_private, host_public)
+                } else {
+                    (
+                        crosslink_dir.join(&rel_path),
+                        crosslink_dir.join(format!("keys/{agent_id}_ed25519.pub")),
+                    )
+                };
                 if private_path.exists() && public_path.exists() {
                     if let (Ok(fp), Ok(pub_key)) = (
                         signing::get_key_fingerprint(&public_path),
@@ -602,7 +618,9 @@ pub fn bootstrap(
 
     // Step 5: Generate SSH key unless opted out
     if !no_key && config.ssh_key_path.is_none() {
-        let keys_dir = crosslink_dir.join("keys");
+        // GH#610: see `init` above — keys live under the main repo's
+        // `.crosslink/keys/` so they survive agent-worktree cleanup.
+        let keys_dir = signing::host_crosslink_dir(&crosslink_dir).join("keys");
         match signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
             Ok(keypair) => {
                 let rel_path = format!("keys/{agent_id}_ed25519");

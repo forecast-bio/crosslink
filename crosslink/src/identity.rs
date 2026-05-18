@@ -36,7 +36,16 @@ pub struct AgentConfig {
     /// autonomous agent worktrees. Missing field defaults to `driver`.
     #[serde(default)]
     pub role: AgentRole,
-    /// Path to SSH private key, relative to .crosslink/ (e.g. "`keys/agent_ed25519`").
+    /// Path to SSH private key, relative to the **main repo's**
+    /// `.crosslink/` (e.g. "`keys/agent_ed25519`").
+    ///
+    /// GH#610: new agents store keys under the main repo's
+    /// `.crosslink/keys/` so they survive `git worktree remove` of a
+    /// kickoff agent worktree. Legacy agents (pre-#610) wrote this
+    /// path relative to the worktree's own `.crosslink/`; the
+    /// resolver in `sync::trust::resolve_agent_key` tries the host
+    /// path first and falls back to the worktree path for legacy
+    /// keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_key_path: Option<String>,
     /// SSH public key fingerprint (e.g. "SHA256:...").

@@ -3570,6 +3570,119 @@ fn test_repair_stale_signingkey_cache_missing_is_noop() {
     assert!(!repaired);
 }
 
+// ------------------------------------------------------------------
+// resolve_agent_key — GH#610: agent keys live in main repo, with
+// a legacy fallback to the worktree-local path.
+// ------------------------------------------------------------------
+
+/// When no git metadata is present, `host_crosslink_dir` returns the input
+/// unchanged. With the key only at the worktree-local path, the resolver
+/// falls back to it — i.e. the legacy pre-#610 layout still works.
+#[test]
+fn test_resolve_agent_key_legacy_worktree_path_fallback() {
+    let dir = tempdir().unwrap();
+    let wt_crosslink = dir.path().join(".crosslink");
+    let keys_dir = wt_crosslink.join("keys");
+    std::fs::create_dir_all(&keys_dir).unwrap();
+    let key_file = keys_dir.join("legacy_ed25519");
+    std::fs::write(&key_file, "legacy-key-bytes").unwrap();
+
+    let resolved = crate::sync::trust::resolve_agent_key(&wt_crosslink, "keys/legacy_ed25519");
+    assert_eq!(
+        resolved, key_file,
+        "no host-side key + worktree-local key → resolver picks the worktree path"
+    );
+}
+
+/// When neither the host-side nor the worktree-local path has the file,
+/// the resolver returns the worktree-relative path. The caller is then
+/// responsible for checking `.exists()` — preserves the pre-fix
+/// "key missing → caller disables signing" contract.
+#[test]
+fn test_resolve_agent_key_neither_path_exists_returns_worktree_path() {
+    let dir = tempdir().unwrap();
+    let wt_crosslink = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&wt_crosslink).unwrap();
+
+    let resolved = crate::sync::trust::resolve_agent_key(&wt_crosslink, "keys/ghost_ed25519");
+    assert_eq!(resolved, wt_crosslink.join("keys/ghost_ed25519"));
+    assert!(!resolved.exists(), "precondition for this test");
+}
+
+/// End-to-end #610: with a real main repo and a linked worktree, an
+/// agent.json living in the worktree resolves `ssh_key_path` to the
+/// main repo's `.crosslink/keys/`. This is the contract that lets
+/// `configure_signing` (called from the worktree's context) bake an
+/// absolute main-repo path into the hub-cache's worktree-scoped
+/// `user.signingkey`, so the reference keeps pointing at a real file
+/// after `git worktree remove` of the agent worktree.
+#[test]
+fn test_resolve_agent_key_worktree_picks_main_repo_keys() {
+    let main = tempdir().unwrap();
+    let main_root = main.path();
+
+    // Bootstrap a real git repo so `resolve_main_repo_root` succeeds.
+    for args in [
+        vec!["init", "-b", "main"],
+        vec!["config", "user.email", "t@t.local"],
+        vec!["config", "user.name", "t"],
+    ] {
+        Command::new("git")
+            .current_dir(main_root)
+            .args(&args)
+            .output()
+            .unwrap();
+    }
+    std::fs::write(main_root.join("README.md"), "x").unwrap();
+    Command::new("git")
+        .current_dir(main_root)
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(main_root)
+        .args(["commit", "-m", "init", "--no-gpg-sign"])
+        .output()
+        .unwrap();
+
+    // The post-#610 key lives in the MAIN repo's .crosslink/keys/.
+    let main_crosslink = main_root.join(".crosslink");
+    let main_keys = main_crosslink.join("keys");
+    std::fs::create_dir_all(&main_keys).unwrap();
+    let main_key = main_keys.join("agent_ed25519");
+    std::fs::write(&main_key, "real-key-bytes").unwrap();
+
+    // Linked worktree the agent would have run in. agent.json lives
+    // here and references `keys/agent_ed25519` — relative to *main*
+    // per the post-#610 semantics. The worktree's own .crosslink
+    // intentionally has no `keys/` directory.
+    let wt_root = main_root.join(".worktrees").join("agent-test");
+    Command::new("git")
+        .current_dir(main_root)
+        .args([
+            "worktree",
+            "add",
+            "-b",
+            "agent-test",
+            wt_root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let wt_crosslink = wt_root.join(".crosslink");
+    std::fs::create_dir_all(&wt_crosslink).unwrap();
+
+    let resolved = crate::sync::trust::resolve_agent_key(&wt_crosslink, "keys/agent_ed25519");
+    let expected = main_key.canonicalize().unwrap_or(main_key);
+    let actual = resolved.canonicalize().unwrap_or(resolved);
+    assert_eq!(
+        actual, expected,
+        "with a main-repo key present, the resolver prefers it over the worktree path \
+         — this is what lets `configure_signing` bake an absolute main-repo path into \
+         the hub-cache's worktree-scoped `user.signingkey` so the reference survives \
+         `git worktree remove` of the agent worktree (GH#610)"
+    );
+}
+
 // ============================================================================
 // GH#586: structured push-failure classifier
 // ============================================================================

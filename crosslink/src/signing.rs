@@ -42,6 +42,37 @@ pub enum SignatureVerification {
 
 // ── Key generation ──────────────────────────────────────────────────
 
+/// Resolve the *host* (main-repo) crosslink directory for storing
+/// agent signing keys.
+///
+/// Agent keys live under the main repo's `.crosslink/keys/` rather
+/// than each agent worktree's own `.crosslink/keys/` so that the
+/// key file survives `git worktree remove` when a kickoff agent is
+/// cleaned up (GH#610). Without this, the worktree-scoped
+/// `user.signingkey` reference on the hub-cache outlives the file
+/// it points at, breaking every subsequent `crosslink sync` until
+/// a human re-points it (see also GH#565 for the C-path repair
+/// that catches the residual breakage).
+///
+/// Behaviour:
+///
+/// - When `crosslink_dir` is inside a git worktree, walks up via
+///   [`crate::utils::resolve_main_repo_root`] and returns
+///   `<main-repo>/.crosslink`.
+/// - When `crosslink_dir` is already the main repo's crosslink dir
+///   (the driver case), returns it unchanged.
+/// - When git can't resolve a repo (e.g. unit-test temp dirs with
+///   no `git init`), returns `crosslink_dir` unchanged so callers
+///   continue to behave as if there were no worktree.
+#[must_use]
+pub fn host_crosslink_dir(crosslink_dir: &Path) -> PathBuf {
+    let worktree_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+    crate::utils::resolve_main_repo_root(worktree_root).map_or_else(
+        || crosslink_dir.to_path_buf(),
+        |root| root.join(".crosslink"),
+    )
+}
+
 /// Generate a new Ed25519 SSH key pair for an agent.
 ///
 /// Keys are stored at `{keys_dir}/{agent_id}_ed25519` (.pub for public).
@@ -1125,6 +1156,105 @@ mod tests {
         let path = dir.path().join("bad.pub");
         std::fs::write(&path, "not an ssh key").unwrap();
         assert!(read_public_key(&path).is_err());
+    }
+
+    // ── host_crosslink_dir (GH#610) ──────────────────────────────────
+
+    /// In a temp dir with no git metadata, `resolve_main_repo_root`
+    /// returns `None`; `host_crosslink_dir` falls back to the input.
+    #[test]
+    fn test_host_crosslink_dir_no_git_returns_input() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let resolved = host_crosslink_dir(&crosslink_dir);
+        assert_eq!(resolved, crosslink_dir);
+    }
+
+    /// In a plain (non-worktree) git repo, `host_crosslink_dir`
+    /// returns the same `.crosslink/` it was given.
+    #[test]
+    fn test_host_crosslink_dir_main_repo_is_identity() {
+        let dir = tempdir().unwrap();
+        Command::new("git")
+            .current_dir(dir.path())
+            .args(["init", "-b", "main"])
+            .output()
+            .unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let resolved = host_crosslink_dir(&crosslink_dir);
+        // Canonicalize both sides — macOS resolves /tmp through /private/tmp,
+        // and `resolve_main_repo_root` canonicalises internally.
+        let expected = crosslink_dir.canonicalize().unwrap_or(crosslink_dir);
+        let actual = resolved.canonicalize().unwrap_or(resolved);
+        assert_eq!(actual, expected);
+    }
+
+    /// In a linked git worktree, `host_crosslink_dir` walks back up to
+    /// the main repo's `.crosslink/` (the whole point of the helper).
+    #[test]
+    fn test_host_crosslink_dir_worktree_resolves_to_main() {
+        let main = tempdir().unwrap();
+        let main_root = main.path();
+
+        // Build a main repo with one commit so `git worktree add` has
+        // something to branch from.
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["init", "-b", "main"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["config", "user.email", "t@t.local"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["config", "user.name", "t"])
+            .output()
+            .unwrap();
+        std::fs::write(main_root.join("a"), "x").unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["commit", "-m", "init", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+
+        // The main repo's crosslink dir — the answer we expect.
+        let main_crosslink = main_root.join(".crosslink");
+        std::fs::create_dir_all(&main_crosslink).unwrap();
+
+        // Add a linked worktree under the main repo on a fresh branch.
+        let wt_root = main_root.join(".worktrees").join("agent-abcd");
+        Command::new("git")
+            .current_dir(main_root)
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "agent-test",
+                wt_root.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        let wt_crosslink = wt_root.join(".crosslink");
+        std::fs::create_dir_all(&wt_crosslink).unwrap();
+
+        let resolved = host_crosslink_dir(&wt_crosslink);
+        // Canonicalise so /tmp ↔ /private/tmp on macOS doesn't trip us.
+        let expected = main_crosslink.canonicalize().unwrap_or(main_crosslink);
+        let actual = resolved.canonicalize().unwrap_or(resolved);
+        assert_eq!(
+            actual, expected,
+            "worktree's host_crosslink_dir should resolve to the main repo's .crosslink/"
+        );
     }
 
     // Integration tests requiring ssh-keygen on PATH

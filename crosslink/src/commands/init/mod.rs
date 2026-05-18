@@ -284,7 +284,12 @@ fn init_agent_identity(crosslink_dir: &Path, agent_id: &str) -> Result<()> {
     // AgentConfig::init defaults to role=driver.
     let mut config = crate::identity::AgentConfig::init(crosslink_dir, agent_id, None)?;
 
-    let keys_dir = crosslink_dir.join("keys");
+    // GH#610: route through `host_crosslink_dir` for consistency with
+    // agent init/bootstrap. `crosslink init` always runs in the main
+    // repo, so this is a no-op in practice — but if any future
+    // refactor moves this into a worktree context, key storage stays
+    // pinned to the main repo and survives `git worktree remove`.
+    let keys_dir = crate::signing::host_crosslink_dir(crosslink_dir).join("keys");
     match crate::signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
         Ok(keypair) => {
             config.ssh_key_path = Some(format!("keys/{agent_id}_ed25519"));

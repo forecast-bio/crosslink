@@ -45,6 +45,24 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Resolve an agent's SSH private key path from the relative form stored in
+/// `agent.json` (`ssh_key_path`).
+///
+/// GH#610: new agents store their key under the *main repo's*
+/// `.crosslink/keys/` so it survives `git worktree remove` of a kickoff
+/// agent worktree. Legacy agents (created before that change) have their
+/// key inside the worktree's own `.crosslink/keys/`. Try the host path
+/// first; fall back to the worktree-local path so existing deployments
+/// keep signing until the legacy worktree is cleaned up.
+pub(super) fn resolve_agent_key(worktree_crosslink_dir: &Path, rel_key: &str) -> PathBuf {
+    let host = crate::signing::host_crosslink_dir(worktree_crosslink_dir);
+    let host_path = host.join(rel_key);
+    if host_path.exists() {
+        return host_path;
+    }
+    worktree_crosslink_dir.join(rel_key)
+}
+
 /// Best guess whether a `user.signingkey` value is a filesystem path rather
 /// than literal key material (e.g. an inline `ssh-ed25519 AAAA...` line).
 ///
@@ -115,7 +133,7 @@ impl SyncManager {
             // attribution is distinct.
             if let Some(agent) = AgentConfig::load(crosslink_dir)? {
                 if let (Some(rel_key), Some(_)) = (&agent.ssh_key_path, &agent.ssh_fingerprint) {
-                    let private_key = self.crosslink_dir.join(rel_key);
+                    let private_key = resolve_agent_key(&self.crosslink_dir, rel_key);
                     if private_key.exists() {
                         signing::configure_git_ssh_signing(
                             &self.cache_dir,
@@ -165,7 +183,7 @@ impl SyncManager {
         // hasn't set `user.signingkey` in the main repo.
         if let Some(agent) = AgentConfig::load(crosslink_dir)? {
             if let (Some(rel_key), Some(_)) = (&agent.ssh_key_path, &agent.ssh_fingerprint) {
-                let private_key = self.crosslink_dir.join(rel_key);
+                let private_key = resolve_agent_key(&self.crosslink_dir, rel_key);
                 if private_key.exists() {
                     signing::configure_git_ssh_signing(
                         &self.cache_dir,
