@@ -1,0 +1,10 @@
+{
+  "uuid": "e55ceba9-b418-4f48-993a-48e70fb988c1",
+  "display_id": 746,
+  "title": "fix(kickoff): GH#610 — repair stale hub-cache signingkey on kickoff cleanup",
+  "status": "open",
+  "priority": "high",
+  "created_by": "dashboard-bootstrap",
+  "created_at": "2026-05-18T12:24:16.416175182Z",
+  "updated_at": "2026-05-18T12:24:16.416175182Z"
+}
