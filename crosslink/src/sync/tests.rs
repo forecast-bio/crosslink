@@ -840,6 +840,128 @@ fn test_read_tracker_remote_custom_value() {
     assert_eq!(remote, "upstream");
 }
 
+// ── GH#611: silent inference from git remotes ────────────────────
+
+/// `git remote add` a name pointing at a placeholder URL on `repo`.
+/// The URL value doesn't matter for `git remote` (the listing command),
+/// so we just need a syntactically valid string.
+fn add_git_remote(repo: &Path, name: &str) {
+    let url = format!("https://example.invalid/{name}.git");
+    let status = Command::new("git")
+        .current_dir(repo)
+        .args(["remote", "add", name, &url])
+        .status()
+        .expect("git remote add failed to spawn");
+    assert!(status.success(), "git remote add {name} failed");
+}
+
+#[test]
+fn test_read_tracker_remote_single_origin_no_warn() {
+    // The single most common project shape: one git remote called "origin",
+    // hook-config.json has no `tracker_remote` field. Before GH#611 this
+    // path emitted a WARN once per process; after, it must be silent.
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    // hook-config.json from setup_sync_env only sets {"remote":"origin"},
+    // intentionally NOT a tracker_remote field — so we drop into inference.
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(remote, "origin");
+}
+
+#[test]
+fn test_read_tracker_remote_single_non_origin_remote() {
+    // One remote, not called "origin" — inferred verbatim.
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    add_git_remote(dir.path(), "upstream");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    // hook-config.json exists but has no tracker_remote field
+    std::fs::write(crosslink_dir.join("hook-config.json"), r#"{}"#).unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "upstream",
+        "single non-origin remote should be inferred as the tracker_remote"
+    );
+}
+
+#[test]
+fn test_read_tracker_remote_multi_remotes_prefers_origin() {
+    // Multiple remotes including "origin" — origin wins regardless of order.
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    // Add in non-alphabetical order to confirm origin wins on name, not order.
+    add_git_remote(dir.path(), "zzz");
+    add_git_remote(dir.path(), "origin");
+    add_git_remote(dir.path(), "fork");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(remote, "origin", "origin must win in multi-remote setups");
+}
+
+#[test]
+fn test_read_tracker_remote_multi_remotes_no_origin_picks_first_alphabetical() {
+    // Multiple remotes, none called origin → first alphabetically (deterministic).
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    add_git_remote(dir.path(), "upstream");
+    add_git_remote(dir.path(), "alice");
+    add_git_remote(dir.path(), "bob");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "alice",
+        "with no origin and multiple remotes, picks the alphabetically first one"
+    );
+}
+
+#[test]
+fn test_read_tracker_remote_explicit_config_wins_over_inference() {
+    // hook-config.json's explicit value beats whatever git remotes say.
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    add_git_remote(dir.path(), "origin");
+    add_git_remote(dir.path(), "upstream");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(
+        crosslink_dir.join("hook-config.json"),
+        r#"{"tracker_remote":"upstream"}"#,
+    )
+    .unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "upstream",
+        "explicit hook-config.json value must take precedence over inference"
+    );
+}
+
 #[test]
 fn test_read_tracker_remote_falls_back_when_corrupt_placeholder() {
     // GH#739: older builds of the init walkthrough wrote the literal
