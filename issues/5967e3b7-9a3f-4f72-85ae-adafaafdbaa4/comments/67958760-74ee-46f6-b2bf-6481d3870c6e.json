@@ -1,0 +1,10 @@
+{
+  "uuid": "67958760-74ee-46f6-b2bf-6481d3870c6e",
+  "issue_uuid": "5967e3b7-9a3f-4f72-85ae-adafaafdbaa4",
+  "author": "dashboard-bootstrap",
+  "content": "Recovered ferrotorch comment 2df7313e (issue aa038f4b, ferrotorch local #1597). Power outage truncated the JSON to 0 bytes. Restored byte-for-byte from hub creation commit 1ceadb088 via 'git show <sha>:<path> > <path>' — identical to git blob, valid JSON, original Ed25519 signature intact (signed_by SHA256:YWYNpJtV...). Corruption had been committed over good history by d1a2ffafc 'sync: auto-stage dirty hub state (recovery)' (-10 lines).",
+  "created_at": "2026-05-28T04:06:38.194882871Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAvrQIbYNFVkynCBsb5I1OcfBkx4jt30zQLqfVOl6moVCYw3FuHT0GGZQt0PNVWGOxu5PEvJVoanvdHtZwEFfIDQ=="
+}
