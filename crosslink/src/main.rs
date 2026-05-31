@@ -1424,6 +1424,9 @@ enum KickoffCommands {
         /// Pass --dangerously-skip-permissions to the claude CLI (for sandboxed agents)
         #[arg(long)]
         skip_permissions: bool,
+        /// Agent runtime to launch: claude (default), antigravity (agy), both
+        #[arg(long, default_value = "claude")]
+        runtime: String,
     },
     /// Check status of a running kickoff agent (no args = pipeline overview)
     Status {
@@ -1544,6 +1547,9 @@ enum KickoffCommands {
         /// Pass --dangerously-skip-permissions to the claude CLI
         #[arg(long)]
         skip_permissions: bool,
+        /// Agent runtime to launch: claude (default), antigravity (agy), both
+        #[arg(long, default_value = "claude")]
+        runtime: String,
     },
 }
 
@@ -2766,6 +2772,7 @@ fn main() -> Result<()> {
                 issue: None,
                 dry_run: false,
                 skip_permissions: false,
+                runtime: "claude".to_string(),
             });
             commands::kickoff::dispatch(
                 action,
