@@ -12,13 +12,20 @@ pub fn run(
     crosslink_dir: &Path,
     get_db: impl FnOnce() -> Result<Database>,
 ) -> Result<()> {
-    let claude_dir = crosslink_dir
+    let project_root = crosslink_dir
         .parent()
-        .context("Cannot determine project root")?
-        .join(".claude");
+        .context("Cannot determine project root")?;
+    let claude_dir = project_root.join(".claude");
+    let agents_dir = project_root.join(".agents");
     match command {
         WorkflowCommands::Diff { section, check } => {
-            diff(crosslink_dir, &claude_dir, section.as_deref(), check);
+            diff(
+                crosslink_dir,
+                &claude_dir,
+                &agents_dir,
+                section.as_deref(),
+                check,
+            );
             Ok(())
         }
         WorkflowCommands::Trail { id, kind, json } => {
@@ -90,7 +97,13 @@ fn has_custom_marker(deployed_path: &Path) -> bool {
 ///
 /// When `check` is true, operates in CI mode: exits 0 if all drifted files are
 /// marked with `# crosslink:custom`, exits 1 with a summary otherwise.
-pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, check: bool) {
+pub fn diff(
+    crosslink_dir: &Path,
+    claude_dir: &Path,
+    agents_dir: &Path,
+    section: Option<&str>,
+    check: bool,
+) {
     let show_all = section.is_none();
     let mut drifted: Vec<String> = Vec::new();
 
@@ -205,6 +218,29 @@ pub fn diff(crosslink_dir: &Path, claude_dir: &Path, section: Option<&str>, chec
             if let CompareResult::Customized(_) = result {
                 if check && !has_custom_marker(&path) {
                     drifted.push(format!(".claude/hooks/{filename}"));
+                }
+            }
+        }
+        if !check {
+            println!();
+        }
+    }
+
+    // --- Antigravity Hooks (only shown when .agents/ directory exists) ---
+    if agents_dir.exists() && (show_all || section == Some("agy-hooks")) {
+        if !check {
+            println!("=== Antigravity Hooks ===");
+        }
+        let agy_hooks_dir = agents_dir.join("hooks");
+        for (filename, default_content) in HOOK_FILES {
+            let path = agy_hooks_dir.join(filename);
+            let result = compare_file(&path, default_content);
+            if !check {
+                println!("  .agents/hooks/{}: {}", filename, compare_display(&result));
+            }
+            if let CompareResult::Customized(_) = result {
+                if check && !has_custom_marker(&path) {
+                    drifted.push(format!(".agents/hooks/{filename}"));
                 }
             }
         }
@@ -361,6 +397,7 @@ mod tests {
                 signing_key: None,
                 reconfigure: false,
                 defaults: true,
+                runtime: crate::commands::init::AgentRuntime::Claude,
             },
         )
         .unwrap();
@@ -369,7 +406,13 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Should not error
-        diff(&crosslink_dir, &claude_dir, None, false);
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            None,
+            false,
+        );
     }
 
     #[test]
@@ -388,6 +431,7 @@ mod tests {
                 signing_key: None,
                 reconfigure: false,
                 defaults: true,
+                runtime: crate::commands::init::AgentRuntime::Claude,
             },
         )
         .unwrap();
@@ -404,7 +448,13 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Should not error — just prints customized status
-        diff(&crosslink_dir, &claude_dir, Some("rules"), false);
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            Some("rules"),
+            false,
+        );
     }
 
     #[test]
@@ -423,6 +473,7 @@ mod tests {
                 signing_key: None,
                 reconfigure: false,
                 defaults: true,
+                runtime: crate::commands::init::AgentRuntime::Claude,
             },
         )
         .unwrap();
@@ -431,9 +482,27 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Each section should work independently
-        diff(&crosslink_dir, &claude_dir, Some("tracking"), false);
-        diff(&crosslink_dir, &claude_dir, Some("hooks"), false);
-        diff(&crosslink_dir, &claude_dir, Some("languages"), false);
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            Some("tracking"),
+            false,
+        );
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            Some("hooks"),
+            false,
+        );
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            Some("languages"),
+            false,
+        );
     }
 
     #[test]
@@ -452,6 +521,7 @@ mod tests {
                 signing_key: None,
                 reconfigure: false,
                 defaults: true,
+                runtime: crate::commands::init::AgentRuntime::Claude,
             },
         )
         .unwrap();
@@ -477,6 +547,7 @@ mod tests {
                 signing_key: None,
                 reconfigure: false,
                 defaults: true,
+                runtime: crate::commands::init::AgentRuntime::Claude,
             },
         )
         .unwrap();
@@ -485,7 +556,13 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // All files match defaults, so --check should pass (exit 0)
-        diff(&crosslink_dir, &claude_dir, None, true);
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            None,
+            true,
+        );
     }
 
     #[test]
@@ -504,6 +581,7 @@ mod tests {
                 signing_key: None,
                 reconfigure: false,
                 defaults: true,
+                runtime: crate::commands::init::AgentRuntime::Claude,
             },
         )
         .unwrap();
@@ -520,7 +598,13 @@ mod tests {
         let claude_dir = dir.path().join(".claude");
 
         // Should pass because the file is marked as custom
-        diff(&crosslink_dir, &claude_dir, Some("rules"), true);
+        diff(
+            &crosslink_dir,
+            &claude_dir,
+            &dir.path().join(".agents"),
+            Some("rules"),
+            true,
+        );
     }
 
     #[test]

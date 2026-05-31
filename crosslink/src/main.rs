@@ -145,6 +145,9 @@ enum Commands {
         /// Skip TUI and use opinionated team-mode defaults
         #[arg(long)]
         defaults: bool,
+        /// Agent runtime to configure: claude (default), antigravity, both
+        #[arg(long, default_value = "claude")]
+        runtime: Option<String>,
     },
 
     /// Issue lifecycle commands (create, show, list, close, ...)
@@ -2319,8 +2322,14 @@ fn main() -> Result<()> {
             signing_key,
             reconfigure,
             defaults,
+            runtime,
         } => {
             let cwd = env::current_dir()?;
+            let runtime = runtime
+                .as_deref()
+                .map(str::parse::<commands::init::AgentRuntime>)
+                .transpose()?
+                .unwrap_or_default();
             let opts = commands::init::InitOpts {
                 force,
                 update,
@@ -2332,6 +2341,7 @@ fn main() -> Result<()> {
                 signing_key: signing_key.as_deref(),
                 reconfigure,
                 defaults,
+                runtime,
             };
             commands::init::run(&cwd, &opts)
         }

@@ -48,6 +48,8 @@ const COMPONENT_DIRS: &[(&str, &str, &str)] = &[
     ("rules", "rules", ".crosslink/rules"),
     ("hooks", "hooks", ".claude/hooks"),
     ("commands", "commands", ".claude/commands"),
+    ("agy-hooks", "hooks", ".agents/hooks"),
+    ("skills", "skills", ".agents/skills"),
 ];
 
 /// Read the current hook-config.json as a `serde_json::Value`.
