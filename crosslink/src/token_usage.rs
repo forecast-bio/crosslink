@@ -66,21 +66,29 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
             cache_read: 0.08,
             cache_creation: 1.0,
         })
-    // Gemini models (Google) — prices per million tokens as of 2025.
+    // Gemini models (Google) — prices per million tokens, verified 2026-05-31.
     // cache_read reflects context-cache hit rate; cache_creation is 0 (Google charges
     // storage by the hour rather than per-write, so write cost is not tracked here).
+    // Patterns are checked most-specific first to avoid prefix collisions.
+    } else if m.contains("gemini-3.5-flash") {
+        Some(ModelPricing {
+            input: 1.50,
+            output: 9.00,
+            cache_read: 0.15,
+            cache_creation: 0.0,
+        })
     } else if m.contains("gemini-2.5-pro") {
         Some(ModelPricing {
             input: 1.25,
             output: 10.00,
-            cache_read: 0.315,
+            cache_read: 0.125,
             cache_creation: 0.0,
         })
     } else if m.contains("gemini-2.5-flash") {
         Some(ModelPricing {
-            input: 0.15,
-            output: 0.60,
-            cache_read: 0.0375,
+            input: 0.30,
+            output: 2.50,
+            cache_read: 0.03,
             cache_creation: 0.0,
         })
     } else if m.contains("gemini-2.0-flash") {
@@ -222,6 +230,15 @@ mod tests {
     }
 
     #[test]
+    fn test_estimate_cost_gemini_3_5_flash() {
+        let cost = estimate_cost("gemini-3.5-flash", 1_000_000, 1_000_000, None, None);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 1.50 + 9.00 = 10.50
+        assert!((c - 10.50).abs() < 0.001);
+    }
+
+    #[test]
     fn test_estimate_cost_gemini_2_5_pro() {
         let cost = estimate_cost(
             "gemini-2.5-pro-preview-05-06",
@@ -247,8 +264,8 @@ mod tests {
         );
         assert!(cost.is_some());
         let c = cost.unwrap();
-        // 0.15 + 0.60 = 0.75
-        assert!((c - 0.75).abs() < 0.001);
+        // 0.30 + 2.50 = 2.80
+        assert!((c - 2.80).abs() < 0.001);
     }
 
     #[test]
@@ -292,9 +309,9 @@ mod tests {
         let c = cost.unwrap();
         // input: 0.5 * 1.25 = 0.625
         // output: 0.2 * 10.00 = 2.0
-        // cache_read: 1.0 * 0.315 = 0.315
+        // cache_read: 1.0 * 0.125 = 0.125
         // cache_creation: 0.3 * 0.0 = 0.0
-        let expected = 0.625 + 2.0 + 0.315 + 0.0;
+        let expected = 0.625 + 2.0 + 0.125 + 0.0;
         assert!((c - expected).abs() < 0.001);
     }
 
