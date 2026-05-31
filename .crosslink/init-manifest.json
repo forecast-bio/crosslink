@@ -1,0 +1,230 @@
+{
+  "crosslink_version": "0.8.0",
+  "initialized_at": "2026-05-30T22:21:51Z",
+  "files": {
+    ".claude/commands/audit.md": {
+      "sha256": "dab039944c96f645bfb7c6a59c6e08083737c1bba2b2eeb181e1b7b545722ecc",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/check.md": {
+      "sha256": "224965a9c62ec7c7da5d75ba90fff80a67af8b6872cd1ee4799e91708602549d",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/commit.md": {
+      "sha256": "bf18a9d24a33d3cccc5a75921b894bcd8bde663d7528e411337b22920a5eb496",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/crosslink-guide.md": {
+      "sha256": "0b2fb43ad46959f3e77efc3f6ce5005b99f7efa7fab18e5383ed56e4e508e442",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/design.md": {
+      "sha256": "084ddf41e1ddd1aa994130e0be97473960896cded16ede0c7cd0fa25444d89a5",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/dev-release.md": {
+      "sha256": "4504f101fd0e6f6c47a91b2069b97e181fc67cc681697bcb447ace4a9409af73",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/featree.md": {
+      "sha256": "b16ee583543c0ffa925635caf22d622779573a021a1d42d5404fe3e5eeed5ee9",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/feature.md": {
+      "sha256": "7ed370f8ab833bac8970f6a0fc771b46811c861256be0a2dd2e745da2ca6e8fd",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/kickoff.md": {
+      "sha256": "d4893d34ae2c2b6da249b36f727538a7dae121b9b8f4b41ad4a14b65fb5a6ad9",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/maintain.md": {
+      "sha256": "da96a1c5e24109f11a5f9c16673dffa0aac45dd71b10ff5523718750b069a4fe",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/preflight.md": {
+      "sha256": "4536813e10feff50bbd4369dc9b9030bf2b668a00ff5fd36330e218b7be3e161",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/qa.md": {
+      "sha256": "96984e3a360e8d80834a3fe67a8756fc39fe045c2fad23bc67797267881bb730",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/review.md": {
+      "sha256": "ba3d5453fb4a1776e1a633be0c7886a8b1c42523f6eeec0645d29dfc04def98a",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/commands/workflow.md": {
+      "sha256": "48c3d0c7cdaf2c5b181fe7e23edd1d9dfa14d6f3186585f0edcc28c12e712859",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/crosslink_config.py": {
+      "sha256": "1992cb13d51b5fbc8cd4108a7322ffca80360a8083ddde5f1f7286a61b0f4da6",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/heartbeat.py": {
+      "sha256": "34e205a683c971b75116d99cbbbbde9a3157c6954dfc771aff254f2da306a76e",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/post-edit-check.py": {
+      "sha256": "e266a8b30911d70adbf78b8675b85c998fd4d7aef67c6aa9d87c41b0fa436926",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/pre-web-check.py": {
+      "sha256": "6f7e049c2a80b642ba40aca0705808e470f131eed41a81aca58423a42bfaa255",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/prompt-guard.py": {
+      "sha256": "9f33d988aba68102bd9508ae5ace856b078e46f92ae0f6d97d3bffd819542a37",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/session-start.py": {
+      "sha256": "8d942ca12f6df192be2c17d44b6e23636b0a2bc8ef8d25b60952cde311001ff3",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/hooks/work-check.py": {
+      "sha256": "44934cfe7f418b5c66564816c4dcf3f667a8eb784f10ff5b7fb5b977244aac28",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/mcp/agent-prompt-server.py": {
+      "sha256": "faf0abd00905026f9e256ceaa6c23c2482dd39559340d35700e69d747dd14bfd",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/mcp/knowledge-server.py": {
+      "sha256": "8da8922758992ffdd90545328de4589fa486ad773d3352261b9a12f22cd4eb85",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/mcp/safe-fetch-server.py": {
+      "sha256": "80a075a19db861225d397b91a537acb2e8566af7f0d0b561c1cc86b68e044b07",
+      "written_by_version": "0.8.0"
+    },
+    ".claude/settings.json": {
+      "sha256": "f767b1bc56eb6987bb43e867f21cace1d1b66a6e1d2ae22f89174f5091ce6ac1",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/c.md": {
+      "sha256": "7543954329b9af9b5a456c3119ccfe681a38e1d2532603b1a64a0a097c1482d9",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/cpp.md": {
+      "sha256": "39154b2d40e634b1fdb77699731ff9f4d6710116641504b72f2547f1c5c9c63d",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/csharp.md": {
+      "sha256": "17eab74a22fe9c231a0babcbb812a23150bcb0b8a769204a0cea36ce88dc6aef",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/elixir-phoenix.md": {
+      "sha256": "88cb94e37d1d2ff8288bfa65ab61678ae0762091f6eee913b8fc565c87647eb1",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/elixir.md": {
+      "sha256": "d6f07f378eb2a1c39bb6e0211081b79336622640a6e87f14142a1d105cc08965",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/global.md": {
+      "sha256": "0643fb3b242f30a098695e3b4016f4ca4d9d50f15f81c416ed482b6933c7b7a1",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/go.md": {
+      "sha256": "00eb4df31ccab0c38f028e7b5aea169de7a5724c82cc4c2b54acf22b97d89d01",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/java.md": {
+      "sha256": "0211afad6407459db2739d10346e5ca33bc9c7a2f59adbf9427fdec0ff4583d8",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/javascript-react.md": {
+      "sha256": "b7b7afe0b80805809fb5ab40d7ac884a2c220b2b0e43733cf2a9f3415236842f",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/javascript.md": {
+      "sha256": "5946ca8265907a1b96619355b8b2a1e1ddf44fdae38ba4ecfc6935b260046b82",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/knowledge.md": {
+      "sha256": "69505e673fcc2daaaa1399f9d2e638f2dc3e2487070549950bb1f44fb31c14d5",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/kotlin.md": {
+      "sha256": "33d9b00ca77d5c583bb507fa2511c672f704bb2875afcec1e65441d74561c640",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/odin.md": {
+      "sha256": "c513ad15c1471ff6206ad6624c81d0198ffe6bb016e90af529a89aa05d4ea725",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/php.md": {
+      "sha256": "a61936003a541c9169ae7c8be5a8d925cd3662e485859f82e8eb6207b59ae2c4",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/project.md": {
+      "sha256": "be5490a537ab90b1aee27c28dc3adafaac74eec47e06ab3dc1f7e7418bd429f9",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/python.md": {
+      "sha256": "3af435b3a69c18939d1cca708eb1fbed946c3652807e77b7e6fb0aec3f1d95be",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/quality.md": {
+      "sha256": "714bf3bfef16cfcbdcb3015974b793e9c340af6d89d882e3cab56360cf4a21fd",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/rigor.md": {
+      "sha256": "c7369306e07b8a5a3ecf23e500334a0ea972951e9f5a2ec21732c1069ab2bcdd",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/ruby.md": {
+      "sha256": "79361fa490ea6f6b5b9973db09251e01fbb55dee64dc199047a92c65b553bced",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/rust.md": {
+      "sha256": "94721e1de0184852b8518859317d9daea56675514dbadeb0e05388980ec13c7c",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/sanitize-patterns.txt": {
+      "sha256": "dab7d5b6f962ffe76b868cfd48a026cf6fc84c852dab868c418e35264c1dc1f1",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/scala.md": {
+      "sha256": "0b90c1f5c7bb76c13fdf4323f4b9476ecf3263542ca0b8d91263712a85d9ac18",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/shell.md": {
+      "sha256": "29017496e36b88bdd174ed37cbe14f5b9204c5846aee12681a8ac91482c4bba7",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/swift.md": {
+      "sha256": "9abac6c83cb8b00dc363847029d28f9e65255c0c0064801240e3e3afda81c74e",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/tracking-normal.md": {
+      "sha256": "dde416e73f57b57da0b1c193711cb1156ac6952d70ff122a3f059e39ddcf9ac1",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/tracking-relaxed.md": {
+      "sha256": "a67bdf6ffef8db6ba9446c845ec47b24ce9edd53775dbb40dbf847c822d97788",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/tracking-strict.md": {
+      "sha256": "528f3ec3437a73f1b40c5bbdd94ae9359446dfa3e88c23118967bc5677d5ed61",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/typescript-react.md": {
+      "sha256": "dc943c49d9fe246b296b50f00bd1552817782e11c4f610950fd1ef5b8beada11",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/typescript.md": {
+      "sha256": "3d7807a49b697c328f9700f35c852273dbcf23d455f0ebea0b965d64fd86e029",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/web.md": {
+      "sha256": "832b7e79ffcdadfca03b697100520d83f6af45ad59c97a17c0f1fc8675479f3a",
+      "written_by_version": "0.8.0"
+    },
+    ".crosslink/rules/zig.md": {
+      "sha256": "82ba236b6c9d782cc56da2f2328d3c8be93b1b90245103787cf4452435dafb4c",
+      "written_by_version": "0.8.0"
+    }
+  }
+}
