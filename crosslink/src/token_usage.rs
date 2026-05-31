@@ -77,6 +77,21 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
             cache_read: 0.15,
             cache_creation: 0.0,
         })
+    // gemini-3.1-flash-lite must precede any broader "gemini-3.1-flash" check
+    } else if m.contains("gemini-3.1-flash-lite") {
+        Some(ModelPricing {
+            input: 0.25,
+            output: 1.50,
+            cache_read: 0.025,
+            cache_creation: 0.0,
+        })
+    } else if m.contains("gemini-3.1-pro") {
+        Some(ModelPricing {
+            input: 2.00,
+            output: 12.00,
+            cache_read: 0.20,
+            cache_creation: 0.0,
+        })
     } else if m.contains("gemini-2.5-pro") {
         Some(ModelPricing {
             input: 1.25,
@@ -227,6 +242,24 @@ mod tests {
     fn test_estimate_cost_unknown_model() {
         let cost = estimate_cost("gpt-4o", 1000, 500, None, None);
         assert!(cost.is_none());
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_3_1_flash_lite() {
+        let cost = estimate_cost("gemini-3.1-flash-lite", 1_000_000, 1_000_000, None, None);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 0.25 + 1.50 = 1.75
+        assert!((c - 1.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_3_1_pro_preview() {
+        let cost = estimate_cost("gemini-3.1-pro-preview", 1_000_000, 1_000_000, None, None);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 2.00 + 12.00 = 14.00
+        assert!((c - 14.00).abs() < 0.001);
     }
 
     #[test]
