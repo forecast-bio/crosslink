@@ -442,6 +442,7 @@ fn spawn_agent(
         design_doc: None,
         doc_path: None,
         skip_permissions: true,
+        runtime: crate::commands::kickoff::KickoffRuntime::Claude,
     };
 
     run(crosslink_dir, db, writer, &opts)

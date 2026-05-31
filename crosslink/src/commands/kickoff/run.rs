@@ -28,6 +28,7 @@ pub fn run(
             &opts.container,
             &opts.verify,
             crosslink_dir,
+            opts.runtime,
         )?)
     };
 
@@ -175,6 +176,7 @@ pub fn run(
                 preflight.sandbox_command.as_deref(),
                 crosslink_dir,
                 opts.skip_permissions,
+                opts.runtime,
             )?;
 
             // Persist the actual session name so kickoff list can find it
