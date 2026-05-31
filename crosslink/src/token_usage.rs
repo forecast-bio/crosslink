@@ -43,6 +43,8 @@ struct ModelPricing {
 fn get_pricing(model: &str) -> Option<ModelPricing> {
     // Normalize model name for matching
     let m = model.to_lowercase();
+
+    // Claude models (Anthropic)
     if m.contains("opus") {
         Some(ModelPricing {
             input: 15.0,
@@ -63,6 +65,44 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
             output: 4.0,
             cache_read: 0.08,
             cache_creation: 1.0,
+        })
+    // Gemini models (Google) — prices per million tokens as of 2025.
+    // cache_read reflects context-cache hit rate; cache_creation is 0 (Google charges
+    // storage by the hour rather than per-write, so write cost is not tracked here).
+    } else if m.contains("gemini-2.5-pro") {
+        Some(ModelPricing {
+            input: 1.25,
+            output: 10.00,
+            cache_read: 0.315,
+            cache_creation: 0.0,
+        })
+    } else if m.contains("gemini-2.5-flash") {
+        Some(ModelPricing {
+            input: 0.15,
+            output: 0.60,
+            cache_read: 0.0375,
+            cache_creation: 0.0,
+        })
+    } else if m.contains("gemini-2.0-flash") {
+        Some(ModelPricing {
+            input: 0.10,
+            output: 0.40,
+            cache_read: 0.025,
+            cache_creation: 0.0,
+        })
+    } else if m.contains("gemini-1.5-pro") {
+        Some(ModelPricing {
+            input: 1.25,
+            output: 5.00,
+            cache_read: 0.3125,
+            cache_creation: 0.0,
+        })
+    } else if m.contains("gemini-1.5-flash") {
+        Some(ModelPricing {
+            input: 0.075,
+            output: 0.30,
+            cache_read: 0.01875,
+            cache_creation: 0.0,
         })
     } else {
         None
@@ -179,6 +219,83 @@ mod tests {
     fn test_estimate_cost_unknown_model() {
         let cost = estimate_cost("gpt-4o", 1000, 500, None, None);
         assert!(cost.is_none());
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_2_5_pro() {
+        let cost = estimate_cost(
+            "gemini-2.5-pro-preview-05-06",
+            1_000_000,
+            1_000_000,
+            None,
+            None,
+        );
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 1.25 + 10.00 = 11.25
+        assert!((c - 11.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_2_5_flash() {
+        let cost = estimate_cost(
+            "gemini-2.5-flash-preview-04-17",
+            1_000_000,
+            1_000_000,
+            None,
+            None,
+        );
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 0.15 + 0.60 = 0.75
+        assert!((c - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_2_0_flash() {
+        let cost = estimate_cost("gemini-2.0-flash", 1_000_000, 1_000_000, None, None);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 0.10 + 0.40 = 0.50
+        assert!((c - 0.50).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_1_5_pro() {
+        let cost = estimate_cost("gemini-1.5-pro-002", 1_000_000, 1_000_000, None, None);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 1.25 + 5.00 = 6.25
+        assert!((c - 6.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_1_5_flash() {
+        let cost = estimate_cost("gemini-1.5-flash-002", 1_000_000, 1_000_000, None, None);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // 0.075 + 0.30 = 0.375
+        assert!((c - 0.375).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_estimate_cost_gemini_with_cache_read() {
+        // Gemini 2.5 Pro with context cache hits; cache_creation should be 0
+        let cost = estimate_cost(
+            "gemini-2.5-pro",
+            500_000,
+            200_000,
+            Some(1_000_000),
+            Some(300_000),
+        );
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // input: 0.5 * 1.25 = 0.625
+        // output: 0.2 * 10.00 = 2.0
+        // cache_read: 1.0 * 0.315 = 0.315
+        // cache_creation: 0.3 * 0.0 = 0.0
+        let expected = 0.625 + 2.0 + 0.315 + 0.0;
+        assert!((c - expected).abs() < 0.001);
     }
 
     #[test]
