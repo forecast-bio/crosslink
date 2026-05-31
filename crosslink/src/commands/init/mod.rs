@@ -502,7 +502,7 @@ fn managed_files(python_prefix: &str, runtime: AgentRuntime) -> Vec<(String, Str
         // mcp_config.json template after prefix substitution
         let mcp_config_template =
             AGY_MCP_CONFIG_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, python_prefix);
-        files.push(("mcp_config.json".into(), mcp_config_template));
+        files.push((".agents/mcp_config.json".into(), mcp_config_template));
     }
 
     // Rule files — always included regardless of runtime
@@ -679,7 +679,7 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             write_settings_json_merged(&abs_path, &prefix)?;
         } else if rel_path == ".agents/hooks.json" {
             write_hooks_json_merged(&abs_path, content)?;
-        } else if rel_path == "mcp_config.json" {
+        } else if rel_path == ".agents/mcp_config.json" {
             write_mcp_config_merged(&abs_path, content)?;
         } else {
             // Ensure parent directory exists
@@ -699,7 +699,7 @@ fn run_update(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
             write_settings_json_merged(&abs_path, &prefix)?;
         } else if rel_path == ".agents/hooks.json" {
             write_hooks_json_merged(&abs_path, content)?;
-        } else if rel_path == "mcp_config.json" {
+        } else if rel_path == ".agents/mcp_config.json" {
             write_mcp_config_merged(&abs_path, content)?;
         } else {
             if let Some(parent) = abs_path.parent() {
@@ -1147,8 +1147,8 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         let agy_mcp_config_content =
             AGY_MCP_CONFIG_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, &prefix);
         let warnings =
-            write_mcp_config_merged(&path.join("mcp_config.json"), &agy_mcp_config_content)
-                .context("Failed to write mcp_config.json")?;
+            write_mcp_config_merged(&path.join(".agents/mcp_config.json"), &agy_mcp_config_content)
+                .context("Failed to write .agents/mcp_config.json")?;
         for warning in &warnings {
             ui.warn(warning);
         }
@@ -2722,7 +2722,7 @@ mod tests {
         assert!(dir.path().join(".agents/hooks/session-start.py").exists());
         assert!(dir.path().join(".agents/hooks.json").exists());
         assert!(dir.path().join(".agents/mcp/safe-fetch-server.py").exists());
-        assert!(dir.path().join("mcp_config.json").exists());
+        assert!(dir.path().join(".agents/mcp_config.json").exists());
         assert!(dir.path().join("AGENTS.md").exists());
     }
 
@@ -2825,7 +2825,7 @@ mod tests {
         let dir = test_dir();
         run(dir.path(), &antigravity_opts(false)).unwrap();
 
-        let content = fs::read_to_string(dir.path().join("mcp_config.json")).unwrap();
+        let content = fs::read_to_string(dir.path().join(".agents/mcp_config.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         let servers = parsed["mcpServers"].as_object().unwrap();
         assert!(servers.contains_key("crosslink-safe-fetch"));
