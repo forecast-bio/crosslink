@@ -397,6 +397,32 @@ fn populate_agent_tool_commands(config_path: &Path, project_root: &Path) -> Resu
     Ok(())
 }
 
+/// Ensure `~/.gemini/config/mcp_config.json` contains valid JSON.
+///
+/// agy's discovery module crashes at startup if this file is missing or contains
+/// invalid JSON (e.g. 0 bytes from a partial write), permanently poisoning all MCP
+/// connections for that session. We write a minimal valid stub when the file is
+/// absent or unparseable. Silently ignores errors — this is best-effort.
+fn ensure_gemini_global_mcp_config_valid() {
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        return;
+    };
+    let config_path = home.join(".gemini").join("config").join("mcp_config.json");
+
+    let needs_fix = match fs::read_to_string(&config_path) {
+        Ok(contents) => serde_json::from_str::<serde_json::Value>(&contents).is_err(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+        Err(_) => false, // unreadable for other reasons — skip
+    };
+
+    if needs_fix {
+        if let Some(parent) = config_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(&config_path, "{\"mcpServers\": {}}\n");
+    }
+}
+
 /// Collect all managed files as `(relative_path, template_content)` pairs.
 ///
 /// For `settings.json` the content is the template *after* `__PYTHON_PREFIX__`
@@ -1172,6 +1198,12 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
         }
 
         write_agents_md(path).context("Failed to write AGENTS.md")?;
+
+        // Ensure ~/.gemini/config/mcp_config.json is valid JSON.
+        // agy's discovery module crashes at startup if this file is missing or
+        // contains invalid JSON (e.g. 0 bytes), permanently poisoning all MCP
+        // connections for that session. Write a safe stub if needed.
+        ensure_gemini_global_mcp_config_valid();
 
         if force && agents_exists {
             ui.step_ok(Some("updated"));
