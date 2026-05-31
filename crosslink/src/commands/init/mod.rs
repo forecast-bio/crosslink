@@ -2745,7 +2745,7 @@ mod tests {
         assert!(dir.path().join(".agents").exists());
         assert!(dir.path().join(".agents/hooks").exists());
         assert!(dir.path().join(".agents/skills").exists());
-        assert!(dir.path().join("mcp_config.json").exists());
+        assert!(dir.path().join(".agents/mcp_config.json").exists());
         assert!(dir.path().join("AGENTS.md").exists());
     }
 
