@@ -1,0 +1,70 @@
+{
+  "crosslink": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.agents/hooks/prompt-guard.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.agents/hooks/session-start.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.agents/hooks/pre-web-check.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.agents/hooks/work-check.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.agents/hooks/post-edit-check.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HOOK=\"$(git rev-parse --show-toplevel 2>/dev/null)/.agents/hooks/heartbeat.py\"; if [ -f \"$HOOK\" ]; then __PYTHON_PREFIX__ \"$HOOK\"; else exit 0; fi",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostInvocation": null,
+    "Stop": null
+  }
+}
