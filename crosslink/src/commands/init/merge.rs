@@ -95,11 +95,22 @@ pub(super) fn write_root_gitignore(project_root: &Path) -> Result<()> {
 }
 
 /// Merge crosslink's MCP server entries into an existing `.mcp.json`, or create it fresh.
-use super::{MCP_JSON, PYTHON_PREFIX_PLACEHOLDER, SETTINGS_JSON};
+use super::{AGY_MCP_CONFIG_JSON, MCP_JSON, PYTHON_PREFIX_PLACEHOLDER, SETTINGS_JSON};
 
 pub(super) fn write_mcp_json_merged(mcp_path: &Path) -> Result<Vec<String>> {
-    let embedded: serde_json::Value = serde_json::from_str(MCP_JSON)
-        .context("embedded MCP_JSON is not valid JSON — this is a build defect")?;
+    write_mcp_json_merged_from(mcp_path, MCP_JSON)
+}
+
+/// Merge Antigravity MCP servers (`.agents/mcp/`) into `.mcp.json`.
+/// Used when `--runtime antigravity` is set without Claude, so Antigravity
+/// still gets MCP server access via the project-root `.mcp.json` it reads.
+pub(super) fn write_mcp_json_merged_agy(mcp_path: &Path) -> Result<Vec<String>> {
+    write_mcp_json_merged_from(mcp_path, AGY_MCP_CONFIG_JSON)
+}
+
+fn write_mcp_json_merged_from(mcp_path: &Path, template: &str) -> Result<Vec<String>> {
+    let embedded: serde_json::Value = serde_json::from_str(template)
+        .context("embedded MCP template is not valid JSON — this is a build defect")?;
     let src_servers = embedded
         .get("mcpServers")
         .and_then(|v| v.as_object())

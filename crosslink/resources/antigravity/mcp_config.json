@@ -1,18 +1,18 @@
 {
   "mcpServers": {
     "crosslink-safe-fetch": {
-      "command": "__PYTHON_PREFIX__",
-      "args": [".agents/mcp/safe-fetch-server.py"],
+      "command": "uv",
+      "args": ["run", ".agents/mcp/safe-fetch-server.py"],
       "type": "stdio"
     },
     "crosslink-knowledge": {
-      "command": "__PYTHON_PREFIX__",
-      "args": [".agents/mcp/knowledge-server.py"],
+      "command": "uv",
+      "args": ["run", ".agents/mcp/knowledge-server.py"],
       "type": "stdio"
     },
     "crosslink-agent-prompt": {
-      "command": "__PYTHON_PREFIX__",
-      "args": [".agents/mcp/agent-prompt-server.py"],
+      "command": "uv",
+      "args": ["run", ".agents/mcp/agent-prompt-server.py"],
       "type": "stdio"
     }
   }

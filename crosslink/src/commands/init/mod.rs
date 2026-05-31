@@ -13,6 +13,7 @@ use std::path::Path;
 use crate::db::Database;
 use merge::{
     write_agents_md, write_hooks_json_merged, write_mcp_config_merged, write_mcp_json_merged,
+    write_mcp_json_merged_agy,
     write_root_gitignore, write_settings_json_merged,
 };
 pub use python::detect_python_prefix;
@@ -503,6 +504,12 @@ fn managed_files(python_prefix: &str, runtime: AgentRuntime) -> Vec<(String, Str
         let mcp_config_template =
             AGY_MCP_CONFIG_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, python_prefix);
         files.push((".agents/mcp_config.json".into(), mcp_config_template));
+
+        // When Antigravity-only, also track .mcp.json (the file agy actually reads).
+        // When --runtime both, Claude's managed_files entry for .mcp.json covers this.
+        if !runtime.wants_claude() {
+            files.push((".mcp.json".into(), AGY_MCP_CONFIG_JSON.to_string()));
+        }
     }
 
     // Rule files — always included regardless of runtime
@@ -1151,6 +1158,17 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
                 .context("Failed to write .agents/mcp_config.json")?;
         for warning in &warnings {
             ui.warn(warning);
+        }
+
+        // When Claude Code is not also being configured, write .mcp.json pointing
+        // to .agents/mcp/ so Antigravity picks up MCP servers via the project-root
+        // file it reads. When --runtime both, Claude's init already wrote .mcp.json.
+        if !runtime.wants_claude() {
+            let mcp_warnings = write_mcp_json_merged_agy(&path.join(".mcp.json"))
+                .context("Failed to write .mcp.json for Antigravity")?;
+            for warning in &mcp_warnings {
+                ui.warn(warning);
+            }
         }
 
         write_agents_md(path).context("Failed to write AGENTS.md")?;
@@ -2732,7 +2750,10 @@ mod tests {
         run(dir.path(), &antigravity_opts(false)).unwrap();
 
         assert!(!dir.path().join(".claude").exists());
-        assert!(!dir.path().join(".mcp.json").exists());
+        // .mcp.json IS written for antigravity-only so agy can find the MCP servers
+        assert!(dir.path().join(".mcp.json").exists());
+        // But .claude/ settings.json should not exist
+        assert!(!dir.path().join(".claude/settings.json").exists());
     }
 
     #[test]
