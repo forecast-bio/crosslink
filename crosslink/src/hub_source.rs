@@ -748,6 +748,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: agent_id.to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         )
     }
@@ -914,6 +917,8 @@ mod tests {
                 blockers: std::collections::BTreeSet::new(),
                 related: std::collections::BTreeSet::new(),
                 milestone_uuid: None,
+                comments: std::collections::BTreeMap::new(),
+                time_entries: std::collections::BTreeMap::new(),
             },
         );
         state.display_id_map.insert(uuid1, 1);

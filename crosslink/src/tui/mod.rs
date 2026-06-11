@@ -134,6 +134,15 @@ pub fn format_event_description(event: &crate::events::Event) -> String {
         Event::LabelAdded { label, .. } => format!("LabelAdded: {label}"),
         Event::LabelRemoved { label, .. } => format!("LabelRemoved: {label}"),
         Event::ParentChanged { .. } => "ParentChanged".to_string(),
+        Event::CommentAdded { .. } => "CommentAdded".to_string(),
+        Event::TimeEntryAdded { .. } => "TimeEntryAdded".to_string(),
+        Event::IssueDeleted { .. } => "IssueDeleted".to_string(),
+        Event::MilestoneCreated { name, .. } => {
+            format!("MilestoneCreated: {}", truncate_str(name, 40))
+        }
+        Event::MilestoneClosed { .. } => "MilestoneClosed".to_string(),
+        Event::MilestoneDeleted { .. } => "MilestoneDeleted".to_string(),
+        Event::ScheduleChanged { .. } => "ScheduleChanged".to_string(),
     }
 }
 

@@ -267,6 +267,49 @@ fn append_inner_impl<A: IntoAbortPoint>(
     })
 }
 
+/// Commit a complete `events.log` byte image onto the agent's ref.
+///
+/// Used by offline display-id claim rewrites (`set_issue_created_claim_in_log`):
+/// when the v2 log is rewritten in place, the shadow ref must be brought back
+/// to byte parity or `integrity hubv3` would flag a mismatch at the rewritten
+/// seq. The new state is added as a CHILD commit of the current tip — history
+/// is preserved and any subsequent push remains fast-forward (the parity check
+/// reads only the tip's `events.log`).
+///
+/// The bytes are validated as a parseable event log before anything is
+/// written. Same crash invariant as [`append_event_to_ref`]: the ref only
+/// moves at the final CAS `update-ref`.
+///
+/// # Errors
+///
+/// Returns an error if the bytes do not parse as an event log, if any git
+/// plumbing step fails, or if the ref moved concurrently (CAS failure).
+pub fn commit_log_bytes(
+    repo_dir: &Path,
+    agent_id: &str,
+    log_bytes: &[u8],
+    message: &str,
+) -> Result<String> {
+    validate_agent_id(agent_id)?;
+    let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
+
+    read_events_from_bytes(log_bytes)
+        .context("refusing to commit unparseable events.log bytes to the agent ref")?;
+
+    let old_commit = git_rev_parse_optional(repo_dir, &ref_name)?;
+    let blob_sha = git_hash_object(repo_dir, log_bytes)?;
+    let tree_sha = git_mktree(repo_dir, &blob_sha)?;
+    let commit_sha = git_commit_tree(
+        repo_dir,
+        &tree_sha,
+        old_commit.as_deref(),
+        message,
+        agent_id,
+    )?;
+    git_update_ref_cas(repo_dir, &ref_name, &commit_sha, old_commit.as_deref())?;
+    Ok(commit_sha)
+}
+
 // ── AbortPoint trait (sealed helper) ────────────────────────────────
 
 /// Sealed helper trait that lets `append_inner_impl` query the abort point
@@ -723,6 +766,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: agent_id.to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
             signed_by: None,
             signature: None,

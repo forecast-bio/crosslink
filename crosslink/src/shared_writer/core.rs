@@ -34,6 +34,16 @@ pub(super) struct WriteSet {
     pub counters: Option<Counters>,
     /// If true, stage removals (`git rm`) instead of additions (`git add`).
     pub use_git_rm: bool,
+    /// Events to emit IN THE SAME COMMIT as the file writes (PR3.5, #756).
+    ///
+    /// `write_commit_push` appends these to the agent's event log and stages
+    /// the log alongside `files`, so each mutation's event lands in the exact
+    /// commit that writes its v2 JSON. The `prepare` closure produces them per
+    /// attempt (display ids are claimed inside `prepare`), so on a push-conflict
+    /// retry the reset discards the working-tree log line and the next attempt's
+    /// `prepare` re-emits a fresh envelope — no double-append. Default empty for
+    /// the mutations that do not yet emit (and for non-event writes).
+    pub events: Vec<crate::events::Event>,
 }
 
 /// Maximum number of push retries on conflict before giving up.
@@ -284,6 +294,69 @@ impl SharedWriter {
         envelope
     }
 
+    /// Central append choke point: build an envelope per event, append each to
+    /// the v2 event log, and run the PR2 `hub_v3` shadow-mirror block. Returns the
+    /// envelopes so callers can stage the log file in the same commit.
+    ///
+    /// This is the ONE mirror site: both [`emit_compact_push`] (locks) and
+    /// [`write_commit_push`] (all issue/milestone mutations, #756) route their
+    /// event emission through here, so every event that reaches the v2 log is
+    /// also mirrored to the per-agent ref under dual-write.
+    ///
+    /// The caller MUST already hold the hub write lock (`sync.acquire_lock()`):
+    /// the shadow stats read-modify-write below relies on it for serialization,
+    /// exactly as the previous inline block in `emit_compact_push` did.
+    pub(super) fn append_envelopes(
+        &self,
+        events: Vec<crate::events::Event>,
+    ) -> Result<Vec<crate::events::EventEnvelope>> {
+        let log_path = self.event_log_path();
+        let mut envelopes = Vec::with_capacity(events.len());
+
+        // Repo dir for the shadow ref: `self.cache_dir` is a linked git worktree
+        // (`git worktree add` in sync/cache.rs:init_cache). Linked worktrees share
+        // the main repository's object store and ref namespace, so plumbing
+        // commands run with cache_dir as cwd update refs visible repo-globally.
+        let stats_path = self.crosslink_dir().join("hub-v3-shadow-stats.json");
+
+        for event in events {
+            let envelope = self.create_envelope(event);
+            crate::events::append_event(&log_path, &envelope)?;
+
+            // Hub v3 shadow mirror: append the same envelope to the per-agent ref.
+            //
+            // Failure policy: best-effort. Any error is logged at WARN and the
+            // stats counter incremented, but the caller's operation continues
+            // unaffected.
+            if self.hub_v3_dual_write {
+                let mut stats = crate::hub_v3::ShadowStats::read(&stats_path);
+                match crate::hub_v3::append_event_to_ref(
+                    &self.cache_dir,
+                    &self.agent.agent_id,
+                    &envelope,
+                ) {
+                    Ok(_) => {
+                        stats.mirrored += 1;
+                    }
+                    Err(e) => {
+                        let msg = format!("hub v3 shadow mirror failed: {e}");
+                        tracing::warn!("{}", msg);
+                        stats.mirror_failures += 1;
+                        stats.last_failure = Some(msg);
+                        stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                }
+                if let Err(e) = stats.write(&stats_path) {
+                    tracing::warn!("hub v3 shadow: failed to persist stats: {e}");
+                }
+            }
+
+            envelopes.push(envelope);
+        }
+
+        Ok(envelopes)
+    }
+
     /// Emit an event, run compaction, and push all changes.
     ///
     /// The event is appended once to the log before the retry loop.
@@ -297,49 +370,8 @@ impl SharedWriter {
         // Serialize access to the hub cache via SyncManager's lock (#372)
         let lock_guard = self.sync.acquire_lock()?;
 
-        let envelope = self.create_envelope(event);
-        let log_path = self.event_log_path();
-        crate::events::append_event(&log_path, &envelope)?;
-
-        // Hub v3 shadow mirror: append the same envelope to the per-agent ref.
-        //
-        // Failure policy: best-effort. Any error is logged at WARN and the stats
-        // counter incremented, but the caller's operation continues unaffected.
-        //
-        // Repo dir: `self.cache_dir` is a linked git worktree (`git worktree add`
-        // in sync/cache.rs:init_cache). Linked worktrees share the main repository's
-        // object store and ref namespace, so plumbing commands run with cache_dir as
-        // cwd update refs visible repo-globally. Confirmed in sync/cache.rs at the
-        // `git worktree add` call sites.
-        //
-        // Lock: the hub write lock acquired at the top of this function is still
-        // held here, so the stats read-modify-write is safe without additional
-        // synchronisation.
-        if self.hub_v3_dual_write {
-            let stats_path = self.crosslink_dir().join("hub-v3-shadow-stats.json");
-            let mut stats = crate::hub_v3::ShadowStats::read(&stats_path);
-
-            match crate::hub_v3::append_event_to_ref(
-                &self.cache_dir,
-                &self.agent.agent_id,
-                &envelope,
-            ) {
-                Ok(_) => {
-                    stats.mirrored += 1;
-                }
-                Err(e) => {
-                    let msg = format!("hub v3 shadow mirror failed: {e}");
-                    tracing::warn!("{}", msg);
-                    stats.mirror_failures += 1;
-                    stats.last_failure = Some(msg);
-                    stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
-                }
-            }
-
-            if let Err(e) = stats.write(&stats_path) {
-                tracing::warn!("hub v3 shadow: failed to persist stats: {e}");
-            }
-        }
+        // Append to the v2 log + run the single hub_v3 shadow-mirror site.
+        self.append_envelopes(vec![event])?;
 
         for attempt in 0..MAX_RETRIES {
             // Run compaction (force=true since we own the write path).
@@ -1067,10 +1099,38 @@ impl SharedWriter {
             // Write files to cache and update counters
             self.apply_write_set(&write_set)?;
 
+            // Emit this attempt's events IN THE SAME COMMIT as the file writes
+            // (#756). `prepare` ran this attempt, so the envelopes carry the
+            // freshly-claimed display ids. On a push-conflict retry,
+            // `recover_from_push_conflict` does `reset --hard HEAD~1`, which
+            // discards BOTH the committed log line and the working-tree change,
+            // so the next attempt's `prepare` re-emits cleanly with no
+            // double-append. The append goes through `append_envelopes`, the
+            // single hub_v3 shadow-mirror site.
+            if !write_set.events.is_empty() {
+                self.append_envelopes(write_set.events.clone())?;
+            }
+
             // Collect relative paths for staging
             let mut paths: Vec<String> = write_set.files.iter().map(|(p, _)| p.clone()).collect();
             if write_set.counters.is_some() {
                 paths.push("meta/counters.json".to_string());
+            }
+
+            // Stage the agent's event log alongside the write_set files so the
+            // event and its file land in one commit (#756). Always a `git add`
+            // (never `git rm`): even for a `use_git_rm` write set (e.g.
+            // delete_issue emitting IssueDeleted) the log line is an ADDITION.
+            //
+            // We stage the log whenever it exists, not only when `events` is
+            // non-empty: the offline-promotion path mutates existing log lines
+            // in place inside `prepare` (no appended envelopes) and still needs
+            // the log committed. The log is per-agent and single-writer, so a
+            // `git add` of an unchanged log is a harmless no-op and never causes
+            // a cross-agent conflict.
+            let rel_log = format!("agents/{}/events.log", self.agent.agent_id);
+            if self.event_log_path().exists() {
+                self.git_in_cache(&["add", &rel_log])?;
             }
 
             // Stage

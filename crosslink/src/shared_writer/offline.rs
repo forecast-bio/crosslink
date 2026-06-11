@@ -106,10 +106,23 @@ impl SharedWriter {
                     files.push((writer.issue_rel_path(uuid), json));
                 }
 
+                // Rewrite each promoted issue's trailing IssueCreated event line
+                // to carry its newly-claimed display id, so the event log's claim
+                // matches the file (#756). Done inside `prepare` (re-runs per
+                // retry attempt) using the freshly-claimed ids, and the event log
+                // is staged into this same commit by `write_commit_push`. We pass
+                // `events: vec![]` because we mutate existing lines rather than
+                // appending new envelopes; `claimed` carries the rewrites.
+                for (i, (uuid, _)) in offline_info.iter().enumerate() {
+                    let new_id = start_id + i64::try_from(i).unwrap_or(0);
+                    writer.set_issue_created_claim_in_log(*uuid, Some(new_id))?;
+                }
+
                 Ok(WriteSet {
                     files,
                     counters: Some(counters),
                     use_git_rm: false,
+                    events: Vec::new(),
                 })
             },
             &format!("promote {count} offline issue(s)"),

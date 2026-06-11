@@ -228,6 +228,25 @@ fn describe_event(event: &Event) -> String {
         Event::ParentChanged { issue_uuid, .. } => {
             format!("ParentChanged({issue_uuid})")
         }
+        Event::CommentAdded {
+            issue_uuid,
+            comment_uuid,
+            ..
+        } => format!("CommentAdded({issue_uuid}, {comment_uuid})"),
+        Event::TimeEntryAdded {
+            issue_uuid,
+            entry_uuid,
+            ..
+        } => format!("TimeEntryAdded({issue_uuid}, {entry_uuid})"),
+        Event::IssueDeleted { uuid } => format!("IssueDeleted({uuid})"),
+        Event::MilestoneCreated { uuid, name, .. } => {
+            format!("MilestoneCreated({uuid}, {name})")
+        }
+        Event::MilestoneClosed { uuid, .. } => format!("MilestoneClosed({uuid})"),
+        Event::MilestoneDeleted { uuid } => format!("MilestoneDeleted({uuid})"),
+        Event::ScheduleChanged { issue_uuid, .. } => {
+            format!("ScheduleChanged({issue_uuid})")
+        }
     }
 }
 
@@ -319,6 +338,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.timestamp = now;
@@ -356,6 +378,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.timestamp = event_time;
@@ -401,6 +426,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env1.timestamp = commit_time + Duration::seconds(5);
@@ -420,6 +448,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-2".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env2.timestamp = commit_time + Duration::seconds(120);
@@ -490,6 +521,9 @@ mod tests {
                     labels: vec![],
                     parent_uuid: None,
                     created_by: "agent-1".to_string(),
+                    display_id: None,
+                    scheduled_at: None,
+                    due_at: None,
                 },
                 format!("IssueCreated({uuid}, Test)"),
             ),
@@ -537,6 +571,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.timestamp = event_time;
@@ -569,6 +606,9 @@ mod tests {
                     labels: vec![],
                     parent_uuid: None,
                     created_by: "agent-1".to_string(),
+                    display_id: None,
+                    scheduled_at: None,
+                    due_at: None,
                 },
                 "IssueCreated(",
             ),

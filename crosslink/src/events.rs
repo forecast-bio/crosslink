@@ -49,7 +49,24 @@ pub struct EventEnvelope {
     pub signature: Option<String>,
 }
 
-/// The 13 event variants across T1 and T2 tiers.
+/// The event variants across T1 (identity-establishing / exclusive) and
+/// T2 (causal) tiers.
+///
+/// # Tiering
+///
+/// - **T1** events establish or claim identity and resolve first-claim-wins by
+///   [`OrderingKey`]: `IssueCreated`, `LockClaimed`, `LockReleased`,
+///   `MilestoneCreated`. `MilestoneCreated` is T1-like because it mints a
+///   milestone identity (uuid + claimed display id) the same way `IssueCreated`
+///   mints an issue identity; its display-id adoption uses the same
+///   first-claim-wins rule.
+/// - **T2** events are causal: they mutate or reference an already-established
+///   identity and are last-writer-wins (or set-union) by `OrderingKey`. This
+///   includes `IssueUpdated`, `StatusChanged`, dependency/relation/label/parent
+///   edits, `CommentAdded`, `TimeEntryAdded`, `ScheduleChanged`,
+///   `MilestoneClosed`, `MilestoneDeleted`, and `IssueDeleted` (a tombstone:
+///   causal w.r.t. the issue it removes, and — by design — deletion wins
+///   forever, so no later event can resurrect a deleted issue).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Event {
@@ -65,6 +82,22 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         parent_uuid: Option<Uuid>,
         created_by: String,
+        /// Display id claimed from `meta/counters.json` by the (future) emitter.
+        ///
+        /// During the v2/v3 transition, files receive display ids from the
+        /// shared counter. If the reducer allocated ids purely from event order
+        /// it could disagree with the file-written id and clobber the file at
+        /// materialization. Carrying the authoritative claim here lets the
+        /// reducer adopt it (first-claim-wins by `OrderingKey`). `None` for
+        /// pure-v3 emitters with no counter; the reducer then allocates.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_id: Option<i64>,
+        /// When the issue becomes actionable (GH #361), set at creation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scheduled_at: Option<DateTime<Utc>>,
+        /// Hard deadline (GH #361), set at creation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        due_at: Option<DateTime<Utc>>,
     },
     LockClaimed {
         issue_display_id: i64,
@@ -124,6 +157,107 @@ pub enum Event {
         issue_uuid: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
         new_parent_uuid: Option<Uuid>,
+    },
+
+    /// A comment was added to an issue (T2: causal).
+    ///
+    /// Mirrors the `CommentEntry` / `CommentFile` payload field-for-field so
+    /// materialization is lossless once the reducer becomes the sole writer
+    /// (#754 cutover). `comment_uuid` is the V2-layout comment identity used as
+    /// the idempotency key; `display_id` is the counter-claimed `i64` comment id
+    /// (the `id` field of `CommentEntry`), adopted first-claim-wins like issue
+    /// display ids. Replaying the same `CommentAdded` leaves exactly one comment.
+    CommentAdded {
+        issue_uuid: Uuid,
+        comment_uuid: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_id: Option<i64>,
+        author: String,
+        content: String,
+        created_at: DateTime<Utc>,
+        kind: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trigger_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intervention_context: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        driver_key_fingerprint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signed_by: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// A time-tracking entry was added to an issue (T2: causal).
+    ///
+    /// Mirrors `TimeEntry` field-for-field. The file format `TimeEntry` has no
+    /// natural unique identity (only a counter-claimed `id`), so `entry_uuid` is
+    /// added to the EVENT (not the file) to key idempotent reduction; the file
+    /// schema is unchanged. `display_id` is the counter-claimed `id`.
+    TimeEntryAdded {
+        issue_uuid: Uuid,
+        entry_uuid: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_id: Option<i64>,
+        started_at: DateTime<Utc>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ended_at: Option<DateTime<Utc>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_seconds: Option<i64>,
+    },
+
+    /// An issue was deleted (T2: causal tombstone).
+    ///
+    /// Deletion wins forever, by design: once an `IssueDeleted` is applied, the
+    /// uuid is tombstoned and ALL later events for it (including a later-ordered
+    /// `IssueCreated`) are ignored — no resurrection. See the reducer for the
+    /// tombstone-guard placement.
+    IssueDeleted {
+        uuid: Uuid,
+    },
+
+    /// A milestone was created (T1-like: mints milestone identity).
+    ///
+    /// Mirrors the `MilestoneEntry` file payload (`uuid`, `name`, `description`,
+    /// `status`, `created_at`). `display_id` is the counter-claimed milestone id,
+    /// adopted first-claim-wins by `OrderingKey` exactly like issue display ids.
+    MilestoneCreated {
+        uuid: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_id: Option<i64>,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        created_at: DateTime<Utc>,
+    },
+
+    /// A milestone was closed (T2: causal).
+    MilestoneClosed {
+        uuid: Uuid,
+        closed_at: DateTime<Utc>,
+    },
+
+    /// A milestone was deleted (T2: causal).
+    ///
+    /// Removes the milestone from state and clears `milestone_uuid` on any issue
+    /// that referenced it (mirrors the dangling-reference cleanup expected of the
+    /// file path at the #754 cutover).
+    MilestoneDeleted {
+        uuid: Uuid,
+    },
+
+    /// The scheduling fields of an issue changed (T2: causal, last-writer-wins).
+    ///
+    /// Carries the FULL post-change state of both fields: `None` means the field
+    /// was cleared, `Some(_)` means set to that value. The later `OrderingKey`
+    /// overwrites the earlier — there is no per-field merge, so a `ScheduleChanged`
+    /// always fully determines both `scheduled_at` and `due_at`.
+    ScheduleChanged {
+        issue_uuid: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scheduled_at: Option<DateTime<Utc>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        due_at: Option<DateTime<Utc>>,
     },
 }
 
@@ -395,6 +529,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: agent_id.to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
             signed_by: None,
             signature: None,
@@ -512,6 +649,9 @@ mod tests {
                 labels: vec!["bug".to_string()],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: Some(7),
+                scheduled_at: Some(Utc::now()),
+                due_at: Some(Utc::now()),
             },
             Event::LockClaimed {
                 issue_display_id: 1,
@@ -563,6 +703,50 @@ mod tests {
                 issue_uuid: Uuid::new_v4(),
                 new_parent_uuid: None,
             },
+            Event::CommentAdded {
+                issue_uuid: Uuid::new_v4(),
+                comment_uuid: Uuid::new_v4(),
+                display_id: Some(3),
+                author: "agent-1".to_string(),
+                content: "a comment".to_string(),
+                created_at: Utc::now(),
+                kind: "note".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            },
+            Event::TimeEntryAdded {
+                issue_uuid: Uuid::new_v4(),
+                entry_uuid: Uuid::new_v4(),
+                display_id: Some(1),
+                started_at: Utc::now(),
+                ended_at: Some(Utc::now()),
+                duration_seconds: Some(3600),
+            },
+            Event::IssueDeleted {
+                uuid: Uuid::new_v4(),
+            },
+            Event::MilestoneCreated {
+                uuid: Uuid::new_v4(),
+                display_id: Some(1),
+                name: "v1.0".to_string(),
+                description: Some("first release".to_string()),
+                created_at: Utc::now(),
+            },
+            Event::MilestoneClosed {
+                uuid: Uuid::new_v4(),
+                closed_at: Utc::now(),
+            },
+            Event::MilestoneDeleted {
+                uuid: Uuid::new_v4(),
+            },
+            Event::ScheduleChanged {
+                issue_uuid: Uuid::new_v4(),
+                scheduled_at: Some(Utc::now()),
+                due_at: None,
+            },
         ];
 
         for event in variants {
@@ -576,6 +760,38 @@ mod tests {
                 serde_json::to_string(&reparsed).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn test_old_format_issue_created_parses() {
+        // An IssueCreated log line written before PR3.5 (no display_id,
+        // scheduled_at, due_at fields) must still parse via #[serde(default)].
+        let json = r#"{"type":"IssueCreated","uuid":"00000000-0000-0000-0000-000000000001","title":"old","priority":"medium","created_by":"agent-1"}"#;
+        let parsed: Event = serde_json::from_str(json).unwrap();
+        if let Event::IssueCreated {
+            display_id,
+            scheduled_at,
+            due_at,
+            title,
+            ..
+        } = parsed
+        {
+            assert_eq!(title, "old");
+            assert!(display_id.is_none());
+            assert!(scheduled_at.is_none());
+            assert!(due_at.is_none());
+        } else {
+            panic!("Expected IssueCreated variant");
+        }
+    }
+
+    #[test]
+    fn test_old_format_issue_created_in_envelope_parses() {
+        // Full old-format envelope line must still decode.
+        let json = r#"{"agent_id":"agent-1","agent_seq":1,"timestamp":"2025-01-01T00:00:00Z","event":{"type":"IssueCreated","uuid":"00000000-0000-0000-0000-000000000002","title":"legacy","priority":"high","labels":["bug"],"created_by":"agent-1"}}"#;
+        let env: EventEnvelope = serde_json::from_str(json).unwrap();
+        assert_eq!(env.agent_seq, 1);
+        assert!(matches!(env.event, Event::IssueCreated { .. }));
     }
 
     #[test]
@@ -843,6 +1059,9 @@ mod tests {
             labels: vec!["bug".to_string(), "urgent".to_string()],
             parent_uuid: Some(parent_uuid),
             created_by: "agent-1".to_string(),
+            display_id: None,
+            scheduled_at: None,
+            due_at: None,
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("bug"));

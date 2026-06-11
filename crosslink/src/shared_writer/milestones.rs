@@ -44,10 +44,18 @@ impl SharedWriter {
                 };
                 let mut json = Vec::new();
                 serde_json::to_writer_pretty(&mut json, &entry)?;
+                let event = crate::events::Event::MilestoneCreated {
+                    uuid,
+                    display_id: Some(id),
+                    name: name_owned.clone(),
+                    description: desc_owned.clone(),
+                    created_at: now,
+                };
                 Ok(WriteSet {
                     files: vec![(format!("meta/milestones/{uuid}.json"), json)],
                     counters: Some(counters),
                     use_git_rm: false,
+                    events: vec![event],
                 })
             },
             &format!("create milestone: {name}"),
@@ -65,14 +73,20 @@ impl SharedWriter {
         let _ = self.write_commit_push(
             |writer| {
                 let mut entry = writer.load_milestone_by_id(milestone_id)?;
+                let closed_at = Utc::now();
                 entry.status = crate::models::IssueStatus::Closed;
-                entry.closed_at = Some(Utc::now());
+                entry.closed_at = Some(closed_at);
                 let mut json = Vec::new();
                 serde_json::to_writer_pretty(&mut json, &entry)?;
+                let event = crate::events::Event::MilestoneClosed {
+                    uuid: entry.uuid,
+                    closed_at,
+                };
                 Ok(WriteSet {
                     files: vec![(format!("meta/milestones/{}.json", entry.uuid), json)],
                     counters: None,
                     use_git_rm: false,
+                    events: vec![event],
                 })
             },
             &format!("close milestone #{milestone_id}"),
@@ -100,10 +114,12 @@ impl SharedWriter {
                 if path.exists() {
                     std::fs::remove_file(&path)?;
                 }
+                let event = crate::events::Event::MilestoneDeleted { uuid: entry.uuid };
                 Ok(WriteSet {
                     files: vec![(rel_path.clone(), vec![])],
                     counters: None,
                     use_git_rm: true,
+                    events: vec![event],
                 })
             },
             &format!("delete milestone #{milestone_id}"),
@@ -133,6 +149,7 @@ impl SharedWriter {
         let _ = self.write_commit_push(
             |writer| {
                 let mut files = Vec::new();
+                let mut events = Vec::new();
                 for &issue_id in &ids {
                     let mut issue = writer.load_issue_by_id(issue_id, db)?;
                     issue.milestone_uuid = Some(ms_uuid);
@@ -140,11 +157,16 @@ impl SharedWriter {
                     let json = serde_json::to_vec_pretty(&issue)?;
                     let rel_path = writer.issue_rel_path(&issue.uuid);
                     files.push((rel_path, json));
+                    events.push(crate::events::Event::MilestoneAssigned {
+                        issue_uuid: issue.uuid,
+                        milestone_uuid: Some(ms_uuid),
+                    });
                 }
                 Ok(WriteSet {
                     files,
                     counters: None,
                     use_git_rm: false,
+                    events,
                 })
             },
             &format!("add {} issue(s) to milestone #{}", ids.len(), milestone_id),
@@ -166,10 +188,15 @@ impl SharedWriter {
                 issue.updated_at = Utc::now();
                 let json = serde_json::to_vec_pretty(&issue)?;
                 let rel_path = writer.issue_rel_path(&issue.uuid);
+                let event = crate::events::Event::MilestoneAssigned {
+                    issue_uuid: issue.uuid,
+                    milestone_uuid: None,
+                };
                 Ok(WriteSet {
                     files: vec![(rel_path, json)],
                     counters: None,
                     use_git_rm: false,
+                    events: vec![event],
                 })
             },
             &format!("remove issue #{issue_id} from milestone"),

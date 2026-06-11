@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::checkpoint::{
-    read_watermark, write_checkpoint, CheckpointState, CompactIssue, LockEntry, SkewWarning,
-    UnsignedEventWarning,
+    read_watermark, write_checkpoint, CheckpointState, CompactComment, CompactIssue,
+    CompactMilestone, CompactTimeEntry, LockEntry, SkewWarning, UnsignedEventWarning,
 };
 use crate::events::{Event, EventEnvelope, OrderingKey};
 use crate::hub_source::{HubSource, WorktreeSource};
@@ -466,7 +466,65 @@ fn apply(
         Event::LockReleased { issue_display_id } => {
             apply_lock_event(state, envelope, changed_locks, *issue_display_id, None);
         }
+        // Milestone lifecycle events are not keyed by an issue uuid, so they
+        // bypass the issue-tombstone guard in `apply_issue_event`.
+        Event::MilestoneCreated {
+            uuid,
+            display_id,
+            name,
+            description,
+            created_at,
+        } => {
+            apply_milestone_created(
+                state,
+                *uuid,
+                *display_id,
+                name,
+                description.as_ref(),
+                *created_at,
+            );
+        }
+        Event::MilestoneClosed { uuid, closed_at } => {
+            if let Some(m) = state.milestones.get_mut(uuid) {
+                m.status = crate::models::IssueStatus::Closed;
+                m.closed_at = Some(*closed_at);
+            }
+        }
+        Event::MilestoneDeleted { uuid } => {
+            apply_milestone_deleted(state, *uuid, changed_issues);
+        }
         _ => apply_issue_event(state, envelope, changed_issues),
+    }
+}
+
+/// Resolve the issue uuid an event targets, if it carries one. Used by the
+/// tombstone guard so that any event referencing a deleted issue is ignored
+/// (deletion wins forever).
+const fn event_issue_target(event: &Event) -> Option<Uuid> {
+    match event {
+        Event::IssueCreated { uuid, .. }
+        | Event::IssueUpdated { uuid, .. }
+        | Event::StatusChanged { uuid, .. }
+        | Event::IssueDeleted { uuid } => Some(*uuid),
+        Event::DependencyAdded { blocked_uuid, .. }
+        | Event::DependencyRemoved { blocked_uuid, .. } => Some(*blocked_uuid),
+        Event::MilestoneAssigned { issue_uuid, .. }
+        | Event::LabelAdded { issue_uuid, .. }
+        | Event::LabelRemoved { issue_uuid, .. }
+        | Event::ParentChanged { issue_uuid, .. }
+        | Event::CommentAdded { issue_uuid, .. }
+        | Event::TimeEntryAdded { issue_uuid, .. }
+        | Event::ScheduleChanged { issue_uuid, .. } => Some(*issue_uuid),
+        // Relation events touch two issues; the guard for them is applied
+        // per-side inside `apply_issue_field` via the `state.issues` lookup,
+        // since a relation may legitimately straddle a live and a dead issue.
+        Event::RelationAdded { .. }
+        | Event::RelationRemoved { .. }
+        | Event::LockClaimed { .. }
+        | Event::LockReleased { .. }
+        | Event::MilestoneCreated { .. }
+        | Event::MilestoneClosed { .. }
+        | Event::MilestoneDeleted { .. } => None,
     }
 }
 
@@ -476,6 +534,16 @@ fn apply_issue_event(
     envelope: &EventEnvelope,
     changed_issues: &mut HashSet<Uuid>,
 ) {
+    // Tombstone guard: deletion wins forever. Any event whose primary target
+    // uuid is tombstoned is dropped here — including a later-ordered
+    // `IssueCreated` (no resurrection). Relation events return `None` from
+    // `event_issue_target` and are guarded per-side via `state.issues` lookups.
+    if let Some(target) = event_issue_target(&envelope.event) {
+        if state.deleted_issues.contains(&target) {
+            return;
+        }
+    }
+
     match &envelope.event {
         Event::IssueCreated {
             uuid,
@@ -485,18 +553,26 @@ fn apply_issue_event(
             labels,
             parent_uuid,
             created_by,
+            display_id,
+            scheduled_at,
+            due_at,
         } => {
             apply_issue_created(
                 state,
                 envelope,
                 changed_issues,
-                *uuid,
-                title,
-                description.as_ref(),
-                priority,
-                labels,
-                *parent_uuid,
-                created_by,
+                &IssueCreatedArgs {
+                    uuid: *uuid,
+                    title,
+                    description: description.as_ref(),
+                    priority,
+                    labels,
+                    parent_uuid: *parent_uuid,
+                    created_by,
+                    carried_display_id: *display_id,
+                    scheduled_at: *scheduled_at,
+                    due_at: *due_at,
+                },
             );
         }
         Event::IssueUpdated {
@@ -529,7 +605,159 @@ fn apply_issue_event(
                 issue.closed_at = *closed_at;
             });
         }
+        Event::ScheduleChanged {
+            issue_uuid,
+            scheduled_at,
+            due_at,
+        } => {
+            // Full post-change state, last-writer-wins by OrderingKey.
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |issue| {
+                issue.scheduled_at = *scheduled_at;
+                issue.due_at = *due_at;
+            });
+        }
+        Event::IssueDeleted { uuid } => {
+            // Remove from live state, record tombstone, mark changed so
+            // materialize() can skip recreating the file.
+            state.issues.remove(uuid);
+            state.deleted_issues.insert(*uuid);
+            changed_issues.insert(*uuid);
+        }
+        Event::CommentAdded {
+            issue_uuid,
+            comment_uuid,
+            display_id,
+            author,
+            content,
+            created_at,
+            kind,
+            trigger_type,
+            intervention_context,
+            driver_key_fingerprint,
+            signed_by,
+            signature,
+        } => {
+            let claimed = adopt_comment_id(state, *display_id);
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |issue| {
+                // Idempotent insert keyed by comment uuid.
+                issue
+                    .comments
+                    .entry(*comment_uuid)
+                    .or_insert_with(|| CompactComment {
+                        display_id: Some(claimed),
+                        author: author.clone(),
+                        content: content.clone(),
+                        created_at: *created_at,
+                        kind: kind.clone(),
+                        trigger_type: trigger_type.clone(),
+                        intervention_context: intervention_context.clone(),
+                        driver_key_fingerprint: driver_key_fingerprint.clone(),
+                        signed_by: signed_by.clone(),
+                        signature: signature.clone(),
+                    });
+            });
+        }
+        Event::TimeEntryAdded {
+            issue_uuid,
+            entry_uuid,
+            display_id,
+            started_at,
+            ended_at,
+            duration_seconds,
+        } => {
+            apply_issue_field(state, envelope, changed_issues, *issue_uuid, |issue| {
+                issue
+                    .time_entries
+                    .entry(*entry_uuid)
+                    .or_insert_with(|| CompactTimeEntry {
+                        display_id: *display_id,
+                        started_at: *started_at,
+                        ended_at: *ended_at,
+                        duration_seconds: *duration_seconds,
+                    });
+            });
+        }
         _ => apply_graph_event(state, envelope, changed_issues),
+    }
+}
+
+/// Adopt a carried comment display id (first-claim-wins) and return the id to
+/// store on the comment. Mirrors issue display-id adoption: a carried id at or
+/// above `next_comment_id` bumps the counter past it; `None` allocates the next
+/// id. Unlike issue ids there is no per-uuid freeze map for comments, so a
+/// carried id below the counter is adopted verbatim (it was already claimed by
+/// an earlier-ordered event in the same deterministic pass).
+const fn adopt_comment_id(state: &mut CheckpointState, carried: Option<i64>) -> i64 {
+    if let Some(id) = carried {
+        if id >= state.next_comment_id {
+            state.next_comment_id = id + 1;
+        }
+        id
+    } else {
+        let id = state.next_comment_id;
+        state.next_comment_id += 1;
+        id
+    }
+}
+
+/// Apply `MilestoneCreated`: upsert the milestone with carried-id adoption.
+fn apply_milestone_created(
+    state: &mut CheckpointState,
+    uuid: Uuid,
+    carried_display_id: Option<i64>,
+    name: &str,
+    description: Option<&String>,
+    created_at: chrono::DateTime<Utc>,
+) {
+    // Idempotent: re-applying keeps the first (frozen) entry.
+    if state.milestones.contains_key(&uuid) {
+        return;
+    }
+    let display_id = adopt_milestone_id(state, carried_display_id);
+    state.milestones.insert(
+        uuid,
+        CompactMilestone {
+            uuid,
+            display_id: Some(display_id),
+            name: name.to_string(),
+            description: description.cloned(),
+            status: crate::models::IssueStatus::Open,
+            created_at,
+            closed_at: None,
+        },
+    );
+}
+
+/// Apply `MilestoneDeleted`: remove the milestone and clear `milestone_uuid` on
+/// any issue that referenced it. Today's file path leaves dangling references
+/// when a milestone is deleted; the reducer cleans them so the v3 read path is
+/// consistent (hydration drops orphan links anyway).
+fn apply_milestone_deleted(
+    state: &mut CheckpointState,
+    uuid: Uuid,
+    changed_issues: &mut HashSet<Uuid>,
+) {
+    state.milestones.remove(&uuid);
+    for (issue_uuid, issue) in &mut state.issues {
+        if issue.milestone_uuid == Some(uuid) {
+            issue.milestone_uuid = None;
+            changed_issues.insert(*issue_uuid);
+        }
+    }
+}
+
+/// Adopt a carried milestone display id (first-claim-wins), bumping
+/// `next_milestone_id` past adopted ids. `None` allocates the next id.
+const fn adopt_milestone_id(state: &mut CheckpointState, carried: Option<i64>) -> i64 {
+    if let Some(id) = carried {
+        if id >= state.next_milestone_id {
+            state.next_milestone_id = id + 1;
+        }
+        id
+    } else {
+        let id = state.next_milestone_id;
+        state.next_milestone_id += 1;
+        id
     }
 }
 
@@ -602,48 +830,108 @@ fn apply_graph_event(
     }
 }
 
+/// Arguments for [`apply_issue_created`], grouped to avoid a long parameter list.
+struct IssueCreatedArgs<'a> {
+    uuid: Uuid,
+    title: &'a str,
+    description: Option<&'a String>,
+    priority: &'a str,
+    labels: &'a [String],
+    parent_uuid: Option<Uuid>,
+    created_by: &'a str,
+    /// Display id claimed by the (future) emitter from `counters.json`, or
+    /// `None` for a pure-v3 emitter.
+    carried_display_id: Option<i64>,
+    scheduled_at: Option<chrono::DateTime<Utc>>,
+    due_at: Option<chrono::DateTime<Utc>>,
+}
+
 /// Handle the `IssueCreated` event by inserting a new issue into checkpoint state.
-#[allow(clippy::too_many_arguments)]
+///
+/// # Display-id assignment
+///
+/// - Already frozen for this uuid in `display_id_map` → keep it (idempotent
+///   re-application never changes a uuid's id).
+/// - Event carries `Some(id)`: if `id` is free (not yet owned by a different
+///   uuid), adopt it — first claim by `OrderingKey` order wins. If `id` is
+///   already taken by another uuid (a v2 counter race), allocate the next free
+///   id `>= next_display_id` instead. Deterministic because application order is
+///   deterministic.
+/// - `None`: allocate `next_display_id` (legacy behaviour).
 fn apply_issue_created(
     state: &mut CheckpointState,
     envelope: &EventEnvelope,
     changed_issues: &mut HashSet<Uuid>,
-    uuid: Uuid,
-    title: &str,
-    description: Option<&String>,
-    priority: &str,
-    labels: &[String],
-    parent_uuid: Option<Uuid>,
-    created_by: &str,
+    args: &IssueCreatedArgs<'_>,
 ) {
-    if !state.issues.contains_key(&uuid) {
-        let display_id = state.next_display_id;
-        state.next_display_id += 1;
-        state.display_id_map.insert(uuid, display_id);
-        state.issues.insert(
-            uuid,
-            CompactIssue {
-                uuid,
-                display_id: Some(display_id),
-                title: title.to_string(),
-                description: description.cloned(),
-                status: crate::models::IssueStatus::Open,
-                priority: priority.parse().unwrap_or(crate::models::Priority::Medium),
-                parent_uuid,
-                created_by: created_by.to_string(),
-                created_at: envelope.timestamp,
-                updated_at: envelope.timestamp,
-                closed_at: None,
-                scheduled_at: None,
-                due_at: None,
-                labels: labels.iter().cloned().collect(),
-                blockers: BTreeSet::new(),
-                related: BTreeSet::new(),
-                milestone_uuid: None,
-            },
-        );
-        changed_issues.insert(uuid);
+    if state.issues.contains_key(&args.uuid) {
+        return;
     }
+    let display_id = assign_issue_display_id(state, args.uuid, args.carried_display_id);
+    state.display_id_map.insert(args.uuid, display_id);
+    state.issues.insert(
+        args.uuid,
+        CompactIssue {
+            uuid: args.uuid,
+            display_id: Some(display_id),
+            title: args.title.to_string(),
+            description: args.description.cloned(),
+            status: crate::models::IssueStatus::Open,
+            priority: args
+                .priority
+                .parse()
+                .unwrap_or(crate::models::Priority::Medium),
+            parent_uuid: args.parent_uuid,
+            created_by: args.created_by.to_string(),
+            created_at: envelope.timestamp,
+            updated_at: envelope.timestamp,
+            closed_at: None,
+            scheduled_at: args.scheduled_at,
+            due_at: args.due_at,
+            labels: args.labels.iter().cloned().collect(),
+            blockers: BTreeSet::new(),
+            related: BTreeSet::new(),
+            milestone_uuid: None,
+            comments: std::collections::BTreeMap::new(),
+            time_entries: std::collections::BTreeMap::new(),
+        },
+    );
+    changed_issues.insert(args.uuid);
+}
+
+/// Assign a display id for a freshly created issue, honouring a carried claim
+/// and the freeze map. See [`apply_issue_created`] docs for the full rule.
+fn assign_issue_display_id(state: &mut CheckpointState, uuid: Uuid, carried: Option<i64>) -> i64 {
+    // Never change an id already frozen for this uuid.
+    if let Some(&existing) = state.display_id_map.get(&uuid) {
+        return existing;
+    }
+    match carried {
+        Some(id) => {
+            let already_taken = state.display_id_map.values().any(|&v| v == id);
+            if already_taken {
+                // Collision with another uuid → allocate next free id.
+                allocate_next_free_display_id(state)
+            } else {
+                if id >= state.next_display_id {
+                    state.next_display_id = id + 1;
+                }
+                id
+            }
+        }
+        None => allocate_next_free_display_id(state),
+    }
+}
+
+/// Allocate the next free display id at or above `next_display_id`, skipping any
+/// ids already owned (deterministic — application order is deterministic).
+fn allocate_next_free_display_id(state: &mut CheckpointState) -> i64 {
+    let mut id = state.next_display_id;
+    while state.display_id_map.values().any(|&v| v == id) {
+        id += 1;
+    }
+    state.next_display_id = id + 1;
+    id
 }
 
 /// Apply a simple field mutation to an existing issue and mark it changed.
@@ -704,6 +992,19 @@ fn apply_lock_event(
 /// Respects the hub layout version: writes V1 flat files or V2 directory
 /// files accordingly. Cleans up stale V1 flat files when writing V2 (#428).
 /// Writes `meta/version.json` if missing to prevent layout drift.
+///
+/// # Hub v3 transition (PR3.5 — #756)
+///
+/// The reducer now CARRIES comments, time entries, milestones, and tombstones
+/// in checkpoint state, but materialization deliberately does NOT yet own them:
+/// comments/time-entries are still written empty into `issue.json` (the v2 path
+/// keeps them in separate files), and milestone/comment files are still written
+/// directly by the mutation path. Materialization ownership transfers at the
+/// #754 cutover, when the direct file-write machinery is deleted and the reducer
+/// becomes the sole writer. The one v3 behaviour wired in here is the
+/// **tombstone guard**: an issue present in `state.deleted_issues` is skipped and
+/// never (re)written — actual file deletion stays with the direct delete path
+/// until the cutover.
 fn materialize(
     cache_dir: &Path,
     state: &CheckpointState,
@@ -719,6 +1020,11 @@ fn materialize(
 
     // Materialize changed issues
     for uuid in changed_issues {
+        // Tombstone guard: never recreate a deleted issue's file. Deletion of
+        // the on-disk file is owned by the direct delete path until #754.
+        if state.deleted_issues.contains(uuid) {
+            continue;
+        }
         if let Some(compact) = state.issues.get(uuid) {
             let issue_file = compact_to_issue_file(compact);
             let content = serde_json::to_string_pretty(&issue_file)?;
@@ -971,6 +1277,9 @@ mod tests {
                 labels: vec!["bug".to_string()],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         append_event(&log_path, &env).unwrap();
@@ -1014,6 +1323,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -1029,6 +1341,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
 
@@ -1073,6 +1388,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(1);
@@ -1087,6 +1405,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
 
@@ -1197,6 +1518,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e_create.timestamp = Utc::now() - Duration::seconds(10);
@@ -1257,6 +1581,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e_create.timestamp = Utc::now() - Duration::seconds(10);
@@ -1322,6 +1649,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -1366,6 +1696,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -1381,6 +1714,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e2.timestamp = Utc::now() - Duration::seconds(9);
@@ -1510,6 +1846,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         // Set timestamp far in the future to trigger skew warning
@@ -1541,6 +1880,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         // env has signed_by = None, signature = None
@@ -1571,6 +1913,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -1622,6 +1967,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e_create.timestamp = Utc::now() - Duration::seconds(20);
@@ -1679,6 +2027,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -1854,6 +2205,9 @@ mod tests {
                 labels: vec!["bug".to_string(), "urgent".to_string()],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         append_event(&log, &env).unwrap();
@@ -1898,6 +2252,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -1941,6 +2298,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -2629,6 +2989,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         // timestamp is Utc::now(), well within the 60s threshold
@@ -2651,6 +3014,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.signed_by = Some("agent-1".to_string());
@@ -2824,6 +3190,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = now - Duration::seconds(10);
@@ -2883,6 +3252,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = now - Duration::seconds(10);
@@ -2898,6 +3270,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e2.timestamp = now - Duration::seconds(9);
@@ -2946,6 +3321,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e_create.timestamp = Utc::now() - Duration::seconds(10);
@@ -3000,6 +3378,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         append_event(&log, &env).unwrap();
@@ -3185,6 +3566,8 @@ mod tests {
                 s
             },
             milestone_uuid: Some(Uuid::new_v4()),
+            comments: std::collections::BTreeMap::new(),
+            time_entries: std::collections::BTreeMap::new(),
         };
 
         let issue_file = compact_to_issue_file(&compact);
@@ -3229,6 +3612,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         append_event(&log, &env).unwrap();
@@ -3286,6 +3672,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         append_event(&log, &env).unwrap();
@@ -3319,6 +3708,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = now - Duration::seconds(10);
@@ -3378,6 +3770,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: Some(parent),
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = now - Duration::seconds(10);
@@ -3420,6 +3815,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         // Set timestamp far in the past (well beyond 60s threshold)
@@ -3444,6 +3842,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         // Set timestamp far in the future (well beyond 60s threshold)
@@ -3469,6 +3870,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.signed_by = Some("agent-1".to_string());
@@ -3498,6 +3902,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.signed_by = None;
@@ -3536,6 +3943,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
@@ -3700,6 +4110,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "check-agent".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.signed_by = Some("SHA256:fake".to_string());
@@ -3736,5 +4149,635 @@ mod tests {
         // Check that the parsed time is close to what we wrote
         let diff = (info.acquired_at - now).num_milliseconds().abs();
         assert!(diff < 1000, "Parsed time should be close to written time");
+    }
+
+    // ── PR3.5 (#756): new event variants + reducer rules ────────────────
+
+    /// Build an `IssueCreated` event with all PR3.5 fields defaulted.
+    fn issue_created(uuid: Uuid, title: &str) -> Event {
+        Event::IssueCreated {
+            uuid,
+            title: title.to_string(),
+            description: None,
+            priority: "medium".to_string(),
+            labels: vec![],
+            parent_uuid: None,
+            created_by: "agent-1".to_string(),
+            display_id: None,
+            scheduled_at: None,
+            due_at: None,
+        }
+    }
+
+    /// Build an `IssueCreated` event carrying a specific display id.
+    fn issue_created_with_id(uuid: Uuid, title: &str, display_id: i64) -> Event {
+        Event::IssueCreated {
+            uuid,
+            title: title.to_string(),
+            description: None,
+            priority: "medium".to_string(),
+            labels: vec![],
+            parent_uuid: None,
+            created_by: "agent-1".to_string(),
+            display_id: Some(display_id),
+            scheduled_at: None,
+            due_at: None,
+        }
+    }
+
+    fn comment_added(issue: Uuid, comment: Uuid, body: &str) -> Event {
+        Event::CommentAdded {
+            issue_uuid: issue,
+            comment_uuid: comment,
+            display_id: None,
+            author: "agent-1".to_string(),
+            content: body.to_string(),
+            created_at: Utc::now(),
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        }
+    }
+
+    // ── serde round-trip for every new variant ──────────────────────────
+
+    #[test]
+    fn test_new_variant_serde_roundtrip() {
+        let variants = [
+            comment_added(Uuid::new_v4(), Uuid::new_v4(), "hi"),
+            Event::TimeEntryAdded {
+                issue_uuid: Uuid::new_v4(),
+                entry_uuid: Uuid::new_v4(),
+                display_id: Some(2),
+                started_at: Utc::now(),
+                ended_at: None,
+                duration_seconds: Some(60),
+            },
+            Event::IssueDeleted {
+                uuid: Uuid::new_v4(),
+            },
+            Event::MilestoneCreated {
+                uuid: Uuid::new_v4(),
+                display_id: Some(1),
+                name: "v1".to_string(),
+                description: Some("d".to_string()),
+                created_at: Utc::now(),
+            },
+            Event::MilestoneClosed {
+                uuid: Uuid::new_v4(),
+                closed_at: Utc::now(),
+            },
+            Event::MilestoneDeleted {
+                uuid: Uuid::new_v4(),
+            },
+            Event::ScheduleChanged {
+                issue_uuid: Uuid::new_v4(),
+                scheduled_at: Some(Utc::now()),
+                due_at: None,
+            },
+        ];
+        for ev in variants {
+            let json = serde_json::to_string(&ev).unwrap();
+            let parsed: Event = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                serde_json::to_string(&parsed).unwrap(),
+                json,
+                "round-trip mismatch"
+            );
+        }
+    }
+
+    // ── Display-id adoption ─────────────────────────────────────────────
+
+    #[test]
+    fn test_display_id_collision_deterministic_winner() {
+        // Two agents both carry id 5 for different uuids. Application order
+        // (sorted by OrderingKey) is deterministic: the first claimant keeps 5,
+        // the second gets the next free id.
+        let mut state = CheckpointState::default();
+        let mut ci = HashSet::new();
+        let mut cl = HashSet::new();
+        let uuid_a = Uuid::new_v4();
+        let uuid_b = Uuid::new_v4();
+
+        let mut e_a = make_envelope("agent-a", 1, issue_created_with_id(uuid_a, "A", 5));
+        e_a.timestamp = Utc::now() - Duration::seconds(2);
+        let mut e_b = make_envelope("agent-b", 1, issue_created_with_id(uuid_b, "B", 5));
+        e_b.timestamp = Utc::now() - Duration::seconds(1);
+
+        // Apply in deterministic (sorted) order: a before b.
+        apply(&mut state, &e_a, &mut ci, &mut cl);
+        apply(&mut state, &e_b, &mut ci, &mut cl);
+
+        assert_eq!(state.display_id_map[&uuid_a], 5, "first claimant keeps 5");
+        assert_ne!(state.display_id_map[&uuid_b], 5, "loser reassigned");
+        assert_eq!(state.display_id_map[&uuid_b], 6, "loser gets next free id");
+
+        // Replay both: idempotent, ids unchanged.
+        apply(&mut state, &e_a, &mut ci, &mut cl);
+        apply(&mut state, &e_b, &mut ci, &mut cl);
+        assert_eq!(state.display_id_map[&uuid_a], 5);
+        assert_eq!(state.display_id_map[&uuid_b], 6);
+    }
+
+    #[test]
+    fn test_display_id_carried_bumps_next() {
+        // Carried id 7 with next_display_id=3 → issue gets 7, next becomes 8.
+        let mut state = CheckpointState {
+            next_display_id: 3,
+            ..Default::default()
+        };
+        let mut ci = HashSet::new();
+        let mut cl = HashSet::new();
+        let uuid = Uuid::new_v4();
+        let env = make_envelope("agent-1", 1, issue_created_with_id(uuid, "X", 7));
+        apply(&mut state, &env, &mut ci, &mut cl);
+        assert_eq!(state.display_id_map[&uuid], 7);
+        assert_eq!(state.next_display_id, 8);
+    }
+
+    #[test]
+    fn test_display_id_none_allocates() {
+        let mut state = CheckpointState::default();
+        let mut ci = HashSet::new();
+        let mut cl = HashSet::new();
+        let uuid = Uuid::new_v4();
+        let env = make_envelope("agent-1", 1, issue_created(uuid, "X"));
+        apply(&mut state, &env, &mut ci, &mut cl);
+        assert_eq!(state.display_id_map[&uuid], 1);
+        assert_eq!(state.next_display_id, 2);
+    }
+
+    // ── CommentAdded idempotency + survival across compactions ──────────
+
+    #[test]
+    fn test_comment_added_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let issue = Uuid::new_v4();
+        let comment = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let mut e1 = make_envelope("agent-1", 1, issue_created(issue, "I"));
+        e1.timestamp = Utc::now() - Duration::seconds(10);
+        let mut e2 = make_envelope("agent-1", 2, comment_added(issue, comment, "hello"));
+        e2.timestamp = Utc::now() - Duration::seconds(5);
+        // Same comment uuid again (duplicate emission).
+        let mut e3 = make_envelope("agent-1", 3, comment_added(issue, comment, "hello-dup"));
+        e3.timestamp = Utc::now() - Duration::seconds(4);
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let issue_state = &state.issues[&issue];
+        assert_eq!(issue_state.comments.len(), 1, "duplicate left one comment");
+        // First write wins (idempotent or_insert).
+        assert_eq!(issue_state.comments[&comment].content, "hello");
+        assert_eq!(issue_state.comments[&comment].display_id, Some(1));
+    }
+
+    #[test]
+    fn test_comment_survives_incremental_compaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let issue = Uuid::new_v4();
+        let comment1 = Uuid::new_v4();
+        let comment2 = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let mut e1 = make_envelope("agent-1", 1, issue_created(issue, "I"));
+        e1.timestamp = Utc::now() - Duration::seconds(10);
+        let mut e2 = make_envelope("agent-1", 2, comment_added(issue, comment1, "first"));
+        e2.timestamp = Utc::now() - Duration::seconds(5);
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        // Second comment after watermark advance (incremental).
+        let mut e3 = make_envelope("agent-1", 3, comment_added(issue, comment2, "second"));
+        e3.timestamp = Utc::now() - Duration::seconds(1);
+        append_event(&log, &e3).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let issue_state = &state.issues[&issue];
+        assert_eq!(issue_state.comments.len(), 2, "both comments retained");
+        assert!(issue_state.comments.contains_key(&comment1));
+        assert!(issue_state.comments.contains_key(&comment2));
+    }
+
+    // ── TimeEntryAdded idempotency ──────────────────────────────────────
+
+    #[test]
+    fn test_time_entry_added_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let issue = Uuid::new_v4();
+        let entry = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let mut e1 = make_envelope("agent-1", 1, issue_created(issue, "I"));
+        e1.timestamp = Utc::now() - Duration::seconds(10);
+        let te = |seq: u64| {
+            make_envelope(
+                "agent-1",
+                seq,
+                Event::TimeEntryAdded {
+                    issue_uuid: issue,
+                    entry_uuid: entry,
+                    display_id: Some(1),
+                    started_at: Utc::now(),
+                    ended_at: None,
+                    duration_seconds: Some(120),
+                },
+            )
+        };
+        let mut e2 = te(2);
+        e2.timestamp = Utc::now() - Duration::seconds(5);
+        let mut e3 = te(3);
+        e3.timestamp = Utc::now() - Duration::seconds(4);
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert_eq!(state.issues[&issue].time_entries.len(), 1);
+        assert_eq!(
+            state.issues[&issue].time_entries[&entry].duration_seconds,
+            Some(120)
+        );
+    }
+
+    // ── Tombstones / no resurrection ────────────────────────────────────
+
+    #[test]
+    fn test_tombstone_blocks_later_events_and_recreate() {
+        let mut state = CheckpointState::default();
+        let mut ci = HashSet::new();
+        let mut cl = HashSet::new();
+        let uuid = Uuid::new_v4();
+
+        // Create, then delete.
+        let e_create = make_envelope("agent-1", 1, issue_created(uuid, "Doomed"));
+        apply(&mut state, &e_create, &mut ci, &mut cl);
+        let e_del = make_envelope("agent-1", 2, Event::IssueDeleted { uuid });
+        apply(&mut state, &e_del, &mut ci, &mut cl);
+        assert!(!state.issues.contains_key(&uuid));
+        assert!(state.deleted_issues.contains(&uuid));
+
+        // Later-ordered events for the dead uuid are all no-ops (no panic).
+        let e_label = make_envelope(
+            "agent-1",
+            3,
+            Event::LabelAdded {
+                issue_uuid: uuid,
+                label: "ghost".to_string(),
+            },
+        );
+        apply(&mut state, &e_label, &mut ci, &mut cl);
+        let e_update = make_envelope(
+            "agent-1",
+            4,
+            Event::IssueUpdated {
+                uuid,
+                title: Some("Zombie".to_string()),
+                description: None,
+                priority: None,
+            },
+        );
+        apply(&mut state, &e_update, &mut ci, &mut cl);
+        // Even a fresh IssueCreated cannot resurrect it.
+        let e_recreate = make_envelope("agent-1", 5, issue_created(uuid, "Resurrected"));
+        apply(&mut state, &e_recreate, &mut ci, &mut cl);
+
+        assert!(
+            !state.issues.contains_key(&uuid),
+            "deletion wins forever — no resurrection"
+        );
+    }
+
+    #[test]
+    fn test_tombstone_materialize_does_not_recreate_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+
+        let mut e1 = make_envelope("agent-1", 1, issue_created(uuid, "Doomed"));
+        e1.timestamp = Utc::now() - Duration::seconds(10);
+        append_event(&log, &e1).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let issue_path = cache_dir
+            .join("issues")
+            .join(uuid.to_string())
+            .join("issue.json");
+        assert!(issue_path.exists(), "issue file created");
+        // Simulate the direct delete path removing the file.
+        std::fs::remove_file(&issue_path).unwrap();
+
+        // Now an IssueDeleted arrives (incremental).
+        let mut e2 = make_envelope("agent-1", 2, Event::IssueDeleted { uuid });
+        e2.timestamp = Utc::now() - Duration::seconds(1);
+        append_event(&log, &e2).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        // The tombstone guard must NOT recreate the file.
+        assert!(
+            !issue_path.exists(),
+            "materialize must not recreate a tombstoned issue"
+        );
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(state.deleted_issues.contains(&uuid));
+        assert!(!state.issues.contains_key(&uuid));
+    }
+
+    // ── ScheduleChanged LWW ─────────────────────────────────────────────
+
+    #[test]
+    fn test_schedule_changed_lww_and_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let uuid = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope("agent-1", 1, issue_created(uuid, "Sched"));
+        e1.timestamp = now - Duration::seconds(30);
+
+        let first_sched = now - Duration::seconds(20);
+        let mut e2 = make_envelope(
+            "agent-1",
+            2,
+            Event::ScheduleChanged {
+                issue_uuid: uuid,
+                scheduled_at: Some(first_sched),
+                due_at: Some(now + Duration::seconds(100)),
+            },
+        );
+        e2.timestamp = now - Duration::seconds(15);
+
+        // Later event clears scheduled_at, keeps a due_at (full post-state).
+        let later_due = now + Duration::seconds(200);
+        let mut e3 = make_envelope(
+            "agent-1",
+            3,
+            Event::ScheduleChanged {
+                issue_uuid: uuid,
+                scheduled_at: None,
+                due_at: Some(later_due),
+            },
+        );
+        e3.timestamp = now - Duration::seconds(5);
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let issue = &state.issues[&uuid];
+        assert!(
+            issue.scheduled_at.is_none(),
+            "later event cleared scheduled"
+        );
+        assert_eq!(issue.due_at, Some(later_due), "later due wins (LWW)");
+    }
+
+    #[test]
+    fn test_issue_created_applies_schedule_fields() {
+        let mut state = CheckpointState::default();
+        let mut ci = HashSet::new();
+        let mut cl = HashSet::new();
+        let uuid = Uuid::new_v4();
+        let sched = Utc::now() + Duration::seconds(10);
+        let due = Utc::now() + Duration::seconds(20);
+        let env = make_envelope(
+            "agent-1",
+            1,
+            Event::IssueCreated {
+                uuid,
+                title: "S".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: Some(sched),
+                due_at: Some(due),
+            },
+        );
+        apply(&mut state, &env, &mut ci, &mut cl);
+        assert_eq!(state.issues[&uuid].scheduled_at, Some(sched));
+        assert_eq!(state.issues[&uuid].due_at, Some(due));
+    }
+
+    // ── Milestone lifecycle ─────────────────────────────────────────────
+
+    #[test]
+    fn test_milestone_lifecycle_with_id_adoption() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path();
+        setup_cache(cache_dir);
+
+        let ms = Uuid::new_v4();
+        let issue = Uuid::new_v4();
+        let log = cache_dir.join("agents/agent-1/events.log");
+        let now = Utc::now();
+
+        let mut e1 = make_envelope(
+            "agent-1",
+            1,
+            Event::MilestoneCreated {
+                uuid: ms,
+                display_id: Some(4),
+                name: "Release".to_string(),
+                description: None,
+                created_at: now - Duration::seconds(30),
+            },
+        );
+        e1.timestamp = now - Duration::seconds(30);
+
+        let mut e2 = make_envelope("agent-1", 2, issue_created(issue, "linked"));
+        e2.timestamp = now - Duration::seconds(25);
+
+        let mut e3 = make_envelope(
+            "agent-1",
+            3,
+            Event::MilestoneAssigned {
+                issue_uuid: issue,
+                milestone_uuid: Some(ms),
+            },
+        );
+        e3.timestamp = now - Duration::seconds(20);
+
+        let closed_at = now - Duration::seconds(15);
+        let mut e4 = make_envelope(
+            "agent-1",
+            4,
+            Event::MilestoneClosed {
+                uuid: ms,
+                closed_at,
+            },
+        );
+        e4.timestamp = now - Duration::seconds(15);
+
+        append_event(&log, &e1).unwrap();
+        append_event(&log, &e2).unwrap();
+        append_event(&log, &e3).unwrap();
+        append_event(&log, &e4).unwrap();
+
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        let m = &state.milestones[&ms];
+        assert_eq!(m.display_id, Some(4), "carried milestone id adopted");
+        assert_eq!(state.next_milestone_id, 5, "next bumped past adopted");
+        assert_eq!(m.status, crate::models::IssueStatus::Closed);
+        assert_eq!(m.closed_at, Some(closed_at));
+        assert_eq!(state.issues[&issue].milestone_uuid, Some(ms));
+
+        // Now delete the milestone — linkage on the issue must be cleared.
+        let mut e5 = make_envelope("agent-1", 5, Event::MilestoneDeleted { uuid: ms });
+        e5.timestamp = now - Duration::seconds(5);
+        append_event(&log, &e5).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
+
+        let state = read_checkpoint(cache_dir).unwrap();
+        assert!(!state.milestones.contains_key(&ms), "milestone removed");
+        assert_eq!(
+            state.issues[&issue].milestone_uuid, None,
+            "delete cleared issue linkage"
+        );
+    }
+
+    // ── Full determinism across shuffled multi-agent log ────────────────
+
+    #[test]
+    fn test_deterministic_reduction_all_new_variants() {
+        // Build a fixed set of envelopes spanning all new variants across two
+        // agents, then reduce two different file orderings; the resulting state
+        // must be byte-identical because reduce() sorts by OrderingKey.
+        let base = Utc::now() - Duration::seconds(100);
+        let issue1 = Uuid::new_v4();
+        let issue2 = Uuid::new_v4();
+        let comment1 = Uuid::new_v4();
+        let entry1 = Uuid::new_v4();
+        let ms = Uuid::new_v4();
+
+        let mk = |agent: &str, seq: u64, secs: i64, ev: Event| {
+            let mut e = make_envelope(agent, seq, ev);
+            e.timestamp = base + Duration::seconds(secs);
+            e
+        };
+
+        let envelopes = [
+            mk("agent-a", 1, 0, issue_created_with_id(issue1, "One", 1)),
+            mk("agent-b", 1, 1, issue_created_with_id(issue2, "Two", 1)), // id collision
+            mk(
+                "agent-a",
+                2,
+                2,
+                Event::MilestoneCreated {
+                    uuid: ms,
+                    display_id: Some(1),
+                    name: "M".to_string(),
+                    description: None,
+                    created_at: base + Duration::seconds(2),
+                },
+            ),
+            mk(
+                "agent-b",
+                2,
+                3,
+                Event::MilestoneAssigned {
+                    issue_uuid: issue1,
+                    milestone_uuid: Some(ms),
+                },
+            ),
+            mk("agent-a", 3, 4, comment_added(issue1, comment1, "c")),
+            mk(
+                "agent-b",
+                3,
+                5,
+                Event::TimeEntryAdded {
+                    issue_uuid: issue1,
+                    entry_uuid: entry1,
+                    display_id: Some(1),
+                    started_at: base + Duration::seconds(5),
+                    ended_at: None,
+                    duration_seconds: Some(30),
+                },
+            ),
+            mk(
+                "agent-a",
+                4,
+                6,
+                Event::ScheduleChanged {
+                    issue_uuid: issue2,
+                    scheduled_at: Some(base + Duration::seconds(50)),
+                    due_at: None,
+                },
+            ),
+            mk("agent-b", 4, 7, Event::IssueDeleted { uuid: issue2 }),
+        ];
+
+        let reduce_in_order = |order: &[usize]| -> CheckpointState {
+            let dir = tempfile::tempdir().unwrap();
+            let cache_dir = dir.path();
+            setup_cache(cache_dir);
+            for &i in order {
+                let env = &envelopes[i];
+                let log = cache_dir.join(format!("agents/{}/events.log", env.agent_id));
+                append_event(&log, env).unwrap();
+            }
+            compact_t(cache_dir, "agent-a", true).unwrap();
+            read_checkpoint(cache_dir).unwrap()
+        };
+
+        let forward: Vec<usize> = (0..envelopes.len()).collect();
+        let mut shuffled = forward.clone();
+        shuffled.reverse();
+
+        let s1 = reduce_in_order(&forward);
+        let s2 = reduce_in_order(&shuffled);
+
+        // Watermark depends only on the max OrderingKey, identical for both.
+        let j1 = serde_json::to_string_pretty(&s1).unwrap();
+        let j2 = serde_json::to_string_pretty(&s2).unwrap();
+        assert_eq!(j1, j2, "reduction must be order-independent");
+
+        // Sanity on the resolved state.
+        assert!(s1.deleted_issues.contains(&issue2), "issue2 deleted");
+        assert!(!s1.issues.contains_key(&issue2), "issue2 gone");
+        assert_eq!(s1.issues[&issue1].comments.len(), 1);
+        assert_eq!(s1.issues[&issue1].time_entries.len(), 1);
+        assert_eq!(s1.issues[&issue1].milestone_uuid, Some(ms));
+        // issue1 keeps id 1 (claimed first by OrderingKey); milestone keeps 1.
+        assert_eq!(s1.display_id_map[&issue1], 1);
+        assert_eq!(s1.milestones[&ms].display_id, Some(1));
     }
 }

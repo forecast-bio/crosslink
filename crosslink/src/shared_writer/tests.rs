@@ -387,6 +387,9 @@ fn make_dw_envelope(agent_id: &str, seq: u64) -> crate::events::EventEnvelope {
             labels: vec![],
             parent_uuid: None,
             created_by: agent_id.to_string(),
+            display_id: None,
+            scheduled_at: None,
+            due_at: None,
         },
         signed_by: None,
         signature: None,
@@ -2756,6 +2759,9 @@ mod integration {
             labels: vec![],
             parent_uuid: None,
             created_by: "test-agent".to_string(),
+            display_id: None,
+            scheduled_at: None,
+            due_at: None,
         };
         let envelope = writer.create_envelope(event);
         assert_eq!(envelope.agent_id, "test-agent");
@@ -3534,6 +3540,707 @@ mod integration {
             );
         }
 
+        drop(work_dir);
+    }
+
+    // ── PR3.5 (#756): event emission for all mutations ───────────────────────
+
+    use crate::events::{Event, EventEnvelope};
+
+    /// Read this agent's event log from the hub cache.
+    fn read_agent_log(crosslink_dir: &std::path::Path) -> Vec<EventEnvelope> {
+        let log = crosslink_dir
+            .join(".hub-cache")
+            .join("agents")
+            .join("test-agent")
+            .join("events.log");
+        crate::events::read_events(&log).unwrap_or_default()
+    }
+
+    /// The kinds of events present in the agent log, in order.
+    fn event_kinds(envs: &[EventEnvelope]) -> Vec<&'static str> {
+        envs.iter()
+            .map(|e| match &e.event {
+                Event::IssueCreated { .. } => "IssueCreated",
+                Event::LockClaimed { .. } => "LockClaimed",
+                Event::LockReleased { .. } => "LockReleased",
+                Event::IssueUpdated { .. } => "IssueUpdated",
+                Event::StatusChanged { .. } => "StatusChanged",
+                Event::DependencyAdded { .. } => "DependencyAdded",
+                Event::DependencyRemoved { .. } => "DependencyRemoved",
+                Event::RelationAdded { .. } => "RelationAdded",
+                Event::RelationRemoved { .. } => "RelationRemoved",
+                Event::MilestoneAssigned { .. } => "MilestoneAssigned",
+                Event::LabelAdded { .. } => "LabelAdded",
+                Event::LabelRemoved { .. } => "LabelRemoved",
+                Event::ParentChanged { .. } => "ParentChanged",
+                Event::CommentAdded { .. } => "CommentAdded",
+                Event::TimeEntryAdded { .. } => "TimeEntryAdded",
+                Event::IssueDeleted { .. } => "IssueDeleted",
+                Event::MilestoneCreated { .. } => "MilestoneCreated",
+                Event::MilestoneClosed { .. } => "MilestoneClosed",
+                Event::MilestoneDeleted { .. } => "MilestoneDeleted",
+                Event::ScheduleChanged { .. } => "ScheduleChanged",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_emit_create_issue_emits_issue_created() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Emit test", Some("d"), "high", None, None)
+            .unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(event_kinds(&log), vec!["IssueCreated"]);
+        match &log[0].event {
+            Event::IssueCreated {
+                title,
+                priority,
+                display_id,
+                description,
+                ..
+            } => {
+                assert_eq!(title, "Emit test");
+                assert_eq!(priority, "high");
+                assert_eq!(*display_id, Some(id));
+                assert_eq!(description.as_deref(), Some("d"));
+            }
+            other => panic!("expected IssueCreated, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_create_issue_carries_schedule_fields() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let sched = chrono::Utc::now();
+        let due = sched + chrono::Duration::days(3);
+        writer
+            .create_issue(&db, "Scheduled", None, "medium", Some(sched), Some(due))
+            .unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        match &log[0].event {
+            Event::IssueCreated {
+                scheduled_at,
+                due_at,
+                ..
+            } => {
+                assert_eq!(*scheduled_at, Some(sched));
+                assert_eq!(*due_at, Some(due));
+            }
+            other => panic!("expected IssueCreated, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_update_issue_emits_issue_updated() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Before", None, "low", None, None)
+            .unwrap();
+        writer
+            .update_issue(
+                &db,
+                id,
+                IssueUpdate {
+                    title: Some("After"),
+                    priority: Some("high"),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(event_kinds(&log), vec!["IssueCreated", "IssueUpdated"]);
+        match &log[1].event {
+            Event::IssueUpdated {
+                title, priority, ..
+            } => {
+                assert_eq!(title.as_deref(), Some("After"));
+                assert_eq!(priority.as_deref(), Some("high"));
+            }
+            other => panic!("expected IssueUpdated, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_update_issue_schedule_emits_schedule_changed() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Sched edit", None, "low", None, None)
+            .unwrap();
+        let sched = chrono::Utc::now();
+        writer
+            .update_issue(
+                &db,
+                id,
+                IssueUpdate {
+                    scheduled_at: crate::shared_writer::FieldUpdate::Set(sched),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(event_kinds(&log), vec!["IssueCreated", "ScheduleChanged"]);
+        match &log[1].event {
+            Event::ScheduleChanged {
+                scheduled_at,
+                due_at,
+                ..
+            } => {
+                assert_eq!(*scheduled_at, Some(sched));
+                assert_eq!(*due_at, None);
+            }
+            other => panic!("expected ScheduleChanged, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_close_and_reopen_emit_status_changed() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Lifecycle", None, "medium", None, None)
+            .unwrap();
+        writer.close_issue(&db, id).unwrap();
+        writer.reopen_issue(&db, id).unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(
+            event_kinds(&log),
+            vec!["IssueCreated", "StatusChanged", "StatusChanged"]
+        );
+        match &log[1].event {
+            Event::StatusChanged {
+                new_status,
+                closed_at,
+                ..
+            } => {
+                assert_eq!(new_status, "closed");
+                assert!(closed_at.is_some());
+            }
+            other => panic!("expected StatusChanged closed, got {other:?}"),
+        }
+        match &log[2].event {
+            Event::StatusChanged {
+                new_status,
+                closed_at,
+                ..
+            } => {
+                assert_eq!(new_status, "open");
+                assert!(closed_at.is_none());
+            }
+            other => panic!("expected StatusChanged open, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_delete_issue_emits_issue_deleted() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Doomed", None, "medium", None, None)
+            .unwrap();
+        let uuid = writer.load_issue_by_id(id, &db).unwrap().uuid;
+        writer.delete_issue(&db, id).unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(event_kinds(&log), vec!["IssueCreated", "IssueDeleted"]);
+        match &log[1].event {
+            Event::IssueDeleted { uuid: u } => assert_eq!(*u, uuid),
+            other => panic!("expected IssueDeleted, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_comment_emits_comment_added() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Has comment", None, "medium", None, None)
+            .unwrap();
+        let cid = writer.add_comment(&db, id, "hello world", "note").unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(event_kinds(&log), vec!["IssueCreated", "CommentAdded"]);
+        match &log[1].event {
+            Event::CommentAdded {
+                content,
+                kind,
+                display_id,
+                author,
+                ..
+            } => {
+                assert_eq!(content, "hello world");
+                assert_eq!(kind, "note");
+                assert_eq!(*display_id, Some(cid));
+                assert_eq!(author, "test-agent");
+            }
+            other => panic!("expected CommentAdded, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_labels_emit_label_added_removed() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Labels", None, "medium", None, None)
+            .unwrap();
+        writer.add_label(&db, id, "bug").unwrap();
+        writer.remove_label(&db, id, "bug").unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert_eq!(
+            event_kinds(&log),
+            vec!["IssueCreated", "LabelAdded", "LabelRemoved"]
+        );
+        match &log[1].event {
+            Event::LabelAdded { label, .. } => assert_eq!(label, "bug"),
+            other => panic!("expected LabelAdded, got {other:?}"),
+        }
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_blocker_emits_dependency_with_correct_direction() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let blocked = writer
+            .create_issue(&db, "Blocked", None, "medium", None, None)
+            .unwrap();
+        let blocker = writer
+            .create_issue(&db, "Blocker", None, "medium", None, None)
+            .unwrap();
+        let blocked_uuid = writer.load_issue_by_id(blocked, &db).unwrap().uuid;
+        let blocker_uuid = writer.load_issue_by_id(blocker, &db).unwrap().uuid;
+
+        writer.add_blocker(&db, blocked, blocker).unwrap();
+        writer.remove_blocker(&db, blocked, blocker).unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        // Direction must match apply_graph_event: DependencyAdded inserts
+        // blocker_uuid into blocked_uuid's blockers.
+        let dep_add = log
+            .iter()
+            .find(|e| matches!(e.event, Event::DependencyAdded { .. }))
+            .expect("DependencyAdded must be present");
+        match &dep_add.event {
+            Event::DependencyAdded {
+                blocked_uuid: b,
+                blocker_uuid: k,
+            } => {
+                assert_eq!(*b, blocked_uuid);
+                assert_eq!(*k, blocker_uuid);
+            }
+            _ => unreachable!(),
+        }
+        assert!(log
+            .iter()
+            .any(|e| matches!(e.event, Event::DependencyRemoved { .. })));
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_relation_emits_relation_added_removed() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let a = writer
+            .create_issue(&db, "A", None, "medium", None, None)
+            .unwrap();
+        let b = writer
+            .create_issue(&db, "B", None, "medium", None, None)
+            .unwrap();
+        writer.add_relation(&db, a, b).unwrap();
+        writer.remove_relation(&db, a, b).unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        assert!(log
+            .iter()
+            .any(|e| matches!(e.event, Event::RelationAdded { .. })));
+        assert!(log
+            .iter()
+            .any(|e| matches!(e.event, Event::RelationRemoved { .. })));
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_emit_milestone_lifecycle_events() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let ms = writer.create_milestone(&db, "v1", Some("rel")).unwrap();
+        let issue = writer
+            .create_issue(&db, "Task", None, "medium", None, None)
+            .unwrap();
+        writer.set_milestone_on_issues(&db, ms, &[issue]).unwrap();
+        writer.clear_milestone_on_issue(&db, issue).unwrap();
+        writer.close_milestone(&db, ms).unwrap();
+        writer.delete_milestone(&db, ms).unwrap();
+
+        let log = read_agent_log(&crosslink_dir);
+        let kinds = event_kinds(&log);
+        assert!(kinds.contains(&"MilestoneCreated"));
+        assert!(kinds.contains(&"MilestoneClosed"));
+        assert!(kinds.contains(&"MilestoneDeleted"));
+        // Assign + clear both produce MilestoneAssigned.
+        assert_eq!(
+            log.iter()
+                .filter(|e| matches!(e.event, Event::MilestoneAssigned { .. }))
+                .count(),
+            2
+        );
+        // The MilestoneCreated must carry the claimed display id.
+        match log
+            .iter()
+            .find(|e| matches!(e.event, Event::MilestoneCreated { .. }))
+            .map(|e| &e.event)
+        {
+            Some(Event::MilestoneCreated { display_id, .. }) => {
+                assert_eq!(*display_id, Some(ms));
+            }
+            _ => panic!("MilestoneCreated missing"),
+        }
+        // The clear produces MilestoneAssigned { milestone_uuid: None }.
+        assert!(log.iter().any(|e| matches!(
+            e.event,
+            Event::MilestoneAssigned {
+                milestone_uuid: None,
+                ..
+            }
+        )));
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_event_and_file_in_same_commit() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let id = writer
+            .create_issue(&db, "Same commit", None, "medium", None, None)
+            .unwrap();
+        let uuid = writer.load_issue_by_id(id, &db).unwrap().uuid;
+
+        let cache = crosslink_dir.join(".hub-cache");
+        let out = Command::new("git")
+            .current_dir(&cache)
+            .args(["log", "-1", "--name-only", "--format="])
+            .output()
+            .unwrap();
+        let names = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            names.contains(&format!("issues/{uuid}/issue.json")),
+            "issue file must be in the last commit; got:\n{names}"
+        );
+        assert!(
+            names.contains("agents/test-agent/events.log"),
+            "events.log must be in the same commit as the issue file; got:\n{names}"
+        );
+        drop(work_dir);
+    }
+
+    /// Build a fixture with `hub_v3` dual-write enabled.
+    fn setup_dual_write_env() -> (TempDir, TempDir, std::path::PathBuf) {
+        let (work_dir, remote, crosslink_dir) = setup_shared_writer_env();
+        // Enable dual-write in the hook config BEFORE the writer reads it.
+        std::fs::write(
+            crosslink_dir.join("hook-config.json"),
+            r#"{"remote":"origin","layout":"v2","hub_v3.dual_write":true}"#,
+        )
+        .unwrap();
+        (work_dir, remote, crosslink_dir)
+    }
+
+    #[test]
+    fn test_dual_write_all_ops_shadow_matches_v2_log() {
+        let (work_dir, _remote, crosslink_dir) = setup_dual_write_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        // Run one of each emitting mutation type.
+        let ms = writer.create_milestone(&db, "v1", None).unwrap();
+        let a = writer
+            .create_issue(&db, "A", None, "medium", None, None)
+            .unwrap();
+        let b = writer
+            .create_issue(&db, "B", None, "low", None, None)
+            .unwrap();
+        writer
+            .update_issue(
+                &db,
+                a,
+                IssueUpdate {
+                    title: Some("A2"),
+                    scheduled_at: crate::shared_writer::FieldUpdate::Set(chrono::Utc::now()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        writer.add_label(&db, a, "bug").unwrap();
+        writer.remove_label(&db, a, "bug").unwrap();
+        writer.add_comment(&db, a, "c", "note").unwrap();
+        writer.add_blocker(&db, a, b).unwrap();
+        writer.remove_blocker(&db, a, b).unwrap();
+        writer.add_relation(&db, a, b).unwrap();
+        writer.remove_relation(&db, a, b).unwrap();
+        writer.set_milestone_on_issues(&db, ms, &[a]).unwrap();
+        writer.clear_milestone_on_issue(&db, a).unwrap();
+        writer.close_issue(&db, a).unwrap();
+        writer.reopen_issue(&db, a).unwrap();
+        writer.close_milestone(&db, ms).unwrap();
+        writer.delete_milestone(&db, ms).unwrap();
+        writer.delete_issue(&db, b).unwrap();
+
+        let cache = crosslink_dir.join(".hub-cache");
+
+        // v2 log bytes.
+        let v2_bytes =
+            std::fs::read(cache.join("agents").join("test-agent").join("events.log")).unwrap();
+
+        // Shadow ref bytes (strongest parity: byte-equality).
+        let ref_name = crate::hub_v3::agent_ref_name("test-agent").unwrap();
+        let tip = Command::new("git")
+            .current_dir(&cache)
+            .args(["rev-parse", &ref_name])
+            .output()
+            .unwrap();
+        assert!(tip.status.success(), "shadow ref must exist");
+        let sha = String::from_utf8_lossy(&tip.stdout).trim().to_string();
+        let shadow_bytes = Command::new("git")
+            .current_dir(&cache)
+            .args(["cat-file", "blob", &format!("{sha}:events.log")])
+            .output()
+            .unwrap()
+            .stdout;
+
+        assert_eq!(
+            v2_bytes, shadow_bytes,
+            "shadow ref events.log must byte-equal the v2 log under dual-write"
+        );
+
+        // ShadowStats: mirrored == emitted count, no failures.
+        let emitted = read_agent_log(&crosslink_dir).len() as u64;
+        let stats =
+            crate::hub_v3::ShadowStats::read(&crosslink_dir.join("hub-v3-shadow-stats.json"));
+        assert_eq!(
+            stats.mirrored, emitted,
+            "every emitted event must be mirrored"
+        );
+        assert_eq!(stats.mirror_failures, 0, "no mirror failures expected");
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_offline_display_id_revocation_keeps_log_consistent() {
+        // Simulate the LocalOnly path: remove the remote so push fails, create
+        // an issue, then assert the IssueCreated event line's display_id was
+        // revoked to None to match the offline file (display_id: None).
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        // Break the remote so the push fails -> LocalOnly -> rewrite_as_offline.
+        let cache = crosslink_dir.join(".hub-cache");
+        Command::new("git")
+            .current_dir(&cache)
+            .args(["remote", "set-url", "origin", "/nonexistent/repo.git"])
+            .output()
+            .unwrap();
+
+        let id = writer
+            .create_issue(&db, "Offline create", None, "medium", None, None)
+            .unwrap();
+        // Offline issues get a negative local id.
+        assert!(id < 0, "offline create should yield a negative local id");
+
+        // The file's display_id must be None.
+        let log = read_agent_log(&crosslink_dir);
+        let created = log
+            .iter()
+            .find(|e| matches!(e.event, Event::IssueCreated { .. }))
+            .expect("IssueCreated present");
+        match &created.event {
+            Event::IssueCreated { display_id, .. } => {
+                assert_eq!(
+                    *display_id, None,
+                    "event log claim must be revoked to match offline file"
+                );
+            }
+            _ => unreachable!(),
+        }
+        drop(work_dir);
+    }
+
+    /// A claim rewrite mutates the `IssueCreated` payload, so any pre-existing
+    /// signature becomes invalid and must be cleared (re-signed only when a
+    /// key is configured — this fixture has none, so the event must end up
+    /// honestly unsigned). The shadow ref, which already mirrored the original
+    /// claim line, must be rebuilt to byte parity with the rewritten v2 log.
+    #[test]
+    fn test_claim_rewrite_clears_stale_signature_and_rebuilds_shadow() {
+        let (work_dir, _remote, crosslink_dir) = setup_dual_write_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let a = writer
+            .create_issue(&db, "Claim target", None, "medium", None, None)
+            .unwrap();
+        let uuid_a = writer.load_issue_by_id(a, &db).unwrap().uuid;
+
+        // Inject a fake signature onto the IssueCreated line to simulate a
+        // signed event whose payload is about to be rewritten.
+        let cache = crosslink_dir.join(".hub-cache");
+        let log_path = cache.join("agents").join("test-agent").join("events.log");
+        let mut envelopes = crate::events::read_events(&log_path).unwrap();
+        for env in &mut envelopes {
+            if matches!(&env.event, Event::IssueCreated { uuid, .. } if *uuid == uuid_a) {
+                env.signed_by = Some("SHA256:fakefingerprint".to_string());
+                env.signature = Some("FAKESIGNATURE".to_string());
+            }
+        }
+        {
+            use crate::events::EventCodec;
+            let bytes = crate::events::NdjsonCodec.encode_batch(&envelopes).unwrap();
+            crate::utils::atomic_write(&log_path, &bytes).unwrap();
+        }
+
+        // Rewrite the claim.
+        let rewrote = writer.set_issue_created_claim_in_log(uuid_a, None).unwrap();
+        assert!(rewrote, "claim must be rewritten");
+
+        // Signature cleared, claim revoked.
+        let log = crate::events::read_events(&log_path).unwrap();
+        let created = log
+            .iter()
+            .find(|e| matches!(&e.event, Event::IssueCreated { uuid, .. } if *uuid == uuid_a))
+            .expect("IssueCreated present");
+        match &created.event {
+            Event::IssueCreated { display_id, .. } => assert_eq!(*display_id, None),
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            created.signed_by, None,
+            "stale signature fingerprint must be cleared"
+        );
+        assert_eq!(created.signature, None, "stale signature must be cleared");
+
+        // Shadow ref tip must be at byte parity with the rewritten v2 log.
+        let v2_bytes = std::fs::read(&log_path).unwrap();
+        let ref_name = crate::hub_v3::agent_ref_name("test-agent").unwrap();
+        let tip = Command::new("git")
+            .current_dir(&cache)
+            .args(["rev-parse", &ref_name])
+            .output()
+            .unwrap();
+        assert!(tip.status.success(), "shadow ref must exist");
+        let sha = String::from_utf8_lossy(&tip.stdout).trim().to_string();
+        let shadow_bytes = Command::new("git")
+            .current_dir(&cache)
+            .args(["cat-file", "blob", &format!("{sha}:events.log")])
+            .output()
+            .unwrap()
+            .stdout;
+        assert_eq!(
+            v2_bytes, shadow_bytes,
+            "shadow ref must be rebuilt to byte parity after a claim rewrite"
+        );
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_reduction_integration_matches_files() {
+        // After a mixed sequence of real mutations, run compaction and assert
+        // the materialized CheckpointState matches the files.
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let ms = writer.create_milestone(&db, "M1", None).unwrap();
+        let a = writer
+            .create_issue(&db, "Alpha", Some("desc"), "high", None, None)
+            .unwrap();
+        let b = writer
+            .create_issue(&db, "Beta", None, "low", None, None)
+            .unwrap();
+        writer.add_label(&db, a, "bug").unwrap();
+        writer.add_comment(&db, a, "a comment", "note").unwrap();
+        writer.add_blocker(&db, a, b).unwrap();
+        writer.set_milestone_on_issues(&db, ms, &[a]).unwrap();
+        writer.close_issue(&db, b).unwrap();
+
+        let cache = crosslink_dir.join(".hub-cache");
+        let uuid_a = writer.load_issue_by_id(a, &db).unwrap().uuid;
+        let uuid_b = writer.load_issue_by_id(b, &db).unwrap().uuid;
+        let ms_uuid = writer.load_milestone_by_id(ms).unwrap().uuid;
+
+        // Full re-compaction: drop the watermark so the reducer replays the
+        // whole log into a fresh state.
+        let wm = cache.join("checkpoint/watermark.json");
+        if wm.exists() {
+            std::fs::remove_file(&wm).unwrap();
+        }
+        let lock = hub_lock_for_test(&cache);
+        crate::compaction::compact(&cache, "test-agent", true, &lock)
+            .unwrap()
+            .unwrap();
+        drop(lock);
+
+        let state = crate::checkpoint::read_checkpoint(&cache).unwrap();
+
+        // Issues present with correct fields.
+        let ca = state.issues.get(&uuid_a).expect("issue a in state");
+        assert_eq!(ca.title, "Alpha");
+        assert_eq!(ca.description.as_deref(), Some("desc"));
+        assert_eq!(ca.status, IssueStatus::Open);
+        assert!(ca.labels.contains("bug"));
+        assert!(ca.blockers.contains(&uuid_b));
+        assert_eq!(ca.milestone_uuid, Some(ms_uuid));
+        assert_eq!(ca.comments.len(), 1);
+        assert!(ca.comments.values().any(|c| c.content == "a comment"));
+
+        let cb = state.issues.get(&uuid_b).expect("issue b in state");
+        assert_eq!(cb.status, IssueStatus::Closed);
+        assert!(cb.closed_at.is_some());
+
+        // Milestone present.
+        assert!(state.milestones.contains_key(&ms_uuid));
         drop(work_dir);
     }
 }

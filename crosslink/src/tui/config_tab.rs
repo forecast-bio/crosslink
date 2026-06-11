@@ -1497,6 +1497,9 @@ mod tests {
             labels: vec![],
             parent_uuid: None,
             created_by: "agent".to_string(),
+            display_id: None,
+            scheduled_at: None,
+            due_at: None,
         })
         .starts_with("IssueCreated:"));
     }
