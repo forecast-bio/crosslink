@@ -1038,12 +1038,17 @@ fn check_hubv3_parity(crosslink_dir: &Path) -> Result<()> {
                 .is_some_and(|wm| &crate::events::OrderingKey::from_envelope(e) <= wm)
         };
 
-        // Anchor: first shadow event that still exists in the v2 log.
-        let anchor = shadow_events
-            .iter()
-            .position(|se| v2_events.iter().any(|ve| ve.agent_seq == se.agent_seq));
+        // Anchor: first shadow event that still exists in the v2 log, paired
+        // with its position in the v2 log (found in one pass so no second
+        // lookup is needed).
+        let anchor = shadow_events.iter().enumerate().find_map(|(si, se)| {
+            v2_events
+                .iter()
+                .position(|ve| ve.agent_seq == se.agent_seq)
+                .map(|vi| (si, vi))
+        });
 
-        let Some(shadow_start) = anchor else {
+        let Some((shadow_start, anchor_idx)) = anchor else {
             // No shadow event exists in v2 at all — legitimate only when every
             // shadow event was pruned (covered by the watermark).
             if shadow_events.iter().all(covered) {
@@ -1076,11 +1081,6 @@ fn check_hubv3_parity(crosslink_dir: &Path) -> Result<()> {
             continue;
         }
         let pruned = shadow_start;
-
-        let anchor_idx = v2_events
-            .iter()
-            .position(|e| e.agent_seq == shadow_events[shadow_start].agent_seq)
-            .expect("anchor position exists by construction");
 
         // Byte-identical lockstep from the anchor onward.
         let mut local_fail = false;

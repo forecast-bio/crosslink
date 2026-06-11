@@ -514,7 +514,7 @@ fn git_hash_object(repo_dir: &Path, data: &[u8]) -> Result<String> {
     child
         .stdin
         .take()
-        .expect("stdin was piped")
+        .ok_or_else(|| anyhow::anyhow!("git hash-object stdin pipe unavailable"))?
         .write_all(data)
         .context("failed to write to git hash-object stdin")?;
 
@@ -554,7 +554,7 @@ fn git_mktree(repo_dir: &Path, blob_sha: &str) -> Result<String> {
     child
         .stdin
         .take()
-        .expect("stdin was piped")
+        .ok_or_else(|| anyhow::anyhow!("git mktree stdin pipe unavailable"))?
         .write_all(tree_line.as_bytes())
         .context("failed to write to git mktree stdin")?;
 
