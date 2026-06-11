@@ -1,0 +1,10 @@
+{
+  "uuid": "e0919892-0f4f-41de-b85b-3e50ab4f3557",
+  "issue_uuid": "cd21c374-bdd9-4c8e-b3e1-d59bfedc6d4b",
+  "author": "dashboard-bootstrap",
+  "content": "Plan: (1) utils::atomic_write — unique temp names via tempfile::NamedTempFile (already a dependency) + fsync file before rename + fsync parent dir on Unix; (2) sync/cache.rs acquire_hub_lock — stop force-removing the lock of a LIVE holder after 30s timeout, bail with actionable error instead (keep dead-PID stale removal); (3) unify locking so compaction's worktree materialization cannot race write_commit_push — compaction must hold the hub write lock, with care for the emit_compact_push path that already holds it (avoid self-deadlock); (4) shared_writer/mutations.rs rewrite_as_offline — replace std::fs::write with atomic_write (same bug class as GH#604). Plus .design/hub-v3-per-agent-refs.md design doc for the event-sourcing/per-agent-refs migration discussed in session. Findings sourced from hub corruption audit: non-unique .basename.tmp collision (utils.rs:131), live-holder force-steal (cache.rs:88-96), disjoint compaction.lock vs .hub-write-lock domains.",
+  "created_at": "2026-06-11T17:55:58.358562548Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAK5KqWGDuXbzuFDO3q4sbM5HOgl5dqWm5ZcEJVutEz2goxJBQH9930/KphKP/aa3qBZzCQEHcJDsPjsAXQQvDCQ=="
+}
