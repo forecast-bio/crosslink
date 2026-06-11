@@ -1,0 +1,10 @@
+{
+  "uuid": "6de56294-b0f6-4244-b9c5-6a977f9cda72",
+  "issue_uuid": "cd21c374-bdd9-4c8e-b3e1-d59bfedc6d4b",
+  "author": "dashboard-bootstrap",
+  "content": "Design doc for hub v3 written to .design/hub-v3-per-agent-refs.md: per-agent refs (refs/crosslink/agents/<id>, always-fast-forward pushes), pure event sourcing (counters.json and locks.json eliminated), plumbing-based writes (no shared worktree), checkpoint as force-with-lease cache ref, single unified local lock, 4-PR migration sequence with full-state-diff gate. Lock stampede semantics preserved via first-claim-wins + claim-confirm; enforcement model documented as hook-gate + signed attribution + merge gate.",
+  "created_at": "2026-06-11T17:59:53.443526811Z",
+  "kind": "decision",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQ+esxT9nqd2MlxDk+IGHaJUXDlrvkk13OUzbFAVCO6UNmNg0R+G0sPsle1VJnY0eL/nz5u86QLVL62sN9ETZCw=="
+}
