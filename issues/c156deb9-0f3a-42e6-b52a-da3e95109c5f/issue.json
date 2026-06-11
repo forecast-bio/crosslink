@@ -1,0 +1,11 @@
+{
+  "uuid": "c156deb9-0f3a-42e6-b52a-da3e95109c5f",
+  "display_id": 752,
+  "title": "hub-v3 PR2: plumbing write path to per-agent refs behind hub_v3 flag",
+  "description": "Second PR of the hub v3 migration (.design/hub-v3-per-agent-refs.md, REQ-1, REQ-2, REQ-8). Implement event writes via git plumbing (hash-object/mktree/commit-tree/update-ref) to refs/crosslink/agents/<agent-id> with fast-forward-only push semantics, gated behind a hub_v3 config flag. Single unified local lock per REQ-8. Dual-write soak in the crosslink repo itself. Acceptance: AC-1 (100-iteration two-agent concurrency, zero conflicts), AC-2 (crash-injection harness over the plumbing write path).",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "dashboard-bootstrap",
+  "created_at": "2026-06-11T18:48:37.945767594Z",
+  "updated_at": "2026-06-11T18:48:37.945767594Z"
+}
