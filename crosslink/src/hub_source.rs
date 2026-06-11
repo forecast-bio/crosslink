@@ -263,18 +263,28 @@ impl HubSource for ObjectStoreSource {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             // If the agents/ directory simply doesn't exist in the tree, git
-            // exits non-zero with "Not a tree object" or "does not exist".
-            // Distinguish this from real git errors (e.g. corrupt repo).
+            // exits non-zero with "Not a tree object", "does not exist", or
+            // "Not a valid object name <sha>:agents". The last form is
+            // ambiguous: git emits the SAME message when the commit object
+            // itself is missing (pruned/corrupt object store). Disambiguate by
+            // probing the pinned commit with `git cat-file -e` — if it still
+            // exists, the path is genuinely absent (empty hub); if not, error.
             if stderr.contains("Not a tree object")
                 || stderr.contains("does not exist")
                 || stderr.contains("not found")
                 || stderr.contains("invalid object")
-                // git reports a path absent from an otherwise-valid commit as
-                // "Not a valid object name <sha>:agents". Match the full tree
-                // path so a corrupt/missing commit object still errors.
                 || stderr.contains(&format!("Not a valid object name {tree_path}"))
             {
-                // No agents/ directory in this ref — empty hub.
+                if !commit_object_exists(&self.repo_path, &self.commit_sha)? {
+                    anyhow::bail!(
+                        "pinned commit {} for ref '{}' no longer exists in the \
+                         repository object store (pruned or corrupt); refusing to \
+                         treat it as an empty hub",
+                        self.commit_sha,
+                        self.ref_name
+                    );
+                }
+                // Commit exists, path absent — no agents/ directory in this ref.
                 return Ok(Vec::new());
             }
             anyhow::bail!(
@@ -300,13 +310,14 @@ impl HubSource for ObjectStoreSource {
         agent_id: &str,
         after: Option<&OrderingKey>,
     ) -> Result<Vec<EventEnvelope>> {
-        let blob_path = format!("{}:agents/{}/events.log", self.commit_sha, agent_id);
-        let bytes = git_cat_file_blob(&self.repo_path, &blob_path).with_context(|| {
-            format!(
-                "failed to read events.log for agent '{}' from ref '{}' ({})",
-                agent_id, self.ref_name, self.commit_sha
-            )
-        })?;
+        let rel_path = format!("agents/{agent_id}/events.log");
+        let bytes =
+            git_cat_file_blob(&self.repo_path, &self.commit_sha, &rel_path).with_context(|| {
+                format!(
+                    "failed to read events.log for agent '{}' from ref '{}' ({})",
+                    agent_id, self.ref_name, self.commit_sha
+                )
+            })?;
 
         let Some(bytes) = bytes else {
             // Missing blob → agent directory exists in ls-tree output but has
@@ -332,8 +343,8 @@ impl HubSource for ObjectStoreSource {
     }
 
     fn read_checkpoint(&self) -> Result<CheckpointState> {
-        let blob_path = format!("{}:checkpoint/state.json", self.commit_sha);
-        let bytes = git_cat_file_blob(&self.repo_path, &blob_path).with_context(|| {
+        let bytes = git_cat_file_blob(&self.repo_path, &self.commit_sha, "checkpoint/state.json")
+            .with_context(|| {
             format!(
                 "failed to read checkpoint/state.json from ref '{}' ({})",
                 self.ref_name, self.commit_sha
@@ -354,8 +365,12 @@ impl HubSource for ObjectStoreSource {
     }
 
     fn read_legacy_watermark(&self) -> Result<Option<OrderingKey>> {
-        let blob_path = format!("{}:checkpoint/watermark.json", self.commit_sha);
-        let bytes = git_cat_file_blob(&self.repo_path, &blob_path).with_context(|| {
+        let bytes = git_cat_file_blob(
+            &self.repo_path,
+            &self.commit_sha,
+            "checkpoint/watermark.json",
+        )
+        .with_context(|| {
             format!(
                 "failed to read checkpoint/watermark.json from ref '{}' ({})",
                 self.ref_name, self.commit_sha
@@ -407,17 +422,48 @@ fn git_rev_parse(repo_path: &Path, ref_name: &str) -> Result<String> {
     Ok(sha)
 }
 
-/// Read a blob from the git object store by `<sha>:<path>` specifier.
+/// Check whether a commit object still exists in the repository object store.
 ///
-/// Returns `None` when the blob does not exist (missing file in the tree),
-/// and `Some(bytes)` when it does. Real git errors (corrupt object store,
-/// invalid SHA) propagate as `Err`.
+/// Uses `git cat-file -e <sha>^{commit}`, which exits zero iff the object
+/// exists and is a commit. Used to disambiguate git's "Not a valid object
+/// name <sha>:<path>" message, which is emitted BOTH when the path is absent
+/// from a valid commit and when the commit object itself is missing
+/// (pruned or corrupt object store).
+///
+/// # Errors
+///
+/// Returns an error only if git itself cannot be spawned.
 // PR2+ consumer API: see the dead_code note on ObjectStoreSource.
 #[allow(dead_code)]
-fn git_cat_file_blob(repo_path: &Path, blob_spec: &str) -> Result<Option<Vec<u8>>> {
+fn commit_object_exists(repo_path: &Path, sha: &str) -> Result<bool> {
+    let spec = format!("{sha}^{{commit}}");
     let output = Command::new("git")
         .current_dir(repo_path)
-        .args(["cat-file", "blob", blob_spec])
+        .args(["cat-file", "-e", &spec])
+        .output()
+        .with_context(|| format!("failed to run git cat-file -e for '{sha}'"))?;
+    Ok(output.status.success())
+}
+
+/// Read a blob at `<commit_sha>:<rel_path>` from the git object store.
+///
+/// Returns `None` when the path does not exist in the committed tree, and
+/// `Some(bytes)` when it does. A missing or corrupt COMMIT object is a hard
+/// error, not `None`: git reports both "path absent" and "commit missing" with
+/// the same "Not a valid object name" message, so the missing-path branch
+/// probes the commit with [`commit_object_exists`] before concluding the file
+/// is simply absent.
+// PR2+ consumer API: see the dead_code note on ObjectStoreSource.
+#[allow(dead_code)]
+fn git_cat_file_blob(
+    repo_path: &Path,
+    commit_sha: &str,
+    rel_path: &str,
+) -> Result<Option<Vec<u8>>> {
+    let blob_spec = format!("{commit_sha}:{rel_path}");
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["cat-file", "blob", &blob_spec])
         .output()
         .with_context(|| format!("failed to run git cat-file for '{blob_spec}'"))?;
 
@@ -429,6 +475,13 @@ fn git_cat_file_blob(repo_path: &Path, blob_spec: &str) -> Result<Option<Vec<u8>
             || stderr.contains("not found")
             || stderr.contains("could not get object info")
         {
+            if !commit_object_exists(repo_path, commit_sha)? {
+                anyhow::bail!(
+                    "pinned commit {commit_sha} no longer exists in the repository \
+                     object store (pruned or corrupt); refusing to treat \
+                     '{rel_path}' as missing"
+                );
+            }
             return Ok(None);
         }
         anyhow::bail!("git cat-file failed for '{}': {}", blob_spec, stderr.trim());
@@ -447,8 +500,7 @@ fn extract_allowed_signers(
     repo_path: &Path,
     commit_sha: &str,
 ) -> Result<(Option<tempfile::TempDir>, Option<PathBuf>)> {
-    let blob_spec = format!("{commit_sha}:trust/allowed_signers");
-    let bytes = git_cat_file_blob(repo_path, &blob_spec)
+    let bytes = git_cat_file_blob(repo_path, commit_sha, "trust/allowed_signers")
         .with_context(|| format!("failed to read trust/allowed_signers from {commit_sha}"))?;
 
     let Some(bytes) = bytes else {
@@ -1055,5 +1107,59 @@ mod tests {
             "source should still see only the first commit's state"
         );
         assert!(outcome.state.issues.contains_key(&uuid1));
+    }
+
+    /// A pinned commit whose object vanishes from the object store (pruned or
+    /// corrupt repository) must be a hard error, NOT an empty hub. Git emits
+    /// the same "Not a valid object name <sha>:<path>" message for both
+    /// "path absent from a valid commit" and "commit object missing", so the
+    /// missing-path branches probe the commit with `git cat-file -e` before
+    /// concluding the path is simply absent.
+    #[test]
+    fn object_store_vanished_commit_errors_instead_of_empty() {
+        let hub_tmp = tempfile::tempdir().unwrap();
+        let hub_dir = hub_tmp.path();
+        setup_hub_layout(hub_dir);
+
+        let uuid1 = Uuid::new_v4();
+        let mut e1 = make_issue_created("agent-1", 1, uuid1);
+        e1.timestamp = Utc::now() - Duration::seconds(10);
+        write_agent_events(hub_dir, "agent-1", &[e1]);
+
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo_path = repo_tmp.path();
+        let ref_name = "refs/crosslink/hub";
+        git_commit_hub_layout(repo_path, hub_dir, ref_name);
+
+        let source = ObjectStoreSource::new(repo_path, ref_name).unwrap();
+
+        // Destroy the object store: every object the pinned commit references
+        // disappears, simulating an aggressive prune or corruption.
+        std::fs::remove_dir_all(repo_path.join(".git").join("objects")).unwrap();
+        std::fs::create_dir_all(repo_path.join(".git").join("objects")).unwrap();
+
+        // agent_ids must hard-error naming the pinned commit, not return empty.
+        let err = source
+            .agent_ids()
+            .expect_err("vanished commit must not read as an empty hub");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains(source.commit_sha()),
+            "error should name the pinned commit, got: {msg}"
+        );
+        assert!(
+            msg.contains("no longer exists"),
+            "error should describe the vanished object store, got: {msg}"
+        );
+
+        // Blob reads must hard-error too, not report a missing file.
+        let err = source
+            .read_checkpoint()
+            .expect_err("vanished commit must not read as a default checkpoint");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("no longer exists"),
+            "checkpoint read should describe the vanished object store, got: {msg}"
+        );
     }
 }
