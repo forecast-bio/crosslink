@@ -173,6 +173,14 @@ pub static REGISTRY: &[ConfigKey] = &[
         group: ConfigGroup::Infrastructure,
         hot_swappable: false,
     },
+    // --- Hub v3 config keys ---
+    ConfigKey {
+        key: "hub_v3.dual_write",
+        config_type: ConfigType::Bool,
+        description: "Mirror every hub event to the per-agent ref refs/crosslink/agents/<id> (hub v3 shadow mode, PR2 soak)",
+        group: ConfigGroup::Infrastructure,
+        hot_swappable: true,
+    },
     // --- Sentinel config keys ---
     ConfigKey {
         key: "sentinel.enabled",

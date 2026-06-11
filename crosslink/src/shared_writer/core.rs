@@ -61,6 +61,11 @@ pub struct SharedWriter {
     pub(super) cache_dir: PathBuf,
     /// Per-session event sequence counter, monotonically increasing.
     pub(super) event_seq: Cell<u64>,
+    /// Whether hub v3 dual-write shadow mode is enabled for this session.
+    ///
+    /// Read once from `.crosslink/hook-config.json` in the constructor so
+    /// the per-event path does no file I/O for the flag check.
+    pub(super) hub_v3_dual_write: bool,
 }
 
 impl SharedWriter {
@@ -115,11 +120,16 @@ impl SharedWriter {
         // Initialize event sequence counter from existing log
         let event_seq = Cell::new(Self::read_max_event_seq(&cache_dir, &agent.agent_id));
 
+        // Read the dual-write flag once at construction time; per-event path does
+        // no file I/O for the flag check.
+        let hub_v3_dual_write = crate::hub_v3::dual_write_enabled(crosslink_dir);
+
         Ok(Some(Self {
             sync,
             agent,
             cache_dir,
             event_seq,
+            hub_v3_dual_write,
         }))
     }
 
@@ -291,6 +301,46 @@ impl SharedWriter {
         let log_path = self.event_log_path();
         crate::events::append_event(&log_path, &envelope)?;
 
+        // Hub v3 shadow mirror: append the same envelope to the per-agent ref.
+        //
+        // Failure policy: best-effort. Any error is logged at WARN and the stats
+        // counter incremented, but the caller's operation continues unaffected.
+        //
+        // Repo dir: `self.cache_dir` is a linked git worktree (`git worktree add`
+        // in sync/cache.rs:init_cache). Linked worktrees share the main repository's
+        // object store and ref namespace, so plumbing commands run with cache_dir as
+        // cwd update refs visible repo-globally. Confirmed in sync/cache.rs at the
+        // `git worktree add` call sites.
+        //
+        // Lock: the hub write lock acquired at the top of this function is still
+        // held here, so the stats read-modify-write is safe without additional
+        // synchronisation.
+        if self.hub_v3_dual_write {
+            let stats_path = self.crosslink_dir().join("hub-v3-shadow-stats.json");
+            let mut stats = crate::hub_v3::ShadowStats::read(&stats_path);
+
+            match crate::hub_v3::append_event_to_ref(
+                &self.cache_dir,
+                &self.agent.agent_id,
+                &envelope,
+            ) {
+                Ok(_) => {
+                    stats.mirrored += 1;
+                }
+                Err(e) => {
+                    let msg = format!("hub v3 shadow mirror failed: {e}");
+                    tracing::warn!("{}", msg);
+                    stats.mirror_failures += 1;
+                    stats.last_failure = Some(msg);
+                    stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+                }
+            }
+
+            if let Err(e) = stats.write(&stats_path) {
+                tracing::warn!("hub v3 shadow: failed to persist stats: {e}");
+            }
+        }
+
         for attempt in 0..MAX_RETRIES {
             // Run compaction (force=true since we own the write path).
             // Pass &lock_guard as proof we hold the hub write lock (#750).
@@ -331,7 +381,77 @@ impl SharedWriter {
             let remote = self.sync.remote();
             let push_result = self.git_in_cache(&["push", remote, crate::sync::HUB_BRANCH]);
             match push_result {
-                Ok(_) => return Ok(PushOutcome::Pushed),
+                Ok(_) => {
+                    // Hub v3 shadow push: mirror the per-agent ref to the remote.
+                    //
+                    // Best-effort: any non-Pushed outcome or error is recorded in
+                    // the stats file but does not affect the return value.
+                    // NonFastForward on our own ref is impossible under correct
+                    // operation — if it occurs it indicates identity collision or
+                    // ref tampering (design REQ-1), so it is logged at WARN with
+                    // an explicit diagnostic.
+                    if self.hub_v3_dual_write {
+                        let stats_path = self.crosslink_dir().join("hub-v3-shadow-stats.json");
+                        let mut stats = crate::hub_v3::ShadowStats::read(&stats_path);
+
+                        match crate::hub_v3::push_agent_ref(
+                            &self.cache_dir,
+                            remote,
+                            &self.agent.agent_id,
+                        ) {
+                            Ok(crate::hub_v3::PushOutcome::Pushed) => {
+                                stats.pushed += 1;
+                            }
+                            Ok(crate::hub_v3::PushOutcome::NonFastForward) => {
+                                let msg = format!(
+                                    "hub v3 shadow push for agent '{}' was rejected as \
+                                     non-fast-forward — this indicates identity collision or \
+                                     ref tampering (REQ-1); per-agent ref has diverged",
+                                    self.agent.agent_id
+                                );
+                                tracing::warn!("{}", msg);
+                                stats.push_failures += 1;
+                                stats.last_failure = Some(msg);
+                                stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                            Ok(crate::hub_v3::PushOutcome::NoRemote) => {
+                                let msg = format!(
+                                    "hub v3 shadow push for agent '{}': remote '{}' not found",
+                                    self.agent.agent_id, remote
+                                );
+                                tracing::warn!("{}", msg);
+                                stats.push_failures += 1;
+                                stats.last_failure = Some(msg);
+                                stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                            Ok(crate::hub_v3::PushOutcome::Failed(detail)) => {
+                                let msg = format!(
+                                    "hub v3 shadow push for agent '{}' failed: {}",
+                                    self.agent.agent_id, detail
+                                );
+                                tracing::warn!("{}", msg);
+                                stats.push_failures += 1;
+                                stats.last_failure = Some(msg);
+                                stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                            Err(e) => {
+                                let msg = format!(
+                                    "hub v3 shadow push for agent '{}' error: {}",
+                                    self.agent.agent_id, e
+                                );
+                                tracing::warn!("{}", msg);
+                                stats.push_failures += 1;
+                                stats.last_failure = Some(msg);
+                                stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                        }
+
+                        if let Err(e) = stats.write(&stats_path) {
+                            tracing::warn!("hub v3 shadow: failed to persist push stats: {e}");
+                        }
+                    }
+                    return Ok(PushOutcome::Pushed);
+                }
                 Err(e) => {
                     let err_str = e.to_string();
                     match crate::sync::classify_push_failure(&err_str, remote) {

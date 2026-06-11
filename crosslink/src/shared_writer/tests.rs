@@ -347,6 +347,170 @@ fn test_v2_intervention_comment_file_construction() {
     );
 }
 
+// ── Hub v3 dual-write shadow integration tests ───────────────────────────────
+//
+// These tests exercise the dual-write shadow path (hub_v3::append_event_to_ref
+// + ShadowStats) directly, without requiring a full SharedWriter/SyncManager
+// fixture (which needs a live git worktree). The production code in
+// emit_compact_push calls the same helpers; the ShadowStats contract and the
+// ref write correctness are the properties under test.
+
+fn git_init_for_dw(path: &std::path::Path) {
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .current_dir(path)
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("git {args:?} failed: {e}"));
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    run(&["init"]);
+    run(&["config", "user.email", "test@crosslink.test"]);
+    run(&["config", "user.name", "Test"]);
+}
+
+fn make_dw_envelope(agent_id: &str, seq: u64) -> crate::events::EventEnvelope {
+    crate::events::EventEnvelope {
+        agent_id: agent_id.to_string(),
+        agent_seq: seq,
+        timestamp: chrono::Utc::now(),
+        event: crate::events::Event::IssueCreated {
+            uuid: uuid::Uuid::new_v4(),
+            title: format!("DW Issue seq {seq}"),
+            description: None,
+            priority: "medium".to_string(),
+            labels: vec![],
+            parent_uuid: None,
+            created_by: agent_id.to_string(),
+        },
+        signed_by: None,
+        signature: None,
+    }
+}
+
+/// Dual-write shadow path: v2 events.log and per-agent ref events.log must be
+/// byte-identical for the same envelopes.
+#[test]
+fn dual_write_shadow_ref_matches_v2_log() {
+    let dir = tempdir().unwrap();
+    git_init_for_dw(dir.path());
+
+    let agent_id = "dw-test-agent";
+    let envelope = make_dw_envelope(agent_id, 1);
+
+    // Write to v2 events.log (what emit_compact_push does before the shadow).
+    let v2_log_path = dir.path().join("agents").join(agent_id).join("events.log");
+    std::fs::create_dir_all(v2_log_path.parent().unwrap()).unwrap();
+    crate::events::append_event(&v2_log_path, &envelope).unwrap();
+
+    // Shadow write: mirror to the per-agent ref.
+    crate::hub_v3::append_event_to_ref(dir.path(), agent_id, &envelope).unwrap();
+
+    // Read v2 bytes.
+    let v2_bytes = std::fs::read(&v2_log_path).unwrap();
+
+    // Read shadow ref bytes via git cat-file.
+    let ref_name = crate::hub_v3::agent_ref_name(agent_id).unwrap();
+    let tip = std::process::Command::new("git")
+        .current_dir(dir.path())
+        .args(["rev-parse", &ref_name])
+        .output()
+        .unwrap();
+    assert!(tip.status.success());
+    let sha = String::from_utf8_lossy(&tip.stdout).trim().to_string();
+
+    let shadow_bytes = std::process::Command::new("git")
+        .current_dir(dir.path())
+        .args(["cat-file", "blob", &format!("{sha}:events.log")])
+        .output()
+        .unwrap()
+        .stdout;
+
+    assert_eq!(
+        v2_bytes, shadow_bytes,
+        "v2 events.log and shadow ref events.log must be byte-identical"
+    );
+}
+
+/// `ShadowStats` mirrored counter increments correctly and `mirror_failures` stays 0
+/// when the write succeeds.
+#[test]
+fn shadow_stats_mirrored_increments_on_success() {
+    let dir = tempdir().unwrap();
+    git_init_for_dw(dir.path());
+
+    let stats_path = dir.path().join("hub-v3-shadow-stats.json");
+    let agent_id = "stats-agent";
+    let envelope = make_dw_envelope(agent_id, 1);
+
+    // Simulate what emit_compact_push does.
+    let mut stats = crate::hub_v3::ShadowStats::read(&stats_path);
+    match crate::hub_v3::append_event_to_ref(dir.path(), agent_id, &envelope) {
+        Ok(_) => stats.mirrored += 1,
+        Err(e) => {
+            stats.mirror_failures += 1;
+            stats.last_failure = Some(e.to_string());
+        }
+    }
+    stats.write(&stats_path).unwrap();
+
+    let reloaded = crate::hub_v3::ShadowStats::read(&stats_path);
+    assert!(reloaded.mirrored >= 1, "mirrored must be >= 1");
+    assert_eq!(
+        reloaded.mirror_failures, 0,
+        "mirror_failures must be 0 on success"
+    );
+}
+
+/// Shadow failure path: a bad repo dir causes `append_event_to_ref` to fail, but
+/// the stats counter increments and the caller's operation can continue (the
+/// caller just records the failure in stats).
+#[test]
+fn shadow_failure_path_does_not_prevent_caller_operation() {
+    let dir = tempdir().unwrap();
+    // Deliberately do NOT git-init, so git plumbing will fail.
+    let non_repo = dir.path().join("not-a-repo");
+    std::fs::create_dir_all(&non_repo).unwrap();
+
+    let stats_path = dir.path().join("hub-v3-shadow-stats.json");
+    let agent_id = "fail-agent";
+    let envelope = make_dw_envelope(agent_id, 1);
+
+    let mut stats = crate::hub_v3::ShadowStats::read(&stats_path);
+    let append_result = crate::hub_v3::append_event_to_ref(&non_repo, agent_id, &envelope);
+
+    // The shadow write fails (not a git repo).
+    assert!(append_result.is_err(), "shadow write to non-repo must fail");
+
+    // Record the failure in stats — but do NOT propagate the error.
+    stats.mirror_failures += 1;
+    let err_msg = append_result
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    stats.last_failure = Some(err_msg);
+    stats.last_failure_at = Some(chrono::Utc::now().to_rfc3339());
+    stats.write(&stats_path).unwrap();
+
+    // The "caller operation" (represented by reaching this assert) succeeded.
+    let reloaded = crate::hub_v3::ShadowStats::read(&stats_path);
+    assert!(
+        reloaded.mirror_failures >= 1,
+        "mirror_failures must record the error"
+    );
+    assert_eq!(
+        reloaded.mirrored, 0,
+        "mirrored must not have been incremented"
+    );
+    // Reaching this point without unwinding proves the caller operation continued
+    // despite the shadow failure.
+}
+
 #[test]
 fn test_lock_confirm_timeout_constant() {
     assert_eq!(LOCK_CONFIRM_TIMEOUT_SECS, 30);

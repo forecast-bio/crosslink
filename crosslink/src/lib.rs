@@ -13,6 +13,7 @@ pub mod events;
 pub mod external;
 pub mod findings;
 pub mod hub_source;
+pub mod hub_v3;
 pub mod hydration;
 pub mod identity;
 pub mod issue_file;
