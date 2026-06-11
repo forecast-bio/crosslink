@@ -3,6 +3,13 @@
 //! Reads append-only event logs from all agents, applies deterministic
 //! reduction rules, and materializes the result as checkpoint state plus
 //! per-entity JSON files (issues, locks).
+//!
+//! # Hub v3 migration — PR1
+//!
+//! The reduction read path is abstracted behind [`HubSource`] so that the
+//! reducer ([`reduce`]) is I/O-agnostic. [`compact`] uses [`WorktreeSource`]
+//! (current behaviour, unchanged); PR2 will use [`ObjectStoreSource`].
+//! See `.design/hub-v3-per-agent-refs.md` REQ-3.
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -13,10 +20,11 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::checkpoint::{
-    read_checkpoint, read_watermark, write_checkpoint, CheckpointState, CompactIssue, LockEntry,
-    SkewWarning, UnsignedEventWarning,
+    read_watermark, write_checkpoint, CheckpointState, CompactIssue, LockEntry, SkewWarning,
+    UnsignedEventWarning,
 };
 use crate::events::{Event, EventEnvelope, OrderingKey};
+use crate::hub_source::{HubSource, WorktreeSource};
 use crate::issue_file::{IssueFile, LockFileV2};
 
 /// Compaction lease duration in seconds.
@@ -152,6 +160,143 @@ pub struct CompactionResult {
     pub git_skew_violations: usize,
 }
 
+/// Output of the pure reduction step ([`reduce`]).
+///
+/// Contains the materialized checkpoint state and the sets of entity IDs that
+/// changed during this reduction pass. `compact()` uses these to drive the
+/// write-side (file materialization, git skew detection, checkpoint write).
+///
+/// `events_processed == 0` with a non-default `state` signals the no-new-events
+/// early-return case: the caller (compact) must still run git skew detection and
+/// write the checkpoint.
+#[derive(Debug)]
+pub struct ReductionOutcome {
+    /// Materialized checkpoint state after applying all events.
+    pub state: CheckpointState,
+    /// Issues whose state changed during this reduction pass.
+    pub changed_issues: HashSet<Uuid>,
+    /// Lock display-IDs whose state changed during this reduction pass.
+    pub changed_locks: HashSet<i64>,
+    /// Number of events that were collected and reduced (0 = no new events).
+    pub events_processed: usize,
+}
+
+/// Pure reduction: collect events from `source`, apply deterministic reduction
+/// rules, and return the resulting checkpoint state and change sets.
+///
+/// This function is I/O-agnostic over the read path. `compact()` passes a
+/// [`WorktreeSource`]; PR2 will pass an [`ObjectStoreSource`] for the
+/// write-free path. The write side (materialize, git skew, checkpoint write)
+/// remains in `compact()`.
+///
+/// # Semantics preserved exactly from the pre-abstraction `compact()`:
+///
+/// 1. Checkpoint is read from `source.read_checkpoint()`.
+/// 2. Watermark: embedded in checkpoint preferred; legacy fallback via
+///    `source.read_legacy_watermark()`; migrated into state (not written yet).
+/// 3. Events collected per agent via `source.agent_ids()` +
+///    `source.read_events(id, after_watermark)`.
+/// 4. If no events AND watermark present → `events_processed == 0`, state
+///    returned as-is (caller runs git skew + writes checkpoint).
+/// 5. If no watermark → full reset to `CheckpointState::default()`, warnings
+///    cleared.
+/// 6. `sort_by_cached_key(OrderingKey::from_envelope)` for deterministic order.
+/// 7. `detect_clock_skew` + `check_unsigned` + `apply` per event.
+///    `check_unsigned` receives the `allowed_signers` path resolved once before
+///    the loop, not per event.
+/// 8. Watermark updated to the last event's `OrderingKey`.
+///
+/// # Errors
+///
+/// Returns an error if `source` I/O fails.
+///
+/// # PR1 of hub v3 — see `.design/hub-v3-per-agent-refs.md` REQ-3
+pub fn reduce(source: &dyn HubSource) -> Result<ReductionOutcome> {
+    let mut state = source.read_checkpoint()?;
+
+    // Watermark resolution: prefer embedded; fall back to legacy file.
+    let watermark = match state.watermark.clone() {
+        Some(wm) => Some(wm),
+        None => source.read_legacy_watermark()?,
+    };
+
+    // Collect events from all agents.
+    let mut all_events = Vec::new();
+    for agent_id in source.agent_ids()? {
+        let events = source.read_events(&agent_id, watermark.as_ref())?;
+        all_events.extend(events);
+    }
+
+    // Migrate legacy watermark into embedded state (no disk write yet — compact()
+    // writes the checkpoint at the end with the new watermark embedded, #332).
+    if state.watermark.is_none() {
+        if let Some(ref wm) = watermark {
+            state.watermark = Some(wm.clone());
+        }
+    }
+
+    // No new events + existing watermark: signal the no-op path to compact().
+    if all_events.is_empty() && watermark.is_some() {
+        return Ok(ReductionOutcome {
+            state,
+            changed_issues: HashSet::new(),
+            changed_locks: HashSet::new(),
+            events_processed: 0,
+        });
+    }
+
+    // No watermark at all → full compaction: reset state and clear warnings.
+    if watermark.is_none() {
+        state = CheckpointState::default();
+    }
+
+    // Sort by ordering key for deterministic reduction (#340).
+    all_events.sort_by_cached_key(OrderingKey::from_envelope);
+
+    let events_processed = all_events.len();
+    let mut changed_issues: HashSet<Uuid> = HashSet::new();
+    let mut changed_locks: HashSet<i64> = HashSet::new();
+
+    // For full compaction (no watermark), clear warnings; for incremental,
+    // keep existing warnings and accumulate new ones (#339).
+    if watermark.is_none() {
+        state.skew_warnings.clear();
+        state.unsigned_event_warnings.clear();
+    }
+
+    // Resolve allowed_signers path once before the loop (not per event).
+    // `check_unsigned` already handles a non-existent path: it flags unsigned
+    // events regardless and only verifies signatures when the path exists.
+    // Using a sentinel non-existent path unifies both branches.
+    let allowed_signers_path: PathBuf = source
+        .allowed_signers_file()?
+        .unwrap_or_else(|| PathBuf::from("/dev/null/no-allowed-signers"));
+
+    // Apply each event.
+    for envelope in &all_events {
+        detect_clock_skew(&mut state, envelope);
+        check_unsigned(&mut state, envelope, &allowed_signers_path);
+        apply(
+            &mut state,
+            envelope,
+            &mut changed_issues,
+            &mut changed_locks,
+        );
+    }
+
+    // Update watermark to last processed event.
+    if let Some(last) = all_events.last() {
+        state.watermark = Some(OrderingKey::from_envelope(last));
+    }
+
+    Ok(ReductionOutcome {
+        state,
+        changed_issues,
+        changed_locks,
+        events_processed,
+    })
+}
+
 /// Run compaction on the hub cache.
 ///
 /// Reads all agent event logs, applies reduction rules in deterministic order,
@@ -192,49 +337,11 @@ pub fn compact(
         return Ok(None);
     };
 
-    let mut state = read_checkpoint(cache_dir)?;
+    let source = WorktreeSource::new(cache_dir);
+    let outcome = reduce(&source)?;
 
-    // Read watermark for incremental compaction.
-    // Prefer embedded watermark from checkpoint state; fall back to legacy file.
-    let watermark = match state.watermark.clone() {
-        Some(wm) => Some(wm),
-        None => read_watermark(cache_dir)?,
-    };
-
-    // Collect events from all agent logs
-    let agents_dir = cache_dir.join("agents");
-    let mut all_events = Vec::new();
-
-    if agents_dir.exists() {
-        for entry in std::fs::read_dir(&agents_dir)
-            .with_context(|| format!("Failed to read agents dir: {}", agents_dir.display()))?
-        {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let log_path = entry.path().join("events.log");
-            let events = if let Some(ref wm) = watermark {
-                crate::events::read_events_after(&log_path, wm)?
-            } else {
-                crate::events::read_events(&log_path)?
-            };
-            all_events.extend(events);
-        }
-    }
-
-    // If we fell back to a legacy file-based watermark, migrate it into the
-    // in-memory checkpoint state so future compactions use the embedded path.
-    // No need to write + re-read from disk — the checkpoint is written at the
-    // end of compaction with the watermark already embedded (#332).
-    if state.watermark.is_none() {
-        if let Some(ref wm) = watermark {
-            state.watermark = Some(wm.clone());
-        }
-    }
-
-    if all_events.is_empty() && watermark.is_some() {
-        // Still run git-based skew detection even with no new events
+    if outcome.events_processed == 0 && outcome.state.watermark.is_some() {
+        // No new events — still run git-based skew detection and write checkpoint.
         let git_violations = crate::clock_skew::detect_git_skew_violations(cache_dir)
             .unwrap_or_else(|e| {
                 tracing::warn!("git skew detection failed, defaulting to no violations: {e}");
@@ -243,6 +350,7 @@ pub fn compact(
         let git_skew_violations = git_violations.len();
         crate::clock_skew::write_skew_violations(cache_dir, &git_violations)?;
 
+        let mut state = outcome.state;
         state.compaction_lease = None;
         write_checkpoint(cache_dir, &state)?;
         // _lock_guard dropped here, removing the lock file
@@ -256,51 +364,17 @@ pub fn compact(
         }));
     }
 
-    // If no watermark, we're doing a full compaction — reset state
-    if watermark.is_none() {
-        state = CheckpointState::default();
-    }
+    let ReductionOutcome {
+        mut state,
+        changed_issues,
+        changed_locks,
+        events_processed,
+    } = outcome;
 
-    // Sort by ordering key for deterministic reduction.
-    // Uses sort_by_cached_key to compute the OrderingKey once per envelope
-    // rather than on every comparison (#340).
-    all_events.sort_by_cached_key(OrderingKey::from_envelope);
-
-    let events_processed = all_events.len();
-    let mut changed_issues: HashSet<Uuid> = HashSet::new();
-    let mut changed_locks: HashSet<i64> = HashSet::new();
-
-    // For full compaction (no watermark), clear warnings since we reprocess
-    // everything. For incremental compaction, keep existing warnings and
-    // accumulate new ones from the incremental events (#339).
-    if watermark.is_none() {
-        state.skew_warnings.clear();
-        state.unsigned_event_warnings.clear();
-    }
-
-    let allowed_signers_path = cache_dir.join("trust").join("allowed_signers");
-
-    // Apply each event
-    for envelope in &all_events {
-        detect_clock_skew(&mut state, envelope);
-        check_unsigned(&mut state, envelope, &allowed_signers_path);
-        apply(
-            &mut state,
-            envelope,
-            &mut changed_issues,
-            &mut changed_locks,
-        );
-    }
-
-    // Update watermark to last processed event (written atomically with checkpoint)
-    if let Some(last) = all_events.last() {
-        state.watermark = Some(OrderingKey::from_envelope(last));
-    }
-
-    // Materialize changed entities to disk
+    // Materialize changed entities to disk.
     materialize(cache_dir, &state, &changed_issues, &changed_locks)?;
 
-    // Run git-based clock skew detection
+    // Run git-based clock skew detection.
     let git_violations =
         crate::clock_skew::detect_git_skew_violations(cache_dir).unwrap_or_else(|e| {
             tracing::warn!("git skew detection failed, defaulting to no violations: {e}");
@@ -757,7 +831,7 @@ fn check_unsigned(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checkpoint::CompactionLease;
+    use crate::checkpoint::{read_checkpoint, CompactionLease};
     use crate::events::{append_event, Event, EventEnvelope};
     use chrono::Duration;
 

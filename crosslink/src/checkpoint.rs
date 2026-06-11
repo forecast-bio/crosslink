@@ -121,6 +121,25 @@ pub struct UnsignedEventWarning {
 
 // ── Checkpoint I/O ───────────────────────────────────────────────────
 
+impl CheckpointState {
+    /// Parse a `CheckpointState` from raw JSON bytes.
+    ///
+    /// Used by `ObjectStoreSource` to deserialize checkpoint blobs read from
+    /// the git object store without going through a temporary file. Shares the
+    /// same serde path as `read_checkpoint`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bytes are not valid UTF-8 or cannot be
+    /// deserialized as `CheckpointState`.
+    // PR2+ consumer API: used by ObjectStoreSource (lib consumers and tests),
+    // not by the bin, whose duplicate module tree flags it as dead code.
+    #[allow(dead_code)]
+    pub fn from_slice(bytes: &[u8]) -> Result<Self> {
+        serde_json::from_slice(bytes).context("Failed to parse checkpoint state from bytes")
+    }
+}
+
 const CHECKPOINT_FILE: &str = "state.json";
 const WATERMARK_FILE: &str = "watermark.json";
 

@@ -272,6 +272,8 @@ pub fn append_event(log_path: &Path, envelope: &EventEnvelope) -> Result<()> {
 
 /// Read all events from a log file.
 ///
+/// Delegates to [`read_events_from_bytes`] after reading the file.
+///
 /// # Errors
 ///
 /// Returns an error if the log file cannot be read or contains corrupt data.
@@ -281,10 +283,23 @@ pub fn read_events(log_path: &Path) -> Result<Vec<EventEnvelope>> {
     }
     let bytes = std::fs::read(log_path)
         .with_context(|| format!("Failed to read event log: {}", log_path.display()))?;
-    let codec = NdjsonCodec;
-    codec
-        .decode_all(&bytes)
+    read_events_from_bytes(&bytes)
         .with_context(|| format!("Failed to parse event log: {}", log_path.display()))
+}
+
+/// Read all events from raw bytes (NDJSON).
+///
+/// This is the byte-level parse core shared by both the file-based path
+/// ([`read_events`]) and the git-object-store path ([`ObjectStoreSource`]).
+/// Semantics are identical: line-by-line NDJSON, same blank/corrupt-trailing-
+/// line handling as the codec's `decode_all`.
+///
+/// # Errors
+///
+/// Returns an error if any non-trailing line is corrupt (same as `decode_all`).
+pub fn read_events_from_bytes(bytes: &[u8]) -> Result<Vec<EventEnvelope>> {
+    let codec = NdjsonCodec;
+    codec.decode_all(bytes)
 }
 
 /// Read only events with ordering key > watermark.

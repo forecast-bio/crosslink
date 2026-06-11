@@ -54,6 +54,7 @@ mod db;
 mod events;
 mod external;
 mod findings;
+mod hub_source;
 mod hydration;
 mod identity;
 mod issue_file;
