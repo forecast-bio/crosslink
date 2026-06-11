@@ -1,0 +1,10 @@
+{
+  "uuid": "05e5c235-252d-4411-8c1f-483eade65ea9",
+  "issue_uuid": "2614d561-77b1-4b5f-b6f9-fd670d5242a4",
+  "author": "dashboard-bootstrap",
+  "content": "Design: new module crosslink/src/hub_source.rs with trait HubSource { agent_ids(), read_events(agent_id, after: Option<&OrderingKey>), read_checkpoint(), read_legacy_watermark(), allowed_signers_file() -> Option<PathBuf> }. Two impls: WorktreeSource (wraps cache_dir, byte-for-byte current read behavior) and ObjectStoreSource (repo dir + refname, reads committed tree via git ls-tree/cat-file with NO checkout; extracts allowed_signers blob to an owned TempDir because verify_event_signature shells to ssh-keygen with a path). Pure reduction extracted from compact() as reduce(&dyn HubSource) -> ReductionOutcome { state, changed_issues, changed_locks, events_processed }, including the watermark-none full-reset and empty-events early-return semantics. compact() becomes reduce(WorktreeSource) + unchanged write side (materialize, skew detection, write_checkpoint). events.rs gains from-bytes parse variants; path versions become wrappers. Parity test: populate hub layout in temp git repo, commit to branch, run reduce via both sources, assert identical CheckpointState via serde equality across scenarios (multi-agent, lock contention, incremental with watermark, full compaction).",
+  "created_at": "2026-06-11T18:51:29.601184471Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAcXSCpdq1UIjXSU+OedlvQpD1JWsobY5/ZDKbnfBSOHDTih74SmQXmKLoeJnZ1Tt2h9iiZcFxuHeWtlzNXR/TBw=="
+}
