@@ -3,11 +3,12 @@
   "display_id": 756,
   "title": "hub-v3 PR3.5: emit events for ALL mutations; add comment/time-entry event variants",
   "description": "Discovered during the #752 soak bring-up: production code emits events ONLY from shared_writer/locks.rs (lock claim/release/steal). The other 11 event variants (IssueCreated, IssueUpdated, StatusChanged, labels, deps, relations, milestones, parent) are reduced by compaction but never emitted -- all issue mutations travel the V2 JSON-file path. Comments and time entries have NO event variants at all. PR4 (delete the v2 file-write machinery, #754) is impossible until: (1) every mutation in shared_writer/mutations.rs emits its corresponding event through emit_compact_push (or its hub_v3 successor); (2) new event variants exist for CommentAdded and TimeEntryAdded (design doc needs amending -- the materialized issue JSON becomes a pure compaction cache only if comments are in the event stream); (3) compaction reduces the new variants; (4) dual-write soak coverage then extends to all mutation types, restarting the soak clock for the new paths. Does NOT block #753 (genesis migration replays materialized state, not event history).",
-  "status": "open",
+  "status": "closed",
   "priority": "high",
   "created_by": "dashboard-bootstrap",
   "created_at": "2026-06-11T21:46:55.536801931Z",
-  "updated_at": "2026-06-11T21:47:00.922403196Z",
+  "updated_at": "2026-06-11T23:42:12.037219271Z",
+  "closed_at": "2026-06-11T23:42:12.037219271Z",
   "labels": [
     "architecture"
   ],
