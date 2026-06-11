@@ -1,0 +1,10 @@
+{
+  "uuid": "65842ee1-2d76-49ac-8db5-bcda18aea5f9",
+  "display_id": 755,
+  "title": "Enable hub_v3 dual-write soak in this repo and verify baseline",
+  "status": "open",
+  "priority": "medium",
+  "created_by": "dashboard-bootstrap",
+  "created_at": "2026-06-11T21:42:29.393417820Z",
+  "updated_at": "2026-06-11T21:42:29.393417820Z"
+}
