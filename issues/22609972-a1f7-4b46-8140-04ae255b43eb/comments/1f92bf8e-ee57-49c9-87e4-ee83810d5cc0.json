@@ -1,0 +1,10 @@
+{
+  "uuid": "1f92bf8e-ee57-49c9-87e4-ee83810d5cc0",
+  "issue_uuid": "22609972-a1f7-4b46-8140-04ae255b43eb",
+  "author": "dashboard-bootstrap",
+  "content": "Emission wiring complete. Choke point: added events: Vec<Event> field to WriteSet; write_commit_push appends per-attempt via new append_envelopes() helper (the single hub_v3 mirror site) and stages agents/<id>/events.log in the SAME commit. emit_compact_push refactored onto the helper. Retry: append is inside the loop so recover_from_push_conflict's reset --hard HEAD~1 discards the committed+working-tree log line and the next prepare re-emits — no double-append. rewrite_as_offline rewrites the trailing IssueCreated line to display_id:None to match the offline file; promote_offline_issues rewrites it to the new claim. TIME ENTRIES: SQLite-only (timer.rs -> db.start/stop_timer); never written to hub, so TimeEntryAdded is intentionally not wired. All 17 hub mutations wired. Gates: fmt clean, both clippy gates clean, lib 1965 / bin 2954 / cli_integration 194 all green.",
+  "created_at": "2026-06-11T22:43:19.005609792Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAGesJnjM7p8fKLN5oqOVHSV+JPV2P1JWWvTVvMLXnbnaJjp9/+Jd4y5oKCZjYnLeh/CrQsAdON7KVvwnp53PKCg=="
+}
