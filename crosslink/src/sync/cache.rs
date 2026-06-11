@@ -56,7 +56,15 @@ fn try_create_lock(lock_path: &Path) -> std::io::Result<HubWriteLock> {
 /// Blocks up to 30 seconds, checking for stale locks via PID liveness.
 /// Returns an RAII guard that releases the lock on drop.
 pub fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
-    let max_wait = Duration::from_secs(30);
+    acquire_hub_lock_with_timeout(lock_path, Duration::from_secs(30))
+}
+
+/// Inner implementation of lock acquisition with a configurable timeout.
+///
+/// Separated from [`acquire_hub_lock`] so tests can pass a short timeout
+/// without waiting 30 seconds. Production callers use [`acquire_hub_lock`]
+/// which hard-codes the 30-second budget.
+fn acquire_hub_lock_with_timeout(lock_path: &Path, max_wait: Duration) -> Result<HubWriteLock> {
     let poll_interval = Duration::from_millis(100);
     let start = std::time::Instant::now();
 
@@ -86,7 +94,29 @@ pub fn acquire_hub_lock(lock_path: &Path) -> Result<HubWriteLock> {
                 }
 
                 if start.elapsed() > max_wait {
-                    // Force-remove after timeout
+                    // On timeout, only force-remove the lock when the holder is
+                    // confirmed dead (or when the PID content is unreadable/absent).
+                    // If the holder is a live process, bail instead of stealing the
+                    // lock — stealing would allow two processes to mutate the hub
+                    // worktree concurrently, which is the exact bug this lock prevents.
+                    if holder_alive {
+                        bail!(
+                            "hub write lock held by live process for >30s ({}); \
+                             waiting aborted to avoid concurrent worktree mutation — \
+                             retry, or remove the lock file if the process is hung: {}",
+                            std::fs::read_to_string(lock_path)
+                                .ok()
+                                .and_then(|c| c.trim().parse::<u32>().ok())
+                                .map_or_else(
+                                    || "<unknown PID>".to_string(),
+                                    |pid| format!("PID {pid}")
+                                ),
+                            lock_path.display()
+                        );
+                    }
+                    // Holder is dead (or PID was unreadable) — force-remove the stale
+                    // lock and try to acquire. This mirrors the not-alive fast path
+                    // above but is reached only after the wait budget is exhausted.
                     let _ = std::fs::remove_file(lock_path);
                     match try_create_lock(lock_path) {
                         Ok(guard) => return Ok(guard),
@@ -130,23 +160,37 @@ impl SyncManager {
             return Ok(());
         }
         let gitignore_path = self.cache_dir.join(".gitignore");
-        let entry = ".hub-write-lock";
 
-        let needs_write = std::fs::read_to_string(&gitignore_path).map_or(true, |content| {
-            !content.lines().any(|line| line.trim() == entry)
-        });
+        // Entries that must appear in the hub cache .gitignore:
+        //   .hub-write-lock  — PID lock file created/deleted on every sync (#528)
+        //   .*.tmp           — orphaned temp files from atomic_write crashes;
+        //                      covers both old fixed-name (.{basename}.tmp) and
+        //                      new unique-name (.{basename}.XXXXXX.tmp) forms.
+        let required_entries = [".hub-write-lock", ".*.tmp"];
 
-        if needs_write {
+        let existing_content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+
+        let missing: Vec<&str> = required_entries
+            .iter()
+            .copied()
+            .filter(|entry| !existing_content.lines().any(|line| line.trim() == *entry))
+            .collect();
+
+        if !missing.is_empty() {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(&gitignore_path)?;
-            writeln!(f, "{entry}")?;
+            for entry in &missing {
+                writeln!(f, "{entry}")?;
+            }
         }
 
-        // Untrack the lock file if git is currently tracking it
-        let _ = self.git_in_cache(&["rm", "--cached", "-f", entry]);
+        // Untrack any of these files if git is currently tracking them.
+        for entry in &required_entries {
+            let _ = self.git_in_cache(&["rm", "--cached", "-f", entry]);
+        }
 
         Ok(())
     }
@@ -851,5 +895,60 @@ impl SyncManager {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    /// Verify that when the lock file contains a live PID (our own process),
+    /// `acquire_hub_lock_with_timeout` returns an error that names the PID
+    /// and does NOT remove the lock file.
+    ///
+    /// This tests Fix 2: before the fix, the timeout branch would force-remove
+    /// the lock regardless of holder liveness, allowing concurrent worktree
+    /// mutation.
+    #[test]
+    fn test_acquire_hub_lock_live_holder_bails_without_stealing() {
+        let dir = tempdir().unwrap();
+        let lock_path = dir.path().join(".hub-write-lock");
+
+        // Write our own PID into the lock file — the current process is
+        // definitely alive, so the liveness check must return true.
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+                .expect("failed to create lock file");
+            writeln!(f, "{}", std::process::id()).unwrap();
+        }
+
+        // Use a short timeout (300 ms > 2 × poll_interval=100 ms) so the
+        // test completes quickly.
+        let timeout = Duration::from_millis(300);
+        let err = match acquire_hub_lock_with_timeout(&lock_path, timeout) {
+            Err(e) => e,
+            Ok(_guard) => panic!("expected acquire to fail when a live process holds the lock"),
+        };
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains(&std::process::id().to_string()),
+            "error should include holder PID, got: {msg}"
+        );
+        assert!(
+            msg.contains("live process"),
+            "error should mention live process, got: {msg}"
+        );
+
+        // Lock file must still exist — we did not steal it.
+        assert!(
+            lock_path.exists(),
+            "lock file was removed by the acquire attempt (lock was stolen)"
+        );
     }
 }

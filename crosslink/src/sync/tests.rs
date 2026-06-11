@@ -882,7 +882,7 @@ fn test_read_tracker_remote_single_non_origin_remote() {
     let crosslink_dir = dir.path().join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).unwrap();
     // hook-config.json exists but has no tracker_remote field
-    std::fs::write(crosslink_dir.join("hook-config.json"), r#"{}"#).unwrap();
+    std::fs::write(crosslink_dir.join("hook-config.json"), "{}").unwrap();
 
     let remote = read_tracker_remote(&crosslink_dir);
     assert_eq!(

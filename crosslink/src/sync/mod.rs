@@ -32,7 +32,13 @@ const OLD_BRANCH: &str = "crosslink/locks";
 /// Re-export from `signing` module. Use `SignatureVerification` for new code.
 pub use crate::signing::SignatureVerification;
 
-/// Deprecated alias — use `SignatureVerification` instead.
+/// Same-machine hub write lock guard. Re-exported so `compaction::compact`
+/// can require it as proof that the caller holds the process mutex.
+pub use self::cache::HubWriteLock;
+// acquire_hub_lock is re-exported for test helpers in compaction and shared_writer.
+// In production code, callers acquire the lock via SyncManager::acquire_lock().
+#[cfg(test)]
+pub use self::cache::acquire_hub_lock;
 pub use self::core::SyncManager;
 pub use self::locks::LockMode;
 

@@ -119,28 +119,78 @@ pub fn is_windows_reserved_name(name: &str) -> bool {
     )
 }
 
-/// Atomically write content to a file by writing to a temporary file first,
-/// then renaming. This prevents corrupted files from interrupted writes.
+/// Atomically write content to a file using a unique temp file + fsync + rename.
+///
+/// Uses [`tempfile::Builder`] to create a uniquely-named temp file in the same
+/// directory as `path`, which prevents two concurrent writers from corrupting
+/// each other's temp file (the old fixed-name `.{basename}.tmp` approach). The
+/// file is fsynced before the rename so a crash between write and rename does
+/// not leave a half-populated target. On Unix, the parent directory is also
+/// fsynced after the rename so the directory entry itself is durable; that step
+/// is best-effort (WARN on failure) because some filesystems (e.g. BTRFS)
+/// reject directory fsync without degrading data safety.
+///
+/// Orphaned `.{basename}.XXXXXX.tmp` files can be left if the process crashes
+/// between temp-file creation and `persist`. The hub cache `.gitignore` covers
+/// `/.*.tmp` so these are never committed (see `ensure_hub_gitignore`).
 ///
 /// # Errors
 ///
-/// Returns an error if writing the temporary file or renaming it fails.
+/// Returns an error if creating the temp file, writing, fsyncing, or persisting fails.
 pub fn atomic_write(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()> {
     use anyhow::Context;
+    use std::io::Write;
+
     let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let tmp_path = parent.join(format!(
-        ".{}.tmp",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("file")
-    ));
-    std::fs::write(&tmp_path, content)
-        .with_context(|| format!("Failed to write temp file: {}", tmp_path.display()))?;
-    std::fs::rename(&tmp_path, path).with_context(|| {
-        format!(
-            "Failed to rename {} to {}",
-            tmp_path.display(),
-            path.display()
+    let basename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+
+    let mut tmp = tempfile::Builder::new()
+        .prefix(&format!(".{basename}."))
+        .suffix(".tmp")
+        .tempfile_in(parent)
+        .with_context(|| format!("Failed to create temp file in {}", parent.display()))?;
+
+    tmp.as_file_mut()
+        .write_all(content)
+        .with_context(|| format!("Failed to write temp file for {}", path.display()))?;
+
+    tmp.as_file()
+        .sync_all()
+        .with_context(|| format!("Failed to fsync temp file for {}", path.display()))?;
+
+    tmp.persist(path).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to rename temp file to {}: {}",
+            path.display(),
+            e.error
         )
     })?;
+
+    // Best-effort: fsync the parent directory so the rename itself is durable.
+    // Failure here is not fatal — the file-level fsync above already ensures
+    // the content is durable; directory-entry durability depends on the FS.
+    #[cfg(unix)]
+    {
+        match std::fs::File::open(parent) {
+            Ok(dir) => {
+                if let Err(e) = dir.sync_all() {
+                    tracing::warn!(
+                        "failed to fsync parent dir {} after atomic write: {}",
+                        parent.display(),
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "failed to open parent dir {} for fsync: {}",
+                    parent.display(),
+                    e
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -632,5 +682,61 @@ mod tests {
     #[test]
     fn test_parse_date_rejects_invalid_day() {
         assert!(parse_due_date("2026-02-31").is_err());
+    }
+
+    /// Two threads concurrently writing to the same target path must not
+    /// interleave bytes. After all iterations, the file must parse as the
+    /// complete JSON content of exactly one writer.
+    ///
+    /// This exercises the fix for the fixed-name temp file race where two
+    /// concurrent `atomic_write` calls would share the same `.{name}.tmp`
+    /// path and corrupt each other's content before the rename.
+    #[test]
+    fn test_atomic_write_concurrent_no_interleaving() {
+        use std::sync::Arc;
+
+        let dir = tempdir().unwrap();
+        let target = Arc::new(dir.path().join("shared.json"));
+
+        // Two JSON payloads that are distinguishable and large enough to
+        // expose byte-level interleaving if it occurs.
+        let payload_a = serde_json::json!({"writer": "A", "data": "a".repeat(4096)})
+            .to_string()
+            .into_bytes();
+        let payload_b = serde_json::json!({"writer": "B", "data": "b".repeat(4096)})
+            .to_string()
+            .into_bytes();
+
+        let payload_a = Arc::new(payload_a);
+        let payload_b = Arc::new(payload_b);
+
+        const ITERATIONS: usize = 50;
+
+        for _ in 0..ITERATIONS {
+            let path_a = Arc::clone(&target);
+            let path_b = Arc::clone(&target);
+            let pa = Arc::clone(&payload_a);
+            let pb = Arc::clone(&payload_b);
+
+            let t_a = std::thread::spawn(move || {
+                atomic_write(&path_a, &pa).expect("atomic_write A failed");
+            });
+            let t_b = std::thread::spawn(move || {
+                atomic_write(&path_b, &pb).expect("atomic_write B failed");
+            });
+
+            t_a.join().expect("thread A panicked");
+            t_b.join().expect("thread B panicked");
+
+            // The file must be valid JSON whose content is wholly A or wholly B.
+            let raw = std::fs::read(&*target).expect("target file missing");
+            let v: serde_json::Value =
+                serde_json::from_slice(&raw).expect("file is not valid JSON (interleaved bytes)");
+            let writer = v["writer"].as_str().expect("missing writer field");
+            assert!(
+                writer == "A" || writer == "B",
+                "unexpected writer field: {writer}"
+            );
+        }
     }
 }

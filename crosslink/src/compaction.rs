@@ -157,17 +157,36 @@ pub struct CompactionResult {
 /// Reads all agent event logs, applies reduction rules in deterministic order,
 /// writes checkpoint state and materializes issue/lock files.
 ///
-/// Uses a filesystem lock file (`checkpoint/compaction.lock`) for mutual
-/// exclusion. The lock is created atomically with `create_new(true)` so that
-/// concurrent compaction attempts safely fail rather than racing.
+/// # Two-lock model
 ///
-/// If `force` is false, returns `None` when the lock is held by another agent.
-/// If `force` is true, stale or self-owned locks are removed before retrying.
+/// Compaction uses two complementary locks:
+///
+/// - `_hub_lock` (`HubWriteLock`) — same-machine process mutex over all git
+///   operations in the hub cache worktree. **Mandatory**: callers must hold this
+///   lock before calling `compact`. This parameter is proof of that requirement;
+///   the compiler enforces it at the call site.
+/// - `CompactionLockGuard` (`checkpoint/compaction.lock`) — cross-machine lease
+///   advisory lock written to the hub branch. Advisory because a new machine
+///   starting up may not yet have the hub cache initialized, but it still
+///   prevents two compaction runs from racing on a shared git clone.
+///
+/// Holding only the `CompactionLockGuard` without the `HubWriteLock` would allow
+/// a concurrent `write_commit_push` from another process on the same machine to
+/// mutate the worktree while compaction is writing materialized files — the exact
+/// race this fix closes.
+///
+/// If `force` is false, returns `None` when the compaction lease is held by another agent.
+/// If `force` is true, stale or self-owned leases are removed before retrying.
 ///
 /// # Errors
 ///
 /// Returns an error if lock acquisition, checkpoint I/O, or event log reading fails.
-pub fn compact(cache_dir: &Path, agent_id: &str, force: bool) -> Result<Option<CompactionResult>> {
+pub fn compact(
+    cache_dir: &Path,
+    agent_id: &str,
+    force: bool,
+    _hub_lock: &crate::sync::HubWriteLock,
+) -> Result<Option<CompactionResult>> {
     // Acquire filesystem lock — this is the real mutual exclusion mechanism.
     let Some(_lock_guard) = CompactionLockGuard::try_acquire(cache_dir, agent_id, force)? else {
         return Ok(None);
@@ -825,13 +844,36 @@ mod tests {
         .unwrap();
     }
 
+    /// Acquire a `HubWriteLock` for tests.
+    ///
+    /// Uses the standard `.hub-write-lock` path inside `cache_dir` so tests
+    /// exercise the same lock path as production code.
+    fn test_hub_lock(cache_dir: &Path) -> crate::sync::HubWriteLock {
+        let lock_path = cache_dir.join(".hub-write-lock");
+        crate::sync::acquire_hub_lock(&lock_path).expect("failed to acquire hub write lock in test")
+    }
+
+    /// Convenience wrapper: acquire the hub write lock and run compaction.
+    ///
+    /// All test call sites use this instead of calling `compact` directly so
+    /// the `_hub_lock` proof-of-lock parameter is satisfied without duplicating
+    /// the lock acquisition at every call site.
+    fn compact_t(
+        cache_dir: &Path,
+        agent_id: &str,
+        force: bool,
+    ) -> Result<Option<CompactionResult>> {
+        let lock = test_hub_lock(cache_dir);
+        compact(cache_dir, agent_id, force, &lock)
+    }
+
     #[test]
     fn test_compact_empty() {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path();
         setup_cache(cache_dir);
 
-        let result = compact(cache_dir, "agent-1", false).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", false).unwrap().unwrap();
         assert_eq!(result.events_processed, 0);
         assert_eq!(result.issues_materialized, 0);
     }
@@ -859,7 +901,7 @@ mod tests {
         );
         append_event(&log_path, &env).unwrap();
 
-        let result = compact(cache_dir, "agent-1", false).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", false).unwrap().unwrap();
         assert_eq!(result.events_processed, 1);
         assert_eq!(result.issues_materialized, 1);
 
@@ -920,7 +962,7 @@ mod tests {
         append_event(&log_path, &e2).unwrap();
 
         // First compaction
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Delete watermark to force full re-compaction
         let wm_path = cache_dir.join("checkpoint/watermark.json");
@@ -929,7 +971,7 @@ mod tests {
         }
 
         // Second compaction — IDs should be the same
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(state.display_id_map[&uuid1], 1);
@@ -977,7 +1019,7 @@ mod tests {
         append_event(&log_path, &e1).unwrap();
         append_event(&log_path, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(state.issues.len(), 1);
@@ -1017,7 +1059,7 @@ mod tests {
         append_event(&log1, &e1).unwrap();
         append_event(&log2, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(state.locks[&1].agent_id, "agent-1"); // First in order wins
@@ -1052,7 +1094,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(state.locks.is_empty());
@@ -1113,7 +1155,7 @@ mod tests {
         append_event(&log1, &e_update1).unwrap();
         append_event(&log2, &e_update2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let issue = &state.issues[&uuid];
@@ -1179,7 +1221,7 @@ mod tests {
         append_event(&log, &e_add2).unwrap();
         append_event(&log, &e_remove).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(state.issues[&uuid].labels.is_empty());
@@ -1223,7 +1265,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(state.issues[&blocked].blockers.contains(&blocker));
@@ -1275,7 +1317,7 @@ mod tests {
         append_event(&log, &e2).unwrap();
         append_event(&log, &e3).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(state.issues[&uuid_a].related.contains(&uuid_b));
@@ -1401,7 +1443,7 @@ mod tests {
 
         append_event(&log, &env).unwrap();
 
-        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert!(result.skew_warnings > 0);
     }
 
@@ -1431,7 +1473,7 @@ mod tests {
 
         append_event(&log, &env).unwrap();
 
-        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert!(result.unsigned_warnings > 0);
     }
 
@@ -1472,7 +1514,7 @@ mod tests {
         append_event(&log, &e2).unwrap();
 
         // Compact to create watermark
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Prune should remove events at/below watermark
         let pruned = prune_events(cache_dir, "agent-1").unwrap();
@@ -1534,7 +1576,7 @@ mod tests {
         append_event(&log2, &e_label1).unwrap();
         append_event(&log1, &e_label2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let issue = &state.issues[&uuid];
@@ -1581,7 +1623,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(
@@ -1607,7 +1649,7 @@ mod tests {
         std::fs::write(&lock_path, content.to_string()).unwrap();
 
         // Try to compact as agent-1 without force — should fail
-        let result = compact(cache_dir, "agent-1", false).unwrap();
+        let result = compact_t(cache_dir, "agent-1", false).unwrap();
         assert!(result.is_none());
 
         // Lock file should still exist
@@ -1631,7 +1673,7 @@ mod tests {
         std::fs::write(&lock_path, content.to_string()).unwrap();
 
         // Force should override the stale lock
-        let result = compact(cache_dir, "agent-1", true).unwrap();
+        let result = compact_t(cache_dir, "agent-1", true).unwrap();
         assert!(result.is_some());
 
         // Lock file should be cleaned up after compaction
@@ -1741,7 +1783,7 @@ mod tests {
             },
         );
         append_event(&log, &env).unwrap();
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Read back the materialized issue.json
         let path = cache_dir
@@ -1798,7 +1840,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(state.issues[&child].parent_uuid, Some(parent));
@@ -1841,7 +1883,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(
@@ -1884,7 +1926,7 @@ mod tests {
         append_event(&log_a, &e1).unwrap();
         append_event(&log_b, &e2).unwrap();
 
-        compact(cache_dir, "agent-a", true).unwrap();
+        compact_t(cache_dir, "agent-a", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         // Lock should still be held by agent-a since agent-b cannot release it
@@ -1935,7 +1977,7 @@ mod tests {
         append_event(&log, &e2).unwrap();
         append_event(&log, &e3).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let lock = state.locks.get(&1).unwrap();
@@ -1966,7 +2008,7 @@ mod tests {
             append_event(&log, &e).unwrap();
         }
 
-        compact(cache_dir, "agent-a", true).unwrap();
+        compact_t(cache_dir, "agent-a", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         // agent-c has the earliest timestamp (now - 1), but agent-a has (now - 3)
@@ -2008,7 +2050,7 @@ mod tests {
         append_event(&log_a, &e1).unwrap();
         append_event(&log_b, &e2).unwrap();
 
-        compact(cache_dir, "agent-alpha", true).unwrap();
+        compact_t(cache_dir, "agent-alpha", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         // "agent-alpha" < "agent-beta" lexicographically, so alpha wins
@@ -2048,7 +2090,7 @@ mod tests {
         append_event(&log_a, &e1).unwrap();
         append_event(&log_b, &e2).unwrap();
 
-        let result = compact(cache_dir, "agent-a", true).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-a", true).unwrap().unwrap();
         assert_eq!(result.locks_materialized, 2);
 
         let state = read_checkpoint(cache_dir).unwrap();
@@ -2094,7 +2136,7 @@ mod tests {
         append_event(&log_a, &e1).unwrap();
         append_event(&log_b, &e2).unwrap();
 
-        compact(cache_dir, "agent-a", true).unwrap();
+        compact_t(cache_dir, "agent-a", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let lock = state.locks.get(&1).unwrap();
@@ -2137,7 +2179,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Lock should be absent from checkpoint and disk
         let state = read_checkpoint(cache_dir).unwrap();
@@ -2163,7 +2205,7 @@ mod tests {
         );
         append_event(&log, &e).unwrap();
 
-        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert_eq!(result.events_processed, 1);
         assert_eq!(result.locks_materialized, 0);
 
@@ -2193,7 +2235,7 @@ mod tests {
         e1.timestamp = now - Duration::seconds(3);
         append_event(&log, &e1).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Verify lock is held
         let state = read_checkpoint(cache_dir).unwrap();
@@ -2211,7 +2253,7 @@ mod tests {
         e2.timestamp = now - Duration::seconds(1);
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Lock should be gone
         let state = read_checkpoint(cache_dir).unwrap();
@@ -2267,7 +2309,7 @@ mod tests {
         append_event(&log_b, &e2).unwrap();
         append_event(&log_a, &e3).unwrap();
 
-        compact(cache_dir, "agent-a", true).unwrap();
+        compact_t(cache_dir, "agent-a", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         // Lock should be gone — agent-a won and then released
@@ -2331,7 +2373,7 @@ mod tests {
         append_event(&log_a, &e3).unwrap();
         append_event(&log_b, &e4).unwrap();
 
-        compact(cache_dir, "agent-a", true).unwrap();
+        compact_t(cache_dir, "agent-a", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let lock = state.locks.get(&1).unwrap();
@@ -2400,7 +2442,7 @@ mod tests {
         append_event(&log_b, &e3).unwrap();
         append_event(&log_a, &e4).unwrap();
 
-        compact(cache_dir, "agent-a", true).unwrap();
+        compact_t(cache_dir, "agent-a", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(state.locks.len(), 2);
@@ -2484,7 +2526,7 @@ mod tests {
         e.timestamp = claim_time;
         append_event(&log, &e).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let lock = state.locks.get(&1).unwrap();
@@ -2735,7 +2777,7 @@ mod tests {
         append_event(&log, &e2).unwrap();
         append_event(&log, &e3).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(
@@ -2796,7 +2838,7 @@ mod tests {
         append_event(&log, &e3).unwrap();
         append_event(&log, &e4).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert!(
@@ -2848,7 +2890,7 @@ mod tests {
         append_event(&log, &e_create).unwrap();
         append_event(&log, &e_update).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         let issue = &state.issues[&uuid];
@@ -2964,7 +3006,7 @@ mod tests {
         std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
         std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
 
-        let result = compact(cache_dir, "agent-1", false).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", false).unwrap().unwrap();
         assert_eq!(result.events_processed, 0);
         assert_eq!(result.issues_materialized, 0);
     }
@@ -3118,11 +3160,11 @@ mod tests {
         append_event(&log, &env).unwrap();
 
         // First compaction sets watermark
-        let r1 = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let r1 = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert_eq!(r1.events_processed, 1);
 
         // Second compaction with no new events should hit the early return
-        let r2 = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let r2 = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert_eq!(r2.events_processed, 0);
         assert_eq!(r2.issues_materialized, 0);
     }
@@ -3175,7 +3217,7 @@ mod tests {
         append_event(&log, &env).unwrap();
 
         // Should succeed, skipping the stray file
-        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert_eq!(result.events_processed, 1);
         assert_eq!(result.issues_materialized, 1);
     }
@@ -3230,7 +3272,7 @@ mod tests {
         append_event(&log, &e2).unwrap();
         append_event(&log, &e3).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(
@@ -3278,7 +3320,7 @@ mod tests {
         append_event(&log, &e1).unwrap();
         append_event(&log, &e2).unwrap();
 
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         let state = read_checkpoint(cache_dir).unwrap();
         assert_eq!(
@@ -3424,7 +3466,7 @@ mod tests {
         );
         e1.timestamp = Utc::now() - Duration::seconds(10);
         append_event(&log, &e1).unwrap();
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // Now simulate a legacy migration scenario:
         // Read the current checkpoint, strip the embedded watermark, write it back
@@ -3458,7 +3500,7 @@ mod tests {
         // 1. Find no embedded watermark (state.watermark = None)
         // 2. Fall back to legacy watermark.json (lines 186, 188 covered)
         // 3. Process only the new event (incremental)
-        let result = compact(cache_dir, "agent-1", true).unwrap().unwrap();
+        let result = compact_t(cache_dir, "agent-1", true).unwrap().unwrap();
         assert_eq!(
             result.events_processed, 1,
             "Only the new event should be processed"
@@ -3500,7 +3542,7 @@ mod tests {
         );
         e_claim.timestamp = now - Duration::seconds(5);
         append_event(&log, &e_claim).unwrap();
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
         assert!(
             lock_path.exists(),
             "Lock file should exist after claim compaction"
@@ -3516,7 +3558,7 @@ mod tests {
         );
         e_release.timestamp = now - Duration::seconds(2);
         append_event(&log, &e_release).unwrap();
-        compact(cache_dir, "agent-1", true).unwrap();
+        compact_t(cache_dir, "agent-1", true).unwrap();
 
         // The lock file should have been deleted by the materialize function (line 556)
         assert!(

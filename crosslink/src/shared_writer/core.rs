@@ -285,15 +285,21 @@ impl SharedWriter {
         message: &str,
     ) -> Result<PushOutcome> {
         // Serialize access to the hub cache via SyncManager's lock (#372)
-        let _lock_guard = self.sync.acquire_lock()?;
+        let lock_guard = self.sync.acquire_lock()?;
 
         let envelope = self.create_envelope(event);
         let log_path = self.event_log_path();
         crate::events::append_event(&log_path, &envelope)?;
 
         for attempt in 0..MAX_RETRIES {
-            // Run compaction (force=true since we own the write path)
-            let _ = crate::compaction::compact(&self.cache_dir, &self.agent.agent_id, true)?;
+            // Run compaction (force=true since we own the write path).
+            // Pass &lock_guard as proof we hold the hub write lock (#750).
+            let _ = crate::compaction::compact(
+                &self.cache_dir,
+                &self.agent.agent_id,
+                true,
+                &lock_guard,
+            )?;
 
             // Stage event log + compaction output
             let rel_log = format!("agents/{}/events.log", self.agent.agent_id);

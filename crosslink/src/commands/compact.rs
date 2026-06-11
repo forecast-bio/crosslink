@@ -14,7 +14,12 @@ pub fn run(crosslink_dir: &Path, db: &Database, force: bool) -> Result<()> {
     let agent = crate::identity::AgentConfig::load(crosslink_dir)?
         .ok_or_else(|| anyhow::anyhow!("No agent configured. Run 'crosslink agent init' first."))?;
 
-    match crate::compaction::compact(&cache_dir, &agent.agent_id, force)? {
+    // Acquire the hub write lock before compaction and hold it through
+    // hydration — prevents a concurrent write_commit_push from racing
+    // compaction's materialized-file writes (#750).
+    let hub_lock = sync.acquire_lock()?;
+
+    match crate::compaction::compact(&cache_dir, &agent.agent_id, force, &hub_lock)? {
         Some(result) => {
             println!("Compaction complete.");
             if result.events_processed > 0 {

@@ -874,7 +874,10 @@ impl SharedWriter {
         let mut issue = crate::issue_file::read_issue_file(&path)?;
         issue.display_id = None;
         let json = serde_json::to_string_pretty(&issue)?;
-        std::fs::write(&path, json)?;
+        // Use atomic_write to avoid the open-truncate-write race (#604, #750).
+        // std::fs::write would truncate the file before writing; a crash mid-write
+        // leaves a zero-byte or partial JSON that breaks all subsequent reads.
+        crate::utils::atomic_write(&path, json.as_bytes())?;
 
         // Revert the counter bump (the remote never saw it)
         let mut counters = self.read_counters()?;

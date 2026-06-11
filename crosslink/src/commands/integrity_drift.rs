@@ -404,7 +404,7 @@ mod tests {
     use super::*;
     use crate::sync::HUB_CACHE_DIR;
 
-    /// Minimal cache_dir setup: an empty `issues/` directory under
+    /// Minimal `cache_dir` setup: an empty `issues/` directory under
     /// `crosslink_dir/.hub-cache/`. Enough to satisfy
     /// `hydrate_to_sqlite`'s "no JSON files" early-return.
     fn setup_empty_cache(crosslink_dir: &std::path::Path) {

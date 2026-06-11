@@ -14,6 +14,15 @@ use std::path::Path;
 use tempfile::tempdir;
 use uuid::Uuid;
 
+/// Acquire a `HubWriteLock` for use in tests that call `compact` directly.
+///
+/// Uses the standard `.hub-write-lock` path so the lock path matches what
+/// production code uses when the cache dir is treated as a hub worktree.
+fn hub_lock_for_test(cache_dir: &Path) -> crate::sync::HubWriteLock {
+    let lock_path = cache_dir.join(".hub-write-lock");
+    crate::sync::acquire_hub_lock(&lock_path).expect("failed to acquire hub write lock for test")
+}
+
 fn make_issue(display_id: i64, title: &str) -> IssueFile {
     IssueFile {
         uuid: Uuid::new_v4(),
@@ -477,15 +486,16 @@ mod lock_v2_tests {
         append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
 
         // Run compaction
-        let result = crate::compaction::compact(cache, "agent-a", true)
+        let lock = hub_lock_for_test(cache);
+        let result = crate::compaction::compact(cache, "agent-a", true, &lock)
             .unwrap()
             .unwrap();
         assert_eq!(result.locks_materialized, 1);
 
         // Read checkpoint -- agent-a should win (earlier timestamp)
         let state = read_checkpoint(cache).unwrap();
-        let lock = state.locks.get(&1).unwrap();
-        assert_eq!(lock.agent_id, "agent-a");
+        let lock_entry = state.locks.get(&1).unwrap();
+        assert_eq!(lock_entry.agent_id, "agent-a");
     }
 
     #[test]
@@ -688,7 +698,8 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-b/events.log"), &e3).unwrap();
 
-        let result = crate::compaction::compact(cache, "agent-a", true)
+        let hub_lock = hub_lock_for_test(cache);
+        let result = crate::compaction::compact(cache, "agent-a", true, &hub_lock)
             .unwrap()
             .unwrap();
         assert_eq!(result.locks_materialized, 1);
@@ -761,7 +772,8 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-a/events.log"), &e3).unwrap();
 
-        crate::compaction::compact(cache, "agent-a", true).unwrap();
+        let hub_lock = hub_lock_for_test(cache);
+        crate::compaction::compact(cache, "agent-a", true, &hub_lock).unwrap();
 
         let state = read_checkpoint(cache).unwrap();
         assert!(state.locks.is_empty());
@@ -834,7 +846,8 @@ mod lock_v2_tests {
             };
             append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
 
-            crate::compaction::compact(cache, compactor, true).unwrap();
+            let hub_lock = hub_lock_for_test(cache);
+            crate::compaction::compact(cache, compactor, true, &hub_lock).unwrap();
 
             let state = read_checkpoint(cache).unwrap();
             assert_eq!(
