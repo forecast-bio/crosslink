@@ -1,6 +1,6 @@
 {
   "next_display_id": 761,
-  "next_comment_id": 1067,
+  "next_comment_id": 1068,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13943,7 +13943,7 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-11T18:48:42.330843364Z",
-      "updated_at": "2026-06-12T05:47:38.339890974Z",
+      "updated_at": "2026-06-12T09:57:05.190352848Z",
       "labels": [
         "architecture",
         "v3-cutover"
@@ -13969,6 +13969,15 @@
           "kind": "result",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzagkeuvXBFreDX8+A8ZX1q/V0MfmRj7q1sOPyUYPUjh1xySbvbXcPv4AGs1Ws04DJMtZBrNACVlquylQam18DQ=="
+        },
+        "a1f1e947-3c75-404d-a5c2-8fd35c8ef950": {
+          "display_id": 1067,
+          "author": "dashboard-bootstrap",
+          "content": "754b (delete v2 machinery + bootstrap NEW hubs as v3) complete on feature/754b-delete-v2-machinery. BOOTSTRAP: hub_v3::bootstrap_v3_hub(repo,agent,remote) writes META_REF (HubMeta v3, migrated_from_commit=genesis) + empty genesis checkpoint (watermark=genesis_sentinel_watermark, moved into hub_v3.rs and shared with migrate) + agent's empty-log ref; best-effort ref push. Wired at SyncManager::init_cache: Absent-> create orphan HOST worktree on a NEW branch crosslink/hub-v3-host (NOT crosslink/hub, which would read as v2) -> if remote already advertises v3 (detect_remote_hub_version) fetch_v3_refs_for_join (fresh-clone join), else bootstrap_v3_hub -> flip cached HubMode (now a Cell) to V3. V2/local-or-remote crosslink/hub -> v2 worktree (read-only/migration). TEARDOWN (with tests): clean_dirty_state, hub_health_check, verify_cache_worktree, push_hub_if_ahead, commit_and_push_locks, rebase_preserving_local, check_divergence/count_unpushed_commits/MAX_DIVERGENCE, PushFailure+classify_push_failure, locks.json read+write (read_locks/read_locks_v2/claim_lock/release_lock/find_stale_locks_v2), V1 heartbeats (read_heartbeats + heartbeats/*.json write + ensure_agent_dir/create_agent_dir_files), upgrade_to_v2/cleanup_stale_layout_files/migrate_inline_comments_to_v2, ensure_hub_gitignore, v2 hub-commit signing-enforcement (verify_recent_commits/verify_entry_signatures/read_keyring/Keyring/is_bootstrap_message + parse_verify_output/parse_ssh_verify_output/parse_gpg_fingerprint + SignatureVerification payload), LocksFile::save, read_skew_violations(prod). v2 fetch -> fetch_v2_readonly (fetch+reset-to-remote, no commits). sync_cmd mode-routed (v3: fetch+hydrate-from-state+request-poll; v2: read-only hydrate+migrate-hint). compact on V2 bails with migrate prompt. KEPT for migration: v2 file READS, compaction::compact/materialize, hydrate_to_sqlite, dedup_issue_files, read_heartbeats_v2, verify_locks_signature, cache worktree as migration artifact. GATES: fmt clean, both clippy profiles clean, lib 1761 / bin 2765 / cli_integration 194 all green (migration + v3-operation + B1 refusal regressions pass; migration-test fixtures updated to build the v2 hub explicitly since init now bootstraps v3). Diffstat B1+B2 src: +2381/-12542.",
+          "created_at": "2026-06-12T09:57:04.952071697Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAp6Uyrj5z4CSVKDvExVbY0zgdlp0SLR1G7vsD2kBCbHAbLYNA+QYPVUJg2jnrIkJYRNu8vilxQ/hqkq84OS2wDw=="
         },
         "a5089588-55bc-4637-b766-d6af5b5e0908": {
           "author": "dashboard-bootstrap",
@@ -23436,8 +23445,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T05:47:38.339890974Z",
+    "timestamp": "2026-06-12T09:57:05.190352848Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 94
+    "agent_seq": 95
   }
 }
