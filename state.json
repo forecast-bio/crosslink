@@ -1,5 +1,5 @@
 {
-  "next_display_id": 770,
+  "next_display_id": 771,
   "next_comment_id": 1087,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -371,6 +371,7 @@
     "79805808-20a3-49a1-a89c-f3a12bf6323a": 303,
     "79b3cfb6-2358-4ca0-96e5-0749f0191839": 491,
     "79d8b04d-af75-4f8f-b152-56f22cc57990": 554,
+    "79f6bb0c-ff53-4f89-8c88-9c0268044d49": 770,
     "7a8abab7-bc58-4859-a682-3ddce3dbf957": 424,
     "7a9df669-f6e2-4650-b847-7f71dd36dda4": 379,
     "7add0125-db50-4902-8367-20b7947ad9da": 341,
@@ -12149,6 +12150,16 @@
         }
       }
     },
+    "79f6bb0c-ff53-4f89-8c88-9c0268044d49": {
+      "uuid": "79f6bb0c-ff53-4f89-8c88-9c0268044d49",
+      "display_id": 770,
+      "title": "Fix GH#624: hook blocking messages on stdout swallowed -- Claude Code reads stderr",
+      "status": "open",
+      "priority": "high",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T21:30:07.394611141Z",
+      "updated_at": "2026-06-12T21:30:07.394611141Z"
+    },
     "7a8abab7-bc58-4859-a682-3ddce3dbf957": {
       "uuid": "7a8abab7-bc58-4859-a682-3ddce3dbf957",
       "display_id": 424,
@@ -23807,8 +23818,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T21:28:36.670662631Z",
+    "timestamp": "2026-06-12T21:30:07.394611141Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 154
+    "agent_seq": 155
   }
 }
