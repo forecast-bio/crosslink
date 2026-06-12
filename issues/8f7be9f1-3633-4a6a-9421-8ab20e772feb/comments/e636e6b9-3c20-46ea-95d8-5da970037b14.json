@@ -1,0 +1,10 @@
+{
+  "uuid": "e636e6b9-3c20-46ea-95d8-5da970037b14",
+  "issue_uuid": "8f7be9f1-3633-4a6a-9421-8ab20e772feb",
+  "author": "dashboard-bootstrap",
+  "content": "754a design (auxiliary-state inventory complete). V3 HOMES BY WRITER OWNERSHIP (single-writer-per-ref invariant): heartbeat.json -> agent's own ref tree root; agent requests -> DRIVER's ref tree under requests-out/<target-agent>/<ulid>.json (driver is the writer; the v2 scheme of writing into the target agent's directory would violate single-writer); acks -> target agent's own ref tree under requests-ack/<ulid>.json; readers scan all agent refs. Locks: pure events (v2 locks.json + locks/ die). Skew warnings: already in CheckpointState. Cross-machine compaction arbitration: the checkpoint ref force-with-lease push (local compaction.lock stays as cheap local lease). CRITICAL INFRA PREREQ: append_event_to_ref currently builds a single-file tree and would DROP sibling files once refs carry heartbeats/acks -- tree building must read existing entries at tip and replace only the target file. Execution: 754a in three passes -- (1) hub_v3 infra: sibling-preserving trees, heartbeats/requests/acks on refs, v3 compact (checkpoint push with lease + own-ref prune per REQ-11); (2) mode routing: HubMode by detect_hub_version, v3 event-only writes with claim-confirm create, fetch refs + reduce + hydrate-from-CheckpointState into SQLite; (3) direct-reader sweep: server/dashboard/TUI paths reading hub files (locks.json, heartbeats) rerouted through the state/heartbeat modules. 754b (delete v2 machinery + hard refusal) ships as a separate PR after this repo migrates for real.",
+  "created_at": "2026-06-12T00:50:36.935901434Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAtvKP8L4W+JShoMcWKb2n9uGnmiEu7UI3TXjV+AkGOoe7GD7O3wstcZwAN1YaJzVg8mDhZdKaQluedO4/j7rBDQ=="
+}
