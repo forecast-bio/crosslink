@@ -1411,8 +1411,16 @@ static MIGRATED_V2_WARNED: std::sync::atomic::AtomicBool =
 /// follow-up #754): v2 writes are NOT reflected in v3 until the cutover. This is
 /// cheap (a few `git rev-parse` probes) and never fatal — detection failures are
 /// swallowed so the warning can never block a hub operation.
-pub fn warn_if_migrated_v2_operation(repo_dir: &Path) {
+pub fn warn_if_migrated_v2_operation(repo_dir: &Path, mode: HubMode) {
     use std::sync::atomic::Ordering;
+    // Since 754a clients route by detected hub version, so a V3 hub is
+    // operated through the ref paths and there is nothing to warn about.
+    // The warning only applies to the exotic state where V3 markers exist
+    // but this process is still on the v2 path (e.g. a mode resolved before
+    // a migration ran concurrently in another process).
+    if mode.is_v3() {
+        return;
+    }
     if MIGRATED_V2_WARNED.load(Ordering::Relaxed) {
         return;
     }

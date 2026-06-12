@@ -1893,7 +1893,10 @@ mod tests {
             hub_v3::detect_hub_version(&cache_dir).unwrap(),
             HubVersion::V3 { .. }
         ));
-        // The warn function must run without panicking on a migrated hub.
-        hub_v3::warn_if_migrated_v2_operation(&cache_dir);
+        // The warn function must run without panicking on a migrated hub when
+        // the caller is (exotically) still in V2 mode, and must be a silent
+        // no-op for a V3-mode caller.
+        hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V2);
+        hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V3);
     }
 }

@@ -650,8 +650,9 @@ impl SyncManager {
 
         // Minimal v3-aware warn (full refusal is #754): warn once if this hub
         // has already been migrated to v3 but we are still fetching/operating it
-        // in v2 mode. Cheap rev-parse, non-fatal.
-        crate::hub_v3::warn_if_migrated_v2_operation(&self.cache_dir);
+        // in v2 mode. Cheap rev-parse, non-fatal. No-op when this client has
+        // already resolved V3 mode (754a routes by hub version).
+        crate::hub_v3::warn_if_migrated_v2_operation(&self.cache_dir, self.hub_mode());
 
         // Recover from broken git states before attempting fetch (#454, #455, #456)
         self.hub_health_check();
