@@ -1,0 +1,10 @@
+{
+  "uuid": "e4930d44-0bf7-49eb-aed9-5f5f21367793",
+  "issue_uuid": "c7809c9d-6d83-4015-9c2a-7f4e6910c9fd",
+  "author": "dashboard-bootstrap",
+  "content": "PASS 2 plan. Add HubMode{V2,V3} in hub_v3.rs, resolve once via detect_hub_version(cache_dir) on SyncManager construction (new field hub_mode). SharedWriter reads sync.hub_mode(). Seams: (1) write_commit_push/emit_compact_push branch to commit_v3 when V3 — take WriteSet.events only, normalize display_id->None on IssueCreated/CommentAdded/TimeEntryAdded/MilestoneCreated, envelope via append_envelopes-equivalent but seq from own-ref log, append_event_to_ref + push_agent_ref (FF, push failure benign LocalOnly), compact_v3 + hydrate_from_state, return reduction-assigned id from state.display_id_map. claim_display_id/claim_milestone_id mode-aware: V3 returns (0, default) with NO counter read. read_max_event_seq mode-aware: V3 reads max agent_seq from own ref events.log via git cat-file. (2) hydrate_from_state(state,&db) in hydration.rs reusing db.insert_hydrated_* helpers, single txn, #443 preserve + empty-state guard. (3) fetch V3: fetch checkpoint(+force) + agents/* into crosslink-remote/*, adopt other-agent refs to remote tip (writer-authoritative), own ref never moved, checkpoint adopt by watermark, compact_v3 + hydrate_from_state. (4) lock_check V3: read LOCAL checkpoint ref state.json directly (no full reduce) -> state.locks (cheap, documented staleness = last local compact). (5) heartbeats/requests route to hub_v3 primitives when V3. (6) entry points sync/daemon/compact mode-route. Dual_write IGNORED in V3.",
+  "created_at": "2026-06-12T01:19:39.611757882Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA98ryWdZcQ1Wfq/as+x6RETNw1HmHRHGk5EltBwvOSRu5kh+enowxJ1JzT7xM2LtsmHX9LEplvjrgupNaNI1IDw=="
+}
