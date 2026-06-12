@@ -1,6 +1,6 @@
 {
   "next_display_id": 768,
-  "next_comment_id": 1080,
+  "next_comment_id": 1081,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13607,7 +13607,7 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T19:40:22.651433804Z",
-      "updated_at": "2026-06-12T19:41:24.546839067Z",
+      "updated_at": "2026-06-12T20:18:19.793455448Z",
       "labels": [
         "architecture"
       ],
@@ -13620,6 +13620,15 @@
           "kind": "plan",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA++w9tqN6tmcYGy6wmMpKnWN0tm0qwg3bzmy6ZcLeT5in0uN1Hdw1N7A0XCEkzIkSaZt1FeD/9wrvfs4v7R1RCg=="
+        },
+        "72dc82c1-1b13-481c-8343-4817b3b8e0af": {
+          "display_id": 1080,
+          "author": "dashboard-bootstrap",
+          "content": "Implemented #767 (hub v3 visible branches + browsable state + rename migration). FETCH-TRACKING CHOICE: kept the explicit refs/crosslink-remote/* tracking namespace (option b), updating only the fetch SOURCE patterns to refs/heads/crosslink/*. Smallest correct diff: the adoption logic (list_remote_agent_tips, adopt_checkpoint_by_watermark, remote_checkpoint_sha, shared_writer checkpoint-lease baseline) all read refs/crosslink-remote/* unchanged; option (a) refs/remotes/<remote>/crosslink/* would have threaded the remote name into every tracking-ref read and mixed hub state into the user branch remote-tracking namespace. Namespace flip: AGENT_REF_PREFIX/CHECKPOINT_REF/META_REF -> refs/heads/crosslink/*. Detection keys on exact checkpoint+meta branches; crosslink/hub (v2) and crosslink/hub-v3-host excluded by is_v3_hub_ref. Browse tree: compact_v3 now writes issues/<uuid>.json (comments+time inline), meta/milestones.json, README.md incrementally via changed_issues + tombstone deletes; full tree only when README absent. New command: crosslink migrate hub-branches. Gates green: fmt, clippy --all-targets -D warnings, unwrap/expect clean. Tests: lib 1767, bin 2776, cli_integration 194 — all pass.",
+          "created_at": "2026-06-12T20:18:19.765842307Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABABCKkuqP+4CwqRntUDbJemw1lhNhroRkaKiHWK9t95Nz6jY2M3SsrOha/pzYiy9Hn9auXd/kKAqSYQkkhwVvPCQ=="
         }
       }
     },
@@ -23700,8 +23709,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T19:41:24.546839067Z",
+    "timestamp": "2026-06-12T20:18:19.793455448Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 136
+    "agent_seq": 137
   }
 }
