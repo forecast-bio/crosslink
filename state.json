@@ -853,7 +853,7 @@
     },
     "766": {
       "agent_id": "dashboard-bootstrap",
-      "claimed_at": "2026-06-12T19:17:00.995839063Z"
+      "claimed_at": "2026-06-12T20:59:05.273132294Z"
     },
     "767": {
       "agent_id": "dashboard-bootstrap",
@@ -23758,8 +23758,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T20:56:55.312892517Z",
+    "timestamp": "2026-06-12T20:59:05.273132294Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 145
+    "agent_seq": 146
   }
 }
