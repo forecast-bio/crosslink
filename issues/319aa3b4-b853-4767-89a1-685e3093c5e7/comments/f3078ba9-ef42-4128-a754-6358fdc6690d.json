@@ -1,0 +1,10 @@
+{
+  "uuid": "f3078ba9-ef42-4128-a754-6358fdc6690d",
+  "issue_uuid": "319aa3b4-b853-4767-89a1-685e3093c5e7",
+  "author": "dashboard-bootstrap",
+  "content": "Committed on feature/753-hub-v3-migrate: RefHubSource + plumbing generalization + version detection (part 1) and migrate hub-v3 with AC-6 gate, rollback, finalize (part 2). Director-verified gates: 1978 lib + 2975 bin + 194 integration, fmt, both clippy profiles. Rollback bookkeeping reviewed line-by-line (union snapshot incl. about-to-write refs, restore-or-delete). Awaiting push.",
+  "created_at": "2026-06-12T00:35:53.949639461Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwsKRmMpl+ui02EEUk51ciOg1rL3HZUbtRHYpNdQOSuGATefmlsnqicxaXPulh4wqT20NPhPdu7LbJSqbFpERBg=="
+}
