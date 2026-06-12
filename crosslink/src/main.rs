@@ -1419,6 +1419,10 @@ enum KnowledgeCommands {
         /// Import from a design document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// Attribute the page to this contributor instead of the local
+        /// agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
         /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,
@@ -1480,6 +1484,10 @@ enum KnowledgeCommands {
         /// Replace content from a document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// Attribute this edit to this contributor instead of the local
+        /// agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
         /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,
@@ -1511,6 +1519,10 @@ enum KnowledgeCommands {
         /// Preview imports without writing
         #[arg(long = "dry-run")]
         dry_run: bool,
+        /// Attribute imported pages to this contributor instead of the
+        /// local agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
         /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,

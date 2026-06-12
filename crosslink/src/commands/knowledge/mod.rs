@@ -17,6 +17,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             source,
             content,
             from_doc,
+            contributor,
             repo,
         } => {
             reject_repo_on_write(repo.as_deref())?;
@@ -45,6 +46,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                 &source,
                 effective_content.as_deref(),
                 from_doc.as_deref(),
+                &contributor,
             )
         }
         KnowledgeCommands::Show {
@@ -103,6 +105,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             tag,
             source,
             from_doc,
+            contributor,
             repo,
         } => {
             reject_repo_on_write(repo.as_deref())?;
@@ -122,6 +125,7 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
                 append_to_section.as_deref(),
                 &tag,
                 &source,
+                &contributor,
             )
         }
         KnowledgeCommands::Remove { slug, repo } => {
@@ -133,10 +137,18 @@ pub fn dispatch(command: KnowledgeCommands, crosslink_dir: &Path, global_json: b
             tag,
             overwrite,
             dry_run,
+            contributor,
             repo,
         } => {
             reject_repo_on_write(repo.as_deref())?;
-            import(crosslink_dir, &directory, &tag, overwrite, dry_run)
+            import(
+                crosslink_dir,
+                &directory,
+                &tag,
+                overwrite,
+                dry_run,
+                &contributor,
+            )
         }
         KnowledgeCommands::Sync { repo } => {
             reject_repo_on_write(repo.as_deref())?;
