@@ -1,6 +1,6 @@
 {
   "next_display_id": 768,
-  "next_comment_id": 1079,
+  "next_comment_id": 1080,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13607,10 +13607,21 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T19:40:22.651433804Z",
-      "updated_at": "2026-06-12T19:40:30.667124913Z",
+      "updated_at": "2026-06-12T19:41:24.546839067Z",
       "labels": [
         "architecture"
-      ]
+      ],
+      "comments": {
+        "6c6f22dc-ab57-4b2a-9ad7-beb26cc15ae0": {
+          "display_id": 1079,
+          "author": "dashboard-bootstrap",
+          "content": "Design (user requirement: hub MUST be visible on browsable branches -- corrects the OQ-1 hidden-refs decision): (1) NAMESPACE FLIP: refs/crosslink/agents/<id> -> refs/heads/crosslink/agents/<id> (branch crosslink/agents/<id>), checkpoint -> crosslink/checkpoint, meta -> crosslink/meta. CI verified safe: workflows trigger only on develop + feature/**. Enumeration/detection must key on the checkpoint branch specifically and never read crosslink/hub (frozen v2) or crosslink/hub-v3-host (worktree host) as hub state. (2) BROWSABLE STATE: compact_v3 additionally maintains a materialized browse tree on the checkpoint branch -- issues/<uuid>.json rendered from CompactIssue with comments/time entries inline, README.md explaining the branch -- updated incrementally via outcome.changed_issues + tombstone deletions through write_tree_with (NOT full-tree rewrites per compact; 759 issues would make per-mutation compaction heavy). Deterministic content so the force-with-lease race semantics are unchanged. (3) MIGRATION: crosslink migrate hub-branches -- idempotent one-shot per machine: recreate each old refs/crosslink/* at the same SHA under refs/heads/crosslink/*, push new, delete old remote + local. Two deployed machines (dollspace + basel) each run it once; this machine first. (4) Fetch moves to standard remote-tracking refs (or minimal-diff explicit refspec -- implementer decides, reports). Writer-authoritative adoption rules unchanged.",
+          "created_at": "2026-06-12T19:41:24.462962260Z",
+          "kind": "plan",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA++w9tqN6tmcYGy6wmMpKnWN0tm0qwg3bzmy6ZcLeT5in0uN1Hdw1N7A0XCEkzIkSaZt1FeD/9wrvfs4v7R1RCg=="
+        }
+      }
     },
     "8a79d1ed-f767-4b48-ad9a-5c9280fc2a77": {
       "uuid": "8a79d1ed-f767-4b48-ad9a-5c9280fc2a77",
@@ -23689,8 +23700,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T19:40:34.981194821Z",
+    "timestamp": "2026-06-12T19:41:24.546839067Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 135
+    "agent_seq": 136
   }
 }
