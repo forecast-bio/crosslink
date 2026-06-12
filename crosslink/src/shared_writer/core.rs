@@ -75,7 +75,16 @@ pub struct SharedWriter {
     ///
     /// Read once from `.crosslink/hook-config.json` in the constructor so
     /// the per-event path does no file I/O for the flag check.
+    ///
+    /// IGNORED in [`crate::hub_v3::HubMode::V3`]: dual-write was the v2→v3
+    /// bridge (mirror v2 log appends onto the ref before cutover). In v3 the
+    /// agent ref IS the only log, so there is nothing to mirror from.
     pub(super) hub_v3_dual_write: bool,
+    /// The most recent reduced state from a v3 `commit_v3` / fetch (754a PASS
+    /// 2). The create/comment/milestone flows read the reduction-assigned
+    /// display id from here (`state.display_id_map[uuid]`, REQ-4) for CLI
+    /// output; `None` in V2 mode and before the first v3 mutation.
+    pub(super) last_v3_state: std::cell::RefCell<Option<crate::checkpoint::CheckpointState>>,
 }
 
 impl SharedWriter {
@@ -127,8 +136,16 @@ impl SharedWriter {
         std::fs::create_dir_all(cache_dir.join("issues"))?;
         std::fs::create_dir_all(cache_dir.join("meta").join("milestones"))?;
 
-        // Initialize event sequence counter from existing log
-        let event_seq = Cell::new(Self::read_max_event_seq(&cache_dir, &agent.agent_id));
+        // Initialize event sequence counter from existing log. In V3 the
+        // authoritative log is the agent's OWN REF (read via git cat-file);
+        // in V2 it is the worktree `events.log` file. read_max_event_seq
+        // dispatches by mode so a fresh worktree (post-prune) does not reset
+        // the sequence below the ref's tip.
+        let event_seq = Cell::new(Self::read_max_event_seq(
+            &cache_dir,
+            &agent.agent_id,
+            sync.hub_mode(),
+        ));
 
         // Read the dual-write flag once at construction time; per-event path does
         // no file I/O for the flag check.
@@ -145,11 +162,36 @@ impl SharedWriter {
             cache_dir,
             event_seq,
             hub_v3_dual_write,
+            last_v3_state: std::cell::RefCell::new(None),
         }))
     }
 
     pub fn agent_id(&self) -> &str {
         &self.agent.agent_id
+    }
+
+    /// The resolved operation mode (V2 worktree-file or V3 event-only),
+    /// decided once on the underlying `SyncManager` at construction.
+    pub(super) const fn hub_mode(&self) -> crate::hub_v3::HubMode {
+        self.sync.hub_mode()
+    }
+
+    /// Whether this writer operates a v3 hub (event-only, per-agent refs).
+    pub(super) const fn is_v3(&self) -> bool {
+        self.hub_mode().is_v3()
+    }
+
+    /// Public accessor for v3 mode, for cross-module callers (`agent_requests`).
+    #[must_use]
+    pub const fn is_v3_public(&self) -> bool {
+        self.is_v3()
+    }
+
+    /// Public accessor for the hub-cache directory (the v3 ref repo dir), for
+    /// cross-module callers (`agent_requests` v3 poll).
+    #[must_use]
+    pub fn cache_dir_public(&self) -> &Path {
+        &self.cache_dir
     }
 
     /// Derive the `.crosslink/` directory from the cache path.
@@ -166,6 +208,26 @@ impl SharedWriter {
     /// If the retry also fails, warns the user to run `crosslink sync`
     /// so the caller can continue gracefully.
     pub fn hydrate_with_retry(&self, db: &Database) {
+        // V3: hydrate from the reduced state cached by the last commit_v3 /
+        // refresh_v3_state (event-only operation — no worktree issue files to
+        // read). If no state is cached yet (first call before any v3 mutation),
+        // reduce now so SQLite still reflects the hub.
+        if self.is_v3() {
+            if self.last_v3_state.borrow().is_none() {
+                if let Err(e) = self.refresh_v3_state() {
+                    tracing::warn!("v3 hydrate: state refresh failed: {e}");
+                    return;
+                }
+            }
+            if let Some(state) = self.last_v3_state.borrow().as_ref() {
+                if let Err(e) = crate::hydration::hydrate_from_state(state, db) {
+                    tracing::warn!(
+                        "v3 hydrate_from_state failed ({e}). Run `crosslink sync` to recover."
+                    );
+                }
+            }
+            return;
+        }
         match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
             Ok(_) => {}
             Err(first_err) => {
@@ -225,8 +287,20 @@ impl SharedWriter {
 
     // ---- Event emission infrastructure ----
 
-    /// Read the max `agent_seq` from an existing event log.
-    pub(super) fn read_max_event_seq(cache_dir: &Path, agent_id: &str) -> u64 {
+    /// Read the max `agent_seq` from this agent's existing event log.
+    ///
+    /// V2: reads the worktree file `agents/<id>/events.log`. V3: reads the
+    /// agent's OWN REF (`refs/crosslink/agents/<id>` -> `events.log`) via git
+    /// cat-file, since there is no worktree log in v3 and the ref is the only
+    /// durable record of the sequence high-water mark (including after a prune).
+    pub(super) fn read_max_event_seq(
+        cache_dir: &Path,
+        agent_id: &str,
+        mode: crate::hub_v3::HubMode,
+    ) -> u64 {
+        if mode.is_v3() {
+            return crate::hub_v3::read_max_event_seq_from_ref(cache_dir, agent_id).unwrap_or(0);
+        }
         let log_path = cache_dir.join("agents").join(agent_id).join("events.log");
         crate::events::read_events(&log_path).map_or(0, |events| {
             events.iter().map(|e| e.agent_seq).max().unwrap_or(0)
@@ -374,6 +448,16 @@ impl SharedWriter {
     ) -> Result<PushOutcome> {
         // Serialize access to the hub cache via SyncManager's lock (#372)
         let lock_guard = self.sync.acquire_lock()?;
+
+        // V3: lock claim/release (and any emit_compact_push caller) routes
+        // through the event-only own-ref path. compact_v3 reduces locks from
+        // events into the checkpoint; the claim-confirm read (read_lock_v2)
+        // then resolves the winner from the reduced state. Mirrors the v2
+        // emit_compact_push contract (append -> compact -> push), returning the
+        // same PushOutcome.
+        if self.is_v3() {
+            return self.commit_v3(vec![event], &lock_guard);
+        }
 
         // Append to the v2 log + run the single hub_v3 shadow-mirror site.
         self.append_envelopes(vec![event])?;
@@ -549,6 +633,19 @@ impl SharedWriter {
         // Serialize access to the hub cache (#372).
         let _lock_guard = self.sync.acquire_lock()?;
 
+        // V3: the DRIVER writes the request into ITS OWN ref under
+        // `requests-out/<target>--<ulid>.json` (single-writer invariant) and
+        // pushes the ref. No worktree file, no rebase-retry.
+        if self.is_v3() {
+            crate::hub_v3::write_request_to_own_ref(
+                &self.cache_dir,
+                &self.agent.agent_id,
+                target_agent_id,
+                request,
+            )?;
+            return Ok(self.push_own_ref_outcome());
+        }
+
         let rel_path = crate::agent_requests::request_path(target_agent_id, &request.request_id);
         let abs_path = self.cache_dir.join(&rel_path);
         if let Some(parent) = abs_path.parent() {
@@ -638,6 +735,20 @@ impl SharedWriter {
         ack: &crate::agent_requests::AgentRequestAck,
     ) -> Result<PushOutcome> {
         let _lock_guard = self.sync.acquire_lock()?;
+
+        // V3: the TARGET agent writes the ack into ITS OWN ref under
+        // `requests-ack/<ulid>.json` (single-writer invariant). `target_agent_id`
+        // here IS the acking agent (the poll passes its own id), matching the v2
+        // call convention. Push the own ref.
+        if self.is_v3() {
+            crate::hub_v3::write_ack_to_own_ref(
+                &self.cache_dir,
+                &self.agent.agent_id,
+                &ack.request_id,
+                ack,
+            )?;
+            return Ok(self.push_own_ref_outcome());
+        }
 
         let rel_path = crate::agent_requests::requests_dir(target_agent_id)
             .join(format!("{}.ack.json", ack.request_id));
@@ -820,6 +931,15 @@ impl SharedWriter {
     /// without observing that other agents had meanwhile pushed issues
     /// with higher IDs. See `reconcile_display_counter`.
     pub(super) fn claim_display_id(&self, count: i64) -> Result<(i64, Counters)> {
+        // V3 CLAIMS NOTHING (REQ-4): display ids are assigned solely by the
+        // deterministic reduction. There is no `meta/counters.json` to read or
+        // reconcile, so skip all counter I/O and return a sentinel id (0). The
+        // v3 write path discards both the sentinel and the returned `Counters`
+        // (no file is written) and normalizes the emitted event's `display_id`
+        // to `None` so the reducer allocates the authoritative id.
+        if self.is_v3() {
+            return Ok((0, Counters::default()));
+        }
         let mut counters = self.read_counters()?;
         self.reconcile_display_counter(&mut counters)?;
         let first = counters.next_display_id;
@@ -836,6 +956,12 @@ impl SharedWriter {
     /// before assignment so that stale `counters.json` does not produce
     /// colliding IDs.
     pub(super) fn claim_milestone_id(&self) -> Result<(i64, Counters)> {
+        // V3 CLAIMS NOTHING (REQ-4): milestone ids come from reduction. Skip the
+        // counter read/reconcile and return a sentinel; the v3 path discards it
+        // and normalizes the event's `display_id` to `None`.
+        if self.is_v3() {
+            return Ok((0, Counters::default()));
+        }
         let mut counters = self.read_counters()?;
         self.reconcile_milestone_counter(&mut counters)?;
         let id = counters.next_milestone_id;
@@ -906,6 +1032,31 @@ impl SharedWriter {
 
     /// Load a milestone entry by `display_id` from per-file storage.
     pub(super) fn load_milestone_by_id(&self, display_id: i64) -> Result<MilestoneEntry> {
+        // V3: reconstruct from the reduced state's CompactMilestone (no
+        // worktree milestone files exist).
+        if self.is_v3() {
+            if self.last_v3_state.borrow().is_none() {
+                self.refresh_v3_state()?;
+            }
+            let state = self.last_v3_state.borrow();
+            let state = state.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("v3 state unavailable while loading milestone {display_id}")
+            })?;
+            let cm = state
+                .milestones
+                .values()
+                .find(|m| m.display_id == Some(display_id))
+                .ok_or_else(|| anyhow::anyhow!("Milestone #{display_id} not found in v3 state"))?;
+            return Ok(MilestoneEntry {
+                uuid: cm.uuid,
+                display_id,
+                name: cm.name.clone(),
+                description: cm.description.clone(),
+                status: cm.status,
+                created_at: cm.created_at,
+                closed_at: cm.closed_at,
+            });
+        }
         let milestones_dir = self.cache_dir.join("meta").join("milestones");
         if milestones_dir.exists() {
             for entry in std::fs::read_dir(&milestones_dir)? {
@@ -975,12 +1126,64 @@ impl SharedWriter {
     /// Scans the issues directory for a file matching the display ID.
     /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
     pub(super) fn load_issue_by_display_id(&self, display_id: i64) -> Result<IssueFile> {
+        // V3: there are no worktree issue files — reconstruct the IssueFile from
+        // the reduced state's CompactIssue. The prepare closures use the loaded
+        // IssueFile only to read the issue's uuid and current mutable fields
+        // (which the event then patches), so a state-derived IssueFile is
+        // equivalent to the v2 file-derived one for that purpose.
+        if self.is_v3() {
+            return self.load_issue_by_display_id_v3(display_id);
+        }
         let mut matches = self.scan_issues(|issue| issue.display_id == Some(display_id))?;
         matches.pop().ok_or_else(|| {
             anyhow::anyhow!(
                 "Issue {} not found in shared cache",
                 crate::utils::format_issue_id(display_id)
             )
+        })
+    }
+
+    /// Reconstruct an [`IssueFile`] for `display_id` from the reduced v3 state.
+    /// Refreshes the cached state when none is present (e.g. a mutation that
+    /// reads before any prior v3 write in this session).
+    fn load_issue_by_display_id_v3(&self, display_id: i64) -> Result<IssueFile> {
+        if self.last_v3_state.borrow().is_none() {
+            self.refresh_v3_state()?;
+        }
+        let state = self.last_v3_state.borrow();
+        let state = state.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("v3 state unavailable while loading issue {display_id}")
+        })?;
+        let ci = state
+            .issues
+            .values()
+            .find(|i| i.display_id == Some(display_id))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Issue {} not found in v3 state",
+                    crate::utils::format_issue_id(display_id)
+                )
+            })?;
+        Ok(IssueFile {
+            uuid: ci.uuid,
+            display_id: ci.display_id,
+            title: ci.title.clone(),
+            description: ci.description.clone(),
+            status: ci.status,
+            priority: ci.priority,
+            parent_uuid: ci.parent_uuid,
+            created_by: ci.created_by.clone(),
+            created_at: ci.created_at,
+            updated_at: ci.updated_at,
+            closed_at: ci.closed_at,
+            scheduled_at: ci.scheduled_at,
+            due_at: ci.due_at,
+            labels: ci.labels.iter().cloned().collect(),
+            comments: vec![],
+            blockers: ci.blockers.iter().copied().collect(),
+            related: ci.related.iter().copied().collect(),
+            milestone_uuid: ci.milestone_uuid,
+            time_entries: vec![],
         })
     }
 
@@ -1081,18 +1284,383 @@ impl SharedWriter {
         Ok(())
     }
 
+    // ──────────────────────────── V3 write path ─────────────────────────
+    //
+    // 754a PASS 2. In `HubMode::V3` a mutation writes EVENTS ONLY to the
+    // agent's own ref. No worktree files, no counter reads, no rebase/conflict
+    // machinery: pushes to the own ref are fast-forward by construction
+    // (single-writer-per-ref), and ids are reduction-assigned so there is no
+    // offline-promotion or counter-revert dance. The entire v2 offline/promote
+    // path is UNNECESSARY in v3 because (a) ids come from reduction (no
+    // double-mint to revert) and (b) every push is an own-ref fast-forward (no
+    // rebase). A failed push leaves the events durable on the LOCAL ref; the
+    // next successful push delivers them.
+
+    /// Normalize a mutation's events for the v3 write path: drop any
+    /// counter-claimed `display_id` so the reducer assigns the authoritative id
+    /// (REQ-4). The v2 prepare closures bake `display_id: Some(<sentinel 0>)`
+    /// into `IssueCreated` / `CommentAdded` / `TimeEntryAdded` / `MilestoneCreated`
+    /// (because `claim_display_id` returned the sentinel); rewriting them to
+    /// `None` makes the event a pure-v3 emitter.
+    fn normalize_events_for_v3(events: Vec<crate::events::Event>) -> Vec<crate::events::Event> {
+        use crate::events::Event;
+        events
+            .into_iter()
+            .map(|e| match e {
+                Event::IssueCreated {
+                    uuid,
+                    title,
+                    description,
+                    priority,
+                    labels,
+                    parent_uuid,
+                    created_by,
+                    display_id: _,
+                    scheduled_at,
+                    due_at,
+                } => Event::IssueCreated {
+                    uuid,
+                    title,
+                    description,
+                    priority,
+                    labels,
+                    parent_uuid,
+                    created_by,
+                    display_id: None,
+                    scheduled_at,
+                    due_at,
+                },
+                Event::CommentAdded {
+                    issue_uuid,
+                    comment_uuid,
+                    display_id: _,
+                    author,
+                    content,
+                    created_at,
+                    kind,
+                    trigger_type,
+                    intervention_context,
+                    driver_key_fingerprint,
+                    signed_by,
+                    signature,
+                } => Event::CommentAdded {
+                    issue_uuid,
+                    comment_uuid,
+                    display_id: None,
+                    author,
+                    content,
+                    created_at,
+                    kind,
+                    trigger_type,
+                    intervention_context,
+                    driver_key_fingerprint,
+                    signed_by,
+                    signature,
+                },
+                Event::TimeEntryAdded {
+                    issue_uuid,
+                    entry_uuid,
+                    display_id: _,
+                    started_at,
+                    ended_at,
+                    duration_seconds,
+                } => Event::TimeEntryAdded {
+                    issue_uuid,
+                    entry_uuid,
+                    display_id: None,
+                    started_at,
+                    ended_at,
+                    duration_seconds,
+                },
+                Event::MilestoneCreated {
+                    uuid,
+                    display_id: _,
+                    name,
+                    description,
+                    created_at,
+                } => Event::MilestoneCreated {
+                    uuid,
+                    display_id: None,
+                    name,
+                    description,
+                    created_at,
+                },
+                other => other,
+            })
+            .collect()
+    }
+
+    /// Append `events` to this agent's OWN REF, push it (fast-forward), then
+    /// reduce + hydrate so `SQLite` reflects the mutation immediately.
+    ///
+    /// Caller MUST already hold the hub write lock (`sync.acquire_lock()`,
+    /// REQ-8 single local lock). Returns the [`PushOutcome`]: `Pushed` when the
+    /// own ref reached the remote (or no remote is configured), `LocalOnly`
+    /// when the push failed benignly (offline / transient) — the events are
+    /// durable on the local ref and the next successful push delivers them.
+    ///
+    /// On success the reduced [`crate::checkpoint::CheckpointState`] is cached
+    /// in `self.last_v3_state` so create/comment/milestone flows can read the
+    /// reduction-assigned display id (REQ-4).
+    fn commit_v3(
+        &self,
+        events: Vec<crate::events::Event>,
+        _lock: &crate::sync::HubWriteLock,
+    ) -> Result<PushOutcome> {
+        let agent_id = self.agent.agent_id.clone();
+        let normalized = Self::normalize_events_for_v3(events);
+
+        // 1. Envelope + append each event to the OWN REF (sibling-preserving).
+        //    Sequence numbers come from `self.event_seq`, initialized in `new`
+        //    from the ref's log (read_max_event_seq in V3 mode). No worktree
+        //    `events.log` is written — the ref is the only log.
+        for event in normalized {
+            let envelope = self.create_envelope(event);
+            crate::hub_v3::append_event_to_ref(&self.cache_dir, &agent_id, &envelope)
+                .context("v3: failed to append event to agent ref")?;
+        }
+
+        // 2. Push the own ref (plain fast-forward CAS). A non-Pushed outcome is
+        //    benign: the events stay durable on the local ref. NonFastForward on
+        //    our OWN ref would indicate identity collision / tampering (REQ-1)
+        //    — surfaced loudly but still treated as LocalOnly (state is durable).
+        let remote = self.sync.remote();
+        let mut outcome = PushOutcome::Pushed;
+        if self.sync.remote_exists() {
+            match crate::hub_v3::push_agent_ref(&self.cache_dir, remote, &agent_id)? {
+                crate::hub_v3::PushOutcome::Pushed => {}
+                crate::hub_v3::PushOutcome::NonFastForward => {
+                    tracing::error!(
+                        "v3 own-ref push for agent '{agent_id}' was rejected as non-fast-forward \
+                         — identity collision or ref tampering (REQ-1); events remain durable \
+                         on the local ref"
+                    );
+                    outcome = PushOutcome::LocalOnly;
+                }
+                crate::hub_v3::PushOutcome::NoRemote => {
+                    outcome = PushOutcome::LocalOnly;
+                }
+                crate::hub_v3::PushOutcome::Failed(detail) => {
+                    tracing::warn!(
+                        "v3 own-ref push for agent '{agent_id}' did not complete ({detail}); \
+                         events saved locally only"
+                    );
+                    outcome = PushOutcome::LocalOnly;
+                }
+            }
+        } else {
+            outcome = PushOutcome::LocalOnly;
+        }
+
+        // 3. Fetch + adopt OTHER agents' refs BEFORE reducing, so the reduced
+        //    state (and the checkpoint we write) reflects the full event set —
+        //    not just our local view. This is what makes the lock claim-confirm
+        //    correct: an earlier-ordered claim from another agent that arrives
+        //    here is seen now, rather than being masked by a checkpoint we
+        //    advanced from a partial view. The hub write lock is already held
+        //    (we are inside write_commit_push / emit_compact_push), so we use the
+        //    lock-free fetch_and_adopt_v3_refs rather than sync.fetch() (which
+        //    would re-acquire the non-reentrant lock and deadlock).
+        if self.sync.remote_exists() {
+            self.sync.fetch_and_adopt_v3_refs();
+        }
+
+        // 4. Reduce -> cache state for display-id lookup + hydration. Write +
+        //    push the checkpoint (pure cache, REQ-7). The write path does NOT
+        //    prune the own ref: pruning every mutation would rewrite the own ref
+        //    each time (and a prune followed by a plain push is non-fast-forward).
+        //    REQ-11 prune is confined to the explicit `compact` command.
+        self.refresh_v3_state()?;
+        self.write_and_push_v3_checkpoint();
+
+        Ok(outcome)
+    }
+
+    /// Reduce-free checkpoint refresh for the write path: serialize the cached
+    /// `last_v3_state`, write it to the local checkpoint ref (idempotent), and
+    /// push it (best-effort). NO prune. A failure is logged, never fatal — the
+    /// checkpoint is a pure cache (REQ-7) and readers reduce on demand.
+    fn write_and_push_v3_checkpoint(&self) {
+        let bytes = {
+            let state = self.last_v3_state.borrow();
+            let Some(state) = state.as_ref() else {
+                return;
+            };
+            let mut state = state.clone();
+            state.compaction_lease = None;
+            match serde_json::to_vec_pretty(&state) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("v3: checkpoint serialization failed (non-fatal): {e}");
+                    return;
+                }
+            }
+        };
+        // Idempotent: skip when the local checkpoint already matches.
+        if let Ok(Some(tip)) =
+            crate::hub_v3::git_rev_parse_optional(&self.cache_dir, crate::hub_v3::CHECKPOINT_REF)
+        {
+            let spec = format!("{tip}:state.json");
+            if let Ok(Some(existing)) =
+                crate::hub_v3::git_cat_file_blob_optional(&self.cache_dir, &spec)
+            {
+                if existing == bytes {
+                    return;
+                }
+            }
+        }
+        if let Err(e) = crate::hub_v3::commit_blob_to_ref(
+            &self.cache_dir,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "crosslink v3 checkpoint",
+        ) {
+            tracing::warn!("v3: checkpoint write failed (non-fatal): {e}");
+            return;
+        }
+        if self.sync.remote_exists() {
+            let expected = crate::hub_v3::git_rev_parse_optional(
+                &self.cache_dir,
+                "refs/crosslink-remote/checkpoint",
+            )
+            .ok()
+            .flatten();
+            match crate::hub_v3::push_ref_with_lease(
+                &self.cache_dir,
+                self.sync.remote(),
+                crate::hub_v3::CHECKPOINT_REF,
+                expected.as_deref(),
+            ) {
+                Ok(
+                    crate::hub_v3::PushOutcome::Pushed | crate::hub_v3::PushOutcome::NonFastForward,
+                ) => {}
+                Ok(other) => tracing::debug!("v3: checkpoint push did not complete: {other:?}"),
+                Err(e) => tracing::debug!("v3: checkpoint push error (benign): {e}"),
+            }
+        }
+    }
+
+    /// Reduce the current v3 ref namespace and cache the materialized state in
+    /// `self.last_v3_state` (for display-id lookup). Does NOT touch `SQLite` —
+    /// the caller drives hydration onto its own `&Database` via
+    /// [`Self::hydrate_with_retry`], which dispatches to `hydrate_from_state`
+    /// under V3 using this cached state.
+    fn refresh_v3_state(&self) -> Result<()> {
+        let source = crate::hub_source::RefHubSource::new(&self.cache_dir)
+            .context("v3: failed to construct RefHubSource for state refresh")?;
+        let outcome =
+            crate::compaction::reduce(&source).context("v3: reduction for state refresh failed")?;
+        *self.last_v3_state.borrow_mut() = Some(outcome.state);
+        Ok(())
+    }
+
+    /// Push this agent's OWN ref and map the result to a [`PushOutcome`].
+    /// Shared by the v3 request/ack writers. A non-`Pushed` result is benign:
+    /// the data is durable on the local ref and delivers on the next push.
+    fn push_own_ref_outcome(&self) -> PushOutcome {
+        if !self.sync.remote_exists() {
+            return PushOutcome::LocalOnly;
+        }
+        match crate::hub_v3::push_agent_ref(
+            &self.cache_dir,
+            self.sync.remote(),
+            &self.agent.agent_id,
+        ) {
+            Ok(crate::hub_v3::PushOutcome::Pushed) => PushOutcome::Pushed,
+            Ok(other) => {
+                tracing::warn!(
+                    "v3 own-ref push for '{}' did not complete: {other:?}; saved locally",
+                    self.agent.agent_id
+                );
+                PushOutcome::LocalOnly
+            }
+            Err(e) => {
+                tracing::warn!("v3 own-ref push for '{}' error: {e}", self.agent.agent_id);
+                PushOutcome::LocalOnly
+            }
+        }
+    }
+
+    /// V3 lock claim-confirm helper: fetch every other agent's ref, reduce, and
+    /// re-cache the state so a subsequent `read_lock_v2` sees the full event set
+    /// (first-claim-wins winner). `sync.fetch()` is the v3 fetch (adopts other
+    /// agents' refs + checkpoint, then compacts), after which `refresh_v3_state`
+    /// re-reduces and caches. A fetch failure (offline) is non-fatal — we then
+    /// confirm against the local view, which is the best available.
+    pub(super) fn confirm_v3_locks(&self) -> Result<()> {
+        if let Err(e) = self.sync.fetch() {
+            tracing::warn!("v3 lock confirm: fetch failed ({e}); confirming against local view");
+        }
+        self.refresh_v3_state()
+    }
+
+    /// Look up the reduction-assigned display id for `uuid` from the last
+    /// cached v3 state (`display_id_map`, REQ-4). Returns `None` when the id is
+    /// not yet frozen by reduction (provisional) or no state is cached.
+    pub(super) fn v3_assigned_display_id(&self, uuid: &Uuid) -> Option<i64> {
+        self.last_v3_state
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.display_id_map.get(uuid).copied())
+    }
+
+    /// Look up the reduction-assigned comment display id from the last cached
+    /// v3 state, by the comment's host issue display id and the comment uuid.
+    /// Returns `None` when the comment's id is provisional (not yet frozen) or
+    /// the state/issue/comment is not present.
+    pub(super) fn v3_assigned_comment_id(
+        &self,
+        issue_display_id: i64,
+        comment_uuid: &Uuid,
+    ) -> Option<i64> {
+        let state = self.last_v3_state.borrow();
+        let state = state.as_ref()?;
+        let issue = state
+            .issues
+            .values()
+            .find(|i| i.display_id == Some(issue_display_id))?;
+        issue.comments.get(comment_uuid).and_then(|c| c.display_id)
+    }
+
+    /// Look up the reduction-assigned milestone display id for `uuid` from the
+    /// last cached v3 state. Returns `None` when not yet assigned by reduction.
+    pub(super) fn v3_assigned_milestone_id(&self, uuid: &Uuid) -> Option<i64> {
+        self.last_v3_state
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.milestones.get(uuid).and_then(|m| m.display_id))
+    }
+
     /// Generate content, commit, and push with retry.
     ///
     /// The `prepare` closure is called on **every** attempt, so it must
     /// re-read any mutable state (counters, issue files) from the cache
     /// which may have changed after a rebase pull.  This prevents stale
     /// display-ID collisions when two agents race.
+    ///
+    /// In [`crate::hub_v3::HubMode::V3`] the retry/file/counter machinery is
+    /// bypassed entirely: `prepare` is run ONCE to produce the events, which are
+    /// appended to the agent's own ref and pushed fast-forward (see
+    /// [`Self::commit_v3`]). The returned `WriteSet`'s `files`/`counters` are
+    /// ignored — no worktree write occurs in v3.
     pub(super) fn write_commit_push<F>(&self, mut prepare: F, message: &str) -> Result<PushOutcome>
     where
         F: FnMut(&Self) -> Result<WriteSet>,
     {
         // Serialize access to the hub cache via SyncManager's lock (#400, #457)
-        let _lock_guard = self.sync.acquire_lock()?;
+        let lock_guard = self.sync.acquire_lock()?;
+
+        if self.is_v3() {
+            // Run prepare ONCE: it claims nothing (claim_display_id returns the
+            // sentinel under V3) and produces the events. Files/counters are
+            // discarded; events drive the ref-only write.
+            let write_set = prepare(self)?;
+            let _ = message; // commit message is a v2 worktree-commit concept
+            return self.commit_v3(write_set.events, &lock_guard);
+        }
+        // V2 path holds the guard for the rest of this scope (RAII release).
+        let _lock_guard = lock_guard;
 
         for attempt in 0..MAX_RETRIES {
             // Recover from broken git states before attempting write (#454, #455, #456)

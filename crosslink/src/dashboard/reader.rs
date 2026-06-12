@@ -21,7 +21,7 @@
 
 #![allow(dead_code)]
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use std::path::Path;
 use std::process::Command;
@@ -140,6 +140,15 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
     let hub_sha = git_rev_parse(clone_path, "crosslink/hub");
     let last_commit_at = git_last_commit_at(clone_path, "crosslink/hub");
 
+    // Mode-route PER PROJECT: the dashboard aggregates many tracked repos,
+    // each independently v2 or v3. A v3 hub keeps no worktree files (issues,
+    // locks, heartbeats all live on per-agent refs + the checkpoint ref), so
+    // the file-scanning path below would read nothing. Resolve the mode from
+    // this project's repo and take the ref-based path when it is v3.
+    if crate::hub_v3::HubMode::resolve(clone_path).is_v3() {
+        return read_snapshot_v3(clone_path, hub_sha, last_commit_at);
+    }
+
     // Prefer the hub-cache worktree (`.crosslink/.hub-cache/`) when it
     // exists — that's where `crosslink sync` keeps `crosslink/hub`
     // checked out. If it's missing we scan clone_path as a fallback
@@ -177,6 +186,138 @@ pub fn read_snapshot(clone_path: &Path) -> Result<HubSnapshot> {
         signature_state,
         last_commit_at,
     })
+}
+
+/// Read a snapshot from a v3 hub (per-agent refs + checkpoint ref).
+///
+/// A v3 hub stores no worktree files: issues/comments live in the reduced
+/// `CheckpointState` on `refs/crosslink/checkpoint`, locks in `state.locks`,
+/// and heartbeats on each agent ref's `heartbeat.json`. This reads the LAST
+/// MATERIALIZED checkpoint directly (no full `reduce`), which is the exact
+/// v2-equivalent freshness: the v2 file path equally reflects the last
+/// `compact`, lagging any un-compacted events until the next fetch/compact.
+///
+/// `meta/ci-status.json` has no v3 ref home and the v2 worktree path is gone,
+/// so `ci_status` is `None`; `signature_state` reuses the shared
+/// [`read_signature_state`] (mode-agnostic — it verifies the hub-tip commit
+/// signature via `SyncManager`). `agent_requests` stays empty: the v3
+/// request/ack streams live on refs and are surfaced through the agent poll
+/// path, not this snapshot reader.
+fn read_snapshot_v3(
+    clone_path: &Path,
+    hub_sha: Option<String>,
+    last_commit_at: Option<DateTime<Utc>>,
+) -> Result<HubSnapshot> {
+    let state = read_checkpoint_state(clone_path)?;
+
+    let issues: Vec<crate::issue_file::IssueFile> =
+        state.issues.values().map(compact_issue_to_file).collect();
+
+    let locks: Vec<LockRecord> = state
+        .locks
+        .into_iter()
+        .map(|(issue_id, entry)| LockRecord {
+            issue_id,
+            lock: crate::locks::Lock {
+                agent_id: entry.agent_id,
+                branch: entry.branch,
+                claimed_at: entry.claimed_at,
+                signed_by: String::new(),
+            },
+        })
+        .collect();
+
+    let mut agents: Vec<crate::locks::Heartbeat> =
+        crate::hub_v3::read_heartbeats_from_refs(clone_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, hb)| hb)
+            .collect();
+    agents.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
+
+    Ok(HubSnapshot {
+        hub_sha,
+        // v3 retires the v1/v2 worktree layout marker; report 3 so downstream
+        // consumers can distinguish the ref-based hub from a v1/v2 file hub.
+        layout_version: 3,
+        issues,
+        agents,
+        locks,
+        agent_requests: Vec::new(),
+        ci_status: None,
+        signature_state: read_signature_state(clone_path),
+        last_commit_at,
+    })
+}
+
+/// Read the reduced [`crate::checkpoint::CheckpointState`] from the local v3
+/// checkpoint ref. Returns the default (empty) state when the ref or its
+/// `state.json` blob is absent (fresh v3 hub that hasn't compacted yet).
+fn read_checkpoint_state(repo_dir: &Path) -> Result<crate::checkpoint::CheckpointState> {
+    let Some(tip) = crate::hub_v3::git_rev_parse_optional(repo_dir, crate::hub_v3::CHECKPOINT_REF)?
+    else {
+        return Ok(crate::checkpoint::CheckpointState::default());
+    };
+    let spec = format!("{tip}:state.json");
+    let Some(bytes) = crate::hub_v3::git_cat_file_blob_optional(repo_dir, &spec)? else {
+        return Ok(crate::checkpoint::CheckpointState::default());
+    };
+    crate::checkpoint::CheckpointState::from_slice(&bytes)
+        .context("failed to parse v3 checkpoint state.json for dashboard snapshot")
+}
+
+/// Map a reduced [`crate::checkpoint::CompactIssue`] to the [`IssueFile`] shape
+/// the snapshot consumers (and `derive_counters`) already expect. The
+/// `BTreeSet`/`BTreeMap` collections become the `Vec` fields of `IssueFile`,
+/// preserving deterministic order.
+fn compact_issue_to_file(issue: &crate::checkpoint::CompactIssue) -> crate::issue_file::IssueFile {
+    let comments = issue
+        .comments
+        .values()
+        .map(|c| crate::issue_file::CommentEntry {
+            id: c.display_id.unwrap_or(0),
+            author: c.author.clone(),
+            content: c.content.clone(),
+            created_at: c.created_at,
+            kind: c.kind.clone(),
+            trigger_type: c.trigger_type.clone(),
+            intervention_context: c.intervention_context.clone(),
+            driver_key_fingerprint: c.driver_key_fingerprint.clone(),
+            signed_by: c.signed_by.clone(),
+            signature: c.signature.clone(),
+        })
+        .collect();
+    let time_entries = issue
+        .time_entries
+        .values()
+        .map(|t| crate::issue_file::TimeEntry {
+            id: t.display_id.unwrap_or(0),
+            started_at: t.started_at,
+            ended_at: t.ended_at,
+            duration_seconds: t.duration_seconds,
+        })
+        .collect();
+    crate::issue_file::IssueFile {
+        uuid: issue.uuid,
+        display_id: issue.display_id,
+        title: issue.title.clone(),
+        description: issue.description.clone(),
+        status: issue.status,
+        priority: issue.priority,
+        parent_uuid: issue.parent_uuid,
+        created_by: issue.created_by.clone(),
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        closed_at: issue.closed_at,
+        scheduled_at: issue.scheduled_at,
+        due_at: issue.due_at,
+        labels: issue.labels.iter().cloned().collect(),
+        comments,
+        blockers: issue.blockers.iter().copied().collect(),
+        related: issue.related.iter().copied().collect(),
+        milestone_uuid: issue.milestone_uuid,
+        time_entries,
+    }
 }
 
 /// Load `meta/ci-status.json` and confirm it matches `hub_sha`. Stale

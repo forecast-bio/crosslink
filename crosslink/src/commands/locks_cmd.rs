@@ -347,8 +347,15 @@ pub fn sync_cmd(crosslink_dir: &Path, db: &Database) -> Result<()> {
         Err(e) => tracing::warn!("layout cleanup failed: {e}"),
     }
 
-    // Hydrate local SQLite from JSON issue files on the coordination branch
-    let stats = hydrate_to_sqlite(sync.cache_path(), db)?;
+    // Hydrate local SQLite. V3 hydrates from the reduced CheckpointState (the
+    // v3 fetch above already adopted refs + compacted); V2 reads JSON files.
+    let stats = if sync.hub_mode().is_v3() {
+        let source = crate::hub_source::RefHubSource::new(sync.cache_path())?;
+        let outcome = crate::compaction::reduce(&source)?;
+        crate::hydration::hydrate_from_state(&outcome.state, db)?
+    } else {
+        hydrate_to_sqlite(sync.cache_path(), db)?
+    };
     // Record the hub ref so lazy auto-hydration knows we're current (#500)
     crate::hydration::record_hydrated_ref(crosslink_dir);
     if stats.issues > 0 {

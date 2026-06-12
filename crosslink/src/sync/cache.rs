@@ -636,7 +636,17 @@ impl SyncManager {
         // Acquire the hub write lock to serialize with write_commit_push (#457).
         // fetch() modifies the working directory (reset, rebase) which races
         // with concurrent CLI writes if not serialized.
-        let _lock_guard = self.acquire_lock()?;
+        let lock_guard = self.acquire_lock()?;
+
+        // V3: ref-based fetch (754a PASS 2). No worktree reset/rebase — adopt
+        // other agents' refs + checkpoint and compact. The V2 path below stays
+        // byte-identical for V2/Absent hubs.
+        if self.hub_mode.is_v3() {
+            self.fetch_v3(&lock_guard);
+            return Ok(());
+        }
+        // V2 path holds the guard for the rest of this scope (RAII release).
+        let _lock_guard = lock_guard;
 
         // Minimal v3-aware warn (full refusal is #754): warn once if this hub
         // has already been migrated to v3 but we are still fetching/operating it
@@ -711,6 +721,218 @@ impl SyncManager {
         }
 
         Ok(())
+    }
+
+    /// V3 ref-based fetch (754a PASS 2, REQ-3).
+    ///
+    /// 1. `git fetch <remote> '+refs/crosslink/checkpoint:refs/crosslink-remote/checkpoint'
+    ///    'refs/crosslink/agents/*:refs/crosslink-remote/agents/*'` — checkpoint
+    ///    forced (pure cache), agent refs non-forced into tracking refs.
+    /// 2. For each OTHER agent's ref, adopt the remote tracking tip
+    ///    (writer-authoritative: the agent is the single writer of its ref, so
+    ///    its remote tip is canonical even after a REQ-11 prune rewrote history
+    ///    non-fast-forward — we never need to merge another writer's ref). Our
+    ///    OWN ref is never moved by fetch (we are its writer).
+    /// 3. Adopt the checkpoint remote tip when its watermark >= our local
+    ///    watermark; otherwise keep local (either is deterministic content).
+    /// 4. Refresh the LOCAL checkpoint from the adopted refs (reduce + write,
+    ///    NO prune). Hydration is driven separately by the caller.
+    ///
+    /// # Why fetch does NOT prune
+    ///
+    /// The REQ-11 own-ref prune rewrites the agent's own ref to a shorter
+    /// history. Doing that on the READ-mostly fetch path would make the next
+    /// own-ref push non-fast-forward against the un-pruned remote ref (our
+    /// pushes are plain fast-forward, REQ-1). Prune is therefore confined to the
+    /// explicit `compact` command (where the checkpoint is pushed and the prune
+    /// is intentional). Fetch only refreshes the local checkpoint CACHE.
+    ///
+    /// Offline / missing remote is non-fatal — local refs are used as-is.
+    fn fetch_v3(&self, hub_lock: &super::HubWriteLock) {
+        let _ = hub_lock; // caller already holds the hub write lock (REQ-8)
+        self.fetch_and_adopt_v3_refs();
+        // Refresh the local checkpoint cache from the adopted refs (no prune).
+        self.refresh_local_checkpoint();
+    }
+
+    /// Fetch the v3 refs and apply the adoption rules WITHOUT acquiring the hub
+    /// lock or writing the checkpoint. The caller MUST already hold the hub
+    /// write lock (REQ-8). Used by [`Self::fetch_v3`] (which then refreshes the
+    /// checkpoint) and by the v3 write path (`commit_v3`), which fetches other
+    /// agents' refs before reducing so a lock claim-confirm sees the full event
+    /// set. Offline / missing-remote is a no-op (local refs are used as-is).
+    pub(crate) fn fetch_and_adopt_v3_refs(&self) {
+        // 1. Fetch checkpoint (forced) + agent refs into tracking refs.
+        let fetch_result = self.git_in_cache(&[
+            "fetch",
+            &self.remote,
+            "+refs/crosslink/checkpoint:refs/crosslink-remote/checkpoint",
+            "refs/crosslink/agents/*:refs/crosslink-remote/agents/*",
+        ]);
+        if fetch_result.is_err() {
+            // Offline / no remote refs yet — nothing to adopt; local refs stand.
+            return;
+        }
+
+        // Our own agent id, so we never move our own ref from the remote.
+        let own_agent_id = crate::identity::AgentConfig::load(&self.crosslink_dir)
+            .ok()
+            .flatten()
+            .map(|a| a.agent_id);
+
+        // 2. Adopt OTHER agents' refs to their remote tracking tip.
+        let tips = match self.list_remote_agent_tips() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("v3 fetch: could not list remote agent tips: {e}");
+                return;
+            }
+        };
+        for (agent_id, remote_tip) in tips {
+            if own_agent_id.as_deref() == Some(agent_id.as_str()) {
+                continue; // never move our own ref from the remote
+            }
+            let local_ref = format!("{}{agent_id}", crate::hub_v3::AGENT_REF_PREFIX);
+            // Writer-authoritative: adopt unconditionally (the remote tip is the
+            // single writer's canonical history, FF or not after their prune).
+            if let Err(e) = self.git_in_cache(&["update-ref", &local_ref, &remote_tip]) {
+                tracing::warn!("v3 fetch: failed to adopt ref '{local_ref}': {e}");
+            }
+        }
+
+        // 3. Adopt the checkpoint by watermark comparison.
+        self.adopt_checkpoint_by_watermark();
+    }
+
+    /// Enumerate `(agent_id, sha)` for every remote-tracking agent ref under
+    /// `refs/crosslink-remote/agents/*`.
+    fn list_remote_agent_tips(&self) -> Result<Vec<(String, String)>> {
+        let output = self.git_in_cache(&[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/crosslink-remote/agents/*",
+        ])?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut out = Vec::new();
+        for line in stdout.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Some((refname, sha)) = line.split_once(' ') else {
+                continue;
+            };
+            if let Some(agent_id) = refname.strip_prefix("refs/crosslink-remote/agents/") {
+                out.push((agent_id.to_string(), sha.to_string()));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Adopt the remote checkpoint tracking tip into the local checkpoint ref
+    /// when the remote watermark is >= the local watermark. Either checkpoint is
+    /// deterministic content for its covered event set, so adopting the
+    /// higher-watermark one minimizes re-reduction without risking data loss.
+    fn adopt_checkpoint_by_watermark(&self) {
+        let remote_tracking = "refs/crosslink-remote/checkpoint";
+        let Some(remote_tip) =
+            crate::hub_v3::git_rev_parse_optional(&self.cache_dir, remote_tracking)
+                .ok()
+                .flatten()
+        else {
+            return; // no remote checkpoint
+        };
+        let local_wm = self.checkpoint_watermark_count(crate::hub_v3::CHECKPOINT_REF);
+        let remote_wm = self.checkpoint_watermark_count(remote_tracking);
+        if remote_wm >= local_wm {
+            if let Err(e) =
+                self.git_in_cache(&["update-ref", crate::hub_v3::CHECKPOINT_REF, &remote_tip])
+            {
+                tracing::warn!("v3 fetch: failed to adopt remote checkpoint: {e}");
+            }
+        }
+    }
+
+    /// Read a coarse "watermark rank" for a checkpoint ref: the number of events
+    /// its watermark covers, approximated by the watermark's `agent_seq` plus a
+    /// presence bit. Returns `i64::MIN`-like 0 when absent. Used only for the
+    /// adopt-higher comparison; the content is identical for equal coverage.
+    fn checkpoint_watermark_count(&self, ref_name: &str) -> i64 {
+        let Some(tip) = crate::hub_v3::git_rev_parse_optional(&self.cache_dir, ref_name)
+            .ok()
+            .flatten()
+        else {
+            return -1;
+        };
+        let spec = format!("{tip}:state.json");
+        let Some(bytes) = crate::hub_v3::git_cat_file_blob_optional(&self.cache_dir, &spec)
+            .ok()
+            .flatten()
+        else {
+            return 0;
+        };
+        match crate::checkpoint::CheckpointState::from_slice(&bytes) {
+            Ok(state) => state
+                .watermark
+                .map_or(0, |w| i64::try_from(w.agent_seq).unwrap_or(i64::MAX)),
+            Err(_) => 0,
+        }
+    }
+
+    /// Refresh the LOCAL checkpoint ref's `state.json` from a fresh reduction of
+    /// the v3 ref namespace, WITHOUT pruning any agent ref and WITHOUT pushing.
+    ///
+    /// The checkpoint is a pure local cache here (REQ-7): writing it lets the
+    /// cheap [`crate::sync::SyncManager::read_locks_v3`] path read materialized
+    /// locks without a full reduce. The idempotency guard inside the checkpoint
+    /// write makes this a true no-op when the state is unchanged. Best-effort: a
+    /// reduce/write failure is logged, never propagated (readers reduce on
+    /// demand regardless).
+    fn refresh_local_checkpoint(&self) {
+        let source = match crate::hub_source::RefHubSource::new(&self.cache_dir) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("v3 fetch: RefHubSource construction failed (non-fatal): {e}");
+                return;
+            }
+        };
+        let mut state = match crate::compaction::reduce(&source) {
+            Ok(o) => o.state,
+            Err(e) => {
+                tracing::warn!("v3 fetch: reduction failed (non-fatal): {e}");
+                return;
+            }
+        };
+        state.compaction_lease = None;
+        let bytes = match serde_json::to_vec_pretty(&state) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("v3 fetch: checkpoint serialization failed (non-fatal): {e}");
+                return;
+            }
+        };
+        // Skip the write when the local checkpoint already matches (idempotent).
+        if let Ok(Some(tip)) =
+            crate::hub_v3::git_rev_parse_optional(&self.cache_dir, crate::hub_v3::CHECKPOINT_REF)
+        {
+            let spec = format!("{tip}:state.json");
+            if let Ok(Some(existing)) =
+                crate::hub_v3::git_cat_file_blob_optional(&self.cache_dir, &spec)
+            {
+                if existing == bytes {
+                    return;
+                }
+            }
+        }
+        if let Err(e) = crate::hub_v3::commit_blob_to_ref(
+            &self.cache_dir,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "crosslink v3 checkpoint (fetch refresh)",
+        ) {
+            tracing::warn!("v3 fetch: local checkpoint refresh failed (non-fatal): {e}");
+        }
     }
 
     /// Rebase local unpushed commits on top of the remote ref, preserving

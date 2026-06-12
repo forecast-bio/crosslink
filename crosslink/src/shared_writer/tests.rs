@@ -2970,7 +2970,11 @@ mod integration {
     #[test]
     fn test_read_max_event_seq_returns_zero_when_no_log() {
         let dir = tempfile::tempdir().unwrap();
-        let seq = SharedWriter::read_max_event_seq(dir.path(), "nonexistent-agent");
+        let seq = SharedWriter::read_max_event_seq(
+            dir.path(),
+            "nonexistent-agent",
+            crate::hub_v3::HubMode::V2,
+        );
         assert_eq!(seq, 0, "Max event seq should be 0 when no log exists");
     }
 

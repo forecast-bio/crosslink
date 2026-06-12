@@ -105,6 +105,13 @@ impl SyncManager {
     ///
     /// Returns an error if the underlying lock files cannot be read or parsed.
     pub fn read_locks_auto(&self) -> Result<LocksFile> {
+        // V3: locks are pure events (REQ-5). Read them from the LOCAL checkpoint
+        // ref's `state.json` directly (no full reduce) so the per-tool-call hot
+        // path (lock_check via PreToolUse hooks) stays cheap. See read_locks_v3
+        // for the staleness window this trades for speed.
+        if self.hub_mode.is_v3() {
+            return self.read_locks_v3();
+        }
         let meta_dir = self.cache_dir.join("meta");
         let version = crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1);
         if version >= 2 {
@@ -112,6 +119,53 @@ impl SyncManager {
         } else {
             self.read_locks()
         }
+    }
+
+    /// Read lock state from the LOCAL v3 checkpoint ref's `state.json`.
+    ///
+    /// This deliberately does NOT run a full reduction: it reads the most
+    /// recently compacted checkpoint (`refs/crosslink/checkpoint` -> `state.json`
+    /// -> `state.locks`) and maps it into a [`LocksFile`]. The hot path here is
+    /// `lock_check` (invoked per tool call by `PreToolUse` hooks), so a full
+    /// `RefHubSource` reduce on every call would be too expensive.
+    ///
+    /// # Staleness window
+    ///
+    /// The returned locks reflect the last LOCAL compaction, not necessarily the
+    /// latest events on every agent ref. This is the SAME class of staleness the
+    /// v2 path already has: v2 `read_locks_auto` reads materialized `locks/*.json`
+    /// written by the last `compact`, equally lagging un-compacted events. A
+    /// preceding `fetch` (which compacts) closes the window in both modes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only if the checkpoint blob exists but does not parse.
+    /// A missing checkpoint (fresh v3 hub) yields an empty [`LocksFile`].
+    pub fn read_locks_v3(&self) -> Result<LocksFile> {
+        let Some(tip) =
+            crate::hub_v3::git_rev_parse_optional(&self.cache_dir, crate::hub_v3::CHECKPOINT_REF)?
+        else {
+            return Ok(LocksFile::empty());
+        };
+        let spec = format!("{tip}:state.json");
+        let Some(bytes) = crate::hub_v3::git_cat_file_blob_optional(&self.cache_dir, &spec)? else {
+            return Ok(LocksFile::empty());
+        };
+        let state = crate::checkpoint::CheckpointState::from_slice(&bytes)
+            .context("failed to parse v3 checkpoint state.json for lock read")?;
+        let mut file = LocksFile::empty();
+        for (issue_id, entry) in state.locks {
+            file.locks.insert(
+                issue_id,
+                crate::locks::Lock {
+                    agent_id: entry.agent_id,
+                    branch: entry.branch,
+                    claimed_at: entry.claimed_at,
+                    signed_by: String::new(),
+                },
+            );
+        }
+        Ok(file)
     }
 
     /// Claim a lock on an issue for the given agent.
@@ -305,7 +359,10 @@ impl SyncManager {
         }
 
         let locks = self.read_locks_auto()?;
-        let heartbeats = self.read_heartbeats()?;
+        // Mode-aware heartbeats: V1 reads `heartbeats/*.json`, V3 reads each
+        // agent ref's `heartbeat.json`. `read_heartbeats` (V1-only) would yield
+        // an empty list on a V3 hub and mark every lock stale.
+        let heartbeats = self.read_heartbeats_auto()?;
         let timeout =
             chrono::Duration::minutes(locks.settings.stale_lock_timeout_minutes.cast_signed());
         let now = Utc::now();
@@ -370,7 +427,8 @@ impl SyncManager {
         }
 
         let locks = self.read_locks_auto()?;
-        let heartbeats = self.read_heartbeats()?;
+        // Mode-aware heartbeats (see `find_stale_locks`): V3 reads agent refs.
+        let heartbeats = self.read_heartbeats_auto()?;
         let timeout =
             chrono::Duration::minutes(locks.settings.stale_lock_timeout_minutes.cast_signed());
         let now = Utc::now();

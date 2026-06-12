@@ -227,6 +227,18 @@ impl SharedWriter {
             commit_msg,
         )?;
 
+        // V3: ids are reduction-assigned; there is no offline-promotion path
+        // (events are durable on the local ref and ids never double-mint). The
+        // CLI id comes from the reduction (display_id_map), falling back to the
+        // freshly-hydrated SQLite row when the id is still provisional.
+        if self.is_v3() {
+            self.hydrate_with_retry(db);
+            if let Some(id) = self.v3_assigned_display_id(&uuid) {
+                return Ok(id);
+            }
+            return db.get_issue_id_by_uuid(&uuid.to_string());
+        }
+
         if outcome == PushOutcome::LocalOnly {
             self.rewrite_as_offline(uuid)?;
             self.hydrate_with_retry(db);
@@ -555,6 +567,10 @@ impl SharedWriter {
     ) -> Result<i64> {
         let agent_id = self.agent.agent_id.clone();
         let comment_id = Cell::new(0i64);
+        // Capture the comment uuid so the V3 path can resolve the
+        // reduction-assigned id after hydration (the event-only path mints no
+        // counter id). Set inside the closure where the uuid is generated.
+        let comment_uuid_cell: Cell<Option<Uuid>> = Cell::new(None);
 
         let _ = self.write_commit_push(
             |writer| {
@@ -571,6 +587,7 @@ impl SharedWriter {
                 // exists solely as the event's idempotency key.
                 let created_at = Utc::now();
                 let comment_uuid = Uuid::new_v4();
+                comment_uuid_cell.set(Some(comment_uuid));
                 // Clone signing material for the event up-front so the file
                 // structs below can move the originals.
                 let ev_signed_by = signed_by.clone();
@@ -645,6 +662,16 @@ impl SharedWriter {
         )?;
 
         self.hydrate_with_retry(db);
+        // V3: the comment id is reduction-assigned (REQ-4). Resolve it from the
+        // reduced state via the captured comment uuid; fall back to the
+        // sentinel if reduction has not yet frozen an id (provisional).
+        if self.is_v3() {
+            if let Some(cuuid) = comment_uuid_cell.get() {
+                if let Some(id) = self.v3_assigned_comment_id(display_id, &cuuid) {
+                    return Ok(id);
+                }
+            }
+        }
         Ok(comment_id.get())
     }
 

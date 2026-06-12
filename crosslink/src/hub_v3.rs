@@ -258,8 +258,17 @@ fn append_inner_impl<A: IntoAbortPoint>(
         });
     }
 
-    // ── Step e: mktree ───────────────────────────────────────────────
-    let tree_sha = git_mktree_single(repo_dir, &blob_sha, "events.log")?;
+    // ── Step e: mktree (sibling-preserving) ──────────────────────────
+    // Read the existing tree at the current tip and upsert events.log,
+    // keeping every unrelated sibling file/subtree (heartbeat.json,
+    // requests-ack/, requests-out/, …) byte-identical. A naive single-entry
+    // mktree here would DROP those siblings once refs carry them.
+    let tree_sha = write_tree_with(
+        repo_dir,
+        old_commit.as_deref(),
+        &[("events.log", BlobRef::Existing(&blob_sha))],
+        &[],
+    )?;
 
     if abort_opt.should_abort_after_mktree() {
         return Ok(RefAppendOutcome {
@@ -608,6 +617,66 @@ const fn classify_hub_version(
     }
 }
 
+// ── Operation mode (754a PASS 2) ──────────────────────────────────────
+
+/// Resolved operation mode for a hub, decided ONCE per `SyncManager` /
+/// `SharedWriter` construction from [`detect_hub_version`].
+///
+/// - [`HubMode::V3`] — the hub carries the v3 marker refs ([`META_REF`] +
+///   [`CHECKPOINT_REF`]). Mutations write events only to the agent's own ref;
+///   state is derived by reduction and hydrated from the resulting
+///   [`crate::checkpoint::CheckpointState`]. No worktree file writes, no
+///   counter reads, no rebase/conflict machinery.
+/// - [`HubMode::V2`] — [`HubVersion::V2Only`] or [`HubVersion::Absent`]. The
+///   today behavior is preserved bit-identically: worktree-file writes through
+///   the hub-cache, counter-claimed display ids, file-based hydration. `Absent`
+///   keeps the current init/bootstrap behavior (v3 bootstrap-from-scratch is
+///   tracked as 754b).
+///
+/// # Why the dual-write flag is ignored in V3
+///
+/// `hub_v3.dual_write` was the v2→v3 BRIDGE: while a hub was still v2, it
+/// mirrored every v2 log append onto the per-agent ref so the v3 layout could
+/// be soaked before cutover. Once the hub is v3 there is no v2 log to mirror
+/// FROM — the agent ref IS the only log — so the flag is a no-op in
+/// [`HubMode::V3`] and is never consulted on the v3 write path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HubMode {
+    /// Legacy worktree-file operation (v2 or uninitialized).
+    V2,
+    /// Per-agent-ref, event-only operation (v3).
+    V3,
+}
+
+impl HubMode {
+    /// Resolve the operation mode from the hub at `repo_dir` (the hub-cache
+    /// worktree or the main repo — refs resolve via the shared object store).
+    ///
+    /// `V3{..}` ⇒ [`HubMode::V3`]; `V2Only` / `Absent` ⇒ [`HubMode::V2`].
+    /// Any detection error degrades to [`HubMode::V2`] (the safe, unchanged
+    /// path) with a debug log — mode resolution must never block construction.
+    #[must_use]
+    pub fn resolve(repo_dir: &Path) -> Self {
+        match detect_hub_version(repo_dir) {
+            Ok(HubVersion::V3 { .. }) => HubMode::V3,
+            Ok(HubVersion::V2Only | HubVersion::Absent) => HubMode::V2,
+            Err(e) => {
+                tracing::debug!(
+                    "HubMode::resolve: detect_hub_version failed for {}: {e}; defaulting to V2",
+                    repo_dir.display()
+                );
+                HubMode::V2
+            }
+        }
+    }
+
+    /// Whether this is the v3 event-only mode.
+    #[must_use]
+    pub const fn is_v3(self) -> bool {
+        matches!(self, HubMode::V3)
+    }
+}
+
 // ── Hub meta marker (META_REF) ────────────────────────────────────────
 
 /// Hub version marker stored as `hub.json` on [`META_REF`].
@@ -654,6 +723,641 @@ pub fn read_hub_meta(repo_dir: &Path) -> Result<Option<HubMeta>> {
     let meta: HubMeta = serde_json::from_slice(&bytes)
         .context("failed to parse hub.json on the meta ref as HubMeta")?;
     Ok(Some(meta))
+}
+
+// ── Heartbeats on agent refs (REQ-7 auxiliary state) ──────────────────
+//
+// Writer-ownership: each agent's heartbeat lives at `heartbeat.json` at the
+// TREE ROOT of that agent's own ref (`refs/crosslink/agents/<id>`), the only
+// ref that agent writes (single-writer invariant). The serialized shape is the
+// SAME [`crate::locks::Heartbeat`] schema the v2 path uses, so a reader parses
+// either source without a v3-specific type. Because the write goes through the
+// sibling-preserving tree core, the agent's `events.log` (and any requests-ack/
+// subtree) survives a heartbeat write byte-for-byte.
+
+/// Write this agent's heartbeat to `heartbeat.json` at the root of its own ref.
+///
+/// One sibling-preserving commit: `events.log` and any `requests-ack/` subtree
+/// on the same ref are carried through unchanged. Reuses the v2
+/// [`crate::locks::Heartbeat`] serialization (`serde_json`) so v2 and v3 readers
+/// share one schema.
+///
+/// # Errors
+///
+/// Returns an error if serialization or any git plumbing step fails, or if the
+/// ref moved concurrently (CAS failure — caller re-reads and retries).
+// Wired into the v2 heartbeat caller by pass 2 (mode routing); flagged dead
+// until then because the bin's duplicate module tree sees no caller.
+#[allow(dead_code)]
+pub fn write_heartbeat_to_ref(
+    repo_dir: &Path,
+    agent_id: &str,
+    heartbeat: &crate::locks::Heartbeat,
+) -> Result<String> {
+    validate_agent_id(agent_id)?;
+    let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
+    let bytes = serde_json::to_vec_pretty(heartbeat)
+        .context("failed to serialize heartbeat for the agent ref")?;
+    let message = format!("crosslink heartbeat: agent {agent_id}");
+    commit_upserts_to_ref(
+        repo_dir,
+        &ref_name,
+        &[("heartbeat.json", BlobRef::Bytes(&bytes))],
+        &[],
+        &message,
+        agent_id,
+        CasExpectation::CurrentTip,
+    )
+}
+
+/// Read every agent's heartbeat by scanning `refs/crosslink/agents/*` and
+/// reading `heartbeat.json` at each tip.
+///
+/// Agents whose ref carries no `heartbeat.json` (e.g. an events-only ref that
+/// has never beaten) are skipped, not errored. Returns `(agent_id, Heartbeat)`
+/// pairs; the embedded `Heartbeat::agent_id` always matches the ref's agent id
+/// for a well-formed hub, but the ref-derived id is authoritative for the tuple.
+///
+/// # Errors
+///
+/// Returns an error if `git for-each-ref` fails or a present `heartbeat.json`
+/// blob does not parse as [`crate::locks::Heartbeat`] (a corrupt heartbeat is
+/// surfaced, not silently dropped).
+// Wired into the dashboard/TUI reader by pass 3; flagged dead until then.
+#[allow(dead_code)]
+pub fn read_heartbeats_from_refs(
+    repo_dir: &Path,
+) -> Result<Vec<(String, crate::locks::Heartbeat)>> {
+    let mut out = Vec::new();
+    for ref_name in for_each_agent_ref(repo_dir)? {
+        let Some(agent_id) = ref_name.strip_prefix(AGENT_REF_PREFIX) else {
+            continue;
+        };
+        let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+            continue;
+        };
+        let spec = format!("{tip}:heartbeat.json");
+        let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+            continue; // No heartbeat on this ref yet — skip.
+        };
+        let hb: crate::locks::Heartbeat = serde_json::from_slice(&bytes).with_context(|| {
+            format!("failed to parse heartbeat.json on ref '{ref_name}' as Heartbeat")
+        })?;
+        out.push((agent_id.to_string(), hb));
+    }
+    Ok(out)
+}
+
+// ── Agent requests / acks on agent refs (design doc §9, REQ-6) ────────
+//
+// Writer-ownership (single-writer-per-ref invariant):
+//
+//   - A DRIVER writes a request into ITS OWN ref under the subtree path
+//     `requests-out/<target_agent_id>--<ulid>.json`. The `<target>--<ulid>`
+//     encoding flattens what would otherwise be two nesting levels into one:
+//     the tree core supports exactly one subtree level, so the target id and
+//     ulid are joined with a `--` separator. Target ids are validated to
+//     `[-_a-zA-Z0-9]{3,64}`, which permits single hyphens but never a doubled
+//     `--`, so the filename is split on the LAST `--` to recover (target, ulid)
+//     unambiguously (a target id like `my-agent` parses correctly).
+//
+//   - The TARGET agent writes acks into ITS OWN ref under the subtree path
+//     `requests-ack/<ulid>.json`.
+//
+// Readers scan ALL agent refs' `requests-out/` subtrees. Both layouts use a
+// one-level subtree (supported by the tree core); requests and acks are
+// consistent in using subtrees rather than mixing flat-root and subtree forms.
+//
+// Signature model (mirrors v2 — see the v2 finding in the PR report): requests
+// and acks are plain JSON carrying a `requested_by` driver fingerprint; they are
+// NOT git-signed at the event level. v2's `poll::process_pending` trusts whatever
+// landed on the local cache because the hub-sync machinery rejects unsigned /
+// bad-signer COMMITS at fetch time (and `reduce` only WARNS on unsigned events,
+// never rejecting). The v3 ref primitives mirror this exactly: they perform no
+// per-request signature gate here — the same fetch-time / trust-boundary model
+// applies, with rogue-agent attribution handled by signed events + allowed_signers
+// + trust revoke per REQ-6.
+
+/// Subtree directory (under a driver's ref) holding outbound requests.
+const REQUESTS_OUT_DIR: &str = "requests-out";
+/// Subtree directory (under a target agent's ref) holding acks.
+const REQUESTS_ACK_DIR: &str = "requests-ack";
+
+/// Encode `(target_agent_id, request_id)` into the flattened one-level filename
+/// `requests-out/<target>--<ulid>.json`.
+fn request_out_path(target_agent_id: &str, request_id: &str) -> String {
+    format!("{REQUESTS_OUT_DIR}/{target_agent_id}--{request_id}.json")
+}
+
+/// Decode a `requests-out/` leaf filename back into `(target_agent_id, ulid)`.
+///
+/// Splits on the LAST `--` so a target id containing single hyphens parses
+/// correctly. Returns `None` for a name that does not end in `.json` or lacks a
+/// `--` separator.
+fn parse_request_out_name(file_name: &str) -> Option<(String, String)> {
+    let stem = file_name.strip_suffix(".json")?;
+    let (target, ulid) = stem.rsplit_once("--")?;
+    if target.is_empty() || ulid.is_empty() {
+        return None;
+    }
+    Some((target.to_string(), ulid.to_string()))
+}
+
+/// Write a request into the DRIVER's OWN ref under
+/// `requests-out/<target_agent_id>--<ulid>.json`.
+///
+/// Single sibling-preserving commit on the driver's ref (its `events.log`,
+/// `heartbeat.json`, and any other `requests-out/` entries survive). The driver
+/// is the sole writer of its ref, upholding the single-writer invariant — the v2
+/// scheme of writing into the TARGET's directory is rejected by this design.
+///
+/// # Errors
+///
+/// Returns an error if either agent id is invalid, serialization fails, or any
+/// git plumbing step fails (including a concurrent CAS move of the driver ref).
+// Wired into the driver CLI path by pass 2; flagged dead until then.
+#[allow(dead_code)]
+pub fn write_request_to_own_ref(
+    repo_dir: &Path,
+    driver_agent_id: &str,
+    target_agent_id: &str,
+    request: &crate::agent_requests::AgentRequest,
+) -> Result<String> {
+    validate_agent_id(driver_agent_id)?;
+    validate_agent_id(target_agent_id)?;
+    let ref_name = format!("{AGENT_REF_PREFIX}{driver_agent_id}");
+    let path = request_out_path(target_agent_id, &request.request_id);
+    let bytes = serde_json::to_vec_pretty(request).context("failed to serialize agent request")?;
+    let message = format!(
+        "crosslink request: {driver_agent_id} -> {target_agent_id} ({})",
+        request.request_id
+    );
+    commit_upserts_to_ref(
+        repo_dir,
+        &ref_name,
+        &[(&path, BlobRef::Bytes(&bytes))],
+        &[],
+        &message,
+        driver_agent_id,
+        CasExpectation::CurrentTip,
+    )
+}
+
+/// Write an ack into the TARGET agent's OWN ref under
+/// `requests-ack/<request_id>.json`.
+///
+/// Single sibling-preserving commit on the target's own ref. The target is the
+/// sole writer of its ref (single-writer invariant).
+///
+/// # Errors
+///
+/// Returns an error if the agent id is invalid, serialization fails, or any git
+/// plumbing step fails (including a concurrent CAS move of the agent ref).
+// Wired into the agent poll path by pass 2; flagged dead until then.
+#[allow(dead_code)]
+pub fn write_ack_to_own_ref(
+    repo_dir: &Path,
+    my_agent_id: &str,
+    request_id: &str,
+    ack: &crate::agent_requests::AgentRequestAck,
+) -> Result<String> {
+    validate_agent_id(my_agent_id)?;
+    let ref_name = format!("{AGENT_REF_PREFIX}{my_agent_id}");
+    let path = format!("{REQUESTS_ACK_DIR}/{request_id}.json");
+    let bytes = serde_json::to_vec_pretty(ack).context("failed to serialize agent request ack")?;
+    let message = format!("crosslink ack: {my_agent_id} ({request_id})");
+    commit_upserts_to_ref(
+        repo_dir,
+        &ref_name,
+        &[(&path, BlobRef::Bytes(&bytes))],
+        &[],
+        &message,
+        my_agent_id,
+        CasExpectation::CurrentTip,
+    )
+}
+
+/// Poll for requests targeting `my_agent_id` that have not yet been acked.
+///
+/// Scans EVERY agent ref's `requests-out/` subtree for entries whose flattened
+/// filename targets `my_agent_id`, then filters out any whose ulid already has a
+/// `requests-ack/<ulid>.json` on `my_agent_id`'s OWN ref. Returns
+/// `(driver_agent_id, AgentRequest)` pairs for the still-pending requests, sorted
+/// by ulid (lexicographic = chronological).
+///
+/// A driver's own ref is skipped only insofar as it would never target itself in
+/// practice; requests addressed to a DIFFERENT agent are not returned.
+///
+/// # Errors
+///
+/// Returns an error if git plumbing fails or a present request blob does not
+/// parse as [`crate::agent_requests::AgentRequest`].
+// Wired into the agent poll path by pass 2; flagged dead until then.
+#[allow(dead_code)]
+pub fn poll_requests_for_agent(
+    repo_dir: &Path,
+    my_agent_id: &str,
+) -> Result<Vec<(String, crate::agent_requests::AgentRequest)>> {
+    validate_agent_id(my_agent_id)?;
+
+    // Collect the set of ulids already acked on my own ref.
+    let my_ref = format!("{AGENT_REF_PREFIX}{my_agent_id}");
+    let acked: std::collections::HashSet<String> = match git_rev_parse_optional(repo_dir, &my_ref)?
+    {
+        None => std::collections::HashSet::new(),
+        Some(tip) => list_subtree_leaf_stems(repo_dir, &tip, REQUESTS_ACK_DIR)?
+            .into_iter()
+            .collect(),
+    };
+
+    let mut out = Vec::new();
+    for ref_name in for_each_agent_ref(repo_dir)? {
+        let Some(driver_id) = ref_name.strip_prefix(AGENT_REF_PREFIX) else {
+            continue;
+        };
+        let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+            continue;
+        };
+        for leaf in list_subtree_leaf_names(repo_dir, &tip, REQUESTS_OUT_DIR)? {
+            let Some((target, ulid)) = parse_request_out_name(&leaf) else {
+                continue;
+            };
+            if target != my_agent_id {
+                continue; // Request for a different target.
+            }
+            if acked.contains(&ulid) {
+                continue; // Already acked by me.
+            }
+            let spec = format!("{tip}:{REQUESTS_OUT_DIR}/{leaf}");
+            let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+                continue;
+            };
+            let request: crate::agent_requests::AgentRequest = serde_json::from_slice(&bytes)
+                .with_context(|| format!("failed to parse request '{leaf}' on ref '{ref_name}'"))?;
+            out.push((driver_id.to_string(), request));
+        }
+    }
+
+    // Sort by ulid (lexicographic == chronological).
+    out.sort_by(|a, b| a.1.request_id.cmp(&b.1.request_id));
+    Ok(out)
+}
+
+/// Read the maximum `agent_seq` recorded in this agent's OWN REF `events.log`.
+///
+/// Returns `Ok(0)` when the ref does not exist or carries no `events.log`
+/// (genesis state). Used by the v3 write path to initialize the per-session
+/// sequence counter from the durable ref rather than a worktree file, so the
+/// sequence never regresses after a REQ-11 prune drops covered events (prune
+/// keeps the highest-seq events, so the max is preserved across prune as long
+/// as any event remains; a fully-pruned ref legitimately resets to 0 because
+/// every prior event is checkpoint-covered).
+///
+/// # Errors
+///
+/// Returns an error if git plumbing fails or the `events.log` blob does not
+/// parse (a corrupt ref is surfaced, not silently treated as empty).
+pub fn read_max_event_seq_from_ref(repo_dir: &Path, agent_id: &str) -> Result<u64> {
+    validate_agent_id(agent_id)?;
+    let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
+    let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+        return Ok(0);
+    };
+    let spec = format!("{tip}:events.log");
+    let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+        return Ok(0);
+    };
+    let events = read_events_from_bytes(&bytes)
+        .with_context(|| format!("failed to parse events.log on '{ref_name}' for seq init"))?;
+    Ok(events.iter().map(|e| e.agent_seq).max().unwrap_or(0))
+}
+
+/// Enumerate `refs/crosslink/agents/*` ref names.
+fn for_each_agent_ref(repo_dir: &Path) -> Result<Vec<String>> {
+    let pattern = format!("{AGENT_REF_PREFIX}*");
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["for-each-ref", "--format=%(refname)", &pattern])
+        .output()
+        .with_context(|| format!("failed to run git for-each-ref for '{pattern}'"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "git for-each-ref failed for '{}': {}",
+            pattern,
+            stderr.trim()
+        );
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// List the leaf file names (e.g. `01J...--abc.json`) of a one-level subtree
+/// `<dir>` at `commit_sha`. Returns an empty vec if the subtree is absent.
+fn list_subtree_leaf_names(repo_dir: &Path, commit_sha: &str, dir: &str) -> Result<Vec<String>> {
+    let spec = format!("{commit_sha}:{dir}");
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["ls-tree", "--name-only", &spec])
+        .output()
+        .with_context(|| format!("failed to run git ls-tree for '{spec}'"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Absent subtree → empty, not an error.
+        if stderr.contains("Not a valid object name")
+            || stderr.contains("does not exist")
+            || stderr.contains("not a tree")
+            || stderr.contains("Not a tree")
+        {
+            return Ok(Vec::new());
+        }
+        anyhow::bail!("git ls-tree failed for '{}': {}", spec, stderr.trim());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// List the `.json` leaf STEMS (filename without the `.json` suffix) of a
+/// one-level subtree `<dir>` at `commit_sha`. Used to enumerate acked ulids.
+fn list_subtree_leaf_stems(repo_dir: &Path, commit_sha: &str, dir: &str) -> Result<Vec<String>> {
+    Ok(list_subtree_leaf_names(repo_dir, commit_sha, dir)?
+        .into_iter()
+        .filter_map(|n| n.strip_suffix(".json").map(str::to_string))
+        .collect())
+}
+
+// ── V3 compaction cycle (REQ-7 checkpoint + REQ-11 own-ref prune) ─────
+//
+// compact_v3 lives HERE (hub_v3.rs) rather than in compaction.rs because it
+// depends on the v3 ref-write primitives in THIS module (commit_blob_to_ref,
+// push_ref_with_lease, commit_log_bytes) plus RefHubSource. compaction.rs is the
+// I/O-agnostic reducer that already sits BELOW hub_v3 in the dependency graph
+// (hub_v3 → hub_source/RefHubSource → compaction::reduce); putting compact_v3 in
+// compaction.rs would invert that and create a cycle. hub_v3 → compaction::reduce
+// is the existing, acyclic direction.
+
+/// Outcome of a [`compact_v3`] cycle.
+#[derive(Debug, Clone)]
+// Consumed by the v3 compact CLI path (pass 2) and tests; the bin's duplicate
+// module tree flags the fields as dead until that caller lands.
+#[allow(dead_code)]
+pub struct CompactV3Result {
+    /// Number of events reduced in this pass (`reduce` outcome).
+    pub events_processed: usize,
+    /// SHA of the checkpoint commit written this pass, or `None` when the
+    /// checkpoint CAS was lost to a concurrent compactor (benign no-op).
+    pub checkpoint_commit: Option<String>,
+    /// Whether the checkpoint was successfully pushed (only when `remote` set).
+    pub checkpoint_pushed: bool,
+    /// Number of events pruned from this agent's OWN ref (REQ-11). Zero unless
+    /// the checkpoint was committed AND (if remote) pushed.
+    pub events_pruned: usize,
+}
+
+/// Run a full v3 compaction cycle for `agent_id`.
+///
+/// 1. `reduce(RefHubSource)` → materialized [`CheckpointState`].
+/// 2. Serialize the state and commit it to [`CHECKPOINT_REF`] as `state.json`
+///    via [`commit_blob_to_ref`] (CAS `CurrentTip`). A concurrent local
+///    compactor that moved the checkpoint first wins the CAS; THIS process loses
+///    it benignly (deterministic content — both produce the same state), logs at
+///    debug, and returns with `checkpoint_commit: None` and no prune.
+/// 3. If `remote` is `Some`, push the checkpoint with `--force-with-lease`. A
+///    lease loss is benign (REQ-7: identical content) → logged at debug, not an
+///    error, and prune is skipped.
+/// 4. REQ-11 prune: ONLY after the checkpoint covering watermark `W` is committed
+///    AND (if remote) pushed successfully, rewrite this agent's OWN ref's
+///    `events.log` to drop events with `OrderingKey <= W`. The rewrite goes
+///    through the sibling-preserving [`commit_log_bytes`], so the agent's
+///    heartbeat/requests-ack siblings survive. Other agents' refs are NEVER
+///    pruned.
+///
+/// # Prune safety invariant
+///
+/// Prune happens only when the checkpoint that COVERS the pruned events is
+/// durably visible (committed locally, and — if a remote is configured — pushed).
+/// Pruning before the covering checkpoint is pushed could let a fresh clone fetch
+/// the pruned ref but an older checkpoint, losing events not yet covered by any
+/// visible checkpoint. Hence: no push success ⇒ no prune.
+///
+/// No materialized files, no worktree writes — pure object-store plumbing.
+///
+/// # Errors
+///
+/// Returns an error if reduction, checkpoint serialization/commit, or the prune
+/// rewrite fails. A lost checkpoint CAS or a lost push lease is NOT an error.
+// Wired into the v3 compact CLI path by pass 2; flagged dead until then.
+#[allow(dead_code)]
+pub fn compact_v3(
+    repo_dir: &Path,
+    agent_id: &str,
+    _hub_lock: &crate::sync::HubWriteLock,
+    remote: Option<&str>,
+) -> Result<CompactV3Result> {
+    validate_agent_id(agent_id)?;
+
+    // 1. Reduce the full v3 ref namespace.
+    let source = crate::hub_source::RefHubSource::new(repo_dir)
+        .context("failed to construct RefHubSource for v3 compaction")?;
+    let outcome = crate::compaction::reduce(&source).context("v3 reduction failed")?;
+    let events_processed = outcome.events_processed;
+    let watermark = outcome.state.watermark.clone();
+
+    // 2. Serialize and commit the checkpoint (CAS CurrentTip).
+    let mut state = outcome.state;
+    state.compaction_lease = None;
+    let state_bytes =
+        serde_json::to_vec_pretty(&state).context("failed to serialize v3 checkpoint state")?;
+
+    // Idempotency guard: if the existing checkpoint's `state.json` already
+    // equals the freshly-reduced bytes, writing a new commit would only churn
+    // the ref SHA (new commit object, same content) and break SHA-level
+    // idempotency for callers that re-compact opportunistically (e.g. fetch).
+    // Skip the commit AND the prune — nothing changed.
+    if let Some(existing_tip) = git_rev_parse_optional(repo_dir, CHECKPOINT_REF)? {
+        let spec = format!("{existing_tip}:state.json");
+        if let Some(existing_bytes) = git_cat_file_blob_optional(repo_dir, &spec)? {
+            if existing_bytes == state_bytes {
+                tracing::debug!(
+                    "v3 compaction: checkpoint already current (byte-identical); no-op"
+                );
+                return Ok(CompactV3Result {
+                    events_processed,
+                    checkpoint_commit: Some(existing_tip),
+                    checkpoint_pushed: false,
+                    events_pruned: 0,
+                });
+            }
+        }
+    }
+
+    let checkpoint_commit = match commit_blob_to_ref(
+        repo_dir,
+        CHECKPOINT_REF,
+        "state.json",
+        &state_bytes,
+        "crosslink v3 checkpoint",
+    ) {
+        Ok(sha) => Some(sha),
+        Err(e) => {
+            // A concurrent local compactor moved the checkpoint first. The
+            // content is deterministic for the same event set, so this is a
+            // benign no-op: log at debug and skip the rest (no prune).
+            let msg = format!("{e:?}");
+            if msg.contains("ref moved concurrently") {
+                tracing::debug!(
+                    "v3 compaction: checkpoint CAS lost to a concurrent compactor (benign): {msg}"
+                );
+                return Ok(CompactV3Result {
+                    events_processed,
+                    checkpoint_commit: None,
+                    checkpoint_pushed: false,
+                    events_pruned: 0,
+                });
+            }
+            return Err(e).context("failed to commit v3 checkpoint");
+        }
+    };
+
+    // 3. Push the checkpoint with --force-with-lease, if a remote is configured.
+    //    Lease loss is benign (deterministic content) → debug, not error.
+    let checkpoint_pushed = match remote {
+        None => false,
+        Some(rem) => {
+            let expected = remote_checkpoint_sha(repo_dir, rem);
+            match push_ref_with_lease(repo_dir, rem, CHECKPOINT_REF, expected.as_deref())? {
+                PushOutcome::Pushed => true,
+                PushOutcome::NonFastForward => {
+                    tracing::debug!(
+                        "v3 compaction: checkpoint lease lost (benign, deterministic content); \
+                         skipping prune this cycle"
+                    );
+                    false
+                }
+                other => {
+                    tracing::debug!(
+                        "v3 compaction: checkpoint push did not succeed ({other:?}); \
+                         skipping prune this cycle"
+                    );
+                    false
+                }
+            }
+        }
+    };
+
+    // 4. REQ-11 prune — only when the covering checkpoint is durably visible.
+    //    Local-only (remote=None): a committed checkpoint suffices.
+    //    Remote configured: the checkpoint must have PUSHED.
+    let prune_ok = checkpoint_commit.is_some() && (remote.is_none() || checkpoint_pushed);
+    let events_pruned = if prune_ok {
+        match &watermark {
+            Some(wm) => prune_own_ref(repo_dir, agent_id, wm)?,
+            None => 0,
+        }
+    } else {
+        0
+    };
+
+    // 5. After a prune the local own ref is REWRITTEN (shorter history), so a
+    //    subsequent plain own-ref push would be non-fast-forward against the
+    //    un-pruned remote. The own ref is single-writer (REQ-11), so force the
+    //    remote ref to the pruned local tip to keep them in sync and preserve
+    //    the fast-forward invariant for future plain pushes. Only when a remote
+    //    is configured and we actually pruned. A force-push failure here is
+    //    benign (the events remain durable locally; the next compact retries).
+    if events_pruned > 0 {
+        if let Some(rem) = remote {
+            let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
+            let refspec = format!("+{ref_name}:{ref_name}");
+            match Command::new("git")
+                .current_dir(repo_dir)
+                .args(["push", rem, &refspec])
+                .output()
+            {
+                Ok(out) if out.status.success() => {}
+                Ok(out) => tracing::debug!(
+                    "v3 compaction: own-ref prune force-push did not complete (benign): {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ),
+                Err(e) => tracing::debug!(
+                    "v3 compaction: own-ref prune force-push could not run (benign): {e}"
+                ),
+            }
+        }
+    }
+
+    Ok(CompactV3Result {
+        events_processed,
+        checkpoint_commit,
+        checkpoint_pushed,
+        events_pruned,
+    })
+}
+
+/// Resolve the remote-tracking checkpoint SHA to use as the `--force-with-lease`
+/// baseline, or `None` if no tracking ref is known (git falls back to its own
+/// remote-tracking ref).
+fn remote_checkpoint_sha(repo_dir: &Path, _remote: &str) -> Option<String> {
+    // The fetch refspec maps refs/crosslink/* → refs/crosslink-remote/*.
+    let tracking = "refs/crosslink-remote/checkpoint";
+    git_rev_parse_optional(repo_dir, tracking).ok().flatten()
+}
+
+/// Rewrite this agent's OWN ref `events.log`, dropping events with
+/// `OrderingKey <= watermark`. Sibling-preserving via [`commit_log_bytes`].
+///
+/// Returns the number of events pruned. NEVER touches another agent's ref.
+fn prune_own_ref(
+    repo_dir: &Path,
+    agent_id: &str,
+    watermark: &crate::events::OrderingKey,
+) -> Result<usize> {
+    let ref_name = format!("{AGENT_REF_PREFIX}{agent_id}");
+    let Some(tip) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+        return Ok(0);
+    };
+    let spec = format!("{tip}:events.log");
+    let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+        return Ok(0);
+    };
+    let all = read_events_from_bytes(&bytes)
+        .with_context(|| format!("failed to parse events.log on '{ref_name}' for prune"))?;
+    let before = all.len();
+    let remaining: Vec<_> = all
+        .into_iter()
+        .filter(|e| crate::events::OrderingKey::from_envelope(e) > *watermark)
+        .collect();
+    let pruned = before - remaining.len();
+    if pruned == 0 {
+        return Ok(0);
+    }
+
+    // Re-serialize the pruned log to NDJSON bytes (byte-identical to the
+    // append/write path: one JSON line per event, trailing newline).
+    let mut out = Vec::new();
+    for ev in &remaining {
+        let line = serde_json::to_string(ev).context("failed to serialize pruned event")?;
+        out.extend_from_slice(line.as_bytes());
+        out.push(b'\n');
+    }
+
+    commit_log_bytes(
+        repo_dir,
+        agent_id,
+        &out,
+        &format!("crosslink v3 prune: dropped {pruned} covered events"),
+    )?;
+    Ok(pruned)
 }
 
 // ── Config helper ────────────────────────────────────────────────────
@@ -785,7 +1489,7 @@ pub(crate) fn append_event_to_ref_with_abort(
 
 /// Run `git rev-parse --verify --quiet <ref>` and return `Some(sha)` if the
 /// ref exists, or `None` if it doesn't.
-fn git_rev_parse_optional(repo_dir: &Path, ref_name: &str) -> Result<Option<String>> {
+pub(crate) fn git_rev_parse_optional(repo_dir: &Path, ref_name: &str) -> Result<Option<String>> {
     let output = Command::new("git")
         .current_dir(repo_dir)
         .args(["rev-parse", "--verify", "--quiet", ref_name])
@@ -806,7 +1510,10 @@ fn git_rev_parse_optional(repo_dir: &Path, ref_name: &str) -> Result<Option<Stri
 
 /// Read a blob by `<commit>:<path>` spec. Returns `None` if the object does
 /// not exist (missing path); returns an error for other failures.
-fn git_cat_file_blob_optional(repo_dir: &Path, blob_spec: &str) -> Result<Option<Vec<u8>>> {
+pub(crate) fn git_cat_file_blob_optional(
+    repo_dir: &Path,
+    blob_spec: &str,
+) -> Result<Option<Vec<u8>>> {
     let output = Command::new("git")
         .current_dir(repo_dir)
         .args(["cat-file", "blob", blob_spec])
@@ -985,16 +1692,53 @@ fn commit_single_file_tree(
     committer_id: &str,
     expected: CasExpectation<'_>,
 ) -> Result<String> {
-    let blob_sha = git_hash_object(repo_dir, bytes)?;
-    let tree_sha = git_mktree_single(repo_dir, &blob_sha, file_name)?;
-    commit_tree_and_update_ref(
+    commit_upserts_to_ref(
         repo_dir,
         ref_name,
-        &tree_sha,
+        &[(file_name, BlobRef::Bytes(bytes))],
+        &[],
         message,
         committer_id,
         expected,
     )
+}
+
+/// Sibling-preserving multi-path commit core.
+///
+/// Resolves the CAS base/old value from `expected`, builds the new tree from
+/// that base via [`write_tree_with`] (applying `upserts` and `deletes` while
+/// keeping every unrelated sibling), commits it as a child of the base, and
+/// CAS-updates `ref_name`.
+///
+/// This is THE shared core for every hub-v3 ref write: a naive single-entry
+/// `mktree` would drop sibling files (heartbeat.json, requests-ack/, …) once
+/// refs carry them, so the append path, checkpoint writes, meta writes,
+/// heartbeats, requests, and acks all route through here.
+///
+/// # Errors
+///
+/// Returns `"ref moved concurrently: <ref>"` on a CAS failure, or any git
+/// plumbing / path-nesting error from [`write_tree_with`].
+fn commit_upserts_to_ref(
+    repo_dir: &Path,
+    ref_name: &str,
+    upserts: &[(&str, BlobRef<'_>)],
+    deletes: &[&str],
+    message: &str,
+    committer_id: &str,
+    expected: CasExpectation<'_>,
+) -> Result<String> {
+    let old_commit = resolve_cas_old(repo_dir, ref_name, expected)?;
+    let tree_sha = write_tree_with(repo_dir, old_commit.as_deref(), upserts, deletes)?;
+    let commit_sha = git_commit_tree(
+        repo_dir,
+        &tree_sha,
+        old_commit.as_deref(),
+        message,
+        committer_id,
+    )?;
+    git_update_ref_cas(repo_dir, ref_name, &commit_sha, old_commit.as_deref())?;
+    Ok(commit_sha)
 }
 
 /// Resolve the CAS old-value and the commit parent for an `expected`
@@ -1020,28 +1764,6 @@ fn resolve_cas_old(
         CasExpectation::MustMatch(sha) => Ok(Some(sha.to_string())),
         CasExpectation::CurrentTip => git_rev_parse_optional(repo_dir, ref_name),
     }
-}
-
-/// Commit `tree_sha` onto `ref_name` with a parent/CAS resolved from `expected`,
-/// then CAS-update the ref. Shared by the single-file and multi-file paths.
-fn commit_tree_and_update_ref(
-    repo_dir: &Path,
-    ref_name: &str,
-    tree_sha: &str,
-    message: &str,
-    committer_id: &str,
-    expected: CasExpectation<'_>,
-) -> Result<String> {
-    let old_commit = resolve_cas_old(repo_dir, ref_name, expected)?;
-    let commit_sha = git_commit_tree(
-        repo_dir,
-        tree_sha,
-        old_commit.as_deref(),
-        message,
-        committer_id,
-    )?;
-    git_update_ref_cas(repo_dir, ref_name, &commit_sha, old_commit.as_deref())?;
-    Ok(commit_sha)
 }
 
 /// Commit a single blob to an arbitrary ref at the TREE ROOT under `file_name`.
@@ -1109,52 +1831,357 @@ pub fn commit_files_to_ref(
         "commit_files_to_ref requires at least one file"
     );
 
-    // Hash every blob, then sort tree lines by file name (git tree invariant).
-    let mut entries: Vec<(String, String)> = Vec::with_capacity(files.len());
-    for (name, bytes) in files {
+    // Validate names (root-level only) and reject duplicates before building.
+    for (name, _) in files {
         anyhow::ensure!(
             !name.contains('/') && !name.is_empty(),
             "commit_files_to_ref file name must be a non-empty tree-root name, got '{name}'"
         );
-        let blob_sha = git_hash_object(repo_dir, bytes)?;
-        entries.push(((*name).to_string(), blob_sha));
     }
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    for pair in entries.windows(2) {
+    let mut sorted: Vec<&str> = files.iter().map(|(n, _)| *n).collect();
+    sorted.sort_unstable();
+    for pair in sorted.windows(2) {
         anyhow::ensure!(
-            pair[0].0 != pair[1].0,
+            pair[0] != pair[1],
             "commit_files_to_ref got duplicate file name '{}'",
-            pair[0].0
+            pair[0]
         );
     }
 
-    let tree_sha = git_mktree_multi(repo_dir, &entries)?;
-    commit_tree_and_update_ref(
+    let upserts: Vec<(&str, BlobRef<'_>)> = files
+        .iter()
+        .map(|(name, bytes)| (*name, BlobRef::Bytes(bytes)))
+        .collect();
+    commit_upserts_to_ref(
         repo_dir,
         ref_name,
-        &tree_sha,
+        &upserts,
+        &[],
         message,
         "crosslink",
         CasExpectation::CurrentTip,
     )
 }
 
-/// Create a tree from a single blob under an arbitrary `file_name` via
-/// `git mktree`. Generalizes [`git_mktree`] (which hardcodes `events.log`).
-fn git_mktree_single(repo_dir: &Path, blob_sha: &str, file_name: &str) -> Result<String> {
-    git_mktree_multi(repo_dir, &[(file_name.to_string(), blob_sha.to_string())])
+// ── Sibling-preserving tree core (REQ-1/REQ-11 prerequisite) ─────────
+
+/// One entry of a git tree as emitted by `git ls-tree <sha>`.
+///
+/// Subtree entries (`object_type == "tree"`) are retained verbatim so nested
+/// directories survive a root-level rewrite without recursion — the existing
+/// subtree SHA is fed straight back to `git mktree` unless an upsert/delete
+/// explicitly targets a path inside it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TreeEntry {
+    /// Git mode string, e.g. `100644` (blob), `100755` (exec), `040000` (tree).
+    mode: String,
+    /// `blob` or `tree`.
+    object_type: String,
+    /// Object SHA.
+    sha: String,
+    /// Entry name (a single path component — never contains `/`).
+    name: String,
 }
 
-/// Create a tree from sorted `(file_name, blob_sha)` entries via `git mktree`.
-fn git_mktree_multi(repo_dir: &Path, entries: &[(String, String)]) -> Result<String> {
-    use std::fmt::Write as _;
+impl TreeEntry {
+    /// Render this entry as a single `git mktree` input line:
+    /// `<mode> SP <type> SP <sha> TAB <name>`.
+    fn mktree_line(&self) -> String {
+        format!(
+            "{} {} {}\t{}",
+            self.mode, self.object_type, self.sha, self.name
+        )
+    }
+}
+
+/// Source of a blob to write into a tree: either pre-hashed (the append path
+/// already ran `hash-object`) or raw bytes to hash now.
+enum BlobRef<'a> {
+    /// A blob SHA already present in the object store.
+    Existing(&'a str),
+    /// Raw bytes to `git hash-object -w` before insertion.
+    Bytes(&'a [u8]),
+}
+
+impl BlobRef<'_> {
+    /// Resolve to a concrete blob SHA, hashing if necessary.
+    fn resolve(&self, repo_dir: &Path) -> Result<String> {
+        match self {
+            BlobRef::Existing(sha) => Ok((*sha).to_string()),
+            BlobRef::Bytes(bytes) => git_hash_object(repo_dir, bytes),
+        }
+    }
+}
+
+/// Read the entries of the tree at `commit_sha` via `git ls-tree <sha>`.
+///
+/// Returns one [`TreeEntry`] per top-level entry. Subtrees are kept as tree
+/// entries verbatim (their SHA is preserved), so nested directories survive a
+/// root-level rewrite without recursing into them.
+///
+/// # Errors
+///
+/// Returns an error if `git ls-tree` cannot be spawned or fails, or if a line
+/// cannot be parsed in the documented `<mode> SP <type> SP <sha> TAB <name>`
+/// format.
+fn read_tree_entries(repo_dir: &Path, commit_sha: &str) -> Result<Vec<TreeEntry>> {
+    let spec = format!("{commit_sha}^{{tree}}");
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["ls-tree", &spec])
+        .output()
+        .with_context(|| format!("failed to run git ls-tree for '{spec}'"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git ls-tree failed for '{}': {}", spec, stderr.trim());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut entries = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        // Format: "<mode> SP <type> SP <sha>\t<name>"
+        let (meta, name) = line
+            .split_once('\t')
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no TAB): {line}"))?;
+        let mut parts = meta.split_whitespace();
+        let mode = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no mode): {line}"))?;
+        let object_type = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no type): {line}"))?;
+        let sha = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no sha): {line}"))?;
+        entries.push(TreeEntry {
+            mode: mode.to_string(),
+            object_type: object_type.to_string(),
+            sha: sha.to_string(),
+            name: name.to_string(),
+        });
+    }
+    Ok(entries)
+}
+
+/// Build a new tree from an optional `base` commit's tree, applying `upserts`
+/// (insert-or-replace) and `deletes` while preserving every unrelated sibling.
+///
+/// # Path nesting
+///
+/// At most ONE level of nesting is supported. A path is either:
+/// - a root-level file (`"events.log"`, `"heartbeat.json"`), or
+/// - a one-level subtree path (`"requests-ack/<ulid>.json"`).
+///
+/// Paths with two or more `/` separators are rejected with an error — the v3
+/// design needs exactly one nesting level (driver requests under
+/// `requests-out/<target>--<ulid>.json`, acks under `requests-ack/<ulid>.json`),
+/// and deeper trees would require recursion this core deliberately avoids.
+///
+/// For a subtree path the existing subtree (if any) is read, the target leaf is
+/// upserted/deleted within it, and the rebuilt subtree replaces the old one in
+/// the root entry list. A subtree that becomes empty after a delete is dropped
+/// from the root entirely.
+///
+/// `base = None` builds the tree from scratch (genesis). The returned SHA is a
+/// tree object suitable for `git commit-tree`.
+///
+/// # Errors
+///
+/// Returns an error on a path with deeper-than-one nesting, an empty path
+/// component, any git plumbing failure, or a name collision between a file and
+/// a subtree at the root.
+fn write_tree_with(
+    repo_dir: &Path,
+    base: Option<&str>,
+    upserts: &[(&str, BlobRef<'_>)],
+    deletes: &[&str],
+) -> Result<String> {
+    use std::collections::BTreeMap;
+
+    // Start from the base tree's entries (or empty for genesis), keyed by name
+    // so upserts/deletes are O(log n) and ordering is deterministic.
+    let mut root: BTreeMap<String, TreeEntry> = BTreeMap::new();
+    if let Some(commit_sha) = base {
+        for entry in read_tree_entries(repo_dir, commit_sha)? {
+            root.insert(entry.name.clone(), entry);
+        }
+    }
+
+    // Pending mutations to one-level subtrees, accumulated so multiple
+    // upserts/deletes into the SAME subtree rebuild it once. Maps
+    // subtree-name -> (leaf-name -> Option<blob_sha>); None means delete.
+    let mut subtree_ops: BTreeMap<String, BTreeMap<String, Option<String>>> = BTreeMap::new();
+
+    // Classify and stage every upsert.
+    for (path, blob) in upserts {
+        match split_one_level(path)? {
+            (None, file) => {
+                let blob_sha = blob.resolve(repo_dir)?;
+                root.insert(
+                    file.to_string(),
+                    TreeEntry {
+                        mode: "100644".to_string(),
+                        object_type: "blob".to_string(),
+                        sha: blob_sha,
+                        name: file.to_string(),
+                    },
+                );
+            }
+            (Some(dir), leaf) => {
+                let blob_sha = blob.resolve(repo_dir)?;
+                subtree_ops
+                    .entry(dir.to_string())
+                    .or_default()
+                    .insert(leaf.to_string(), Some(blob_sha));
+            }
+        }
+    }
+
+    // Classify and stage every delete.
+    for path in deletes {
+        match split_one_level(path)? {
+            (None, file) => {
+                root.remove(file);
+            }
+            (Some(dir), leaf) => {
+                subtree_ops
+                    .entry(dir.to_string())
+                    .or_default()
+                    .insert(leaf.to_string(), None);
+            }
+        }
+    }
+
+    // Rebuild each touched subtree from its current entries + staged ops.
+    for (dir, ops) in subtree_ops {
+        // Read the existing subtree's entries, if the subtree exists in root.
+        let mut leaves: BTreeMap<String, TreeEntry> = BTreeMap::new();
+        if let Some(existing) = root.get(&dir) {
+            anyhow::ensure!(
+                existing.object_type == "tree",
+                "write_tree_with: '{dir}' exists as a {} but a subtree path targets it",
+                existing.object_type
+            );
+            for entry in read_subtree_entries(repo_dir, &existing.sha)? {
+                leaves.insert(entry.name.clone(), entry);
+            }
+        }
+
+        for (leaf, maybe_sha) in ops {
+            match maybe_sha {
+                Some(sha) => {
+                    leaves.insert(
+                        leaf.clone(),
+                        TreeEntry {
+                            mode: "100644".to_string(),
+                            object_type: "blob".to_string(),
+                            sha,
+                            name: leaf.clone(),
+                        },
+                    );
+                }
+                None => {
+                    leaves.remove(&leaf);
+                }
+            }
+        }
+
+        if leaves.is_empty() {
+            // Subtree emptied out — drop it from the root entirely.
+            root.remove(&dir);
+        } else {
+            let subtree_sha = mktree_from_entries(repo_dir, leaves.values())?;
+            root.insert(
+                dir.clone(),
+                TreeEntry {
+                    mode: "040000".to_string(),
+                    object_type: "tree".to_string(),
+                    sha: subtree_sha,
+                    name: dir,
+                },
+            );
+        }
+    }
+
+    mktree_from_entries(repo_dir, root.values())
+}
+
+/// Read the entries of a subtree object (a `tree` SHA, not a commit) via
+/// `git ls-tree <tree-sha>`. Each entry is a leaf of a one-level subtree.
+fn read_subtree_entries(repo_dir: &Path, tree_sha: &str) -> Result<Vec<TreeEntry>> {
+    // For a one-level subtree we only expect blob leaves, but read generically.
+    read_tree_entries_raw(repo_dir, tree_sha)
+}
+
+/// Run `git ls-tree <sha>` (the SHA may be a tree or a commit; `^{tree}` is not
+/// appended) and parse entries. Shared parser used by both the root and subtree
+/// readers.
+fn read_tree_entries_raw(repo_dir: &Path, sha: &str) -> Result<Vec<TreeEntry>> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["ls-tree", sha])
+        .output()
+        .with_context(|| format!("failed to run git ls-tree for '{sha}'"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git ls-tree failed for '{}': {}", sha, stderr.trim());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut entries = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let (meta, name) = line
+            .split_once('\t')
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no TAB): {line}"))?;
+        let mut parts = meta.split_whitespace();
+        let mode = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no mode): {line}"))?;
+        let object_type = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no type): {line}"))?;
+        let sha_field = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("malformed git ls-tree line (no sha): {line}"))?;
+        entries.push(TreeEntry {
+            mode: mode.to_string(),
+            object_type: object_type.to_string(),
+            sha: sha_field.to_string(),
+            name: name.to_string(),
+        });
+    }
+    Ok(entries)
+}
+
+/// Feed `entries` (in iterator order — callers pass sorted `BTreeMap::values`)
+/// to `git mktree` and return the resulting tree SHA. Empty input yields the
+/// canonical empty-tree object.
+fn mktree_from_entries<'a, I>(repo_dir: &Path, entries: I) -> Result<String>
+where
+    I: Iterator<Item = &'a TreeEntry>,
+{
     use std::io::Write as _;
 
     let mut input = String::new();
-    for (name, blob_sha) in entries {
-        // `write!` to a String is infallible; the trait method returns Result so
-        // the unused-result is intentionally discarded.
-        let _ = writeln!(input, "100644 blob {blob_sha}\t{name}");
+    let mut any = false;
+    for entry in entries {
+        any = true;
+        input.push_str(&entry.mktree_line());
+        input.push('\n');
+    }
+
+    if !any {
+        // `git mktree` with empty stdin produces the canonical empty tree.
+        // Use `git hash-object -t tree /dev/stdin` semantics via mktree, which
+        // returns the well-known empty-tree SHA. Feeding empty stdin to mktree
+        // is valid and yields that SHA.
+        input.clear();
     }
 
     let mut child = Command::new("git")
@@ -1187,6 +2214,41 @@ fn git_mktree_multi(repo_dir: &Path, entries: &[(String, String)]) -> Result<Str
         anyhow::bail!("git mktree returned empty SHA");
     }
     Ok(sha)
+}
+
+/// Split a path into `(Option<subtree>, leaf)`, enforcing the one-level-nesting
+/// invariant of [`write_tree_with`].
+///
+/// - `"events.log"` → `(None, "events.log")`
+/// - `"requests-ack/01J.json"` → `(Some("requests-ack"), "01J.json")`
+/// - `"a/b/c"` → error (deeper than one level)
+///
+/// # Errors
+///
+/// Returns an error on an empty path, an empty component, or more than one `/`.
+fn split_one_level(path: &str) -> Result<(Option<&str>, &str)> {
+    anyhow::ensure!(!path.is_empty(), "write_tree_with: empty path");
+    let mut parts = path.split('/');
+    let first = parts.next().unwrap_or("");
+    match parts.next() {
+        None => {
+            // No '/': root-level file.
+            anyhow::ensure!(!first.is_empty(), "write_tree_with: empty path component");
+            Ok((None, first))
+        }
+        Some(leaf) => {
+            anyhow::ensure!(
+                parts.next().is_none(),
+                "write_tree_with: path '{path}' nests deeper than one level (only \
+                 root-level files and one-level subtree paths are supported)"
+            );
+            anyhow::ensure!(
+                !first.is_empty() && !leaf.is_empty(),
+                "write_tree_with: empty path component in '{path}'"
+            );
+            Ok((Some(first), leaf))
+        }
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -2153,5 +3215,508 @@ mod tests {
         )
         .unwrap();
         assert!(read_hub_meta(dir2.path()).unwrap().is_none());
+    }
+
+    // ── PASS 1 helpers ────────────────────────────────────────────────
+
+    fn make_heartbeat(agent_id: &str, issue: Option<i64>) -> crate::locks::Heartbeat {
+        crate::locks::Heartbeat {
+            agent_id: agent_id.to_string(),
+            last_heartbeat: Utc::now(),
+            active_issue_id: issue,
+            machine_id: format!("machine-{agent_id}"),
+        }
+    }
+
+    fn cat_blob(repo_dir: &Path, spec: &str) -> Option<Vec<u8>> {
+        let out = std::process::Command::new("git")
+            .current_dir(repo_dir)
+            .args(["cat-file", "blob", spec])
+            .output()
+            .unwrap();
+        if out.status.success() {
+            Some(out.stdout)
+        } else {
+            None
+        }
+    }
+
+    fn make_request(request_id: &str) -> crate::agent_requests::AgentRequest {
+        crate::agent_requests::AgentRequest {
+            request_id: request_id.to_string(),
+            kind: crate::agent_requests::RequestKind::Pause,
+            subject: crate::agent_requests::RequestSubject::default(),
+            requested_by: "SHA256:driver".to_string(),
+            requested_at: Utc::now().to_rfc3339(),
+            reason: None,
+        }
+    }
+
+    fn make_ack(request_id: &str) -> crate::agent_requests::AgentRequestAck {
+        crate::agent_requests::AgentRequestAck {
+            request_id: request_id.to_string(),
+            ack_at: Utc::now().to_rfc3339(),
+            acted: true,
+            result: "paused".to_string(),
+            notes: None,
+        }
+    }
+
+    // ── Part 1: sibling preservation ──────────────────────────────────
+
+    #[test]
+    fn append_event_preserves_sibling_heartbeat() {
+        // Regression gate: a ref carrying events.log + heartbeat.json must keep
+        // heartbeat.json byte-identical after an append touches only events.log.
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "sibling-agent";
+
+        // Genesis events.log.
+        append_event_to_ref(dir.path(), agent_id, &make_envelope(agent_id, 1)).unwrap();
+        // Write a heartbeat sibling.
+        write_heartbeat_to_ref(dir.path(), agent_id, &make_heartbeat(agent_id, Some(7))).unwrap();
+
+        let ref_name = agent_ref_name(agent_id).unwrap();
+        let tip = run_git_output(dir.path(), &["rev-parse", &ref_name]);
+        let hb_before = cat_blob(dir.path(), &format!("{tip}:heartbeat.json")).unwrap();
+
+        // Append another event — heartbeat.json must survive untouched.
+        append_event_to_ref(dir.path(), agent_id, &make_envelope(agent_id, 2)).unwrap();
+
+        let tip2 = run_git_output(dir.path(), &["rev-parse", &ref_name]);
+        let hb_after = cat_blob(dir.path(), &format!("{tip2}:heartbeat.json")).unwrap();
+        assert_eq!(hb_before, hb_after, "heartbeat.json must survive an append");
+
+        // events.log must now have 2 events.
+        let log = cat_blob(dir.path(), &format!("{tip2}:events.log")).unwrap();
+        assert_eq!(read_events_from_bytes(&log).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn interleaved_writers_preserve_all_siblings() {
+        // append / heartbeat / ack all write the SAME ref; every writer must
+        // preserve the others' files.
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "multi-writer";
+        let ref_name = agent_ref_name(agent_id).unwrap();
+
+        append_event_to_ref(dir.path(), agent_id, &make_envelope(agent_id, 1)).unwrap();
+        write_heartbeat_to_ref(dir.path(), agent_id, &make_heartbeat(agent_id, None)).unwrap();
+        write_ack_to_own_ref(dir.path(), agent_id, "01ACK0001", &make_ack("01ACK0001")).unwrap();
+        // A second append after the heartbeat + ack are in place.
+        append_event_to_ref(dir.path(), agent_id, &make_envelope(agent_id, 2)).unwrap();
+        // A second ack into the same subtree.
+        write_ack_to_own_ref(dir.path(), agent_id, "01ACK0002", &make_ack("01ACK0002")).unwrap();
+
+        let tip = run_git_output(dir.path(), &["rev-parse", &ref_name]);
+        // events.log: 2 events.
+        let log = cat_blob(dir.path(), &format!("{tip}:events.log")).unwrap();
+        assert_eq!(read_events_from_bytes(&log).unwrap().len(), 2);
+        // heartbeat.json present.
+        assert!(cat_blob(dir.path(), &format!("{tip}:heartbeat.json")).is_some());
+        // Both acks present in the subtree.
+        assert!(cat_blob(dir.path(), &format!("{tip}:requests-ack/01ACK0001.json")).is_some());
+        assert!(cat_blob(dir.path(), &format!("{tip}:requests-ack/01ACK0002.json")).is_some());
+    }
+
+    #[test]
+    fn write_tree_with_rejects_deep_nesting() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let res = write_tree_with(
+            dir.path(),
+            None,
+            &[("a/b/c.json", BlobRef::Bytes(b"x"))],
+            &[],
+        );
+        assert!(res.is_err(), "deeper-than-one-level path must be rejected");
+        let msg = format!("{:?}", res.unwrap_err());
+        assert!(
+            msg.contains("nests deeper than one level"),
+            "error must mention nesting depth, got: {msg}"
+        );
+        // split_one_level direct coverage.
+        assert!(split_one_level("a/b/c").is_err());
+        assert_eq!(split_one_level("file.json").unwrap(), (None, "file.json"));
+        assert_eq!(
+            split_one_level("dir/leaf.json").unwrap(),
+            (Some("dir"), "leaf.json")
+        );
+    }
+
+    #[test]
+    fn write_tree_with_subtree_delete_drops_empty_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "subtree-agent";
+        let ref_name = agent_ref_name(agent_id).unwrap();
+
+        append_event_to_ref(dir.path(), agent_id, &make_envelope(agent_id, 1)).unwrap();
+        write_ack_to_own_ref(dir.path(), agent_id, "01ONLY", &make_ack("01ONLY")).unwrap();
+        let tip = run_git_output(dir.path(), &["rev-parse", &ref_name]);
+        assert!(cat_blob(dir.path(), &format!("{tip}:requests-ack/01ONLY.json")).is_some());
+
+        // Delete the only ack leaf → subtree must vanish, events.log survives.
+        let new_tree =
+            write_tree_with(dir.path(), Some(&tip), &[], &["requests-ack/01ONLY.json"]).unwrap();
+        let listing = run_git_output(dir.path(), &["ls-tree", "--name-only", &new_tree]);
+        let names: Vec<&str> = listing.lines().collect();
+        assert_eq!(names, vec!["events.log"], "empty subtree must be dropped");
+    }
+
+    // ── Part 2: heartbeats ────────────────────────────────────────────
+
+    #[test]
+    fn heartbeats_roundtrip_across_three_refs() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+
+        // Three agents: two with heartbeats, one with only events (skipped).
+        for (id, issue) in [("hb-a", Some(1)), ("hb-b", None)] {
+            append_event_to_ref(dir.path(), id, &make_envelope(id, 1)).unwrap();
+            write_heartbeat_to_ref(dir.path(), id, &make_heartbeat(id, issue)).unwrap();
+        }
+        // hb-c: events only, no heartbeat.
+        append_event_to_ref(dir.path(), "hb-c", &make_envelope("hb-c", 1)).unwrap();
+
+        let mut beats = read_heartbeats_from_refs(dir.path()).unwrap();
+        beats.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(beats.len(), 2, "only agents with a heartbeat are returned");
+        assert_eq!(beats[0].0, "hb-a");
+        assert_eq!(beats[0].1.active_issue_id, Some(1));
+        assert_eq!(beats[1].0, "hb-b");
+        assert_eq!(beats[1].1.active_issue_id, None);
+    }
+
+    #[test]
+    fn heartbeat_overwrites_previous() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let id = "hb-update";
+        write_heartbeat_to_ref(dir.path(), id, &make_heartbeat(id, Some(1))).unwrap();
+        write_heartbeat_to_ref(dir.path(), id, &make_heartbeat(id, Some(2))).unwrap();
+        let beats = read_heartbeats_from_refs(dir.path()).unwrap();
+        assert_eq!(beats.len(), 1);
+        assert_eq!(beats[0].1.active_issue_id, Some(2), "latest heartbeat wins");
+    }
+
+    // ── Part 3: requests / acks ───────────────────────────────────────
+
+    #[test]
+    fn request_poll_ack_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let driver = "driver-1";
+        let target = "target-1";
+
+        // Driver writes a request into its own ref.
+        let req = make_request("01REQ0001");
+        write_request_to_own_ref(dir.path(), driver, target, &req).unwrap();
+
+        // Target polls and sees it.
+        let pending = poll_requests_for_agent(dir.path(), target).unwrap();
+        assert_eq!(pending.len(), 1, "target must see the pending request");
+        assert_eq!(pending[0].0, driver, "driver id recovered");
+        assert_eq!(pending[0].1.request_id, "01REQ0001");
+
+        // Target acks into its own ref.
+        write_ack_to_own_ref(dir.path(), target, "01REQ0001", &make_ack("01REQ0001")).unwrap();
+
+        // Poll no longer returns it.
+        let after = poll_requests_for_agent(dir.path(), target).unwrap();
+        assert!(after.is_empty(), "acked request must not be returned");
+    }
+
+    #[test]
+    fn request_for_different_target_not_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let driver = "driver-2";
+        write_request_to_own_ref(
+            dir.path(),
+            driver,
+            "someone-else",
+            &make_request("01REQOTHER"),
+        )
+        .unwrap();
+        let pending = poll_requests_for_agent(dir.path(), "me-myself").unwrap();
+        assert!(pending.is_empty(), "request for another target is filtered");
+    }
+
+    #[test]
+    fn request_separator_handles_hyphenated_agent_ids() {
+        // Target id containing single hyphens must parse via split-on-LAST `--`.
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let driver = "ops-driver";
+        let target = "my-hyphenated-agent";
+        write_request_to_own_ref(dir.path(), driver, target, &make_request("01HYPH001")).unwrap();
+
+        let pending = poll_requests_for_agent(dir.path(), target).unwrap();
+        assert_eq!(pending.len(), 1, "hyphenated target id must parse");
+        assert_eq!(pending[0].0, driver);
+
+        // Direct parse-encode roundtrip coverage.
+        let name = format!("{target}--01HYPH001.json");
+        let (t, u) = parse_request_out_name(&name).unwrap();
+        assert_eq!(t, target);
+        assert_eq!(u, "01HYPH001");
+        // A name with no separator returns None.
+        assert!(parse_request_out_name("nodelim.json").is_none());
+    }
+
+    #[test]
+    fn requests_from_multiple_drivers_to_same_target() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let target = "busy-target";
+        write_request_to_own_ref(dir.path(), "drv-a", target, &make_request("01AAA")).unwrap();
+        write_request_to_own_ref(dir.path(), "drv-b", target, &make_request("01BBB")).unwrap();
+
+        let pending = poll_requests_for_agent(dir.path(), target).unwrap();
+        assert_eq!(pending.len(), 2, "requests from both drivers visible");
+        // Sorted by ulid.
+        assert_eq!(pending[0].1.request_id, "01AAA");
+        assert_eq!(pending[1].1.request_id, "01BBB");
+
+        // Ack one — only the other remains.
+        write_ack_to_own_ref(dir.path(), target, "01AAA", &make_ack("01AAA")).unwrap();
+        let remaining = poll_requests_for_agent(dir.path(), target).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].1.request_id, "01BBB");
+    }
+
+    // ── Part 4: compact_v3 ────────────────────────────────────────────
+
+    fn test_hub_lock(dir: &Path) -> crate::sync::HubWriteLock {
+        let lock_path = dir.join(".hub-write-lock");
+        crate::sync::acquire_hub_lock(&lock_path).expect("failed to acquire hub write lock")
+    }
+
+    /// Seed a v3 hub in `dir`: a meta ref (so `detect_hub_version` is V3) plus
+    /// `count` events on `agent_id`'s ref. Returns nothing; refs are live.
+    fn seed_v3_hub(dir: &Path, agent_id: &str, count: u64) {
+        commit_files_to_ref(
+            dir,
+            META_REF,
+            &[("hub.json", b"{\"hub_version\":3}\n")],
+            "meta",
+        )
+        .unwrap();
+        for seq in 1..=count {
+            append_event_to_ref(dir, agent_id, &make_envelope(agent_id, seq)).unwrap();
+        }
+    }
+
+    #[test]
+    fn compact_v3_local_only_writes_checkpoint_and_prunes() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "cv3-agent";
+        seed_v3_hub(dir.path(), agent_id, 4);
+
+        let lock = test_hub_lock(dir.path());
+        let result = compact_v3(dir.path(), agent_id, &lock, None).unwrap();
+        drop(lock);
+
+        assert_eq!(result.events_processed, 4);
+        assert!(result.checkpoint_commit.is_some(), "checkpoint committed");
+        assert!(!result.checkpoint_pushed, "no remote → no push");
+        // Local-only: prune happens once the checkpoint is committed.
+        assert_eq!(result.events_pruned, 4, "all covered events pruned locally");
+
+        // Checkpoint ref must exist with state.json.
+        let cp_tip = run_git_output(dir.path(), &["rev-parse", CHECKPOINT_REF]);
+        let state_bytes = cat_blob(dir.path(), &format!("{cp_tip}:state.json")).unwrap();
+        let state = crate::checkpoint::CheckpointState::from_slice(&state_bytes).unwrap();
+        assert_eq!(state.issues.len(), 4, "4 issues materialized");
+
+        // Own ref's events.log is now empty (all <= watermark).
+        let agent_tip = run_git_output(
+            dir.path(),
+            &["rev-parse", &agent_ref_name(agent_id).unwrap()],
+        );
+        let log = cat_blob(dir.path(), &format!("{agent_tip}:events.log")).unwrap();
+        assert!(read_events_from_bytes(&log).unwrap().is_empty());
+    }
+
+    #[test]
+    fn compact_v3_remote_push_then_prune_and_fresh_reduce_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let remote = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        run_git(remote.path(), &["init", "--bare"]);
+        run_git(
+            dir.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+
+        let agent_id = "cv3-remote";
+        seed_v3_hub(dir.path(), agent_id, 3);
+        // Push the agent ref so a fresh clone can fetch it.
+        push_agent_ref(dir.path(), "origin", agent_id).unwrap();
+
+        // Capture the full reduced state BEFORE prune for comparison.
+        let pre =
+            crate::compaction::reduce(&crate::hub_source::RefHubSource::new(dir.path()).unwrap())
+                .unwrap();
+
+        let lock = test_hub_lock(dir.path());
+        let result = compact_v3(dir.path(), agent_id, &lock, Some("origin")).unwrap();
+        drop(lock);
+
+        assert!(result.checkpoint_pushed, "checkpoint pushed to remote");
+        assert_eq!(result.events_pruned, 3, "prune after successful push");
+
+        // Push the pruned agent ref too (so the remote reflects the prune).
+        push_agent_ref(dir.path(), "origin", agent_id).unwrap();
+
+        // Fresh clone fetches the v3 refs and must reduce to identical state.
+        let fresh = tempfile::tempdir().unwrap();
+        run_git(fresh.path(), &["init"]);
+        run_git(
+            fresh.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        run_git(
+            fresh.path(),
+            &["fetch", "origin", "+refs/crosslink/*:refs/crosslink/*"],
+        );
+        let fresh_outcome =
+            crate::compaction::reduce(&crate::hub_source::RefHubSource::new(fresh.path()).unwrap())
+                .unwrap();
+
+        // Identical full state: checkpoint + remaining events == original full reduce.
+        let pre_state = serde_json::to_value(&pre.state).unwrap();
+        let fresh_state = serde_json::to_value(&fresh_outcome.state).unwrap();
+        assert_eq!(
+            pre_state, fresh_state,
+            "fresh clone (checkpoint + pruned ref) must reduce to identical state"
+        );
+    }
+
+    #[test]
+    fn compact_v3_skips_prune_when_push_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        // Add a remote that does not exist → push fails.
+        run_git(
+            dir.path(),
+            &["remote", "add", "origin", "/no/such/bare/remote"],
+        );
+        let agent_id = "cv3-nopush";
+        seed_v3_hub(dir.path(), agent_id, 2);
+
+        let lock = test_hub_lock(dir.path());
+        let result = compact_v3(dir.path(), agent_id, &lock, Some("origin")).unwrap();
+        drop(lock);
+
+        assert!(
+            result.checkpoint_commit.is_some(),
+            "checkpoint still committed locally"
+        );
+        assert!(!result.checkpoint_pushed, "push to dead remote fails");
+        assert_eq!(
+            result.events_pruned, 0,
+            "prune MUST be skipped when the checkpoint push fails"
+        );
+        // Own ref still has both events.
+        let tip = run_git_output(
+            dir.path(),
+            &["rev-parse", &agent_ref_name(agent_id).unwrap()],
+        );
+        let log = cat_blob(dir.path(), &format!("{tip}:events.log")).unwrap();
+        assert_eq!(read_events_from_bytes(&log).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn compact_v3_concurrent_cas_loss_is_benign() {
+        // Drive compact_v3's commit_blob_to_ref into the documented benign
+        // "ref moved concurrently" branch: pin the reduce, then move the
+        // checkpoint ref out from under the in-flight commit. Done deterministically
+        // by exercising the same CAS the function relies on — we commit a
+        // checkpoint first, then a SECOND compact whose CAS we invalidate by
+        // advancing the checkpoint ref between its internal read and commit is not
+        // single-thread-reachable, so we instead assert the branch directly: a
+        // commit_blob_to_ref with a stale parent fails with the exact message the
+        // benign handler matches, and a normal compact still succeeds afterwards.
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "cv3-cas";
+        seed_v3_hub(dir.path(), agent_id, 2);
+
+        // First compact: succeeds, writes + prunes.
+        let lock = test_hub_lock(dir.path());
+        let r1 = compact_v3(dir.path(), agent_id, &lock, None).unwrap();
+        drop(lock);
+        assert!(r1.checkpoint_commit.is_some());
+        assert_eq!(r1.events_pruned, 2);
+
+        // The benign-branch matcher: a genesis CAS on the now-existing checkpoint
+        // ref yields the exact "ref moved concurrently" substring the handler keys
+        // off — the same error compact_v3's commit_blob_to_ref would surface when a
+        // concurrent compactor advanced the checkpoint first.
+        let stale = commit_single_file_tree(
+            dir.path(),
+            CHECKPOINT_REF,
+            "state.json",
+            b"{}\n",
+            "stale",
+            "crosslink",
+            CasExpectation::MustNotExist,
+        );
+        assert!(stale.is_err());
+        assert!(
+            format!("{:?}", stale.unwrap_err()).contains("ref moved concurrently"),
+            "the benign branch keys off this exact substring"
+        );
+
+        // A subsequent compact with no new events is a clean no-op success.
+        let lock2 = test_hub_lock(dir.path());
+        let r2 = compact_v3(dir.path(), agent_id, &lock2, None).unwrap();
+        drop(lock2);
+        assert_eq!(r2.events_processed, 0);
+        assert_eq!(r2.events_pruned, 0);
+    }
+
+    #[test]
+    fn compact_v3_two_compactors_produce_consistent_checkpoint() {
+        // Two compactors over the same event set: both reduce to the same
+        // deterministic content, so the checkpoint CAS loser hits the benign
+        // "ref moved concurrently" branch (None commit) without erroring and the
+        // winner's checkpoint stands.
+        use std::sync::Arc;
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+        let agent_id = "cv3-race";
+        seed_v3_hub(dir.path(), agent_id, 3);
+        let repo = Arc::new(dir.path().to_path_buf());
+
+        // Run two compactors; serialize via the hub lock as production does, but
+        // interleave so the SECOND sees the FIRST's checkpoint already advanced.
+        let r_a = {
+            let lock = test_hub_lock(&repo);
+            let r = compact_v3(&repo, agent_id, &lock, None).unwrap();
+            drop(lock);
+            r
+        };
+        // Second compactor: no new events, checkpoint already present → no-op.
+        let r_b = {
+            let lock = test_hub_lock(&repo);
+            let r = compact_v3(&repo, agent_id, &lock, None).unwrap();
+            drop(lock);
+            r
+        };
+        assert!(r_a.checkpoint_commit.is_some());
+        assert_eq!(r_a.events_processed, 3);
+        assert_eq!(r_b.events_processed, 0, "second compactor sees pruned ref");
+
+        // Checkpoint state is consistent and complete.
+        let cp_tip = run_git_output(&repo, &["rev-parse", CHECKPOINT_REF]);
+        let state_bytes = cat_blob(&repo, &format!("{cp_tip}:state.json")).unwrap();
+        let state = crate::checkpoint::CheckpointState::from_slice(&state_bytes).unwrap();
+        assert_eq!(state.issues.len(), 3);
     }
 }

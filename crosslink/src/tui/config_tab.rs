@@ -1128,7 +1128,7 @@ fn load_config_sync_data(crosslink_dir: &Path) -> ConfigSyncResult {
     if let Ok(stale) = sync.find_stale_locks() {
         result.stale_lock_count = stale.len();
     }
-    if let Ok(heartbeats) = sync.read_heartbeats() {
+    if let Ok(heartbeats) = sync.read_heartbeats_auto() {
         result.agent_count = heartbeats.len();
     }
 

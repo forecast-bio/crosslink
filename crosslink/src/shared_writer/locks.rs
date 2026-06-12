@@ -59,6 +59,14 @@ impl SharedWriter {
             );
         }
 
+        // V3 claim-confirm (REQ-5): after our claim is appended + pushed, fetch
+        // every OTHER agent's ref, reduce, and re-cache state so the winner is
+        // computed over the full event set (first-claim-wins by OrderingKey).
+        // Without this, we would only see our own ref and always self-confirm.
+        if self.is_v3() {
+            self.confirm_v3_locks()?;
+        }
+
         // Re-read materialized lock to see who won
         match self.read_lock_v2(issue_display_id)? {
             Some(lock) if lock.agent_id == self.agent.agent_id => Ok(LockClaimResult::Claimed),
@@ -187,6 +195,25 @@ impl SharedWriter {
         &self,
         issue_display_id: i64,
     ) -> Result<Option<crate::issue_file::LockFileV2>> {
+        // V3: locks are pure events resolved by reduction (REQ-5). Read the
+        // winner from the reduced state cached by the preceding commit_v3 (the
+        // claim-confirm read). This mirrors the v2 read-materialized-lock-file
+        // step but over `state.locks` instead of `locks/<id>.json`.
+        if self.is_v3() {
+            let state = self.last_v3_state.borrow();
+            return Ok(state.as_ref().and_then(|s| {
+                s.locks
+                    .get(&issue_display_id)
+                    .map(|entry| crate::issue_file::LockFileV2 {
+                        issue_id: issue_display_id,
+                        agent_id: entry.agent_id.clone(),
+                        branch: entry.branch.clone(),
+                        claimed_at: entry.claimed_at,
+                        signed_by: None,
+                    })
+            }));
+        }
+
         let lock_path = self
             .cache_dir
             .join("locks")

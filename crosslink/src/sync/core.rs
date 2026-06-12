@@ -19,6 +19,11 @@ pub struct SyncManager {
     pub(super) repo_root: PathBuf,
     /// Git remote name for the hub branch (from config, defaults to "origin").
     pub(super) remote: String,
+    /// Operation mode, resolved ONCE here (754a PASS 2). `V3` routes mutations
+    /// to per-agent refs with state-based hydration; `V2` keeps the worktree-
+    /// file flow. Cached so the per-call hot paths (`fetch`, `lock_check`) do
+    /// not re-probe refs on every invocation.
+    pub(super) hub_mode: crate::hub_v3::HubMode,
 }
 
 impl SyncManager {
@@ -46,12 +51,27 @@ impl SyncManager {
         let cache_dir = repo_root.join(".crosslink").join(HUB_CACHE_DIR);
         let remote = read_tracker_remote(crosslink_dir);
 
+        // Resolve the operation mode ONCE (754a PASS 2). Probe the hub-cache
+        // worktree: its `.git` link shares the main repository's ref namespace,
+        // so the v3 marker refs (`refs/crosslink/meta` + `/checkpoint`) resolve
+        // there. When the cache is absent (fresh repo, never synced) detection
+        // returns `Absent` ⇒ `V2`, preserving today's init behavior.
+        let hub_mode = crate::hub_v3::HubMode::resolve(&cache_dir);
+
         Ok(Self {
             crosslink_dir: crosslink_dir.to_path_buf(),
             cache_dir,
             repo_root,
             remote,
+            hub_mode,
         })
+    }
+
+    /// The resolved operation mode for this hub (V2 worktree-file or V3
+    /// event-only). Decided once at construction; see [`crate::hub_v3::HubMode`].
+    #[must_use]
+    pub const fn hub_mode(&self) -> crate::hub_v3::HubMode {
+        self.hub_mode
     }
 
     /// Get the configured git remote name for the hub branch.

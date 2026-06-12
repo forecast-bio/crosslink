@@ -26,6 +26,25 @@ impl SyncManager {
             machine_id: agent.machine_id.clone(),
         };
 
+        // V3: write the heartbeat to the agent's OWN REF (sibling-preserving,
+        // single-writer) and push the ref — no worktree file, no v2 commit flow.
+        if self.hub_mode.is_v3() {
+            crate::hub_v3::write_heartbeat_to_ref(&self.cache_dir, &agent.agent_id, &heartbeat)?;
+            if self.remote_exists() {
+                match crate::hub_v3::push_agent_ref(&self.cache_dir, &self.remote, &agent.agent_id)?
+                {
+                    crate::hub_v3::PushOutcome::Pushed | crate::hub_v3::PushOutcome::NoRemote => {}
+                    other => {
+                        tracing::warn!(
+                            "v3 heartbeat push for '{}' did not complete: {other:?}",
+                            agent.agent_id
+                        );
+                    }
+                }
+            }
+            return Ok(());
+        }
+
         // Ensure heartbeats directory exists
         let hb_dir = self.cache_dir.join("heartbeats");
         std::fs::create_dir_all(&hb_dir)?;
@@ -195,6 +214,15 @@ impl SyncManager {
     /// Returns an error if heartbeat files cannot be read.
     pub fn read_heartbeats_auto(&self) -> Result<Vec<Heartbeat>> {
         use std::collections::HashMap;
+
+        // V3: heartbeats live at each agent ref's `heartbeat.json` root — single
+        // source by mode (a v3 hub has no v2 heartbeat files to merge).
+        if self.hub_mode.is_v3() {
+            return Ok(crate::hub_v3::read_heartbeats_from_refs(&self.cache_dir)?
+                .into_iter()
+                .map(|(_, hb)| hb)
+                .collect());
+        }
 
         let mut heartbeats = self.read_heartbeats()?;
         if self.is_v2_layout() {

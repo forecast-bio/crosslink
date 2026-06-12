@@ -15,6 +15,8 @@ pub mod design_doc;
 pub mod export;
 pub mod external_issues;
 pub mod external_knowledge;
+#[cfg(test)]
+mod hub_v3_operation_tests;
 pub mod import;
 pub mod init;
 pub mod integrity_cmd;

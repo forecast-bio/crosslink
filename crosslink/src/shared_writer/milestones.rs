@@ -62,6 +62,13 @@ impl SharedWriter {
         )?;
 
         self.hydrate_with_retry(db);
+        // V3: the milestone id is reduction-assigned (REQ-4), not the sentinel
+        // claimed in `prepare`; read it from the cached reduced state.
+        if self.is_v3() {
+            if let Some(id) = self.v3_assigned_milestone_id(&uuid) {
+                return Ok(id);
+            }
+        }
         Ok(display_id.get())
     }
 

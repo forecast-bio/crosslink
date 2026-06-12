@@ -228,6 +228,14 @@ pub mod poll {
         crosslink_dir: &std::path::Path,
         agent_id: &str,
     ) -> Result<PollResult> {
+        // V3: requests live on driver refs (`requests-out/`) and acks on the
+        // target's own ref (`requests-ack/`). poll_requests_for_agent already
+        // filters out anything this agent has acked, so every returned request
+        // is pending — no separate ack-pairing pass is needed.
+        if writer.is_v3_public() {
+            return process_pending_v3(writer, crosslink_dir, agent_id);
+        }
+
         let cache_dir = crosslink_dir.join("hub-cache");
         let entries = scan(&cache_dir, agent_id)?;
         let mut result = PollResult::default();
@@ -258,6 +266,50 @@ pub mod poll {
             result.acted.push(PollAction {
                 request_id: row.request.request_id,
                 kind: row.request.kind,
+                acted,
+                result: summary,
+                push_outcome,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// V3 variant of [`process_pending`]: poll requests via the per-agent ref
+    /// primitives (`poll_requests_for_agent`) and ack into the agent's own ref.
+    /// Every returned request is already pending (acked ones are filtered out by
+    /// the poll), so there is no skipped-ack accounting.
+    fn process_pending_v3(
+        writer: &SharedWriter,
+        crosslink_dir: &std::path::Path,
+        agent_id: &str,
+    ) -> Result<PollResult> {
+        let cache_dir = writer.cache_dir_public();
+        let pending = crate::hub_v3::poll_requests_for_agent(cache_dir, agent_id)?;
+        let mut result = PollResult::default();
+
+        for (_driver_id, request) in pending {
+            let (acted, summary) = apply_request(crosslink_dir, &request)
+                .unwrap_or_else(|e| (false, format!("error applying request: {e}")));
+
+            let ack = AgentRequestAck {
+                request_id: request.request_id.clone(),
+                ack_at: chrono::Utc::now().to_rfc3339(),
+                acted,
+                result: summary.clone(),
+                notes: None,
+            };
+            let push_outcome = writer.write_agent_ack(agent_id, &ack).unwrap_or_else(|e| {
+                tracing::warn!(
+                    "failed to push v3 ack for {}: {e}; treating as LocalOnly",
+                    request.request_id
+                );
+                PushOutcome::LocalOnly
+            });
+
+            result.acted.push(PollAction {
+                request_id: request.request_id,
+                kind: request.kind,
                 acted,
                 result: summary,
                 push_outcome,
