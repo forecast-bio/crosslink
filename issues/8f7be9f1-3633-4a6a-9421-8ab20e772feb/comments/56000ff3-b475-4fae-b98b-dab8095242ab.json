@@ -1,0 +1,10 @@
+{
+  "uuid": "56000ff3-b475-4fae-b98b-dab8095242ab",
+  "issue_uuid": "8f7be9f1-3633-4a6a-9421-8ab20e772feb",
+  "author": "dashboard-bootstrap",
+  "content": "754a committed on feature/754a-v3-operation-mode: three passes (ref-tree infra + heartbeats/requests, mode routing with v3 event-only writes and state hydration, direct-reader sweep). Two correctness bugs found by agents during their own testing (checkpoint churn, claim-confirm partial-view masking) and one latent v3 bug caught in pass 3 (find_stale_locks V1-only heartbeats = all locks stale on v3). Director-verified gates: 1998 lib + 3007 bin + 194 integration, fmt, both clippy profiles. Awaiting push; after merge: run migrate hub-v3 on this repo for real, then 754b deletion PR.",
+  "created_at": "2026-06-12T02:52:17.482281312Z",
+  "kind": "result",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPSMYmdIfQYU9eO2L+Py9pmFNls7ZcUDOzBdHBDhfPqSGe1mOv2zVdgGJz77wz1OOFYq+Wj9sec2CyfArshODAQ=="
+}
