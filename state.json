@@ -1,6 +1,6 @@
 {
   "next_display_id": 768,
-  "next_comment_id": 1082,
+  "next_comment_id": 1083,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13607,7 +13607,7 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T19:40:22.651433804Z",
-      "updated_at": "2026-06-12T20:23:10.247327723Z",
+      "updated_at": "2026-06-12T20:35:58.202722434Z",
       "labels": [
         "architecture"
       ],
@@ -13629,6 +13629,15 @@
           "kind": "plan",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA++w9tqN6tmcYGy6wmMpKnWN0tm0qwg3bzmy6ZcLeT5in0uN1Hdw1N7A0XCEkzIkSaZt1FeD/9wrvfs4v7R1RCg=="
+        },
+        "712cc416-ae28-4730-9a06-f406e59c710c": {
+          "display_id": 1082,
+          "author": "dashboard-bootstrap",
+          "content": "ROLLED OUT on dollspace: migrate hub-branches renamed all 3 refs to visible branches (old namespace empty both sides), browse tree materialized on crosslink/checkpoint (README + issues/ + meta/ + state.json). Remaining: run migrate hub-branches once on basel after updating its binary. This comment itself is the first write through the renamed branch namespace.",
+          "created_at": "2026-06-12T20:35:58.181803638Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAxyFlQdGWf7LfRtr3P4uaRb0e1nyXlTIYGOBr63nTcrXnOAfhKqOh3/Q2rgnJ0FMRrFFzsDEfrNGHQn0W3fXEAQ=="
         },
         "72dc82c1-1b13-481c-8343-4817b3b8e0af": {
           "display_id": 1080,
@@ -23718,8 +23727,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T20:23:10.247327723Z",
+    "timestamp": "2026-06-12T20:35:58.202722434Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 138
+    "agent_seq": 139
   }
 }
