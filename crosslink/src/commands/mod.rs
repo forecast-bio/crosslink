@@ -29,6 +29,7 @@ pub mod lifecycle;
 pub mod list;
 pub mod locks_cmd;
 pub mod migrate;
+pub mod migrate_hub_v3;
 pub mod milestone;
 pub mod mission_control;
 pub mod next;

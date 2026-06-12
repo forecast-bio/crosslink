@@ -638,6 +638,11 @@ impl SyncManager {
         // with concurrent CLI writes if not serialized.
         let _lock_guard = self.acquire_lock()?;
 
+        // Minimal v3-aware warn (full refusal is #754): warn once if this hub
+        // has already been migrated to v3 but we are still fetching/operating it
+        // in v2 mode. Cheap rev-parse, non-fatal.
+        crate::hub_v3::warn_if_migrated_v2_operation(&self.cache_dir);
+
         // Recover from broken git states before attempting fetch (#454, #455, #456)
         self.hub_health_check();
 

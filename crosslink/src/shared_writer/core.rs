@@ -134,6 +134,11 @@ impl SharedWriter {
         // no file I/O for the flag check.
         let hub_v3_dual_write = crate::hub_v3::dual_write_enabled(crosslink_dir);
 
+        // Minimal v3-aware warn (full refusal is #754): if the hub has already
+        // been migrated to v3 but we are about to operate it in v2 mode, warn
+        // once. Cheap (a rev-parse), non-fatal — never blocks the operation.
+        crate::hub_v3::warn_if_migrated_v2_operation(&cache_dir);
+
         Ok(Some(Self {
             sync,
             agent,

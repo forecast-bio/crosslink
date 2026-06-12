@@ -29,6 +29,38 @@ use crate::utils::is_windows_reserved_name;
 /// Namespace prefix for per-agent hub refs.
 pub const AGENT_REF_PREFIX: &str = "refs/crosslink/agents/";
 
+/// Ref holding the pure-cache compaction checkpoint (`state.json` at tree root).
+///
+/// Written by whichever process compacts and pushed with `--force-with-lease`
+/// (REQ-7). Concurrent compactions are harmless: the same event set reduces to
+/// the same deterministic state, so two writers produce byte-identical content
+/// and the lease loser simply refetches an identical result.
+pub const CHECKPOINT_REF: &str = "refs/crosslink/checkpoint";
+
+/// Ref holding hub metadata: the version marker (`hub.json`) and the
+/// `allowed_signers` trust store (REQ-9, REQ-12). Driver-written, CAS-updated.
+pub const META_REF: &str = "refs/crosslink/meta";
+
+/// Compare-and-swap expectation for the generalized single-file commit core.
+///
+/// Mirrors the `update-ref <ref> <new> <old>` contract: the update succeeds only
+/// if the ref's current value matches the expectation, otherwise it is rejected
+/// as a concurrent move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Variants are selected by the different commit entry points (append vs.
+// genesis-or-update); the bin's duplicate module tree flags the unused-by-bin
+// constructors as dead code.
+#[allow(dead_code)]
+pub enum CasExpectation<'a> {
+    /// The ref must not currently exist (genesis write).
+    MustNotExist,
+    /// The ref must currently point at this exact SHA.
+    MustMatch(&'a str),
+    /// Read the current tip and CAS against it. `None` if the ref is absent
+    /// (treated as genesis), `Some(sha)` if it exists (treated as an update).
+    CurrentTip,
+}
+
 /// Build the full ref name for an agent.
 ///
 /// Validates the agent ID (3–64 characters, alphanumeric plus `-` and `_`;
@@ -86,6 +118,7 @@ pub struct RefAppendOutcome {
 }
 
 /// Outcome of a [`push_agent_ref`] call.
+#[derive(Debug)]
 pub enum PushOutcome {
     /// The push succeeded and the remote ref was updated.
     Pushed,
@@ -226,7 +259,7 @@ fn append_inner_impl<A: IntoAbortPoint>(
     }
 
     // ── Step e: mktree ───────────────────────────────────────────────
-    let tree_sha = git_mktree(repo_dir, &blob_sha)?;
+    let tree_sha = git_mktree_single(repo_dir, &blob_sha, "events.log")?;
 
     if abort_opt.should_abort_after_mktree() {
         return Ok(RefAppendOutcome {
@@ -296,18 +329,15 @@ pub fn commit_log_bytes(
     read_events_from_bytes(log_bytes)
         .context("refusing to commit unparseable events.log bytes to the agent ref")?;
 
-    let old_commit = git_rev_parse_optional(repo_dir, &ref_name)?;
-    let blob_sha = git_hash_object(repo_dir, log_bytes)?;
-    let tree_sha = git_mktree(repo_dir, &blob_sha)?;
-    let commit_sha = git_commit_tree(
+    commit_single_file_tree(
         repo_dir,
-        &tree_sha,
-        old_commit.as_deref(),
+        &ref_name,
+        "events.log",
+        log_bytes,
         message,
         agent_id,
-    )?;
-    git_update_ref_cas(repo_dir, &ref_name, &commit_sha, old_commit.as_deref())?;
-    Ok(commit_sha)
+        CasExpectation::CurrentTip,
+    )
 }
 
 // ── AbortPoint trait (sealed helper) ────────────────────────────────
@@ -359,16 +389,89 @@ impl IntoAbortPoint for Option<AbortPoint> {
 pub fn push_agent_ref(repo_dir: &Path, remote: &str, agent_id: &str) -> Result<PushOutcome> {
     validate_agent_id(agent_id)?;
     let ref_name = agent_ref_name(agent_id)?;
+    push_ref(repo_dir, remote, &ref_name)
+}
+
+/// Push an arbitrary `refs/crosslink/*` ref to a remote with a plain
+/// (non-force) push.
+///
+/// `git push <remote> <ref>:<ref>` — no `+`, no `--force-with-lease`. The plain
+/// push IS the fast-forward CAS; any non-fast-forward outcome is classified as
+/// [`PushOutcome::NonFastForward`] (REQ-1: never silently rebased). This is the
+/// generalization of [`push_agent_ref`], which is now a thin wrapper.
+///
+/// # Errors
+///
+/// Returns an error only if `git push` cannot be spawned; rejections and
+/// remote-not-found are reported as [`PushOutcome`] variants, not errors.
+// PR3 read/verify path and the migrate command push the checkpoint and meta
+// refs through this; flagged dead until those callers land.
+#[allow(dead_code)]
+pub fn push_ref(repo_dir: &Path, remote: &str, ref_name: &str) -> Result<PushOutcome> {
     let refspec = format!("{ref_name}:{ref_name}");
 
     let output = Command::new("git")
         .current_dir(repo_dir)
         .args(["push", remote, &refspec])
         .output()
-        .with_context(|| format!("failed to run git push for agent '{agent_id}'"))?;
+        .with_context(|| format!("failed to run git push for ref '{ref_name}'"))?;
 
+    Ok(classify_push_output(&output))
+}
+
+/// Push a ref with `--force-with-lease`, used for the checkpoint ref (REQ-7).
+///
+/// The checkpoint is a pure cache: two compactors over the same event set
+/// produce byte-identical content, so a checkpoint race is harmless. The lease
+/// guards against clobbering a checkpoint advanced by an unseen third party —
+/// the lease loser refetches and either fast-forwards or discards its identical
+/// result. `expected_remote` is the remote SHA the local side believes the ref
+/// holds:
+///
+/// - `Some(sha)` → `git push --force-with-lease=<ref>:<sha>` (strict lease).
+/// - `None` → `git push --force-with-lease=<ref>` (git uses the local
+///   remote-tracking ref as the lease baseline).
+///
+/// A failed lease (the remote advanced past `expected_remote`) is reported as
+/// [`PushOutcome::NonFastForward`]; the caller refetches and retries.
+///
+/// # Errors
+///
+/// Returns an error only if `git push` cannot be spawned.
+// PR3 compaction-checkpoint push is the production caller; flagged dead until
+// that path lands in part 2.
+#[allow(dead_code)]
+pub fn push_ref_with_lease(
+    repo_dir: &Path,
+    remote: &str,
+    ref_name: &str,
+    expected_remote: Option<&str>,
+) -> Result<PushOutcome> {
+    let lease = expected_remote.map_or_else(
+        || format!("--force-with-lease={ref_name}"),
+        |sha| format!("--force-with-lease={ref_name}:{sha}"),
+    );
+    let refspec = format!("{ref_name}:{ref_name}");
+
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["push", &lease, remote, &refspec])
+        .output()
+        .with_context(|| {
+            format!("failed to run git push --force-with-lease for ref '{ref_name}'")
+        })?;
+
+    Ok(classify_push_output(&output))
+}
+
+/// Classify a `git push` process output into a [`PushOutcome`].
+///
+/// Shared by [`push_ref`] and [`push_ref_with_lease`]. A failed
+/// `--force-with-lease` reports "stale info" / "rejected", which map to
+/// [`PushOutcome::NonFastForward`] — the caller refetches and retries.
+fn classify_push_output(output: &std::process::Output) -> PushOutcome {
     if output.status.success() {
-        return Ok(PushOutcome::Pushed);
+        return PushOutcome::Pushed;
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -378,7 +481,7 @@ pub fn push_agent_ref(repo_dir: &Path, remote: &str, agent_id: &str) -> Result<P
         || stderr.contains("rejected")
         || stderr.contains("stale info")
     {
-        return Ok(PushOutcome::NonFastForward);
+        return PushOutcome::NonFastForward;
     }
 
     if stderr.contains("does not appear to be a git repository")
@@ -387,10 +490,170 @@ pub fn push_agent_ref(repo_dir: &Path, remote: &str, agent_id: &str) -> Result<P
         || stderr.contains("No such remote")
         || stderr.contains('\'') && stderr.contains("' does not")
     {
-        return Ok(PushOutcome::NoRemote);
+        return PushOutcome::NoRemote;
     }
 
-    Ok(PushOutcome::Failed(stderr.trim().to_string()))
+    PushOutcome::Failed(stderr.trim().to_string())
+}
+
+// ── Hub version detection ─────────────────────────────────────────────
+
+/// Branch name of the legacy v2 hub.
+const V2_HUB_BRANCH: &str = "refs/heads/crosslink/hub";
+
+/// Detected hub schema version.
+///
+/// See `.design/hub-v3-per-agent-refs.md` REQ-9. Detection is structural:
+/// presence of the v3 marker refs ([`META_REF`] + [`CHECKPOINT_REF`]) versus the
+/// legacy `crosslink/hub` branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+// Consumed by the migrate command and the v3-aware warn path (part 2); the bin's
+// duplicate module tree flags the variants as dead code until then.
+#[allow(dead_code)]
+pub enum HubVersion {
+    /// A `crosslink/hub` branch exists but neither v3 marker ref does.
+    V2Only,
+    /// The v3 marker refs ([`META_REF`] + [`CHECKPOINT_REF`]) exist.
+    /// `v2_branch_present` records whether the old branch is still around
+    /// (true until `migrate hub-v3 --finalize` deletes it).
+    V3 { v2_branch_present: bool },
+    /// Neither a v2 branch nor the v3 marker refs exist (uninitialized hub).
+    Absent,
+}
+
+/// Detect the LOCAL hub version by inspecting refs in `repo_dir`.
+///
+/// Classification (REQ-9): if both [`META_REF`] and [`CHECKPOINT_REF`] resolve,
+/// the hub is `V3` (recording whether the v2 branch is still present); otherwise
+/// if the `crosslink/hub` branch resolves, it is `V2Only`; otherwise `Absent`.
+///
+/// # Errors
+///
+/// Returns an error only if `git rev-parse` cannot be spawned.
+// Part-2 migrate/refusal logic is the production caller; flagged dead until then.
+#[allow(dead_code)]
+pub fn detect_hub_version(repo_dir: &Path) -> Result<HubVersion> {
+    let meta = git_rev_parse_optional(repo_dir, META_REF)?.is_some();
+    let checkpoint = git_rev_parse_optional(repo_dir, CHECKPOINT_REF)?.is_some();
+    let v2 = git_rev_parse_optional(repo_dir, V2_HUB_BRANCH)?.is_some();
+
+    Ok(classify_hub_version(meta, checkpoint, v2))
+}
+
+/// Detect the REMOTE hub version via a single `git ls-remote` call.
+///
+/// Queries `git ls-remote <remote> refs/crosslink/* refs/heads/crosslink/hub`
+/// and classifies the returned ref listing identically to [`detect_hub_version`].
+/// Unlike the local probe, an unreachable or unauthenticated remote is a hard
+/// error — the version of an unreachable remote must never be guessed (REQ-9).
+///
+/// # Errors
+///
+/// Returns an error if `git ls-remote` cannot be spawned, or if the remote is
+/// unreachable / unauthenticated / unknown (classified from stderr, paralleling
+/// the [`PushOutcome`] stderr discrimination).
+// Part-2 migrate/refusal logic is the production caller; flagged dead until then.
+#[allow(dead_code)]
+pub fn detect_remote_hub_version(repo_dir: &Path, remote: &str) -> Result<HubVersion> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["ls-remote", remote, "refs/crosslink/*", V2_HUB_BRANCH])
+        .output()
+        .with_context(|| format!("failed to run git ls-remote for remote '{remote}'"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "git ls-remote failed for remote '{remote}' (cannot determine remote hub version; \
+             remote unreachable, unauthenticated, or unknown): {}",
+            stderr.trim()
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut meta = false;
+    let mut checkpoint = false;
+    let mut v2 = false;
+    // Each line is "<sha>\t<refname>".
+    for line in stdout.lines() {
+        let Some((_, refname)) = line.split_once('\t') else {
+            continue;
+        };
+        let refname = refname.trim();
+        match refname {
+            META_REF => meta = true,
+            CHECKPOINT_REF => checkpoint = true,
+            V2_HUB_BRANCH => v2 = true,
+            _ => {}
+        }
+    }
+
+    Ok(classify_hub_version(meta, checkpoint, v2))
+}
+
+/// Pure classifier shared by the local and remote detectors.
+const fn classify_hub_version(
+    meta_present: bool,
+    checkpoint_present: bool,
+    v2_present: bool,
+) -> HubVersion {
+    if meta_present && checkpoint_present {
+        HubVersion::V3 {
+            v2_branch_present: v2_present,
+        }
+    } else if v2_present {
+        HubVersion::V2Only
+    } else {
+        HubVersion::Absent
+    }
+}
+
+// ── Hub meta marker (META_REF) ────────────────────────────────────────
+
+/// Hub version marker stored as `hub.json` on [`META_REF`].
+///
+/// Written by `crosslink migrate hub-v3` (part 2) alongside the `allowed_signers`
+/// blob. Records the schema version and provenance of the migration.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// Constructed and read by the migrate command and the verify path (part 2);
+// flagged dead until those callers land.
+#[allow(dead_code)]
+pub struct HubMeta {
+    /// Hub schema version (3 for v3).
+    pub hub_version: u32,
+    /// The `crosslink/hub` commit the migration was derived from.
+    pub migrated_from_commit: String,
+    /// When the migration ran.
+    pub migrated_at: chrono::DateTime<chrono::Utc>,
+    /// When `migrate hub-v3 --finalize` deleted the legacy v2 branch, if ever.
+    /// `None` until finalize runs; `serde(default)` so pre-finalize markers and
+    /// markers written before this field existed parse cleanly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Read the [`HubMeta`] marker from the [`META_REF`] tip, if present.
+///
+/// Returns `Ok(None)` when the meta ref does not exist (no v3 marker yet) or
+/// when its tree has no `hub.json` (a meta ref carrying only `allowed_signers`).
+///
+/// # Errors
+///
+/// Returns an error if git plumbing fails or `hub.json` exists but does not
+/// parse as [`HubMeta`].
+// Part-2 verify / refusal logic is the production caller; flagged dead until then.
+#[allow(dead_code)]
+pub fn read_hub_meta(repo_dir: &Path) -> Result<Option<HubMeta>> {
+    let Some(tip) = git_rev_parse_optional(repo_dir, META_REF)? else {
+        return Ok(None);
+    };
+    let spec = format!("{tip}:hub.json");
+    let Some(bytes) = git_cat_file_blob_optional(repo_dir, &spec)? else {
+        return Ok(None);
+    };
+    let meta: HubMeta = serde_json::from_slice(&bytes)
+        .context("failed to parse hub.json on the meta ref as HubMeta")?;
+    Ok(Some(meta))
 }
 
 // ── Config helper ────────────────────────────────────────────────────
@@ -429,6 +692,34 @@ pub fn dual_write_enabled(crosslink_dir: &Path) -> bool {
     val.get("hub_v3.dual_write")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
+}
+
+// ── v3-aware warn for v2 operation on a migrated hub ──────────────────
+
+/// One-shot guard so the migrated-hub warning fires at most once per process.
+static MIGRATED_V2_WARNED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Warn once if the hub at `repo_dir` has been migrated to v3 ([`detect_hub_version`]
+/// reports `V3`) while we are about to operate it in v2 mode.
+///
+/// Pre-finalize, mixed-version operation is user-managed (full refusal is the
+/// follow-up #754): v2 writes are NOT reflected in v3 until the cutover. This is
+/// cheap (a few `git rev-parse` probes) and never fatal — detection failures are
+/// swallowed so the warning can never block a hub operation.
+pub fn warn_if_migrated_v2_operation(repo_dir: &Path) {
+    use std::sync::atomic::Ordering;
+    if MIGRATED_V2_WARNED.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Ok(HubVersion::V3 { .. }) = detect_hub_version(repo_dir) {
+        if !MIGRATED_V2_WARNED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                "hub has been migrated to v3; v2 writes are not reflected in v3 — \
+                 finish the cutover or avoid mixed operation"
+            );
+        }
+    }
 }
 
 // ── Shadow stats ──────────────────────────────────────────────────────
@@ -577,46 +868,6 @@ fn git_hash_object(repo_dir: &Path, data: &[u8]) -> Result<String> {
     Ok(sha)
 }
 
-/// Create a tree from a single `events.log` blob via `git mktree`.
-///
-/// The input line is `100644 blob <blob_sha>\tevents.log`.
-fn git_mktree(repo_dir: &Path, blob_sha: &str) -> Result<String> {
-    use std::io::Write as _;
-
-    let tree_line = format!("100644 blob {blob_sha}\tevents.log\n");
-
-    let mut child = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["mktree"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("failed to spawn git mktree")?;
-
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("git mktree stdin pipe unavailable"))?
-        .write_all(tree_line.as_bytes())
-        .context("failed to write to git mktree stdin")?;
-
-    let output = child
-        .wait_with_output()
-        .context("failed to wait for git mktree")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git mktree failed: {}", stderr.trim());
-    }
-
-    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if sha.is_empty() {
-        anyhow::bail!("git mktree returned empty SHA");
-    }
-    Ok(sha)
-}
-
 /// Create a commit object via `git commit-tree`.
 ///
 /// Sets deterministic author/committer identity from `agent_id`. Parent is
@@ -704,6 +955,238 @@ fn git_update_ref_cas(
         "ref moved concurrently: {ref_name} (git update-ref failed: {})",
         stderr.trim()
     )
+}
+
+// ── Generalized single-file / multi-file commit core ─────────────────
+
+/// Build a tree from a single file entry, commit it onto `ref_name`, and move
+/// the ref with a compare-and-swap.
+///
+/// This is the shared core extracted from the append path, [`commit_log_bytes`],
+/// and [`commit_blob_to_ref`]. It hashes `bytes`, creates a one-entry tree
+/// (`<file_name>`) at the TREE ROOT, commits it (parent = the resolved old tip),
+/// and CAS-updates the ref per `expected`.
+///
+/// The new state is always added as a CHILD of the current tip when one exists,
+/// so any subsequent push remains a fast-forward.
+///
+/// # Errors
+///
+/// - `MustNotExist` when the ref already exists, or `MustMatch`/`CurrentTip`
+///   when the ref moved between read and update: returns
+///   `"ref moved concurrently: <ref>"`.
+/// - Any git plumbing failure.
+fn commit_single_file_tree(
+    repo_dir: &Path,
+    ref_name: &str,
+    file_name: &str,
+    bytes: &[u8],
+    message: &str,
+    committer_id: &str,
+    expected: CasExpectation<'_>,
+) -> Result<String> {
+    let blob_sha = git_hash_object(repo_dir, bytes)?;
+    let tree_sha = git_mktree_single(repo_dir, &blob_sha, file_name)?;
+    commit_tree_and_update_ref(
+        repo_dir,
+        ref_name,
+        &tree_sha,
+        message,
+        committer_id,
+        expected,
+    )
+}
+
+/// Resolve the CAS old-value and the commit parent for an `expected`
+/// expectation, validating any `MustNotExist` / `MustMatch` precondition.
+///
+/// Returns `(parent_for_commit, old_value_for_cas)`. Both are `Option<String>`:
+/// `None` parent means a genesis (parentless) commit; `None`/`Some` old value
+/// maps directly onto the `git update-ref <ref> <new> <old>` contract.
+fn resolve_cas_old(
+    repo_dir: &Path,
+    ref_name: &str,
+    expected: CasExpectation<'_>,
+) -> Result<Option<String>> {
+    match expected {
+        CasExpectation::MustNotExist => {
+            if git_rev_parse_optional(repo_dir, ref_name)?.is_some() {
+                anyhow::bail!(
+                    "ref moved concurrently: {ref_name} (expected absent, but it exists)"
+                );
+            }
+            Ok(None)
+        }
+        CasExpectation::MustMatch(sha) => Ok(Some(sha.to_string())),
+        CasExpectation::CurrentTip => git_rev_parse_optional(repo_dir, ref_name),
+    }
+}
+
+/// Commit `tree_sha` onto `ref_name` with a parent/CAS resolved from `expected`,
+/// then CAS-update the ref. Shared by the single-file and multi-file paths.
+fn commit_tree_and_update_ref(
+    repo_dir: &Path,
+    ref_name: &str,
+    tree_sha: &str,
+    message: &str,
+    committer_id: &str,
+    expected: CasExpectation<'_>,
+) -> Result<String> {
+    let old_commit = resolve_cas_old(repo_dir, ref_name, expected)?;
+    let commit_sha = git_commit_tree(
+        repo_dir,
+        tree_sha,
+        old_commit.as_deref(),
+        message,
+        committer_id,
+    )?;
+    git_update_ref_cas(repo_dir, ref_name, &commit_sha, old_commit.as_deref())?;
+    Ok(commit_sha)
+}
+
+/// Commit a single blob to an arbitrary ref at the TREE ROOT under `file_name`.
+///
+/// Reads the current tip as the commit parent and CAS-updates on it
+/// ([`CasExpectation::CurrentTip`]): genesis when absent, fast-forward child
+/// when present. Used for the checkpoint ref (`state.json`) and any other
+/// single-file driver ref.
+///
+/// # Errors
+///
+/// Returns an error if the ref moved concurrently (CAS failure) or any git
+/// plumbing step fails.
+// PR3 read/verify path and the migrate command (part 2) are the production
+// callers; the bin's duplicate module tree flags it as dead code until then.
+#[allow(dead_code)]
+pub fn commit_blob_to_ref(
+    repo_dir: &Path,
+    ref_name: &str,
+    file_name: &str,
+    bytes: &[u8],
+    message: &str,
+) -> Result<String> {
+    commit_single_file_tree(
+        repo_dir,
+        ref_name,
+        file_name,
+        bytes,
+        message,
+        "crosslink",
+        CasExpectation::CurrentTip,
+    )
+}
+
+/// Commit MULTIPLE files into a single tree at the TREE ROOT and move `ref_name`.
+///
+/// `files` is a slice of `(file_name, bytes)` pairs. The entries are sorted by
+/// name before `git mktree` so the tree is well-formed regardless of the input
+/// order. Used for [`META_REF`], which carries `hub.json` plus `allowed_signers`.
+///
+/// Reads the current tip as the commit parent ([`CasExpectation::CurrentTip`]):
+/// genesis when absent, fast-forward child when present.
+///
+/// # mktree ordering
+///
+/// Git's tree object format requires entries sorted by name. Modern `git mktree`
+/// (observed: 2.54) re-sorts its stdin, but older versions and `--missing` mode
+/// can reject unsorted input, so this function sorts defensively before feeding
+/// mktree. Duplicate file names are rejected (a malformed tree request).
+///
+/// # Errors
+///
+/// Returns an error on duplicate file names, CAS failure, or any git plumbing
+/// failure.
+// PR3 migrate command (part 2) writes META_REF; flagged dead until then.
+#[allow(dead_code)]
+pub fn commit_files_to_ref(
+    repo_dir: &Path,
+    ref_name: &str,
+    files: &[(&str, &[u8])],
+    message: &str,
+) -> Result<String> {
+    anyhow::ensure!(
+        !files.is_empty(),
+        "commit_files_to_ref requires at least one file"
+    );
+
+    // Hash every blob, then sort tree lines by file name (git tree invariant).
+    let mut entries: Vec<(String, String)> = Vec::with_capacity(files.len());
+    for (name, bytes) in files {
+        anyhow::ensure!(
+            !name.contains('/') && !name.is_empty(),
+            "commit_files_to_ref file name must be a non-empty tree-root name, got '{name}'"
+        );
+        let blob_sha = git_hash_object(repo_dir, bytes)?;
+        entries.push(((*name).to_string(), blob_sha));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    for pair in entries.windows(2) {
+        anyhow::ensure!(
+            pair[0].0 != pair[1].0,
+            "commit_files_to_ref got duplicate file name '{}'",
+            pair[0].0
+        );
+    }
+
+    let tree_sha = git_mktree_multi(repo_dir, &entries)?;
+    commit_tree_and_update_ref(
+        repo_dir,
+        ref_name,
+        &tree_sha,
+        message,
+        "crosslink",
+        CasExpectation::CurrentTip,
+    )
+}
+
+/// Create a tree from a single blob under an arbitrary `file_name` via
+/// `git mktree`. Generalizes [`git_mktree`] (which hardcodes `events.log`).
+fn git_mktree_single(repo_dir: &Path, blob_sha: &str, file_name: &str) -> Result<String> {
+    git_mktree_multi(repo_dir, &[(file_name.to_string(), blob_sha.to_string())])
+}
+
+/// Create a tree from sorted `(file_name, blob_sha)` entries via `git mktree`.
+fn git_mktree_multi(repo_dir: &Path, entries: &[(String, String)]) -> Result<String> {
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+
+    let mut input = String::new();
+    for (name, blob_sha) in entries {
+        // `write!` to a String is infallible; the trait method returns Result so
+        // the unused-result is intentionally discarded.
+        let _ = writeln!(input, "100644 blob {blob_sha}\t{name}");
+    }
+
+    let mut child = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["mktree"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("failed to spawn git mktree")?;
+
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("git mktree stdin pipe unavailable"))?
+        .write_all(input.as_bytes())
+        .context("failed to write to git mktree stdin")?;
+
+    let output = child
+        .wait_with_output()
+        .context("failed to wait for git mktree")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git mktree failed: {}", stderr.trim());
+    }
+
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if sha.is_empty() {
+        anyhow::bail!("git mktree returned empty SHA");
+    }
+    Ok(sha)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -1294,5 +1777,381 @@ mod tests {
         assert_eq!(read.pushed, 40);
         assert_eq!(read.push_failures, 2);
         assert_eq!(read.last_failure.as_deref(), Some("test failure"));
+    }
+
+    // ── Test 10: commit_blob_to_ref genesis + CAS conflict ───────────
+
+    #[test]
+    fn commit_blob_to_ref_genesis_and_cas_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+
+        let ref_name = CHECKPOINT_REF;
+
+        // Genesis: ref does not exist yet.
+        let sha1 = commit_blob_to_ref(
+            dir.path(),
+            ref_name,
+            "state.json",
+            b"{\"v\":1}\n",
+            "genesis checkpoint",
+        )
+        .unwrap();
+        let tip = run_git_output(dir.path(), &["rev-parse", ref_name]);
+        assert_eq!(tip, sha1, "ref must point at the genesis commit");
+
+        // Genesis commit must be parentless and the blob readable at the root.
+        let log = run_git_output(dir.path(), &["log", "--oneline", ref_name]);
+        assert_eq!(log.lines().count(), 1, "genesis commit must have no parent");
+        let blob = run_git_output(
+            dir.path(),
+            &["cat-file", "blob", &format!("{sha1}:state.json")],
+        );
+        assert_eq!(blob, "{\"v\":1}");
+
+        // Second commit fast-forwards onto the tip (CurrentTip CAS).
+        let sha2 = commit_blob_to_ref(
+            dir.path(),
+            ref_name,
+            "state.json",
+            b"{\"v\":2}\n",
+            "second checkpoint",
+        )
+        .unwrap();
+        assert_ne!(sha1, sha2);
+        let count = run_git_output(dir.path(), &["rev-list", "--count", ref_name]);
+        assert_eq!(count, "2", "second commit must chain onto the first");
+
+        // CAS conflict: directly invoke the single-file core with a stale
+        // MustMatch expectation (ref has moved past sha1).
+        let stale = commit_single_file_tree(
+            dir.path(),
+            ref_name,
+            "state.json",
+            b"{\"v\":3}\n",
+            "stale checkpoint",
+            "crosslink",
+            CasExpectation::MustMatch(&sha1),
+        );
+        assert!(stale.is_err(), "stale MustMatch CAS must fail");
+        let msg = format!("{:?}", stale.unwrap_err());
+        assert!(
+            msg.contains("ref moved concurrently"),
+            "CAS conflict error must mention concurrent move, got: {msg}"
+        );
+
+        // MustNotExist on an existing ref must also fail.
+        let exists = commit_single_file_tree(
+            dir.path(),
+            ref_name,
+            "state.json",
+            b"{}\n",
+            "genesis on existing",
+            "crosslink",
+            CasExpectation::MustNotExist,
+        );
+        assert!(exists.is_err(), "MustNotExist on an existing ref must fail");
+    }
+
+    // ── Test 11: commit_files_to_ref multi-file tree + ordering ──────
+
+    #[test]
+    fn commit_files_to_ref_multi_file_ordering() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+
+        // Deliberately pass entries in NON-sorted order (hub.json before
+        // allowed_signers) to exercise the defensive sort.
+        let files: &[(&str, &[u8])] = &[
+            ("hub.json", b"{\"hub_version\":3}\n"),
+            ("allowed_signers", b"signer line\n"),
+        ];
+        let sha = commit_files_to_ref(dir.path(), META_REF, files, "meta genesis").unwrap();
+
+        // Both files readable at the tree root.
+        let hub = run_git_output(
+            dir.path(),
+            &["cat-file", "blob", &format!("{sha}:hub.json")],
+        );
+        assert_eq!(hub, "{\"hub_version\":3}");
+        let signers = run_git_output(
+            dir.path(),
+            &["cat-file", "blob", &format!("{sha}:allowed_signers")],
+        );
+        assert_eq!(signers, "signer line");
+
+        // ls-tree output is sorted by name (git tree invariant): allowed_signers
+        // sorts before hub.json.
+        let listing = run_git_output(dir.path(), &["ls-tree", "--name-only", sha.as_str()]);
+        let names: Vec<&str> = listing.lines().collect();
+        assert_eq!(names, vec!["allowed_signers", "hub.json"]);
+
+        // Duplicate file names are rejected.
+        let dup: &[(&str, &[u8])] = &[("a.json", b"1"), ("a.json", b"2")];
+        assert!(
+            commit_files_to_ref(dir.path(), META_REF, dup, "dup").is_err(),
+            "duplicate file names must be rejected"
+        );
+    }
+
+    // ── Test 12: push_ref_with_lease success + lease rejection ───────
+
+    #[test]
+    fn push_ref_with_lease_success_and_rejection() {
+        let local_dir = tempfile::tempdir().unwrap();
+        let remote_dir = tempfile::tempdir().unwrap();
+        git_init(local_dir.path());
+        run_git(remote_dir.path(), &["init", "--bare"]);
+        run_git(
+            local_dir.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                remote_dir.path().to_str().unwrap(),
+            ],
+        );
+
+        let ref_name = CHECKPOINT_REF;
+
+        // Genesis checkpoint, then push with lease (no expected baseline → None).
+        commit_blob_to_ref(
+            local_dir.path(),
+            ref_name,
+            "state.json",
+            b"{\"v\":1}\n",
+            "cp1",
+        )
+        .unwrap();
+        let p1 = push_ref_with_lease(local_dir.path(), "origin", ref_name, None).unwrap();
+        assert!(
+            matches!(p1, PushOutcome::Pushed),
+            "genesis lease push must succeed"
+        );
+        let remote_tip1 = run_git_output(remote_dir.path(), &["rev-parse", ref_name]);
+
+        // Advance locally and push again with the correct expected remote SHA.
+        commit_blob_to_ref(
+            local_dir.path(),
+            ref_name,
+            "state.json",
+            b"{\"v\":2}\n",
+            "cp2",
+        )
+        .unwrap();
+        let p2 =
+            push_ref_with_lease(local_dir.path(), "origin", ref_name, Some(&remote_tip1)).unwrap();
+        assert!(
+            matches!(p2, PushOutcome::Pushed),
+            "matching-lease push must succeed"
+        );
+        let remote_tip2 = run_git_output(remote_dir.path(), &["rev-parse", ref_name]);
+
+        // Now move the REMOTE ref out from under us to a divergent commit, then
+        // push with a STALE expected baseline (remote_tip2). The lease must
+        // reject.
+        // Build a divergent commit on the remote by pushing an unrelated history.
+        commit_blob_to_ref(
+            remote_dir.path(),
+            "refs/crosslink/scratch",
+            "state.json",
+            b"X\n",
+            "scratch",
+        )
+        .unwrap();
+        let divergent = run_git_output(remote_dir.path(), &["rev-parse", "refs/crosslink/scratch"]);
+        run_git(remote_dir.path(), &["update-ref", ref_name, &divergent]);
+
+        // Local still believes remote is at remote_tip2 → stale lease → rejected.
+        commit_blob_to_ref(
+            local_dir.path(),
+            ref_name,
+            "state.json",
+            b"{\"v\":3}\n",
+            "cp3",
+        )
+        .unwrap();
+        let p3 =
+            push_ref_with_lease(local_dir.path(), "origin", ref_name, Some(&remote_tip2)).unwrap();
+        assert!(
+            matches!(p3, PushOutcome::NonFastForward),
+            "stale lease must be rejected as NonFastForward, got a different outcome"
+        );
+        // Remote unchanged by the rejected push.
+        let remote_after = run_git_output(remote_dir.path(), &["rev-parse", ref_name]);
+        assert_eq!(
+            remote_after, divergent,
+            "rejected lease push must not move the remote"
+        );
+    }
+
+    // ── Test 13: detect_hub_version matrix ───────────────────────────
+
+    #[test]
+    fn detect_hub_version_matrix() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+
+        // Absent: no refs at all.
+        assert_eq!(detect_hub_version(dir.path()).unwrap(), HubVersion::Absent);
+
+        // V2Only: create a crosslink/hub branch (needs a commit to point at).
+        let cp = commit_blob_to_ref(dir.path(), "refs/crosslink/tmp", "x", b"x\n", "tmp").unwrap();
+        run_git(dir.path(), &["update-ref", "refs/heads/crosslink/hub", &cp]);
+        assert_eq!(detect_hub_version(dir.path()).unwrap(), HubVersion::V2Only);
+
+        // V3 with v2 branch present: add meta + checkpoint refs.
+        commit_files_to_ref(dir.path(), META_REF, &[("hub.json", b"{}\n")], "meta").unwrap();
+        commit_blob_to_ref(dir.path(), CHECKPOINT_REF, "state.json", b"{}\n", "cp").unwrap();
+        assert_eq!(
+            detect_hub_version(dir.path()).unwrap(),
+            HubVersion::V3 {
+                v2_branch_present: true
+            }
+        );
+
+        // V3 without v2 branch: delete the v2 branch.
+        run_git(
+            dir.path(),
+            &["update-ref", "-d", "refs/heads/crosslink/hub"],
+        );
+        assert_eq!(
+            detect_hub_version(dir.path()).unwrap(),
+            HubVersion::V3 {
+                v2_branch_present: false
+            }
+        );
+    }
+
+    // ── Test 14: detect_remote_hub_version matrix + unreachable ──────
+
+    #[test]
+    fn detect_remote_hub_version_matrix_and_unreachable() {
+        let local_dir = tempfile::tempdir().unwrap();
+        let remote_dir = tempfile::tempdir().unwrap();
+        git_init(local_dir.path());
+        run_git(remote_dir.path(), &["init", "--bare"]);
+        run_git(
+            local_dir.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                remote_dir.path().to_str().unwrap(),
+            ],
+        );
+
+        // Absent: bare remote with no crosslink refs.
+        assert_eq!(
+            detect_remote_hub_version(local_dir.path(), "origin").unwrap(),
+            HubVersion::Absent
+        );
+
+        // V2Only: create the v2 branch on the remote.
+        commit_blob_to_ref(remote_dir.path(), "refs/crosslink/tmp", "x", b"x\n", "tmp").unwrap();
+        let tmp = run_git_output(remote_dir.path(), &["rev-parse", "refs/crosslink/tmp"]);
+        run_git(
+            remote_dir.path(),
+            &["update-ref", "refs/heads/crosslink/hub", &tmp],
+        );
+        run_git(
+            remote_dir.path(),
+            &["update-ref", "-d", "refs/crosslink/tmp"],
+        );
+        assert_eq!(
+            detect_remote_hub_version(local_dir.path(), "origin").unwrap(),
+            HubVersion::V2Only
+        );
+
+        // V3 with v2 present: add meta + checkpoint on the remote.
+        commit_files_to_ref(
+            remote_dir.path(),
+            META_REF,
+            &[("hub.json", b"{}\n")],
+            "meta",
+        )
+        .unwrap();
+        commit_blob_to_ref(
+            remote_dir.path(),
+            CHECKPOINT_REF,
+            "state.json",
+            b"{}\n",
+            "cp",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_remote_hub_version(local_dir.path(), "origin").unwrap(),
+            HubVersion::V3 {
+                v2_branch_present: true
+            }
+        );
+
+        // V3 without v2: drop the remote v2 branch.
+        run_git(
+            remote_dir.path(),
+            &["update-ref", "-d", "refs/heads/crosslink/hub"],
+        );
+        assert_eq!(
+            detect_remote_hub_version(local_dir.path(), "origin").unwrap(),
+            HubVersion::V3 {
+                v2_branch_present: false
+            }
+        );
+
+        // Unreachable remote → hard error (never guess).
+        let err = detect_remote_hub_version(local_dir.path(), "/no/such/remote/path").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("ls-remote")
+                || msg.contains("remote unreachable")
+                || msg.contains("cannot determine"),
+            "unreachable remote must hard-error, got: {msg}"
+        );
+    }
+
+    // ── Test 15: HubMeta round-trip ──────────────────────────────────
+
+    #[test]
+    fn hub_meta_roundtrip_via_commit_files_and_read() {
+        let dir = tempfile::tempdir().unwrap();
+        git_init(dir.path());
+
+        // No meta ref → None.
+        assert!(read_hub_meta(dir.path()).unwrap().is_none());
+
+        let meta = HubMeta {
+            hub_version: 3,
+            migrated_from_commit: "deadbeefcafe1234".to_string(),
+            migrated_at: chrono::Utc::now(),
+            finalized_at: None,
+        };
+        let meta_bytes = serde_json::to_vec(&meta).unwrap();
+        commit_files_to_ref(
+            dir.path(),
+            META_REF,
+            &[("hub.json", &meta_bytes), ("allowed_signers", b"sig\n")],
+            "meta with marker",
+        )
+        .unwrap();
+
+        let read = read_hub_meta(dir.path())
+            .unwrap()
+            .expect("meta must be present");
+        assert_eq!(read.hub_version, 3);
+        assert_eq!(read.migrated_from_commit, "deadbeefcafe1234");
+        // chrono round-trips at the serialized precision.
+        assert_eq!(read, meta);
+
+        // A meta ref without hub.json (only allowed_signers) → None.
+        let dir2 = tempfile::tempdir().unwrap();
+        git_init(dir2.path());
+        commit_files_to_ref(
+            dir2.path(),
+            META_REF,
+            &[("allowed_signers", b"sig\n")],
+            "meta no marker",
+        )
+        .unwrap();
+        assert!(read_hub_meta(dir2.path()).unwrap().is_none());
     }
 }

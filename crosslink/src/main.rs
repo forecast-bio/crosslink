@@ -867,6 +867,23 @@ enum MigrateCommands {
     FromShared,
     /// Rename coordination branch from crosslink/locks to crosslink/hub
     RenameBranch,
+    /// Convert a v2 hub to the v3 per-agent-ref layout (one-shot, verified).
+    ///
+    /// Without `--finalize`: seeds per-agent refs + a genesis checkpoint from
+    /// the current hub state, runs the AC-6 full-state verification gate, and
+    /// pushes the v3 refs. The legacy crosslink/hub branch is left intact as a
+    /// read-only escape hatch.
+    ///
+    /// With `--finalize --yes-delete-v2`: re-verifies, then deletes the legacy
+    /// crosslink/hub branch locally and on the remote (the hard cutover).
+    HubV3 {
+        /// Delete the legacy crosslink/hub branch (destructive cutover).
+        #[arg(long)]
+        finalize: bool,
+        /// Required confirmation for `--finalize` (it deletes the v2 branch).
+        #[arg(long)]
+        yes_delete_v2: bool,
+    },
 }
 
 /// Subcommands for `crosslink dashboard` (GH #429).
@@ -2641,6 +2658,13 @@ fn main() -> Result<()> {
             MigrateCommands::RenameBranch => {
                 let crosslink_dir = find_crosslink_dir()?;
                 commands::migrate::rename_branch(&crosslink_dir)
+            }
+            MigrateCommands::HubV3 {
+                finalize,
+                yes_delete_v2,
+            } => {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::migrate_hub_v3::hub_v3(&crosslink_dir, finalize, yes_delete_v2)
             }
         },
 

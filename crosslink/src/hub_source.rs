@@ -396,6 +396,261 @@ impl HubSource for ObjectStoreSource {
     }
 }
 
+// ── RefHubSource ─────────────────────────────────────────────────────
+
+/// Reads the hub-v3 per-agent ref namespace — the production v3 read path.
+///
+/// Unlike [`ObjectStoreSource`], which reads a single HUB-LAYOUT commit (with
+/// `agents/<id>/events.log` nested inside one tree), `RefHubSource` reads the v3
+/// layout where each agent owns its own ref
+/// (`refs/crosslink/agents/<id>`) carrying `events.log` at the TREE ROOT, the
+/// checkpoint lives on its own ref ([`crate::hub_v3::CHECKPOINT_REF`]) with
+/// `state.json` at the root, and trust metadata lives on
+/// [`crate::hub_v3::META_REF`].
+///
+/// # Pinned-commit consistency
+///
+/// Mirrors `ObjectStoreSource`'s torn-view protection: the constructor resolves
+/// the checkpoint tip, the meta tip, and EVERY agent ref tip to concrete SHAs
+/// once, and all subsequent reads address those SHAs explicitly. A concurrent
+/// push to any ref after construction cannot change what this source reads —
+/// it still sees the tips pinned at construction.
+///
+/// # Composition (REQ-3)
+///
+/// `reduce(&RefHubSource)` materializes the genesis checkpoint plus every event
+/// above its watermark, exactly as the worktree path does — this composition is
+/// the entire v3 read path.
+///
+/// # PR3 of hub v3 — see `.design/hub-v3-per-agent-refs.md` REQ-3
+#[derive(Debug)]
+// Production read path wired up by the migrate verify step (part 2) and #754;
+// the bin's duplicate module tree flags it as dead code until then.
+#[allow(dead_code)]
+pub struct RefHubSource {
+    /// Path to the local git repository.
+    repo_path: PathBuf,
+    /// Pinned checkpoint commit SHA, or `None` when no checkpoint ref exists
+    /// (tolerated: treated as the default checkpoint).
+    checkpoint_sha: Option<String>,
+    /// Pinned meta commit SHA, or `None` when no meta ref exists.
+    meta_sha: Option<String>,
+    /// Pinned `(agent_id, agent_ref_tip_sha)` pairs, enumerated once at
+    /// construction. All `read_events` calls address these SHAs, never the
+    /// moving refs.
+    agent_tips: Vec<(String, String)>,
+    /// Temp dir holding the extracted `allowed_signers` file, if any. Owned so
+    /// the path returned by `allowed_signers_file()` lives as long as `&self`.
+    _allowed_signers_dir: Option<tempfile::TempDir>,
+    /// Path to the extracted `allowed_signers` file, if any.
+    allowed_signers_path: Option<PathBuf>,
+}
+
+// Production read path: see the dead_code note on the struct.
+#[allow(dead_code)]
+impl RefHubSource {
+    /// Construct a `RefHubSource` pinned to the current tips of the v3 refs in
+    /// `repo_dir`.
+    ///
+    /// Resolves the checkpoint ref (optional), the meta ref (optional), and
+    /// enumerates every `refs/crosslink/agents/*` ref, pinning each to its tip
+    /// SHA. The `allowed_signers` blob from the meta ref is extracted into a
+    /// temp file once here so `allowed_signers_file()` runs no git commands.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git plumbing (`for-each-ref`, `rev-parse`,
+    /// `cat-file`) fails.
+    pub fn new(repo_dir: &Path) -> Result<Self> {
+        let checkpoint_sha = git_rev_parse_optional(repo_dir, crate::hub_v3::CHECKPOINT_REF)?;
+        let meta_sha = git_rev_parse_optional(repo_dir, crate::hub_v3::META_REF)?;
+
+        // Enumerate agent refs and pin each tip.
+        let mut agent_tips = Vec::new();
+        for ref_name in for_each_ref(repo_dir, &format!("{}*", crate::hub_v3::AGENT_REF_PREFIX))? {
+            let Some(agent_id) = ref_name.strip_prefix(crate::hub_v3::AGENT_REF_PREFIX) else {
+                continue;
+            };
+            // Resolve the tip explicitly so the read is pinned, not ref-relative.
+            let Some(sha) = git_rev_parse_optional(repo_dir, &ref_name)? else {
+                continue;
+            };
+            agent_tips.push((agent_id.to_string(), sha));
+        }
+
+        // Extract allowed_signers from the meta tip, if present, into an owned
+        // temp dir (same lifetime pattern as ObjectStoreSource).
+        let (allowed_signers_dir, allowed_signers_path) = match &meta_sha {
+            Some(sha) => extract_meta_allowed_signers(repo_dir, sha)?,
+            None => (None, None),
+        };
+
+        Ok(Self {
+            repo_path: repo_dir.to_path_buf(),
+            checkpoint_sha,
+            meta_sha,
+            agent_tips,
+            _allowed_signers_dir: allowed_signers_dir,
+            allowed_signers_path,
+        })
+    }
+
+    /// The pinned checkpoint commit SHA, or `None` if no checkpoint ref exists.
+    #[must_use]
+    pub fn checkpoint_sha(&self) -> Option<&str> {
+        self.checkpoint_sha.as_deref()
+    }
+
+    /// The pinned meta commit SHA, or `None` if no meta ref exists.
+    #[must_use]
+    pub fn meta_sha(&self) -> Option<&str> {
+        self.meta_sha.as_deref()
+    }
+}
+
+impl HubSource for RefHubSource {
+    fn agent_ids(&self) -> Result<Vec<String>> {
+        Ok(self.agent_tips.iter().map(|(id, _)| id.clone()).collect())
+    }
+
+    fn read_events(
+        &self,
+        agent_id: &str,
+        after: Option<&OrderingKey>,
+    ) -> Result<Vec<EventEnvelope>> {
+        // Find the pinned tip for this agent.
+        let Some((_, sha)) = self.agent_tips.iter().find(|(id, _)| id == agent_id) else {
+            return Ok(Vec::new());
+        };
+
+        // events.log is at the TREE ROOT of each agent's own ref.
+        let bytes = git_cat_file_blob(&self.repo_path, sha, "events.log").with_context(|| {
+            format!("failed to read events.log for agent '{agent_id}' from pinned tip {sha}")
+        })?;
+
+        let Some(bytes) = bytes else {
+            // Tip exists but has no events.log (unexpected for a v3 agent ref;
+            // treat as empty rather than erroring on a structurally-odd ref).
+            return Ok(Vec::new());
+        };
+
+        let events = read_events_from_bytes(&bytes).with_context(|| {
+            format!("failed to parse events.log for agent '{agent_id}' from pinned tip {sha}")
+        })?;
+
+        if let Some(wm) = after {
+            Ok(events
+                .into_iter()
+                .filter(|e| OrderingKey::from_envelope(e) > *wm)
+                .collect())
+        } else {
+            Ok(events)
+        }
+    }
+
+    fn read_checkpoint(&self) -> Result<CheckpointState> {
+        let Some(sha) = &self.checkpoint_sha else {
+            // No checkpoint ref → default checkpoint (no watermark, full reduce).
+            return Ok(CheckpointState::default());
+        };
+
+        // state.json is at the TREE ROOT of the checkpoint ref.
+        let bytes = git_cat_file_blob(&self.repo_path, sha, "state.json").with_context(|| {
+            format!("failed to read state.json from pinned checkpoint tip {sha}")
+        })?;
+
+        bytes.map_or_else(
+            || Ok(CheckpointState::default()),
+            |b| {
+                CheckpointState::from_slice(&b).with_context(|| {
+                    format!("failed to parse state.json from pinned checkpoint tip {sha}")
+                })
+            },
+        )
+    }
+
+    fn read_legacy_watermark(&self) -> Result<Option<OrderingKey>> {
+        // v3 has no legacy watermark file: the watermark lives embedded in the
+        // checkpoint's CheckpointState (read via read_checkpoint). There is no
+        // standalone watermark.json on any v3 ref, so this is unconditionally None.
+        Ok(None)
+    }
+
+    fn allowed_signers_file(&self) -> Result<Option<PathBuf>> {
+        Ok(self.allowed_signers_path.clone())
+    }
+}
+
+/// Extract `allowed_signers` from the `META_REF` tip tree (TREE ROOT) into an
+/// owned temp dir. Mirrors [`extract_allowed_signers`] but reads the meta ref's
+/// root path rather than `trust/allowed_signers`.
+// Production read path: see the dead_code note on RefHubSource.
+#[allow(dead_code)]
+fn extract_meta_allowed_signers(
+    repo_path: &Path,
+    meta_sha: &str,
+) -> Result<(Option<tempfile::TempDir>, Option<PathBuf>)> {
+    let bytes = git_cat_file_blob(repo_path, meta_sha, "allowed_signers")
+        .with_context(|| format!("failed to read allowed_signers from meta tip {meta_sha}"))?;
+
+    let Some(bytes) = bytes else {
+        return Ok((None, None));
+    };
+
+    let dir = tempfile::tempdir().context("failed to create temp dir for allowed_signers")?;
+    let path = dir.path().join("allowed_signers");
+    std::fs::write(&path, &bytes)
+        .with_context(|| format!("failed to write allowed_signers to {}", path.display()))?;
+
+    Ok((Some(dir), Some(path)))
+}
+
+/// Run `git rev-parse --verify --quiet <ref>`; `Some(sha)` if it resolves,
+/// `None` if absent.
+// Production read path: see the dead_code note on RefHubSource.
+#[allow(dead_code)]
+fn git_rev_parse_optional(repo_path: &Path, ref_name: &str) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["rev-parse", "--verify", "--quiet", ref_name])
+        .output()
+        .with_context(|| format!("failed to run git rev-parse for '{ref_name}'"))?;
+
+    if output.status.success() {
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if sha.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(sha))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Enumerate refs matching `pattern` via `git for-each-ref --format=%(refname)`.
+// Production read path: see the dead_code note on RefHubSource.
+#[allow(dead_code)]
+fn for_each_ref(repo_path: &Path, pattern: &str) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["for-each-ref", "--format=%(refname)", pattern])
+        .output()
+        .with_context(|| format!("failed to run git for-each-ref for '{pattern}'"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git for-each-ref failed for '{pattern}': {}", stderr.trim());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 // ── Private git helpers ──────────────────────────────────────────────
 
 /// Run `git rev-parse --verify <ref>` and return the resolved SHA.
@@ -1165,6 +1420,291 @@ mod tests {
         assert!(
             msg.contains("no longer exists"),
             "checkpoint read should describe the vanished object store, got: {msg}"
+        );
+    }
+
+    // ── RefHubSource v3-layout tests ─────────────────────────────────
+
+    /// Initialize a git repo (object store only; commits get identity from
+    /// `commit_log_bytes`/`commit_blob_to_ref` env vars, so no user config is
+    /// strictly required, but configure one for parity with other helpers).
+    fn ref_repo_init(path: &Path) {
+        run_git(path, &["init"]);
+        run_git(path, &["config", "user.email", "test@crosslink.test"]);
+        run_git(path, &["config", "user.name", "Test"]);
+    }
+
+    /// Serialize a set of events to the canonical NDJSON byte image (identical
+    /// to `events::append_event` output) for committing onto an agent ref.
+    fn log_bytes(events: &[EventEnvelope]) -> Vec<u8> {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_path = tmp.path().join("events.log");
+        for ev in events {
+            crate::events::append_event(&log_path, ev).unwrap();
+        }
+        std::fs::read(&log_path).unwrap()
+    }
+
+    #[test]
+    fn ref_hub_source_reduces_genesis_plus_post_watermark_events() {
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+
+        let now = Utc::now();
+        let uuid_pre = Uuid::new_v4();
+        let uuid_post1 = Uuid::new_v4();
+        let uuid_post2 = Uuid::new_v4();
+
+        // agent-1: one pre-watermark event, one post-watermark event.
+        let mut e_pre = make_issue_created("agent-1", 1, uuid_pre);
+        e_pre.timestamp = now - Duration::seconds(60);
+        let mut e_post1 = make_issue_created("agent-1", 2, uuid_post1);
+        e_post1.timestamp = now - Duration::seconds(10);
+
+        // agent-2: one post-watermark event.
+        let mut e_post2 = make_issue_created("agent-2", 1, uuid_post2);
+        e_post2.timestamp = now - Duration::seconds(5);
+
+        // Commit each agent's full log onto its own ref (events.log at root).
+        crate::hub_v3::commit_log_bytes(
+            repo,
+            "agent-1",
+            &log_bytes(&[e_pre.clone(), e_post1]),
+            "agent-1 log",
+        )
+        .unwrap();
+        crate::hub_v3::commit_log_bytes(repo, "agent-2", &log_bytes(&[e_post2]), "agent-2 log")
+            .unwrap();
+
+        // Build a genesis checkpoint whose watermark covers e_pre only, and
+        // which already contains uuid_pre as reduced state.
+        let wm = OrderingKey::from_envelope(&e_pre);
+        let mut state = CheckpointState {
+            watermark: Some(wm),
+            ..Default::default()
+        };
+        state.issues.insert(
+            uuid_pre,
+            crate::checkpoint::CompactIssue {
+                uuid: uuid_pre,
+                display_id: Some(1),
+                title: format!("Issue {uuid_pre}"),
+                description: None,
+                status: crate::models::IssueStatus::Open,
+                priority: crate::models::Priority::Medium,
+                parent_uuid: None,
+                created_by: "agent-1".to_string(),
+                created_at: e_pre.timestamp,
+                updated_at: e_pre.timestamp,
+                closed_at: None,
+                scheduled_at: None,
+                due_at: None,
+                labels: std::collections::BTreeSet::new(),
+                blockers: std::collections::BTreeSet::new(),
+                related: std::collections::BTreeSet::new(),
+                milestone_uuid: None,
+                comments: std::collections::BTreeMap::new(),
+                time_entries: std::collections::BTreeMap::new(),
+            },
+        );
+        state.display_id_map.insert(uuid_pre, 1);
+        state.next_display_id = 2;
+        let state_bytes = serde_json::to_vec(&state).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            repo,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &state_bytes,
+            "genesis checkpoint",
+        )
+        .unwrap();
+
+        // reduce(&RefHubSource) = genesis state ⊕ post-watermark events.
+        let source = RefHubSource::new(repo).unwrap();
+        let outcome = crate::compaction::reduce(&source).unwrap();
+
+        // Exactly the two post-watermark events were processed.
+        assert_eq!(
+            outcome.events_processed, 2,
+            "only post-watermark events apply"
+        );
+        // Genesis issue plus both post-watermark issues are present.
+        assert!(
+            outcome.state.issues.contains_key(&uuid_pre),
+            "genesis issue retained"
+        );
+        assert!(
+            outcome.state.issues.contains_key(&uuid_post1),
+            "post-wm issue 1 applied"
+        );
+        assert!(
+            outcome.state.issues.contains_key(&uuid_post2),
+            "post-wm issue 2 applied"
+        );
+        assert_eq!(outcome.state.issues.len(), 3);
+    }
+
+    #[test]
+    fn ref_hub_source_no_checkpoint_defaults_and_reduces_all() {
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+
+        let uuid1 = Uuid::new_v4();
+        let mut e1 = make_issue_created("agent-1", 1, uuid1);
+        e1.timestamp = Utc::now() - Duration::seconds(5);
+        crate::hub_v3::commit_log_bytes(repo, "agent-1", &log_bytes(&[e1]), "log").unwrap();
+
+        // No checkpoint ref → default checkpoint (no watermark) → full reduce.
+        let source = RefHubSource::new(repo).unwrap();
+        assert!(source.checkpoint_sha().is_none());
+        let outcome = crate::compaction::reduce(&source).unwrap();
+        assert_eq!(outcome.events_processed, 1);
+        assert!(outcome.state.issues.contains_key(&uuid1));
+    }
+
+    #[test]
+    fn ref_hub_source_pinned_to_tips_at_construction() {
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+
+        let uuid1 = Uuid::new_v4();
+        let mut e1 = make_issue_created("agent-1", 1, uuid1);
+        e1.timestamp = Utc::now() - Duration::seconds(20);
+        crate::hub_v3::commit_log_bytes(repo, "agent-1", &log_bytes(&[e1.clone()]), "log1")
+            .unwrap();
+
+        // Pin at construction.
+        let source = RefHubSource::new(repo).unwrap();
+
+        // Move the agent ref forward AFTER construction.
+        let uuid2 = Uuid::new_v4();
+        let mut e2 = make_issue_created("agent-1", 2, uuid2);
+        e2.timestamp = Utc::now() - Duration::seconds(5);
+        crate::hub_v3::commit_log_bytes(repo, "agent-1", &log_bytes(&[e1, e2]), "log2").unwrap();
+
+        // The pinned source still reads the old tip: uuid2 must NOT appear.
+        let outcome = crate::compaction::reduce(&source).unwrap();
+        assert!(outcome.state.issues.contains_key(&uuid1));
+        assert!(
+            !outcome.state.issues.contains_key(&uuid2),
+            "pinned source must not see the post-construction ref move"
+        );
+    }
+
+    #[test]
+    fn ref_hub_source_vanished_commit_hard_errors() {
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+
+        let uuid1 = Uuid::new_v4();
+        let mut e1 = make_issue_created("agent-1", 1, uuid1);
+        e1.timestamp = Utc::now() - Duration::seconds(5);
+        crate::hub_v3::commit_log_bytes(repo, "agent-1", &log_bytes(&[e1]), "log").unwrap();
+
+        let source = RefHubSource::new(repo).unwrap();
+
+        // Destroy the object store after pinning.
+        std::fs::remove_dir_all(repo.join(".git").join("objects")).unwrap();
+        std::fs::create_dir_all(repo.join(".git").join("objects")).unwrap();
+
+        let err = source
+            .read_events("agent-1", None)
+            .expect_err("vanished agent-ref commit must hard-error, not read empty");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("no longer exists"),
+            "vanished commit must describe the pruned object store, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn ref_hub_source_reads_allowed_signers_from_meta() {
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+
+        // No meta ref → no allowed_signers.
+        let source = RefHubSource::new(repo).unwrap();
+        assert!(source.allowed_signers_file().unwrap().is_none());
+
+        // Commit a meta ref carrying allowed_signers (TREE ROOT).
+        crate::hub_v3::commit_files_to_ref(
+            repo,
+            crate::hub_v3::META_REF,
+            &[("hub.json", b"{}\n"), ("allowed_signers", b"# signers\n")],
+            "meta",
+        )
+        .unwrap();
+        let source = RefHubSource::new(repo).unwrap();
+        let path = source
+            .allowed_signers_file()
+            .unwrap()
+            .expect("allowed_signers must be extracted from the meta ref");
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, "# signers\n");
+    }
+
+    /// Keystone equivalence test: a populated WORKTREE hub and the same logs
+    /// committed to v3 refs must reduce to byte-identical state when both start
+    /// from a default checkpoint.
+    #[test]
+    fn worktree_and_ref_hub_reduce_to_identical_state() {
+        // Build a worktree hub with two agents' logs.
+        let hub_tmp = tempfile::tempdir().unwrap();
+        let hub_dir = hub_tmp.path();
+        setup_hub_layout(hub_dir);
+
+        let now = Utc::now();
+        let uuid1 = Uuid::new_v4();
+        let uuid2 = Uuid::new_v4();
+        let uuid3 = Uuid::new_v4();
+
+        let mut e1 = make_issue_created("agent-1", 1, uuid1);
+        e1.timestamp = now - Duration::seconds(30);
+        let mut e2 = make_issue_created("agent-1", 2, uuid2);
+        e2.timestamp = now - Duration::seconds(20);
+        let mut e3 = make_issue_created("agent-2", 1, uuid3);
+        e3.timestamp = now - Duration::seconds(25);
+        let mut e4 = make_envelope(
+            "agent-2",
+            2,
+            Event::LabelAdded {
+                issue_uuid: uuid1,
+                label: "bug".to_string(),
+            },
+        );
+        e4.timestamp = now - Duration::seconds(15);
+
+        write_agent_events(hub_dir, "agent-1", &[e1.clone(), e2.clone()]);
+        write_agent_events(hub_dir, "agent-2", &[e3.clone(), e4.clone()]);
+
+        let worktree_outcome = reduce_worktree(hub_dir);
+
+        // Commit the SAME logs to v3 refs (events.log at each agent's tree root),
+        // with NO checkpoint ref so both sides start from the default checkpoint.
+        let repo_tmp = tempfile::tempdir().unwrap();
+        let repo = repo_tmp.path();
+        ref_repo_init(repo);
+        crate::hub_v3::commit_log_bytes(repo, "agent-1", &log_bytes(&[e1, e2]), "a1").unwrap();
+        crate::hub_v3::commit_log_bytes(repo, "agent-2", &log_bytes(&[e3, e4]), "a2").unwrap();
+
+        let ref_source = RefHubSource::new(repo).unwrap();
+        let ref_outcome = crate::compaction::reduce(&ref_source).unwrap();
+
+        // Full state equality via serde_json value comparison.
+        let wt = serde_json::to_value(&worktree_outcome.state).unwrap();
+        let rf = serde_json::to_value(&ref_outcome.state).unwrap();
+        assert_eq!(
+            wt, rf,
+            "WorktreeSource and RefHubSource must reduce to identical state"
+        );
+        assert_eq!(
+            worktree_outcome.events_processed, ref_outcome.events_processed,
+            "both sources must process the same number of events"
         );
     }
 }
