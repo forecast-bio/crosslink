@@ -1,5 +1,5 @@
 {
-  "next_display_id": 773,
+  "next_display_id": 774,
   "next_comment_id": 1093,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -181,6 +181,7 @@
     "3a7d4df6-235d-4457-bb9b-f3fa9d4fad9a": 275,
     "3aa1f579-70ce-43ca-a30c-78f55d0e08f6": 197,
     "3aa74838-a313-4f19-ba7d-ce6caa17d8a3": 112,
+    "3bb3af59-2b5f-4d79-b332-9f3e758414a7": 773,
     "3c054dd2-91be-4df8-a650-a0bf83fdb900": 390,
     "3c0a77d0-0d63-498c-86b4-68a3b5eb15e1": 516,
     "3c3bd305-5216-42ad-8346-af0bec7fdaa5": 627,
@@ -6149,6 +6150,16 @@
       "labels": [
         "ops"
       ]
+    },
+    "3bb3af59-2b5f-4d79-b332-9f3e758414a7": {
+      "uuid": "3bb3af59-2b5f-4d79-b332-9f3e758414a7",
+      "display_id": 773,
+      "title": "Fix GH#614: pipeline.json runs array grows monotonically, never reconciled",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T22:26:42.161182933Z",
+      "updated_at": "2026-06-12T22:26:42.161182933Z"
     },
     "3c054dd2-91be-4df8-a650-a0bf83fdb900": {
       "uuid": "3c054dd2-91be-4df8-a650-a0bf83fdb900",
@@ -23924,8 +23935,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T22:24:52.638661796Z",
+    "timestamp": "2026-06-12T22:26:42.161182933Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 172
+    "agent_seq": 173
   }
 }
