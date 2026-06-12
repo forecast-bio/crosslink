@@ -1,6 +1,6 @@
 {
   "next_display_id": 766,
-  "next_comment_id": 1077,
+  "next_comment_id": 1078,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -7257,11 +7257,20 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T18:47:27.837568509Z",
-      "updated_at": "2026-06-12T19:06:37.360863005Z",
+      "updated_at": "2026-06-12T19:14:24.749352830Z",
       "labels": [
         "triage"
       ],
       "comments": {
+        "140dea62-7b5d-43df-b489-050eb30e0a49": {
+          "display_id": 1077,
+          "author": "dashboard-bootstrap",
+          "content": "GH#628 closed with usage summary after merge. Triage-to-fix complete.",
+          "created_at": "2026-06-12T19:14:24.747126118Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAUrpw5dkKSQqP62jdQZiSS/Vu3tQOAn3ER2a5Pb1OSI1/TJM6LD04xIP7xMuXyIgD8BYAO75508g7FRoRuUC6DQ=="
+        },
         "b2094a0b-2d52-4eb3-b6b0-a0b0ebdacb6c": {
           "display_id": 1076,
           "author": "dashboard-bootstrap",
@@ -23632,8 +23641,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T19:06:37.360863005Z",
+    "timestamp": "2026-06-12T19:14:24.749352830Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 126
+    "agent_seq": 127
   }
 }
