@@ -1,6 +1,6 @@
 {
   "next_display_id": 770,
-  "next_comment_id": 1086,
+  "next_comment_id": 1087,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -5082,11 +5082,20 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T21:02:46.649196292Z",
-      "updated_at": "2026-06-12T21:17:24.547041099Z",
+      "updated_at": "2026-06-12T21:28:32.498094671Z",
       "labels": [
         "bug"
       ],
       "comments": {
+        "3ece5a0c-9498-452e-bb28-c2d71a331f35": {
+          "display_id": 1086,
+          "author": "dashboard-bootstrap",
+          "content": "GH#625 auto-closed by PR #643 merge; wrap-up comment posted with the three-chapter trail and manual stray-deletion note. Complete.",
+          "created_at": "2026-06-12T21:28:32.465481915Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAlgW+0xYY/MH0nrsuO88IwjQS9j1yBsJr0MVcXax+59fye/0VegE/PcuQYrSHyghcKsDlefChq+ho/y5hHerJAQ=="
+        },
         "fe71b90c-9113-4cd9-ac47-8800d42403d4": {
           "display_id": 1085,
           "author": "dashboard-bootstrap",
@@ -23797,8 +23806,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T21:17:24.547041099Z",
+    "timestamp": "2026-06-12T21:28:32.498094671Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 152
+    "agent_seq": 153
   }
 }
