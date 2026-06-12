@@ -126,30 +126,52 @@ fn migrate_phase_a(
         HubVersion::V2Only => {}
     }
 
-    // Refuse when pending offline issues exist — their display IDs are not yet
-    // claimed, so a genesis built now would freeze provisional state. Sync first.
+    let agent_id = crate::identity::AgentConfig::load(crosslink_dir)?
+        .map_or_else(|| "hub-v3-migrate".to_string(), |a| a.agent_id);
+
+    // Refuse only when pending offline issues are PROMOTABLE by the current
+    // agent — `crosslink sync` will claim their real ids (offline promotion
+    // filters on created_by == self). Offline issues created by OTHER
+    // identities (dead kickoff agents, anonymous writers) have no live
+    // promotion path in any session; the genesis builder mints deterministic
+    // ids for those instead of blocking the migration forever.
     let pending = find_pending_offline(cache_dir)?;
-    if !pending.is_empty() {
-        let names: Vec<String> = pending
+    let promotable: Vec<&IssueFile> = pending
+        .iter()
+        .filter(|i| i.created_by == agent_id)
+        .collect();
+    if !promotable.is_empty() {
+        let names: Vec<String> = promotable
             .iter()
             .map(|i| format!("  {} (\"{}\")", i.uuid, i.title))
             .collect();
         bail!(
-            "refusing to migrate: {} offline issue(s) have no display_id yet (pending promotion). \
-             Run `crosslink sync` to promote and publish them first, then re-run the migration.\n{}",
-            pending.len(),
+            "refusing to migrate: {} offline issue(s) created by this agent have no display_id \
+             yet (pending promotion). Run `crosslink sync` to promote and publish them first, \
+             then re-run the migration.\n{}",
+            promotable.len(),
             names.join("\n")
         );
     }
 
     // Force a compaction so v2 state is fully reduced and the watermark embedded.
-    let agent_id = crate::identity::AgentConfig::load(crosslink_dir)?
-        .map_or_else(|| "hub-v3-migrate".to_string(), |a| a.agent_id);
     compaction::compact(cache_dir, &agent_id, true, hub_lock)
         .context("forced pre-migration compaction failed")?;
 
     // Build the authoritative genesis state from the files.
     let genesis = build_genesis_from_files(cache_dir)?;
+
+    // Report ids minted for orphaned offline relics (created by identities
+    // with no live promotion path). The v2 branch keeps their None ids — the
+    // escape-hatch divergence is limited to exactly these issues.
+    for orphan in &pending {
+        if let Some(id) = genesis.display_id_map.get(&orphan.uuid) {
+            println!(
+                "  minted genesis display id #{id} for orphaned offline issue {} (\"{}\", created_by {})",
+                orphan.uuid, orphan.title, orphan.created_by
+            );
+        }
+    }
 
     // Record the v2 hub tip for provenance and rollback awareness.
     let v2_tip = git_rev_parse(cache_dir, V2_HUB_BRANCH)?
@@ -290,9 +312,31 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
 
     // Counters: max(counters.json values, on-disk maxima + 1).
     let counters = read_counters(&cache_dir.join("meta").join("counters.json"))?;
-    let next_display_id = counters.next_display_id.max(max_display_id + 1);
+    let mut next_display_id = counters.next_display_id.max(max_display_id + 1);
     let next_comment_id = counters.next_comment_id.max(max_comment_id + 1);
     let next_milestone_id = counters.next_milestone_id.max(max_milestone_id + 1);
+
+    // Orphaned offline issues: files still carrying display_id None at this
+    // point were created by identities with no live promotion path (the
+    // preflight refuses when the CURRENT agent could promote via sync).
+    // Mint deterministic genesis ids — sorted by (created_at, uuid) — above
+    // every existing claim, so the genesis display_id_map is total. The v2
+    // branch's files keep their None ids (escape-hatch divergence is limited
+    // to these relics and is reported by the caller).
+    let mut orphan_keys: Vec<(chrono::DateTime<chrono::Utc>, Uuid)> = issues
+        .values()
+        .filter(|i| i.display_id.is_none())
+        .map(|i| (i.created_at, i.uuid))
+        .collect();
+    orphan_keys.sort_unstable();
+    for (_, uuid) in orphan_keys {
+        let id = next_display_id;
+        next_display_id += 1;
+        display_id_map.insert(uuid, id);
+        if let Some(ci) = issues.get_mut(&uuid) {
+            ci.display_id = Some(id);
+        }
+    }
 
     // Watermark: max OrderingKey across ALL v2 agent logs, so the v3 read path
     // applies nothing pre-genesis. When no events exist anywhere, synthesize a
@@ -1616,6 +1660,101 @@ mod tests {
         // Nothing created.
         assert!(rev(&cache_dir, CHECKPOINT_REF).is_none());
         assert!(rev(&cache_dir, META_REF).is_none());
+    }
+
+    /// An offline issue created by a DEAD identity (not the current agent)
+    /// has no live promotion path — the migration must mint a deterministic
+    /// genesis display id for it instead of blocking forever.
+    #[test]
+    fn orphaned_offline_issue_gets_minted_genesis_id() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+
+        let orphan_uuid = Uuid::new_v4();
+        let issue = crate::issue_file::IssueFile {
+            uuid: orphan_uuid,
+            display_id: None,
+            title: "Orphaned offline relic".to_string(),
+            description: None,
+            status: crate::models::IssueStatus::Closed,
+            priority: crate::models::Priority::Medium,
+            parent_uuid: None,
+            created_by: "dead-kickoff-agent".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            closed_at: Some(Utc::now()),
+            scheduled_at: None,
+            due_at: None,
+            labels: vec![],
+            comments: vec![],
+            blockers: vec![],
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        };
+        let dir = cache_dir.join("issues").join(orphan_uuid.to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::issue_file::write_issue_file(&dir.join("issue.json"), &issue).unwrap();
+
+        hub_v3(&crosslink_dir, false, false).expect("orphaned offline relic must not block");
+
+        let source = crate::hub_source::RefHubSource::new(&cache_dir).unwrap();
+        let state = crate::compaction::reduce(&source).unwrap().state;
+        let minted = state
+            .display_id_map
+            .get(&orphan_uuid)
+            .copied()
+            .expect("orphan must receive a minted genesis id");
+        assert!(minted > 0, "minted id must be a real positive id");
+        assert_eq!(
+            state.issues[&orphan_uuid].display_id,
+            Some(minted),
+            "CompactIssue must carry the minted id"
+        );
+        // Uniqueness across the whole map.
+        let mut seen = std::collections::BTreeSet::new();
+        for id in state.display_id_map.values() {
+            assert!(seen.insert(*id), "minted id collided: {id}");
+        }
+    }
+
+    /// An offline issue created by the CURRENT agent still refuses — the
+    /// promotion path (`crosslink sync`) exists and must run first.
+    #[test]
+    fn promotable_offline_issue_still_refuses_migration() {
+        let (_w, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+
+        let mine_uuid = Uuid::new_v4();
+        let issue = crate::issue_file::IssueFile {
+            uuid: mine_uuid,
+            display_id: None,
+            title: "My pending offline issue".to_string(),
+            description: None,
+            status: crate::models::IssueStatus::Open,
+            priority: crate::models::Priority::Medium,
+            parent_uuid: None,
+            created_by: "alpha".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            closed_at: None,
+            scheduled_at: None,
+            due_at: None,
+            labels: vec![],
+            comments: vec![],
+            blockers: vec![],
+            related: vec![],
+            milestone_uuid: None,
+            time_entries: vec![],
+        };
+        let dir = cache_dir.join("issues").join(mine_uuid.to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::issue_file::write_issue_file(&dir.join("issue.json"), &issue).unwrap();
+
+        let err = hub_v3(&crosslink_dir, false, false).unwrap_err();
+        assert!(
+            err.to_string().contains("created by this agent"),
+            "promotable offline issue must still refuse, got: {err}"
+        );
+        assert!(rev(&cache_dir, CHECKPOINT_REF).is_none());
     }
 
     // ── Test 6: no-events hub ────────────────────────────────────────
