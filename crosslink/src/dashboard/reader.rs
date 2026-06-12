@@ -360,9 +360,9 @@ fn read_signature_state(crosslink_workspace: &Path) -> SignatureState {
         return SignatureState::Unknown;
     }
     match sync.verify_locks_signature() {
-        Ok(crate::signing::SignatureVerification::Valid { .. }) => SignatureState::Valid,
-        Ok(crate::signing::SignatureVerification::Unsigned { .. }) => SignatureState::Unsigned,
-        Ok(crate::signing::SignatureVerification::Invalid { .. }) => SignatureState::Invalid,
+        Ok(crate::signing::SignatureVerification::Valid) => SignatureState::Valid,
+        Ok(crate::signing::SignatureVerification::Unsigned) => SignatureState::Unsigned,
+        Ok(crate::signing::SignatureVerification::Invalid) => SignatureState::Invalid,
         Ok(crate::signing::SignatureVerification::NoCommits) | Err(_) => SignatureState::Unknown,
     }
 }

@@ -138,9 +138,13 @@ impl Database {
 
     /// Update handoff notes for a session.
     ///
+    /// Retained as a tested DB primitive; its production caller (the offline
+    /// reference-rewrite path) was removed with the v2 write machinery (#754).
+    ///
     /// # Errors
     ///
     /// Returns an error if the database update fails.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn update_session_notes(&self, session_id: i64, notes: &str) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE sessions SET handoff_notes = ?1 WHERE id = ?2",
@@ -151,9 +155,13 @@ impl Database {
 
     /// Retrieve all sessions that have handoff notes.
     ///
+    /// Retained as a tested DB primitive; its production caller (the offline
+    /// reference-rewrite path) was removed with the v2 write machinery (#754).
+    ///
     /// # Errors
     ///
     /// Returns an error if the database query fails.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn get_all_sessions_with_notes(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, started_at, ended_at, active_issue_id, handoff_notes, last_action, agent_id FROM sessions WHERE handoff_notes IS NOT NULL ORDER BY id",

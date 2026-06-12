@@ -311,12 +311,10 @@ fn append_inner_impl<A: IntoAbortPoint>(
 
 /// Commit a complete `events.log` byte image onto the agent's ref.
 ///
-/// Used by offline display-id claim rewrites (`set_issue_created_claim_in_log`):
-/// when the v2 log is rewritten in place, the shadow ref must be brought back
-/// to byte parity or `integrity hubv3` would flag a mismatch at the rewritten
-/// seq. The new state is added as a CHILD commit of the current tip — history
-/// is preserved and any subsequent push remains fast-forward (the parity check
-/// reads only the tip's `events.log`).
+/// Used by `migrate hub-v3` to seed per-agent refs from v2 event logs, and by
+/// `compact_v3` to prune the own ref. The new state is added as a CHILD commit
+/// of the current tip — history is preserved and any subsequent push remains
+/// fast-forward (readers only consume the tip's `events.log`).
 ///
 /// The bytes are validated as a parseable event log before anything is
 /// written. Same crash invariant as [`append_event_to_ref`]: the ref only
@@ -630,16 +628,11 @@ const fn classify_hub_version(
 /// - [`HubMode::V2`] — [`HubVersion::V2Only`] or [`HubVersion::Absent`]. The
 ///   today behavior is preserved bit-identically: worktree-file writes through
 ///   the hub-cache, counter-claimed display ids, file-based hydration. `Absent`
-///   keeps the current init/bootstrap behavior (v3 bootstrap-from-scratch is
-///   tracked as 754b).
+///   resolves to V2 at detection time; the creation seam (`init_cache`)
+///   bootstraps a fresh v3 hub and promotes the mode (754b).
 ///
-/// # Why the dual-write flag is ignored in V3
-///
-/// `hub_v3.dual_write` was the v2→v3 BRIDGE: while a hub was still v2, it
-/// mirrored every v2 log append onto the per-agent ref so the v3 layout could
-/// be soaked before cutover. Once the hub is v3 there is no v2 log to mirror
-/// FROM — the agent ref IS the only log — so the flag is a no-op in
-/// [`HubMode::V3`] and is never consulted on the v3 write path.
+/// V2 is read-only since 754b: mutations refuse with a migrate prompt, and
+/// fetch is a read-only mirror update for inspection and migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HubMode {
     /// Legacy worktree-file operation (v2 or uninitialized).
@@ -1360,44 +1353,6 @@ fn prune_own_ref(
     Ok(pruned)
 }
 
-// ── Config helper ────────────────────────────────────────────────────
-
-/// Read the `hub_v3.dual_write` config flag.
-///
-/// Reads `.crosslink/hook-config.json` and returns the boolean value of the
-/// flat key `"hub_v3.dual_write"`. Any unreadable or invalid state (missing
-/// file, missing key, non-bool value, JSON parse error) returns `false` with
-/// a `tracing::debug` log. This function never propagates errors — dual-write
-/// is a shadow mode and must never prevent the user operation from proceeding.
-pub fn dual_write_enabled(crosslink_dir: &Path) -> bool {
-    let config_path = crosslink_dir.join("hook-config.json");
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::debug!(
-                "hub_v3::dual_write_enabled: cannot read {}: {}",
-                config_path.display(),
-                e
-            );
-            return false;
-        }
-    };
-    let val: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::debug!(
-                "hub_v3::dual_write_enabled: cannot parse {}: {}",
-                config_path.display(),
-                e
-            );
-            return false;
-        }
-    };
-    val.get("hub_v3.dual_write")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-}
-
 // ── v3-aware warn for v2 operation on a migrated hub ──────────────────
 
 /// One-shot guard so the migrated-hub warning fires at most once per process.
@@ -1434,42 +1389,184 @@ pub fn warn_if_migrated_v2_operation(repo_dir: &Path, mode: HubMode) {
     }
 }
 
-// ── Shadow stats ──────────────────────────────────────────────────────
+// ── Fresh-hub v3 bootstrap (754b REQ-10) ──────────────────────────────
 
-/// Counters written to `.crosslink/hub-v3-shadow-stats.json` during dual-write
-/// soak mode. Updated under the hub write lock that is already held in
-/// `emit_compact_push`; no additional synchronization is required.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct ShadowStats {
-    /// Events successfully mirrored to the per-agent ref.
-    pub mirrored: u64,
-    /// Events for which the shadow `append_event_to_ref` returned an error.
-    pub mirror_failures: u64,
-    /// Agent-ref pushes that succeeded.
-    pub pushed: u64,
-    /// Agent-ref pushes that returned a non-`Pushed` outcome or an error.
-    pub push_failures: u64,
-    /// Description of the last mirror or push failure, if any.
-    pub last_failure: Option<String>,
-    /// RFC 3339 timestamp of the last failure, if any.
-    pub last_failure_at: Option<String>,
+/// Deterministic sentinel watermark for a genesis checkpoint that covers no
+/// events at all (`.design/hub-v3-per-agent-refs.md` REQ-4/REQ-9).
+///
+/// [`crate::compaction::reduce`] RESETS state to default when the checkpoint
+/// watermark is `None`, so a genesis checkpoint MUST carry `Some(watermark)`
+/// even when there are zero events to cover. With nothing to compare against,
+/// any fixed key works; it MUST be deterministic so the genesis written by the
+/// migration and the one written by [`bootstrap_v3_hub`] both reduce stably and
+/// so independent verification builds agree byte-for-byte. The fixed UNIX-epoch
+/// timestamp plus a sentinel agent id guarantees stability across re-runs.
+///
+/// Shared by [`bootstrap_v3_hub`] (fresh-hub genesis) and
+/// `migrate_hub_v3::build_genesis_from_files` (no-events migration genesis) so
+/// the two genesis paths use one impl.
+#[must_use]
+pub fn genesis_sentinel_watermark() -> crate::events::OrderingKey {
+    crate::events::OrderingKey {
+        timestamp: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+        agent_id: "hub-v3-genesis".to_string(),
+        agent_seq: 0,
+    }
 }
 
-impl ShadowStats {
-    /// Read stats from `path`, returning a zero-valued struct on any error.
-    pub fn read(path: &Path) -> Self {
-        let Ok(content) = std::fs::read_to_string(path) else {
-            return Self::default();
-        };
-        serde_json::from_str(&content).unwrap_or_default()
-    }
+/// Bootstrap a brand-new hub directly in the v3 per-agent-ref layout (REQ-10).
+///
+/// This is the "flip the default" path: a fresh `crosslink init` / first sync
+/// no longer creates the legacy `crosslink/hub` v2 branch — it lays down the v3
+/// marker refs so the repo operates in [`HubMode::V3`] from the first command.
+///
+/// Three refs are written, all parentless genesis commits:
+///
+/// - [`META_REF`] — a [`HubMeta`] (`hub_version: 3`, `migrated_from_commit:
+///   "genesis"`, `migrated_at: now`) plus the agent's `allowed_signers` blob
+///   when one is present at `<repo_dir>/trust/allowed_signers`.
+/// - [`CHECKPOINT_REF`] — an empty [`crate::checkpoint::CheckpointState`] whose
+///   watermark is the fixed-epoch [`genesis_sentinel_watermark`]. A `None`
+///   watermark would make the first reduce full-reset, so it is always `Some`.
+/// - `refs/crosslink/agents/<agent_id>` — the bootstrapping agent's own ref
+///   carrying an empty `events.log` (it becomes the single writer of that ref).
+///
+/// When `remote` is `Some`, the refs are pushed best-effort (parity with the
+/// migration's push step): a failed push is reported in the returned
+/// [`BootstrapOutcome`] but does NOT fail the bootstrap — local v3 operation is
+/// already complete and a later `sync` retries the push.
+///
+/// The caller is responsible for serializing this against other hub writers via
+/// the single local lock (REQ-8); bootstrap is invoked at the cache-creation
+/// seam where no other writer can yet exist.
+///
+/// # Errors
+///
+/// Returns an error if any genesis ref write fails (the local hub is left
+/// partially written — the caller treats this as a hard init failure).
+pub fn bootstrap_v3_hub(
+    repo_dir: &Path,
+    agent_id: &str,
+    remote: Option<&str>,
+) -> Result<BootstrapOutcome> {
+    validate_agent_id(agent_id)?;
 
-    /// Atomically persist stats to `path`.
-    pub fn write(&self, path: &Path) -> std::result::Result<(), anyhow::Error> {
-        let bytes =
-            serde_json::to_vec_pretty(self).context("failed to serialize hub-v3 shadow stats")?;
-        crate::utils::atomic_write(path, &bytes)
+    // 1. META_REF: hub.json (+ allowed_signers when present).
+    let meta = HubMeta {
+        hub_version: 3,
+        migrated_from_commit: "genesis".to_string(),
+        migrated_at: chrono::Utc::now(),
+        finalized_at: None,
+    };
+    let hub_json = serde_json::to_vec_pretty(&meta).context("failed to serialize HubMeta")?;
+    let signers_path = repo_dir.join("trust").join("allowed_signers");
+    let signers_bytes = if signers_path.exists() {
+        Some(
+            std::fs::read(&signers_path)
+                .with_context(|| format!("failed to read {}", signers_path.display()))?,
+        )
+    } else {
+        None
+    };
+    let mut meta_files: Vec<(&str, &[u8])> = vec![("hub.json", &hub_json)];
+    if let Some(bytes) = &signers_bytes {
+        meta_files.push(("allowed_signers", bytes));
     }
+    commit_files_to_ref(
+        repo_dir,
+        META_REF,
+        &meta_files,
+        "hub-v3 bootstrap: meta marker",
+    )
+    .context("failed to write genesis meta marker")?;
+
+    // 2. CHECKPOINT_REF: an empty checkpoint with the genesis sentinel watermark.
+    let genesis = crate::checkpoint::CheckpointState {
+        watermark: Some(genesis_sentinel_watermark()),
+        ..crate::checkpoint::CheckpointState::default()
+    };
+    let state_bytes =
+        serde_json::to_vec_pretty(&genesis).context("failed to serialize genesis checkpoint")?;
+    commit_blob_to_ref(
+        repo_dir,
+        CHECKPOINT_REF,
+        "state.json",
+        &state_bytes,
+        "hub-v3 bootstrap: genesis checkpoint",
+    )
+    .context("failed to write genesis checkpoint")?;
+
+    // 3. The agent's own ref with an empty events.log (single-writer seed).
+    commit_log_bytes(repo_dir, agent_id, &[], "hub-v3 bootstrap: agent ref")
+        .with_context(|| format!("failed to write genesis agent ref for '{agent_id}'"))?;
+
+    // 4. Best-effort push (REQ-1/REQ-12) when a remote is configured.
+    let pushed = remote.map(|remote| push_bootstrap_refs(repo_dir, remote, agent_id));
+
+    Ok(BootstrapOutcome { pushed })
+}
+
+/// Outcome of [`bootstrap_v3_hub`]: whether (and how) the genesis refs pushed.
+#[derive(Debug)]
+pub struct BootstrapOutcome {
+    /// `None` when no remote was configured; otherwise the per-ref push
+    /// outcomes for `[meta, checkpoint, agent]`.
+    pub pushed: Option<Vec<(String, PushOutcome)>>,
+}
+
+/// Push the three genesis refs to `remote`, returning each outcome. Never
+/// errors: push failures are values the caller reports, not hard failures
+/// (local v3 operation is already complete).
+fn push_bootstrap_refs(
+    repo_dir: &Path,
+    remote: &str,
+    agent_id: &str,
+) -> Vec<(String, PushOutcome)> {
+    let agent_ref = format!("{AGENT_REF_PREFIX}{agent_id}");
+    let mut out = Vec::with_capacity(3);
+    for ref_name in [META_REF, CHECKPOINT_REF, agent_ref.as_str()] {
+        let outcome = match push_ref(repo_dir, remote, ref_name) {
+            Ok(o) => o,
+            Err(e) => PushOutcome::Failed(e.to_string()),
+        };
+        out.push((ref_name.to_string(), outcome));
+    }
+    out
+}
+
+/// Adopt v3 refs from a remote that already carries them — the fresh-clone-of-a-
+/// migrated-project join flow (REQ-9, REQ-12).
+///
+/// When a second machine clones a project whose hub is already v3, there is no
+/// local hub to bootstrap and bootstrapping one would mint a CONFLICTING genesis
+/// checkpoint/meta. Instead this fetches the remote's `refs/crosslink/*` into the
+/// local ref namespace verbatim, so the machine joins the existing v3 hub. The
+/// joining agent's own ref does not exist remotely yet; it is created on its
+/// first mutation (the v3 write path seeds an absent own-ref as genesis).
+///
+/// # Errors
+///
+/// Returns an error if the fetch fails (an unreachable/empty remote is a hard
+/// error here — the caller has already confirmed the remote advertises v3 refs).
+pub fn fetch_v3_refs_for_join(repo_dir: &Path, remote: &str) -> Result<()> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args([
+            "fetch",
+            remote,
+            "+refs/crosslink/meta:refs/crosslink/meta",
+            "+refs/crosslink/checkpoint:refs/crosslink/checkpoint",
+            "+refs/crosslink/agents/*:refs/crosslink/agents/*",
+        ])
+        .output()
+        .with_context(|| format!("failed to fetch v3 refs from remote '{remote}'"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "fetching v3 refs from remote '{remote}' failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 // ── Test-only crash-injection variant ────────────────────────────────
@@ -2740,113 +2837,6 @@ mod tests {
         assert!(agent_ref_name("CON").is_err(), "CON must be rejected");
         assert!(agent_ref_name("NUL").is_err(), "NUL must be rejected");
         assert!(agent_ref_name("PRN").is_err(), "PRN must be rejected");
-    }
-
-    // ── Test 8: dual_write_enabled ────────────────────────────────────
-
-    #[test]
-    fn dual_write_enabled_missing_file_returns_false() {
-        let dir = tempfile::tempdir().unwrap();
-        // No hook-config.json exists in the dir.
-        assert!(
-            !dual_write_enabled(dir.path()),
-            "missing file must return false"
-        );
-    }
-
-    #[test]
-    fn dual_write_enabled_flag_true_returns_true() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("hook-config.json");
-        std::fs::write(
-            &config_path,
-            r#"{"hub_v3.dual_write": true, "tracking_mode": "strict"}"#,
-        )
-        .unwrap();
-        assert!(
-            dual_write_enabled(dir.path()),
-            "hub_v3.dual_write=true must return true"
-        );
-    }
-
-    #[test]
-    fn dual_write_enabled_flag_false_returns_false() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("hook-config.json");
-        std::fs::write(&config_path, r#"{"hub_v3.dual_write": false}"#).unwrap();
-        assert!(
-            !dual_write_enabled(dir.path()),
-            "hub_v3.dual_write=false must return false"
-        );
-    }
-
-    #[test]
-    fn dual_write_enabled_missing_key_returns_false() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("hook-config.json");
-        std::fs::write(&config_path, r#"{"tracking_mode": "strict"}"#).unwrap();
-        assert!(
-            !dual_write_enabled(dir.path()),
-            "missing key must return false"
-        );
-    }
-
-    #[test]
-    fn dual_write_enabled_garbage_json_returns_false() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("hook-config.json");
-        std::fs::write(&config_path, b"not valid json at all {{{{").unwrap();
-        assert!(
-            !dual_write_enabled(dir.path()),
-            "garbage JSON must return false"
-        );
-    }
-
-    #[test]
-    fn dual_write_enabled_wrong_type_returns_false() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("hook-config.json");
-        // Value is a string, not a bool.
-        std::fs::write(&config_path, r#"{"hub_v3.dual_write": "yes"}"#).unwrap();
-        assert!(
-            !dual_write_enabled(dir.path()),
-            "non-bool value must return false"
-        );
-    }
-
-    // ── Test 9: ShadowStats round-trip ───────────────────────────────
-
-    #[test]
-    fn shadow_stats_missing_file_returns_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("hub-v3-shadow-stats.json");
-        let stats = ShadowStats::read(&path);
-        assert_eq!(stats.mirrored, 0);
-        assert_eq!(stats.mirror_failures, 0);
-        assert_eq!(stats.pushed, 0);
-        assert_eq!(stats.push_failures, 0);
-        assert!(stats.last_failure.is_none());
-    }
-
-    #[test]
-    fn shadow_stats_write_and_read_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("hub-v3-shadow-stats.json");
-        let written = ShadowStats {
-            mirrored: 42,
-            mirror_failures: 3,
-            pushed: 40,
-            push_failures: 2,
-            last_failure: Some("test failure".to_string()),
-            last_failure_at: Some("2026-01-01T00:00:00Z".to_string()),
-        };
-        written.write(&path).unwrap();
-        let read = ShadowStats::read(&path);
-        assert_eq!(read.mirrored, 42);
-        assert_eq!(read.mirror_failures, 3);
-        assert_eq!(read.pushed, 40);
-        assert_eq!(read.push_failures, 2);
-        assert_eq!(read.last_failure.as_deref(), Some("test failure"));
     }
 
     // ── Test 10: commit_blob_to_ref genesis + CAS conflict ───────────

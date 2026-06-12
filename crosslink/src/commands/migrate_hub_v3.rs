@@ -155,8 +155,27 @@ fn migrate_phase_a(
     }
 
     // Force a compaction so v2 state is fully reduced and the watermark embedded.
-    compaction::compact(cache_dir, &agent_id, true, hub_lock)
-        .context("forced pre-migration compaction failed")?;
+    if let Some(result) = compaction::compact(cache_dir, &agent_id, true, hub_lock)
+        .context("forced pre-migration compaction failed")?
+    {
+        println!(
+            "  pre-migration compaction: {} event(s) reduced, {} issue(s) / {} lock(s) materialized.",
+            result.events_processed, result.issues_materialized, result.locks_materialized
+        );
+        if result.skew_warnings > 0 || result.git_skew_violations > 0 {
+            tracing::warn!(
+                "pre-migration compaction saw {} skew warning(s) and {} git-skew violation(s)",
+                result.skew_warnings,
+                result.git_skew_violations
+            );
+        }
+        if result.unsigned_warnings > 0 {
+            tracing::warn!(
+                "pre-migration compaction saw {} unsigned event(s)",
+                result.unsigned_warnings
+            );
+        }
+    }
 
     // Build the authoritative genesis state from the files.
     let genesis = build_genesis_from_files(cache_dir)?;
@@ -342,7 +361,8 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
     // applies nothing pre-genesis. When no events exist anywhere, synthesize a
     // genesis-moment sentinel so the watermark is ALWAYS Some — a None watermark
     // would make reduce() RESET the genesis state to default (see compaction::reduce).
-    let watermark = max_event_ordering_key(cache_dir)?.unwrap_or_else(genesis_sentinel_watermark);
+    let watermark =
+        max_event_ordering_key(cache_dir)?.unwrap_or_else(hub_v3::genesis_sentinel_watermark);
 
     Ok(CheckpointState {
         next_display_id,
@@ -358,22 +378,6 @@ fn build_genesis_from_files(cache_dir: &Path) -> Result<CheckpointState> {
         unsigned_event_warnings: Vec::new(),
         watermark: Some(watermark),
     })
-}
-
-/// Deterministic sentinel watermark used when the v2 hub has NO events at all.
-///
-/// `reduce()` RESETS state to default when the watermark is `None`, so the
-/// genesis watermark must always be `Some`. With zero events, any fixed key
-/// works (there is nothing to compare it against), and it MUST be deterministic
-/// so the two independent genesis builds (write + verify) agree byte-for-byte.
-/// The fixed epoch timestamp + sentinel agent id guarantees stability across
-/// re-runs.
-fn genesis_sentinel_watermark() -> OrderingKey {
-    OrderingKey {
-        timestamp: chrono::DateTime::<Utc>::UNIX_EPOCH,
-        agent_id: "hub-v3-genesis".to_string(),
-        agent_seq: 0,
-    }
 }
 
 /// Resolve the comment layout for an issue: inline (V1) plus an optional
@@ -1264,19 +1268,18 @@ fn git_main_repo_root(repo_dir: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Database;
     use crate::identity::{AgentConfig, AgentRole};
-    use crate::shared_writer::SharedWriter;
     use std::process::Command;
     use tempfile::TempDir;
 
     /// Build a realistic populated v2 hub in a temp repo with a bare remote.
     ///
     /// Returns `(work_dir, remote_dir, crosslink_dir, cache_dir)`. The hub is
-    /// populated with issues (labels, comments, deps, relations, scheduling),
-    /// a milestone, and a lock, all via the real `SharedWriter` write path so
-    /// the v2 event logs + materialized files are authentic. A second agent's
-    /// events.log + issue file are written directly so two agent refs seed.
+    /// populated with two issues (labels, comments, a dependency, a relation),
+    /// a milestone, and a lock by writing the v2 agent event log directly (the
+    /// v2 write path is deleted, #754) and materializing with
+    /// `compaction::compact`. A second agent's events.log + issue file are
+    /// written directly so two agent refs seed.
     fn setup_v2_hub() -> (TempDir, TempDir, std::path::PathBuf, std::path::PathBuf) {
         let remote_dir = tempfile::tempdir().unwrap();
         let work_dir = tempfile::tempdir().unwrap();
@@ -1312,29 +1315,54 @@ mod tests {
         write_agent(&crosslink_dir, "alpha");
 
         let sync = SyncManager::new(&crosslink_dir).unwrap();
-        sync.init_cache().unwrap();
+        // Since 754b a fresh `init_cache` bootstraps v3; the migration tests need
+        // a legacy v2 hub to migrate FROM, so build the `crosslink/hub` worktree
+        // with the v2 layout explicitly (the way pre-754b `init_cache` did).
         let cache_dir = sync.cache_path().to_path_buf();
+        run(
+            &wp,
+            &[
+                "worktree",
+                "add",
+                "--orphan",
+                "-b",
+                "crosslink/hub",
+                cache_dir.to_str().unwrap(),
+            ],
+        );
+        run(&cache_dir, &["config", "user.email", "test@test.local"]);
+        run(&cache_dir, &["config", "user.name", "Test"]);
+        run(&cache_dir, &["config", "commit.gpgsign", "false"]);
+        let meta_dir = cache_dir.join("meta");
+        std::fs::create_dir_all(meta_dir.join("milestones")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("trust")).unwrap();
+        crate::issue_file::write_layout_version(
+            &meta_dir,
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        )
+        .unwrap();
+        std::fs::write(
+            cache_dir.join("locks.json"),
+            serde_json::to_string(&serde_json::json!({"version":1,"locks":{},"settings":{"stale_lock_timeout_minutes":60}})).unwrap(),
+        )
+        .unwrap();
+        run(&cache_dir, &["add", "-A"]);
+        run(
+            &cache_dir,
+            &[
+                "commit",
+                "-m",
+                "Initialize crosslink/hub branch",
+                "--no-gpg-sign",
+            ],
+        );
 
-        // Populate via the real write path.
-        let db = Database::open(&crosslink_dir.join("issues.db")).unwrap();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let i1 = writer
-            .create_issue(&db, "First issue", Some("desc one"), "high", None, None)
-            .unwrap();
-        let i2 = writer
-            .create_issue(&db, "Second issue", None, "medium", None, None)
-            .unwrap();
-        writer.add_label(&db, i1, "bug").unwrap();
-        writer.add_label(&db, i1, "urgent").unwrap();
-        writer.add_comment(&db, i1, "a note", "note").unwrap();
-        writer.add_comment(&db, i1, "a plan", "plan").unwrap();
-        writer.add_blocker(&db, i1, i2).unwrap();
-        writer.add_relation(&db, i1, i2).unwrap();
-        writer
-            .create_milestone(&db, "v1.0", Some("first release"))
-            .unwrap();
-        writer.claim_lock_v2(i2, Some("feature/x")).unwrap();
+        // Populate the pre-migration v2 hub by writing the agent event log
+        // directly (the v2 SharedWriter write path is deleted, #754), then
+        // materializing with `compaction::compact` (kept for migration).
+        populate_alpha_v2(&cache_dir);
 
         // Second agent: write an events.log + issue file directly so the
         // migration seeds a second agent ref.
@@ -1346,6 +1374,141 @@ mod tests {
         drop(lock);
 
         (work_dir, remote_dir, crosslink_dir, cache_dir)
+    }
+
+    /// Write agent `alpha`'s v2 event log directly: two issues, labels,
+    /// comments, a blocker, a relation, a milestone, and a lock — the same
+    /// state the old `SharedWriter` population produced. `compaction::compact`
+    /// then materializes the worktree issue/lock/checkpoint files the migration
+    /// genesis reads.
+    fn populate_alpha_v2(cache_dir: &Path) {
+        use crate::events::{append_event, Event, EventEnvelope};
+        let i1 = Uuid::parse_str("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1").unwrap();
+        let i2 = Uuid::parse_str("a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2").unwrap();
+        let ms = Uuid::parse_str("cccccccc-cccc-cccc-cccc-cccccccccccc").unwrap();
+        let c1 = Uuid::parse_str("dddddddd-dddd-dddd-dddd-dddddddddddd").unwrap();
+        let c2 = Uuid::parse_str("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee").unwrap();
+        let base = Utc::now() - chrono::Duration::seconds(300);
+        let log_path = cache_dir.join("agents").join("alpha").join("events.log");
+
+        let events = vec![
+            Event::IssueCreated {
+                uuid: i1,
+                title: "First issue".to_string(),
+                description: Some("desc one".to_string()),
+                priority: "high".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "alpha".to_string(),
+                display_id: Some(1),
+                scheduled_at: None,
+                due_at: None,
+            },
+            Event::IssueCreated {
+                uuid: i2,
+                title: "Second issue".to_string(),
+                description: None,
+                priority: "medium".to_string(),
+                labels: vec![],
+                parent_uuid: None,
+                created_by: "alpha".to_string(),
+                display_id: Some(2),
+                scheduled_at: None,
+                due_at: None,
+            },
+            Event::LabelAdded {
+                issue_uuid: i1,
+                label: "bug".to_string(),
+            },
+            Event::LabelAdded {
+                issue_uuid: i1,
+                label: "urgent".to_string(),
+            },
+            Event::CommentAdded {
+                issue_uuid: i1,
+                comment_uuid: c1,
+                display_id: Some(1),
+                author: "alpha".to_string(),
+                content: "a note".to_string(),
+                created_at: base,
+                kind: "note".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            },
+            Event::CommentAdded {
+                issue_uuid: i1,
+                comment_uuid: c2,
+                display_id: Some(2),
+                author: "alpha".to_string(),
+                content: "a plan".to_string(),
+                created_at: base,
+                kind: "plan".to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            },
+            Event::DependencyAdded {
+                blocked_uuid: i1,
+                blocker_uuid: i2,
+            },
+            Event::RelationAdded {
+                uuid_a: i1,
+                uuid_b: i2,
+            },
+            Event::MilestoneCreated {
+                uuid: ms,
+                display_id: Some(1),
+                name: "v1.0".to_string(),
+                description: Some("first release".to_string()),
+                created_at: base,
+            },
+            Event::LockClaimed {
+                issue_display_id: 2,
+                branch: Some("feature/x".to_string()),
+            },
+        ];
+
+        for (i, event) in events.into_iter().enumerate() {
+            let env = EventEnvelope {
+                agent_id: "alpha".to_string(),
+                agent_seq: (i + 1) as u64,
+                timestamp: base + chrono::Duration::seconds(i as i64),
+                event,
+                signed_by: None,
+                signature: None,
+            };
+            append_event(&log_path, &env).unwrap();
+        }
+
+        // Materialize the V2 comment files (compaction writes issue.json but
+        // not the per-comment files the genesis reads via read_comment_files).
+        let comments_dir = cache_dir
+            .join("issues")
+            .join(i1.to_string())
+            .join("comments");
+        std::fs::create_dir_all(&comments_dir).unwrap();
+        for (cuuid, content, kind) in [(c1, "a note", "note"), (c2, "a plan", "plan")] {
+            let cf = crate::issue_file::CommentFile {
+                uuid: cuuid,
+                issue_uuid: i1,
+                author: "alpha".to_string(),
+                content: content.to_string(),
+                created_at: base,
+                kind: kind.to_string(),
+                trigger_type: None,
+                intervention_context: None,
+                driver_key_fingerprint: None,
+                signed_by: None,
+                signature: None,
+            };
+            crate::issue_file::write_comment_file(&comments_dir.join(format!("{cuuid}.json")), &cf)
+                .unwrap();
+        }
     }
 
     fn write_agent(crosslink_dir: &Path, id: &str) {

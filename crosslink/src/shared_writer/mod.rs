@@ -10,7 +10,6 @@ pub(crate) mod core;
 mod locks;
 mod milestones;
 mod mutations;
-mod offline;
 
 #[cfg(test)]
 mod tests;
@@ -20,6 +19,3 @@ mod tests;
 pub use self::core::{PushOutcome, SharedWriter};
 pub use locks::LockClaimResult;
 pub use mutations::{DescriptionUpdate, FieldUpdate, IssueUpdate};
-
-#[allow(unused_imports)]
-pub use offline::RewriteStats;

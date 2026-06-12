@@ -358,20 +358,23 @@ mod tests {
         (work_dir, remote_dir, sync)
     }
 
-    /// Write a heartbeat JSON file directly into the hub cache's heartbeats dir.
+    /// Write a heartbeat onto its agent's v3 ref (the bootstrapped hub is v3, so
+    /// `read_heartbeats_auto` reads ref heartbeats, not worktree files).
     fn write_heartbeat_file(sync: &SyncManager, hb: &Heartbeat) {
-        let hb_dir = sync.cache_path().join("heartbeats");
-        std::fs::create_dir_all(&hb_dir).unwrap();
-        let json = serde_json::to_string_pretty(hb).unwrap();
-        std::fs::write(hb_dir.join(format!("{}.json", hb.agent_id)), json).unwrap();
+        crate::hub_v3::write_heartbeat_to_ref(sync.cache_path(), &hb.agent_id, hb).unwrap();
     }
 
-    /// V2 hub: the watch target is the worktree `heartbeats/` dir, non-recursive
-    /// — unchanged behavior.
+    /// V2 hub (frozen / pre-migration, inspected via the dashboard): the watch
+    /// target is the worktree `heartbeats/` dir, non-recursive.
     #[test]
     fn test_resolve_watch_target_v2_heartbeats_dir() {
-        let (_work, _remote, sync) = setup_watcher_env();
-        let crosslink_dir = sync.cache_path().parent().unwrap().to_path_buf();
+        // A bare cache dir with no v3 marker refs resolves to V2 mode.
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(crosslink_dir.join(".hub-cache")).unwrap();
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+        assert!(!sync.hub_mode().is_v3());
+
         let (path, mode) = resolve_watch_target(&sync, &crosslink_dir);
         assert_eq!(path, crosslink_dir.join(".hub-cache").join("heartbeats"));
         assert!(matches!(mode, RecursiveMode::NonRecursive));

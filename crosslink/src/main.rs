@@ -1592,8 +1592,6 @@ enum IntegrityCommands {
         #[arg(long)]
         key: Option<std::path::PathBuf>,
     },
-    /// Verify hub v3 shadow refs are consistent with the v2 event logs (dual-write soak parity)
-    Hubv3 {},
 }
 
 #[derive(Subcommand)]

@@ -59,6 +59,105 @@ fn write_agent(crosslink_dir: &Path, id: &str) {
     .unwrap();
 }
 
+/// Populate agent `alpha`'s v2 event log directly (two issues, a label, a
+/// comment, a milestone) so the migration has a populated v2 hub to convert.
+/// The v2 `SharedWriter` write path is deleted (#754); `compaction::compact`
+/// (called by the fixture) materializes the worktree files from these events.
+fn populate_alpha_v2_for_migration(cache_dir: &Path) {
+    use crate::events::{append_event, Event, EventEnvelope};
+    let i1 = uuid::Uuid::parse_str("a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1").unwrap();
+    let i2 = uuid::Uuid::parse_str("a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2").unwrap();
+    let ms = uuid::Uuid::parse_str("cccccccc-cccc-cccc-cccc-cccccccccccc").unwrap();
+    let c1 = uuid::Uuid::parse_str("dddddddd-dddd-dddd-dddd-dddddddddddd").unwrap();
+    let base = chrono::Utc::now() - chrono::Duration::seconds(300);
+    let log_path = cache_dir.join("agents").join("alpha").join("events.log");
+
+    let events = vec![
+        Event::IssueCreated {
+            uuid: i1,
+            title: "First issue".to_string(),
+            description: Some("desc one".to_string()),
+            priority: "high".to_string(),
+            labels: vec![],
+            parent_uuid: None,
+            created_by: "alpha".to_string(),
+            display_id: Some(1),
+            scheduled_at: None,
+            due_at: None,
+        },
+        Event::IssueCreated {
+            uuid: i2,
+            title: "Second issue".to_string(),
+            description: None,
+            priority: "medium".to_string(),
+            labels: vec![],
+            parent_uuid: None,
+            created_by: "alpha".to_string(),
+            display_id: Some(2),
+            scheduled_at: None,
+            due_at: None,
+        },
+        Event::LabelAdded {
+            issue_uuid: i1,
+            label: "bug".to_string(),
+        },
+        Event::CommentAdded {
+            issue_uuid: i1,
+            comment_uuid: c1,
+            display_id: Some(1),
+            author: "alpha".to_string(),
+            content: "a note".to_string(),
+            created_at: base,
+            kind: "note".to_string(),
+            trigger_type: None,
+            intervention_context: None,
+            driver_key_fingerprint: None,
+            signed_by: None,
+            signature: None,
+        },
+        Event::MilestoneCreated {
+            uuid: ms,
+            display_id: Some(1),
+            name: "v1.0".to_string(),
+            description: None,
+            created_at: base,
+        },
+    ];
+
+    for (i, event) in events.into_iter().enumerate() {
+        let env = EventEnvelope {
+            agent_id: "alpha".to_string(),
+            agent_seq: (i + 1) as u64,
+            timestamp: base + chrono::Duration::seconds(i as i64),
+            event,
+            signed_by: None,
+            signature: None,
+        };
+        append_event(&log_path, &env).unwrap();
+    }
+
+    // Materialize the V2 comment file the genesis reads.
+    let comments_dir = cache_dir
+        .join("issues")
+        .join(i1.to_string())
+        .join("comments");
+    std::fs::create_dir_all(&comments_dir).unwrap();
+    let cf = crate::issue_file::CommentFile {
+        uuid: c1,
+        issue_uuid: i1,
+        author: "alpha".to_string(),
+        content: "a note".to_string(),
+        created_at: base,
+        kind: "note".to_string(),
+        trigger_type: None,
+        intervention_context: None,
+        driver_key_fingerprint: None,
+        signed_by: None,
+        signature: None,
+    };
+    crate::issue_file::write_comment_file(&comments_dir.join(format!("{c1}.json")), &cf).unwrap();
+}
+
 /// A migrated V3 hub: a work clone with a bare remote, populated then migrated.
 struct V3Hub {
     work: TempDir,
@@ -130,20 +229,49 @@ fn setup_migrated_v3_hub() -> V3Hub {
     write_agent(&crosslink_dir, "alpha");
 
     let sync = SyncManager::new(&crosslink_dir).unwrap();
-    sync.init_cache().unwrap();
     let cache_dir = sync.cache_path().to_path_buf();
+    // Since 754b a fresh `init_cache` bootstraps v3, but this fixture migrates
+    // FROM a v2 hub, so build the legacy `crosslink/hub` worktree explicitly.
+    git(
+        &wp,
+        &[
+            "worktree",
+            "add",
+            "--orphan",
+            "-b",
+            "crosslink/hub",
+            cache_dir.to_str().unwrap(),
+        ],
+    );
+    git(&cache_dir, &["config", "user.email", "test@test.local"]);
+    git(&cache_dir, &["config", "user.name", "Test"]);
+    git(&cache_dir, &["config", "commit.gpgsign", "false"]);
+    let meta_dir = cache_dir.join("meta");
+    std::fs::create_dir_all(meta_dir.join("milestones")).unwrap();
+    std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+    std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
+    crate::issue_file::write_layout_version(&meta_dir, crate::issue_file::CURRENT_LAYOUT_VERSION)
+        .unwrap();
+    std::fs::write(
+        cache_dir.join("locks.json"),
+        serde_json::to_string(&serde_json::json!({"version":1,"locks":{},"settings":{"stale_lock_timeout_minutes":60}})).unwrap(),
+    )
+    .unwrap();
+    git(&cache_dir, &["add", "-A"]);
+    git(
+        &cache_dir,
+        &[
+            "commit",
+            "-m",
+            "Initialize crosslink/hub branch",
+            "--no-gpg-sign",
+        ],
+    );
 
-    let db = Database::open(&crosslink_dir.join("issues.db")).unwrap();
-    let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-    let i1 = writer
-        .create_issue(&db, "First issue", Some("desc one"), "high", None, None)
-        .unwrap();
-    writer
-        .create_issue(&db, "Second issue", None, "medium", None, None)
-        .unwrap();
-    writer.add_label(&db, i1, "bug").unwrap();
-    writer.add_comment(&db, i1, "a note", "note").unwrap();
-    writer.create_milestone(&db, "v1.0", None).unwrap();
+    // Populate the pre-migration v2 hub by writing the agent event log directly
+    // (the v2 SharedWriter write path is deleted, #754), then materialize with
+    // `compaction::compact` (kept for migration).
+    populate_alpha_v2_for_migration(&cache_dir);
 
     let lock = sync.acquire_lock().unwrap();
     crate::compaction::compact(&cache_dir, "alpha", true, &lock).unwrap();

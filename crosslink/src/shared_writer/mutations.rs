@@ -1,51 +1,25 @@
 //! Issue mutation operations: create, update, close, reopen, delete,
 //! comments, labels, blockers, and relations.
 //!
-//! # Multi-store consistency (re: #604)
+//! # Event-only write model (hub v3, #754)
 //!
-//! Each public mutation here layers three persistence steps —
-//! `JSON` write to the hub cache, git commit (+push), then `SQLite`
-//! re-hydration. These three are intentionally NOT transactional in
-//! the ACID-across-stores sense. The relationships are:
-//!
-//! - **git commits are the canonical event log.** The hub branch is
-//!   the source of truth that other agents synchronize against.
-//! - **The per-issue `JSON` files are a current-state view written
-//!   inside each commit.** They live in the same commit as their
-//!   own update, so they can't drift from the log: any reader that
-//!   trusts `git log + git show` sees the same state as any reader
-//!   that opens the working tree files.
-//! - **`SQLite` is a derived cache** rebuilt by `hydrate_to_sqlite`
-//!   from the `JSON` view after every successful mutation.
-//!
-//! The "failure modes table" in #604 enumerates five interleavings
-//! of partial failure across these three steps. Four of them
-//! (commit-fails, push-fails, hydrate-fails, post-commit-`SQLite`-fails)
-//! self-heal on the next successful mutation — the next `git add`
-//! picks up any straggling `JSON` modification, the next `hydrate`
-//! retries, and the next sync push catches up. Mode #4 alone (a
-//! process crash mid-write leaving a truncated `JSON` file on disk)
-//! is genuinely non-recoverable without manual `git checkout`, and
-//! is fixed in `apply_write_set` by switching to
-//! [`crate::utils::atomic_write`] (temp file + POSIX rename).
-//!
-//! We considered the issue's "events as source of truth, derived
-//! stores rebuilt by replay" suggestion but concluded it would
-//! over-couple stores that are designed to be eventually
-//! consistent. The hub branch is *already* the canonical event log;
-//! the per-issue `JSON` is part of the commit, not a separate store
-//! that can drift from it. The actual gap was crash atomicity, and
-//! the fix is local to the write step.
+//! Each mutation builds a [`WriteSet`] of events and routes it through
+//! [`crate::shared_writer::SharedWriter::write_commit_push`], which appends the
+//! events to the agent's own ref ([`crate::hub_v3`]) and pushes it
+//! fast-forward. There are no worktree `JSON` files: display ids are assigned by
+//! the deterministic reduction (REQ-4) and read back from the reduced
+//! [`crate::checkpoint::CheckpointState`], and `SQLite` is a derived cache
+//! re-hydrated from that state after every successful mutation. Mutations on a
+//! legacy v2 hub are refused with a migrate prompt (the v2 write path is gone).
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::cell::Cell;
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::issue_file::{CommentEntry, CommentFile, IssueFile};
 
-use super::core::{PushOutcome, SharedWriter, WriteSet};
+use super::core::{SharedWriter, WriteSet};
 
 /// Represents an update to a description field with three possible states:
 /// unchanged, cleared, or set to a new value.
@@ -148,9 +122,10 @@ struct CommentParams {
 impl SharedWriter {
     /// Internal helper: create an issue (optionally as a subissue).
     ///
-    /// Shared by `create_issue` and `create_subissue` to avoid duplicating
-    /// the UUID generation, ID claiming, V2 directory setup, offline
-    /// rewrite, and hydration logic.
+    /// Shared by `create_issue` and `create_subissue`. The display id is
+    /// reduction-assigned (REQ-4): the emitted `IssueCreated` carries
+    /// `display_id: None` and the id is read back from the reduced state (or
+    /// freshly-hydrated `SQLite` when the id is still provisional).
     fn create_issue_inner(
         &self,
         db: &Database,
@@ -158,53 +133,16 @@ impl SharedWriter {
         commit_msg: &str,
     ) -> Result<i64> {
         let uuid = Uuid::new_v4();
-        let now = Utc::now();
         let title_owned = create.title.to_string();
         let desc_owned = create.description.map(std::string::ToString::to_string);
         let priority_parsed: crate::models::Priority = create.priority.parse()?;
         let agent_id = self.agent.agent_id.clone();
-        let display_id = Cell::new(0i64);
         let parent_uuid = create.parent_uuid;
         let scheduled_at = create.scheduled_at;
         let due_at = create.due_at;
 
-        let outcome = self.write_commit_push(
-            |writer| {
-                let (id, counters) = writer.claim_display_id(1)?;
-                display_id.set(id);
-                let is_v2 = writer.layout_version() >= 2;
-                let issue = IssueFile {
-                    uuid,
-                    display_id: Some(id),
-                    title: title_owned.clone(),
-                    description: desc_owned.clone(),
-                    status: crate::models::IssueStatus::Open,
-                    priority: priority_parsed,
-                    parent_uuid,
-                    created_by: agent_id.clone(),
-                    created_at: now,
-                    updated_at: now,
-                    closed_at: None,
-                    scheduled_at,
-                    due_at,
-                    labels: vec![],
-                    comments: vec![],
-                    blockers: vec![],
-                    related: vec![],
-                    milestone_uuid: None,
-                    time_entries: vec![],
-                };
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&uuid);
-                if is_v2 {
-                    let comments_dir = writer
-                        .cache_dir
-                        .join("issues")
-                        .join(uuid.to_string())
-                        .join("comments");
-                    std::fs::create_dir_all(&comments_dir)
-                        .context("Failed to create v2 comments directory")?;
-                }
+        self.write_commit_push(
+            |_writer| {
                 let event = crate::events::Event::IssueCreated {
                     uuid,
                     title: title_owned.clone(),
@@ -213,40 +151,22 @@ impl SharedWriter {
                     labels: vec![],
                     parent_uuid,
                     created_by: agent_id.clone(),
-                    display_id: Some(id),
+                    display_id: None,
                     scheduled_at,
                     due_at,
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: Some(counters),
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
             commit_msg,
         )?;
 
-        // V3: ids are reduction-assigned; there is no offline-promotion path
-        // (events are durable on the local ref and ids never double-mint). The
-        // CLI id comes from the reduction (display_id_map), falling back to the
-        // freshly-hydrated SQLite row when the id is still provisional.
-        if self.is_v3() {
-            self.hydrate_with_retry(db);
-            if let Some(id) = self.v3_assigned_display_id(&uuid) {
-                return Ok(id);
-            }
-            return db.get_issue_id_by_uuid(&uuid.to_string());
-        }
-
-        if outcome == PushOutcome::LocalOnly {
-            self.rewrite_as_offline(uuid)?;
-            self.hydrate_with_retry(db);
-            return db.get_issue_id_by_uuid(&uuid.to_string());
-        }
-
         self.hydrate_with_retry(db);
-        Ok(display_id.get())
+        if let Some(id) = self.v3_assigned_display_id(&uuid) {
+            return Ok(id);
+        }
+        db.get_issue_id_by_uuid(&uuid.to_string())
     }
 
     /// Create a new issue: generate UUID, claim display ID, write JSON, push, hydrate.
@@ -374,12 +294,9 @@ impl SharedWriter {
                 }
                 issue.updated_at = Utc::now();
 
-                // Build events (#756). Title/description/priority deltas → an
-                // IssueUpdated. The reducer's IssueUpdated only carries Set (not
-                // Clear) for description; a Clear is expressed by the file write,
-                // which stays the source of truth until #754. Schedule edits → a
-                // ScheduleChanged carrying the FULL post-change state of both
-                // fields (last-writer-wins, no per-field merge).
+                // Build events (REQ-4). Title/description/priority deltas → an
+                // IssueUpdated. The reducer's IssueUpdated carries only Set (not
+                // Clear) for description.
                 let mut events = Vec::new();
                 let upd_description = match &desc_update {
                     DescriptionUpdate::Set(s) => Some((*s).to_string()),
@@ -401,8 +318,7 @@ impl SharedWriter {
                     });
                 }
                 // A direct status change through update_issue (distinct from the
-                // close_issue/reopen_issue paths) must also reach the event log
-                // so it agrees with the file.
+                // close_issue/reopen_issue paths) must also reach the event log.
                 if status_parsed.is_some() {
                     events.push(crate::events::Event::StatusChanged {
                         uuid: issue.uuid,
@@ -411,14 +327,7 @@ impl SharedWriter {
                     });
                 }
 
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
-                Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
-                    events,
-                })
+                Ok(WriteSet { events })
             },
             &format!("update issue #{display_id}"),
         )?;
@@ -435,22 +344,14 @@ impl SharedWriter {
     pub fn close_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(display_id, db)?;
+                let issue = writer.load_issue_by_id(display_id, db)?;
                 let now = Utc::now();
-                issue.status = crate::models::IssueStatus::Closed;
-                issue.closed_at = Some(now);
-                issue.updated_at = now;
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
                 let event = crate::events::Event::StatusChanged {
                     uuid: issue.uuid,
                     new_status: "closed".to_string(),
                     closed_at: Some(now),
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -469,21 +370,13 @@ impl SharedWriter {
     pub fn reopen_issue(&self, db: &Database, display_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(display_id, db)?;
-                issue.status = crate::models::IssueStatus::Open;
-                issue.closed_at = None;
-                issue.updated_at = Utc::now();
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(display_id, db)?;
                 let event = crate::events::Event::StatusChanged {
                     uuid: issue.uuid,
                     new_status: "open".to_string(),
                     closed_at: None,
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -504,52 +397,14 @@ impl SharedWriter {
         let uuid = issue.uuid;
 
         let _ = self.write_commit_push(
-            |writer| {
-                // Don't delete files here — let `git rm -r` in the staging
-                // loop handle both index and disk removal so the commit
-                // failure path can restore from HEAD (#427).
+            |_writer| {
                 let event = crate::events::Event::IssueDeleted { uuid };
-                if writer.layout_version() >= 2 {
-                    // V2: pass the directory path so git rm -r removes
-                    // issue.json + comments/ recursively (#460)
-                    Ok(WriteSet {
-                        files: vec![(format!("issues/{uuid}"), vec![])],
-                        counters: None,
-                        use_git_rm: true,
-                        events: vec![event],
-                    })
-                } else {
-                    // V1: pass the flat file path
-                    Ok(WriteSet {
-                        files: vec![(format!("issues/{uuid}.json"), vec![])],
-                        counters: None,
-                        use_git_rm: true,
-                        events: vec![event],
-                    })
-                }
+                Ok(WriteSet {
+                    events: vec![event],
+                })
             },
             &format!("delete issue #{display_id}"),
         )?;
-
-        // Post-commit cleanup: remove any untracked remnants (e.g. comment
-        // files created between commits that git rm didn't know about). Safe
-        // to do now because the commit already succeeded (#460).
-        let issue_dir = self.cache_dir.join("issues").join(uuid.to_string());
-        if issue_dir.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&issue_dir) {
-                tracing::debug!(
-                    "post-delete cleanup of {} failed: {}",
-                    issue_dir.display(),
-                    e
-                );
-            }
-        }
-        let v1_path = self.cache_dir.join(format!("issues/{uuid}.json"));
-        if v1_path.exists() {
-            if let Err(e) = std::fs::remove_file(&v1_path) {
-                tracing::debug!("post-delete cleanup of {} failed: {}", v1_path.display(), e);
-            }
-        }
 
         self.hydrate_with_retry(db);
         Ok(())
@@ -566,36 +421,29 @@ impl SharedWriter {
         commit_msg: &str,
     ) -> Result<i64> {
         let agent_id = self.agent.agent_id.clone();
-        let comment_id = Cell::new(0i64);
-        // Capture the comment uuid so the V3 path can resolve the
-        // reduction-assigned id after hydration (the event-only path mints no
-        // counter id). Set inside the closure where the uuid is generated.
+        // Capture the comment uuid so the id can be resolved from the reduced
+        // state after hydration (the event-only path mints no counter id).
         let comment_uuid_cell: Cell<Option<Uuid>> = Cell::new(None);
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut counters = writer.read_counters()?;
-                let id = counters.next_comment_id;
-                counters.next_comment_id += 1;
-                comment_id.set(id);
+                let issue = writer.load_issue_by_id(display_id, db)?;
 
-                let (signed_by, signature) = writer.sign_comment(&params.content, &agent_id, id);
-
-                // One timestamp + one comment uuid shared by the file write and
-                // the CommentAdded event so they match exactly (#756). In V1 the
-                // uuid is not stored in the file (CommentEntry has only `id`); it
-                // exists solely as the event's idempotency key.
+                // The comment uuid is the event's idempotency key; the display
+                // id is reduction-assigned (REQ-4), so the event carries `None`.
                 let created_at = Utc::now();
                 let comment_uuid = Uuid::new_v4();
                 comment_uuid_cell.set(Some(comment_uuid));
-                // Clone signing material for the event up-front so the file
-                // structs below can move the originals.
-                let ev_signed_by = signed_by.clone();
-                let ev_signature = signature.clone();
-                let make_event = |issue_uuid: Uuid| crate::events::Event::CommentAdded {
-                    issue_uuid,
+
+                // Sign over a provisional id of 0: the reduction assigns the
+                // authoritative comment id, and the signature attests the
+                // content/author rather than the id.
+                let (signed_by, signature) = writer.sign_comment(&params.content, &agent_id, 0);
+
+                let event = crate::events::Event::CommentAdded {
+                    issue_uuid: issue.uuid,
                     comment_uuid,
-                    display_id: Some(id),
+                    display_id: None,
                     author: agent_id.clone(),
                     content: params.content.clone(),
                     created_at,
@@ -603,76 +451,29 @@ impl SharedWriter {
                     trigger_type: params.trigger_type.clone(),
                     intervention_context: params.intervention_context.clone(),
                     driver_key_fingerprint: params.driver_key_fingerprint.clone(),
-                    signed_by: ev_signed_by.clone(),
-                    signature: ev_signature.clone(),
+                    signed_by,
+                    signature,
                 };
-
-                if writer.layout_version() >= 2 {
-                    let issue = writer.load_issue_by_id(display_id, db)?;
-                    let comment_file = CommentFile {
-                        uuid: comment_uuid,
-                        issue_uuid: issue.uuid,
-                        author: agent_id.clone(),
-                        content: params.content.clone(),
-                        created_at,
-                        kind: params.kind.clone(),
-                        trigger_type: params.trigger_type.clone(),
-                        intervention_context: params.intervention_context.clone(),
-                        driver_key_fingerprint: params.driver_key_fingerprint.clone(),
-                        signed_by,
-                        signature,
-                    };
-                    let json = serde_json::to_vec_pretty(&comment_file)?;
-                    let rel_path = Self::comment_rel_path(&issue.uuid, &comment_uuid);
-                    let event = make_event(issue.uuid);
-                    Ok(WriteSet {
-                        files: vec![(rel_path, json)],
-                        counters: Some(counters),
-                        use_git_rm: false,
-                        events: vec![event],
-                    })
-                } else {
-                    let mut issue = writer.load_issue_by_id(display_id, db)?;
-                    issue.comments.push(CommentEntry {
-                        id,
-                        author: agent_id.clone(),
-                        content: params.content.clone(),
-                        created_at,
-                        kind: params.kind.clone(),
-                        trigger_type: params.trigger_type.clone(),
-                        intervention_context: params.intervention_context.clone(),
-                        driver_key_fingerprint: params.driver_key_fingerprint.clone(),
-                        signed_by,
-                        signature,
-                    });
-                    issue.updated_at = Utc::now();
-
-                    let json = serde_json::to_vec_pretty(&issue)?;
-                    let rel_path = writer.issue_rel_path(&issue.uuid);
-                    let event = make_event(issue.uuid);
-                    Ok(WriteSet {
-                        files: vec![(rel_path, json)],
-                        counters: Some(counters),
-                        events: vec![event],
-                        use_git_rm: false,
-                    })
-                }
+                Ok(WriteSet {
+                    events: vec![event],
+                })
             },
             commit_msg,
         )?;
 
         self.hydrate_with_retry(db);
-        // V3: the comment id is reduction-assigned (REQ-4). Resolve it from the
-        // reduced state via the captured comment uuid; fall back to the
-        // sentinel if reduction has not yet frozen an id (provisional).
-        if self.is_v3() {
-            if let Some(cuuid) = comment_uuid_cell.get() {
-                if let Some(id) = self.v3_assigned_comment_id(display_id, &cuuid) {
-                    return Ok(id);
-                }
+        // The comment id is reduction-assigned (REQ-4). Resolve it from the
+        // reduced state via the captured comment uuid; fall back to a SQLite
+        // lookup when reduction has not yet frozen an id (provisional).
+        if let Some(cuuid) = comment_uuid_cell.get() {
+            if let Some(id) = self.v3_assigned_comment_id(display_id, &cuuid) {
+                return Ok(id);
             }
+            return db.get_comment_id_by_uuid(&cuuid.to_string());
         }
-        Ok(comment_id.get())
+        // Unreachable in practice: the closure always sets the uuid. Surface a
+        // diagnostic rather than a misleading id if the invariant ever breaks.
+        anyhow::bail!("comment uuid was not captured during write")
     }
 
     /// Add a comment to an issue.
@@ -754,21 +555,12 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(display_id, db)?;
-                if !issue.labels.contains(&label_owned) {
-                    issue.labels.push(label_owned.clone());
-                    issue.updated_at = Utc::now();
-                }
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(display_id, db)?;
                 let event = crate::events::Event::LabelAdded {
                     issue_uuid: issue.uuid,
                     label: label_owned.clone(),
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -799,21 +591,12 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(display_id, db)?;
-                if let Some(pos) = issue.labels.iter().position(|l| l == &label_owned) {
-                    issue.labels.remove(pos);
-                    issue.updated_at = Utc::now();
-                }
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(display_id, db)?;
                 let event = crate::events::Event::LabelRemoved {
                     issue_uuid: issue.uuid,
                     label: label_owned.clone(),
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -852,13 +635,7 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(issue_id, db)?;
-                if !issue.blockers.contains(&blocker_uuid) {
-                    issue.blockers.push(blocker_uuid);
-                    issue.updated_at = Utc::now();
-                }
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(issue_id, db)?;
                 // Reducer convention (apply_graph_event): DependencyAdded inserts
                 // `blocker_uuid` into `blocked_uuid`'s blockers. Here `issue` is
                 // the blocked issue and `blocker_uuid` the blocking one.
@@ -867,9 +644,6 @@ impl SharedWriter {
                     blocker_uuid,
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -905,21 +679,12 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(issue_id, db)?;
-                if let Some(pos) = issue.blockers.iter().position(|u| u == &blocker_uuid) {
-                    issue.blockers.remove(pos);
-                    issue.updated_at = Utc::now();
-                }
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::DependencyRemoved {
                     blocked_uuid: issue.uuid,
                     blocker_uuid,
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -950,21 +715,12 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(issue_id, db)?;
-                if !issue.related.contains(&related_uuid) {
-                    issue.related.push(related_uuid);
-                    issue.updated_at = Utc::now();
-                }
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::RelationAdded {
                     uuid_a: issue.uuid,
                     uuid_b: related_uuid,
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -995,21 +751,12 @@ impl SharedWriter {
 
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(issue_id, db)?;
-                if let Some(pos) = issue.related.iter().position(|u| u == &related_uuid) {
-                    issue.related.remove(pos);
-                    issue.updated_at = Utc::now();
-                }
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(issue_id, db)?;
                 let event = crate::events::Event::RelationRemoved {
                     uuid_a: issue.uuid,
                     uuid_b: related_uuid,
                 };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
                     events: vec![event],
                 })
             },
@@ -1018,138 +765,5 @@ impl SharedWriter {
 
         self.hydrate_with_retry(db);
         Ok(true)
-    }
-
-    /// Rewrite a just-committed issue to set `display_id: null` and revert the
-    /// counter bump. Used when a push failed (offline/exhausted retries) so the
-    /// locally-claimed display ID doesn't collide with remote state.
-    ///
-    /// # Event log consistency (#756)
-    ///
-    /// The same local commit also carries an `IssueCreated` event line claiming
-    /// `display_id: Some(claimed)` (emitted by `write_commit_push` in the same
-    /// commit). The display-id claim was revoked here, so the committed event
-    /// line is now wrong: if it survived, the reducer would adopt the claimed id
-    /// (first-claim-wins) while the file says `None`, violating the invariant
-    /// "the event log's `display_id` claims match what the files claim". The
-    /// local commit's working-tree log line survives the `LocalOnly` path (no
-    /// reset happened — push merely failed), so we REWRITE that trailing line in
-    /// place to `display_id: None` and fold it into the same `--amend`. The `hub_v3`
-    /// shadow ref is best-effort and reconciles on the next successful compaction;
-    /// the authoritative v2 log is corrected here.
-    pub(super) fn rewrite_as_offline(&self, uuid: Uuid) -> Result<()> {
-        // Serialize access to the hub cache (#373)
-        let _lock_guard = self.sync.acquire_lock()?;
-
-        let path = self.issue_path(&uuid);
-        let mut issue = crate::issue_file::read_issue_file(&path)?;
-        issue.display_id = None;
-        let json = serde_json::to_string_pretty(&issue)?;
-        // Use atomic_write to avoid the open-truncate-write race (#604, #750).
-        // std::fs::write would truncate the file before writing; a crash mid-write
-        // leaves a zero-byte or partial JSON that breaks all subsequent reads.
-        crate::utils::atomic_write(&path, json.as_bytes())?;
-
-        // Revoke the display-id claim in the trailing IssueCreated event line so
-        // the event log agrees with the file (#756).
-        let log_rewritten = self.set_issue_created_claim_in_log(uuid, None)?;
-
-        // Revert the counter bump (the remote never saw it)
-        let mut counters = self.read_counters()?;
-        if counters.next_display_id > 1 {
-            counters.next_display_id -= 1;
-        }
-        self.write_counters_to_cache(&counters)?;
-
-        // Amend the local commit with the reverted files
-        let rel_path = self.issue_rel_path(&uuid);
-        self.git_in_cache(&["add", &rel_path])?;
-        self.git_in_cache(&["add", "meta/counters.json"])?;
-        if log_rewritten {
-            let rel_log = format!("agents/{}/events.log", self.agent.agent_id);
-            self.git_in_cache(&["add", &rel_log])?;
-        }
-        self.git_commit_in_cache_with_args(&["--amend", "--no-edit"])?;
-        Ok(())
-    }
-
-    /// Rewrite the most recent `IssueCreated` event line for `uuid` in this
-    /// agent's event log to carry `display_id: new_claim`. Returns `true` if a
-    /// line was rewritten, `false` if no matching line was found (e.g. the event
-    /// was already pruned by compaction).
-    ///
-    /// Used to keep the event log's display-id claim consistent with the file
-    /// across the offline lifecycle (#756): `rewrite_as_offline` passes `None`
-    /// (the claim was revoked), and `promote_offline_issues` passes the
-    /// newly-claimed `Some(id)` so the reduced display id matches the promoted
-    /// file. Matches the trailing line so re-runs in a retry loop are idempotent.
-    pub(super) fn set_issue_created_claim_in_log(
-        &self,
-        uuid: Uuid,
-        new_claim: Option<i64>,
-    ) -> Result<bool> {
-        let log_path = self.event_log_path();
-        let mut envelopes = crate::events::read_events(&log_path)?;
-
-        // Find the last IssueCreated for this uuid and set its display_id.
-        let mut rewrote = false;
-        for env in envelopes.iter_mut().rev() {
-            let is_target = matches!(
-                &env.event,
-                crate::events::Event::IssueCreated { uuid: ev_uuid, .. } if *ev_uuid == uuid
-            );
-            if !is_target {
-                continue;
-            }
-            if let crate::events::Event::IssueCreated { display_id, .. } = &mut env.event {
-                if *display_id != new_claim {
-                    *display_id = new_claim;
-                    rewrote = true;
-
-                    // The payload changed, so any existing signature is now
-                    // invalid — compaction would flag the event as tampered.
-                    // Clear it, then re-sign with our own key when configured
-                    // (this is our event; re-signing is legitimate). If no key
-                    // is available the event becomes honestly unsigned.
-                    env.signed_by = None;
-                    env.signature = None;
-                    if let (Some(key_path), Some(fingerprint)) = (
-                        self.resolve_ssh_key_path(),
-                        self.agent.ssh_fingerprint.as_ref(),
-                    ) {
-                        if let Err(e) = crate::events::sign_event(env, &key_path, fingerprint) {
-                            tracing::warn!(
-                                "re-signing rewritten IssueCreated claim failed \
-                                 (event left unsigned): {e}"
-                            );
-                        }
-                    }
-                }
-            }
-            break;
-        }
-
-        if rewrote {
-            use crate::events::EventCodec;
-            let codec = crate::events::NdjsonCodec;
-            let bytes = codec.encode_batch(&envelopes)?;
-            crate::utils::atomic_write(&log_path, &bytes)?;
-
-            // Keep the hub v3 shadow ref at byte parity: the original claim
-            // line was already mirrored at append time, so the rewritten log
-            // must be committed onto the ref too (as a child commit — pushes
-            // stay fast-forward). Best-effort, same policy as the mirror.
-            if self.hub_v3_dual_write {
-                if let Err(e) = crate::hub_v3::commit_log_bytes(
-                    &self.cache_dir,
-                    &self.agent.agent_id,
-                    &bytes,
-                    "crosslink claim rewrite",
-                ) {
-                    tracing::warn!("hub v3 shadow claim-rewrite failed: {e}");
-                }
-            }
-        }
-        Ok(rewrote)
     }
 }

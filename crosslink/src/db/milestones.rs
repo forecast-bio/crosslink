@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::params;
 
@@ -47,6 +47,23 @@ impl Database {
             .ok();
 
         Ok(milestone)
+    }
+
+    /// Look up a milestone's display id by its UUID.
+    ///
+    /// Used by the v3 create path to read back the reduction-assigned id after
+    /// hydration when the in-memory reduced state has not yet frozen it.
+    ///
+    /// # Errors
+    /// Returns an error if no milestone with the given UUID exists.
+    pub fn get_milestone_id_by_uuid(&self, uuid: &str) -> Result<i64> {
+        self.conn
+            .query_row(
+                "SELECT id FROM milestones WHERE uuid = ?1",
+                rusqlite::params![uuid],
+                |row| row.get(0),
+            )
+            .context("Milestone with given UUID not found")
     }
 
     /// List milestones, optionally filtered by status.

@@ -341,6 +341,10 @@ impl EventCodec for NdjsonCodec {
 ///
 /// Reads the tail of the file and, if it does not end with `\n`, truncates
 /// back to the last newline so the next append starts on a clean line.
+///
+/// Used by [`append_event`], a v2-era worktree-log helper now exercised only by
+/// tests and the v2-read fixtures the migration relies on (#754).
+#[cfg_attr(not(test), allow(dead_code))]
 fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
     let len = file.seek(SeekFrom::End(0))?;
     if len == 0 {
@@ -378,9 +382,14 @@ fn repair_trailing_line(file: &mut std::fs::File) -> Result<()> {
 /// Repairs any incomplete trailing line left by a previous crash before
 /// appending, and fsyncs after writing to ensure durability.
 ///
+/// This writes the v2 worktree `events.log`. The v2 write path is gone (#754);
+/// the function is retained for tests and the v2-read fixtures the migration
+/// relies on, so it is allowed to be unused outside test builds.
+///
 /// # Errors
 ///
 /// Returns an error if the log file cannot be opened, repaired, or written to.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn append_event(log_path: &Path, envelope: &EventEnvelope) -> Result<()> {
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent)

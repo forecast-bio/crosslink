@@ -13,7 +13,7 @@ use anyhow::Result;
 use crate::db::{Database, HydratedIssue, HydratedMilestone};
 use crate::issue_file::{
     read_all_issue_files, read_all_milestone_files, read_comment_files, read_layout_version,
-    read_milestones_file, write_comment_file, CommentFile, IssueFile,
+    read_milestones_file, IssueFile,
 };
 
 /// Deduplicate issue files that share the same `display_id`.
@@ -1019,53 +1019,6 @@ fn hydrate_relations(
     Ok(())
 }
 
-/// Migrate inline comments from v1 issue files to standalone v2 comment files.
-///
-/// For each issue that has inline `comments`, writes a standalone
-/// `issues/{uuid}/comments/{comment-uuid}.json` file using `write_comment_file`.
-/// This is called during a v1-to-v2 layout upgrade to split inline comments into
-/// their own files.
-///
-/// Returns the number of comment files written.
-///
-/// # Errors
-///
-/// Returns an error if reading issue files or writing comment files fails.
-pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
-    let issues_dir = cache_dir.join("issues");
-    let issue_files = read_all_issue_files(&issues_dir)?;
-
-    let mut count = 0;
-    for issue in &issue_files {
-        if issue.comments.is_empty() {
-            continue;
-        }
-        for comment in &issue.comments {
-            let comment_uuid = uuid::Uuid::new_v4();
-            let cf = CommentFile {
-                uuid: comment_uuid,
-                issue_uuid: issue.uuid,
-                author: comment.author.clone(),
-                content: comment.content.clone(),
-                created_at: comment.created_at,
-                kind: comment.kind.clone(),
-                trigger_type: comment.trigger_type.clone(),
-                intervention_context: comment.intervention_context.clone(),
-                driver_key_fingerprint: comment.driver_key_fingerprint.clone(),
-                signed_by: comment.signed_by.clone(),
-                signature: comment.signature.clone(),
-            };
-            let path = issues_dir
-                .join(issue.uuid.to_string())
-                .join("comments")
-                .join(format!("{comment_uuid}.json"));
-            write_comment_file(&path, &cf)?;
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
 // ── Lazy auto-hydration ─────────────────────────────────────────────
 
 const LAST_HYDRATED_REF_FILE: &str = ".last-hydrated-ref";
@@ -1925,148 +1878,6 @@ mod tests {
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.comments, 0); // v2 path not entered
-    }
-
-    // ---- migrate_inline_comments_to_v2 ----
-
-    #[test]
-    fn test_migrate_inline_comments_no_issues() {
-        let cache = tempdir().unwrap();
-        // Empty issues dir — no migration needed
-        let issues_dir = cache.path().join("issues");
-        std::fs::create_dir_all(&issues_dir).unwrap();
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_no_comments() {
-        let cache = tempdir().unwrap();
-        // Issue with no comments — nothing to migrate
-        let issue = make_issue(1, "No comments");
-        write_issues_to_cache(cache.path(), &[issue]);
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_writes_files() {
-        let cache = tempdir().unwrap();
-
-        let mut issue = make_issue(1, "Issue with comments");
-        issue.comments = vec![
-            CommentEntry {
-                id: 1,
-                author: "agent-1".to_string(),
-                content: "First".to_string(),
-                created_at: Utc::now(),
-                kind: "note".to_string(),
-                trigger_type: None,
-                intervention_context: None,
-                driver_key_fingerprint: None,
-                signed_by: None,
-                signature: None,
-            },
-            CommentEntry {
-                id: 2,
-                author: "agent-2".to_string(),
-                content: "Second".to_string(),
-                created_at: Utc::now(),
-                kind: "decision".to_string(),
-                trigger_type: None,
-                intervention_context: None,
-                driver_key_fingerprint: None,
-                signed_by: None,
-                signature: None,
-            },
-        ];
-        let issue_uuid = issue.uuid;
-        write_issues_to_cache(cache.path(), &[issue]);
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 2);
-
-        // Verify the comment files were actually written
-        let comments_dir = cache
-            .path()
-            .join("issues")
-            .join(issue_uuid.to_string())
-            .join("comments");
-        let entries: Vec<_> = std::fs::read_dir(&comments_dir)
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .is_some_and(|x| x == "json")
-            })
-            .collect();
-        assert_eq!(entries.len(), 2);
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_preserves_optional_fields() {
-        let cache = tempdir().unwrap();
-
-        let mut issue = make_issue(1, "Intervention issue");
-        issue.comments = vec![CommentEntry {
-            id: 1,
-            author: "agent".to_string(),
-            content: "Blocked by policy".to_string(),
-            created_at: Utc::now(),
-            kind: "intervention".to_string(),
-            trigger_type: Some("tool_blocked".to_string()),
-            intervention_context: Some("tried to delete /etc/passwd".to_string()),
-            driver_key_fingerprint: Some("SHA256:xyz".to_string()),
-            signed_by: Some("SHA256:xyz".to_string()),
-            signature: Some("sig==".to_string()),
-        }];
-        let issue_uuid = issue.uuid;
-        write_issues_to_cache(cache.path(), &[issue]);
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 1);
-
-        // Read the written file back and check optional fields survived
-        let comments_dir = cache
-            .path()
-            .join("issues")
-            .join(issue_uuid.to_string())
-            .join("comments");
-        let json_path = std::fs::read_dir(&comments_dir)
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .find(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .is_some_and(|x| x == "json")
-            })
-            .unwrap()
-            .path();
-
-        let cf: CommentFile =
-            serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
-        assert_eq!(cf.kind, "intervention");
-        assert_eq!(cf.trigger_type.as_deref(), Some("tool_blocked"));
-        assert_eq!(
-            cf.intervention_context.as_deref(),
-            Some("tried to delete /etc/passwd")
-        );
-        assert_eq!(cf.driver_key_fingerprint.as_deref(), Some("SHA256:xyz"));
-        assert_eq!(cf.signed_by.as_deref(), Some("SHA256:xyz"));
-        assert_eq!(cf.signature.as_deref(), Some("sig=="));
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_nonexistent_issues_dir() {
-        // Issues dir doesn't exist at all — read_all_issue_files returns empty vec
-        let cache = tempdir().unwrap();
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 0);
     }
 
     // ---- time entry with no ended_at ----

@@ -54,15 +54,9 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
                 description.as_deref(),
                 no_key,
             )?;
-            // Ensure the agent directory exists on the hub branch
-            let cl_dir = target_path.join(".crosslink");
-            if let Ok(s) = sync::SyncManager::new(&cl_dir) {
-                if let Err(e) = s.ensure_agent_dir(&identity) {
-                    tracing::warn!(
-                        "could not create agent dir on hub: {e} — will be created on next sync"
-                    );
-                }
-            }
+            // The agent's v3 ref is created on its first hub write (heartbeat /
+            // mutation), so there is no separate agent-directory bootstrap step
+            // anymore (the v2 `agents/<id>/` write path was removed in 754b).
             Ok(())
         }
         AgentCommands::Request {

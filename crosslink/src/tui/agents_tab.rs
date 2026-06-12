@@ -1146,14 +1146,79 @@ mod tests {
         .unwrap();
 
         let sync = SyncManager::new(&crosslink_dir).unwrap();
-        sync.init_cache().unwrap();
         let cache_dir = sync.cache_path().to_path_buf();
+        // Since 754b a fresh `init_cache` bootstraps v3, but this test migrates
+        // FROM a v2 hub, so build the legacy `crosslink/hub` worktree explicitly.
+        git(
+            &wp,
+            &[
+                "worktree",
+                "add",
+                "--orphan",
+                "-b",
+                "crosslink/hub",
+                cache_dir.to_str().unwrap(),
+            ],
+        );
+        git(&cache_dir, &["config", "user.email", "t@t.local"]);
+        git(&cache_dir, &["config", "user.name", "T"]);
+        git(&cache_dir, &["config", "commit.gpgsign", "false"]);
+        let meta_dir = cache_dir.join("meta");
+        std::fs::create_dir_all(meta_dir.join("milestones")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
+        crate::issue_file::write_layout_version(
+            &meta_dir,
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        )
+        .unwrap();
+        std::fs::write(
+            cache_dir.join("locks.json"),
+            serde_json::to_string(&serde_json::json!({"version":1,"locks":{},"settings":{"stale_lock_timeout_minutes":60}})).unwrap(),
+        )
+        .unwrap();
+        git(&cache_dir, &["add", "-A"]);
+        git(
+            &cache_dir,
+            &[
+                "commit",
+                "-m",
+                "Initialize crosslink/hub branch",
+                "--no-gpg-sign",
+            ],
+        );
 
         let db = Database::open(&crosslink_dir.join("issues.db")).unwrap();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        writer
-            .create_issue(&db, "First", None, "high", None, None)
+        // Populate the pre-migration v2 hub by writing the agent event log
+        // directly (the v2 SharedWriter write path is deleted, #754), then
+        // materialize with `compaction::compact` (kept for migration).
+        {
+            use crate::events::{append_event, Event, EventEnvelope};
+            let env = EventEnvelope {
+                agent_id: "alpha".to_string(),
+                agent_seq: 1,
+                timestamp: chrono::Utc::now() - chrono::Duration::seconds(60),
+                event: Event::IssueCreated {
+                    uuid: uuid::Uuid::new_v4(),
+                    title: "First".to_string(),
+                    description: None,
+                    priority: "high".to_string(),
+                    labels: vec![],
+                    parent_uuid: None,
+                    created_by: "alpha".to_string(),
+                    display_id: Some(1),
+                    scheduled_at: None,
+                    due_at: None,
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(
+                &cache_dir.join("agents").join("alpha").join("events.log"),
+                &env,
+            )
             .unwrap();
+        }
         let lock = sync.acquire_lock().unwrap();
         crate::compaction::compact(&cache_dir, "alpha", true, &lock).unwrap();
         drop(lock);

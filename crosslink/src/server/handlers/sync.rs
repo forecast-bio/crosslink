@@ -103,13 +103,17 @@ pub async fn sync_fetch(
     }))
 }
 
-/// `POST /api/v1/sync/push` — push local hub state to remote.
+/// `POST /api/v1/sync/push` — synchronize local hub state with the remote.
 ///
-/// Commits any uncommitted changes in the hub cache and pushes to the remote.
+/// Under the v3 hub (#754) there is no separate "push the hub branch" step: each
+/// agent's mutations push that agent's own ref at write time, and compaction
+/// pushes the checkpoint. The server holds no agent ref of its own, so this
+/// endpoint reduces to a ref fetch + checkpoint refresh — the same reconciliation
+/// `crosslink sync` performs. A frozen v2 hub is never written.
 ///
 /// # Errors
 ///
-/// Returns an error if the hub is not initialized or the push operation fails.
+/// Returns an error if the hub is not initialized or the fetch operation fails.
 pub async fn sync_push(
     State(state): State<AppState>,
 ) -> Result<Json<SyncActionResponse>, (StatusCode, Json<ApiError>)> {
@@ -128,67 +132,12 @@ pub async fn sync_push(
         ));
     }
 
-    // Clean any dirty state (stage + commit recovery), then push.
-    let had_dirty = sm
-        .clean_dirty_state()
-        .map_err(|e| internal_error("Failed to clean dirty state", e))?;
-
-    // Fetch first to rebase any local changes on top of remote.
-    sm.fetch()
-        .map_err(|e| internal_error("Pre-push fetch failed", e))?;
-
-    // Push the hub cache to remote using git push.
-    push_hub_cache(&sm).map_err(|e| internal_error("Push failed", e))?;
-
-    let message = if had_dirty {
-        "Committed local changes and pushed hub state to remote".to_string()
-    } else {
-        "Pushed hub state to remote".to_string()
-    };
+    sm.fetch().map_err(|e| internal_error("Sync failed", e))?;
 
     Ok(Json(SyncActionResponse {
         success: true,
-        message,
+        message: "Synchronized hub state with remote (v3 refs)".to_string(),
     }))
-}
-
-/// Push the hub cache to the remote with retry on conflict.
-fn push_hub_cache(sm: &SyncManager) -> anyhow::Result<()> {
-    use std::process::Command;
-
-    let cache_path = sm.cache_path();
-    let remote = sm.remote();
-
-    for attempt in 0..3 {
-        let output = Command::new("git")
-            .args(["push", remote, "crosslink/hub"])
-            .current_dir(cache_path)
-            .output()?;
-
-        if output.status.success() {
-            return Ok(());
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("Could not resolve host")
-            || stderr.contains("Could not read from remote")
-        {
-            anyhow::bail!("Remote unreachable: {}", stderr.trim());
-        }
-
-        if (stderr.contains("rejected") || stderr.contains("non-fast-forward")) && attempt < 2 {
-            // INTENTIONAL: rebase failure is non-fatal — the retry loop will bail on persistent conflicts
-            let _ = Command::new("git")
-                .args(["pull", "--rebase", remote, "crosslink/hub"])
-                .current_dir(cache_path)
-                .output();
-            continue;
-        }
-
-        anyhow::bail!("Push failed: {stderr}");
-    }
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -395,22 +344,5 @@ mod tests {
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(json.error, "sync failed");
         assert_eq!(json.detail.as_deref(), Some("some error"));
-    }
-
-    #[test]
-    fn test_push_hub_cache_no_git_repo_bails() {
-        // Call push_hub_cache with a SyncManager pointing at a temp dir
-        // that has no git repo — the git push will fail.
-        let dir = tempfile::tempdir().unwrap();
-        let crosslink_dir = dir.path().join(".crosslink");
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(&hub_cache).unwrap();
-
-        let sm = crate::sync::SyncManager::new(&crosslink_dir).unwrap();
-        // push_hub_cache runs `git push` which will fail in a non-git directory.
-        // It should return an error (not panic).
-        let result = super::push_hub_cache(&sm);
-        // Either Ok (git offline path) or Err (git command failed) — not panic.
-        let _ = result;
     }
 }

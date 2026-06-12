@@ -6,7 +6,6 @@ use std::process::Command;
 use super::core::SyncManager;
 use super::SignatureVerification;
 use crate::identity::{AgentConfig, AgentRole};
-use crate::locks::Keyring;
 use crate::signing;
 
 /// Resolve the user's home directory from environment variables.
@@ -413,19 +412,6 @@ impl SyncManager {
         Ok(true)
     }
 
-    /// Read the trust keyring from the cache (deprecated — use `read_allowed_signers`).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the keyring file exists but cannot be parsed.
-    pub fn read_keyring(&self) -> Result<Option<Keyring>> {
-        let path = self.cache_dir.join("trust").join("keyring.json");
-        if !path.exists() {
-            return Ok(None);
-        }
-        Ok(Some(Keyring::load(&path)?))
-    }
-
     /// Read the SSH `allowed_signers` trust store from the cache.
     ///
     /// # Errors
@@ -447,147 +433,19 @@ impl SyncManager {
             .output()
             .context("Failed to run git verify-commit")?;
 
-        let stdout = String::from_utf8_lossy(&verify.stdout);
         let stderr = String::from_utf8_lossy(&verify.stderr);
-        // Combine stdout+stderr: macOS ssh-keygen emits "Good" on stdout
-        let combined = format!("{stdout}\n{stderr}");
 
         if verify.status.success() {
-            let parsed = signing::parse_verify_output(&combined);
-            let principal = parsed.as_ref().and_then(|(p, _)| p.clone());
-            let fingerprint = parsed.map(|(_, f)| f);
-            Ok(SignatureVerification::Valid {
-                commit: commit.to_string(),
-                fingerprint,
-                principal,
-            })
+            Ok(SignatureVerification::Valid)
         } else if stderr.contains("NODATA")
             || stderr.contains("no signature")
             || stderr.is_empty()
             || stderr.contains("allowedSignersFile needs to be configured")
         {
-            Ok(SignatureVerification::Unsigned {
-                commit: commit.to_string(),
-            })
+            Ok(SignatureVerification::Unsigned)
         } else {
-            Ok(SignatureVerification::Invalid {
-                commit: commit.to_string(),
-                reason: stderr.to_string(),
-            })
+            Ok(SignatureVerification::Invalid)
         }
-    }
-
-    /// Verify the last N commits on the hub branch.
-    ///
-    /// Returns a list of `(commit_hash, verification_result)`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if git log or signature verification commands fail.
-    pub fn verify_recent_commits(
-        &self,
-        count: usize,
-    ) -> Result<Vec<(String, SignatureVerification)>> {
-        let output = self.git_in_cache(&["log", &format!("-{count}"), "--format=%H"])?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let commits: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-
-        let mut results = Vec::new();
-        for commit in commits {
-            let verification = self.verify_commit_signature(commit)?;
-            results.push((commit.to_string(), verification));
-        }
-
-        Ok(results)
-    }
-
-    /// Verify per-entry signatures on comments in cached issue files.
-    ///
-    /// Reads all issues from the cache, checks any comments that have
-    /// `signed_by` + `signature` fields against the `allowed_signers` store
-    /// using `signing::verify_content()`.
-    ///
-    /// Returns `(verified, failed, unsigned)` counts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if reading issue files or the allowed signers store fails.
-    pub fn verify_entry_signatures(&self) -> Result<(usize, usize, usize)> {
-        let issues_dir = self.cache_dir.join("issues");
-        let issues = crate::issue_file::read_all_issue_files(&issues_dir)?;
-        let allowed_signers_path = self.cache_dir.join("trust").join("allowed_signers");
-
-        let mut verified = 0usize;
-        let mut failed = 0usize;
-        let mut unsigned = 0usize;
-
-        for issue in &issues {
-            for comment in &issue.comments {
-                match (&comment.signed_by, &comment.signature) {
-                    (Some(fingerprint), Some(sig)) => {
-                        // Reconstruct canonical content for verification
-                        let canonical = signing::canonicalize_for_signing(&[
-                            ("author", &comment.author),
-                            ("comment_id", &comment.id.to_string()),
-                            ("content", &comment.content),
-                        ]);
-                        // Try author-based principal first (original agent signature)
-                        let principal = format!("{}@crosslink", &comment.author);
-                        let original_ok = signing::verify_content(
-                            &allowed_signers_path,
-                            &principal,
-                            "crosslink-comment",
-                            &canonical,
-                            sig,
-                        );
-                        if matches!(original_ok, Ok(true)) {
-                            verified += 1;
-                            continue;
-                        }
-                        // Fallback: try backfill principal with backfill namespace.
-                        // Human-attested entries use a different namespace so they
-                        // can be verified without being confused with agent sigs.
-                        match signing::verify_content(
-                            &allowed_signers_path,
-                            "backfill@crosslink",
-                            "crosslink-backfill",
-                            &canonical,
-                            sig,
-                        ) {
-                            Ok(true) => {
-                                verified += 1;
-                            }
-                            Ok(false) => {
-                                tracing::warn!(
-                                    "signature verification failed for comment {} by '{}' (signer: {})",
-                                    comment.id, comment.author, fingerprint
-                                );
-                                failed += 1;
-                            }
-                            Err(e) => {
-                                if allowed_signers_path.exists() {
-                                    tracing::warn!(
-                                        "signature verification error for comment {} by '{}': {}",
-                                        comment.id,
-                                        comment.author,
-                                        e
-                                    );
-                                    failed += 1;
-                                } else {
-                                    let _ = fingerprint;
-                                    unsigned += 1;
-                                }
-                            }
-                        }
-                    }
-                    _ => {
-                        unsigned += 1;
-                    }
-                }
-            }
-        }
-
-        Ok((verified, failed, unsigned))
     }
 
     /// Verify the signature on the latest commit that touched locks.json.

@@ -131,8 +131,8 @@ pub fn is_windows_reserved_name(name: &str) -> bool {
 /// reject directory fsync without degrading data safety.
 ///
 /// Orphaned `.{basename}.XXXXXX.tmp` files can be left if the process crashes
-/// between temp-file creation and `persist`. The hub cache `.gitignore` covers
-/// `/.*.tmp` so these are never committed (see `ensure_hub_gitignore`).
+/// between temp-file creation and `persist`. Harmless: nothing commits
+/// working-tree files anymore (hub v3 writes via git plumbing only).
 ///
 /// # Errors
 ///

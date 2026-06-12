@@ -110,12 +110,6 @@ pub fn requests_dir(agent_id: &str) -> PathBuf {
     PathBuf::from("agents").join(agent_id).join("requests")
 }
 
-/// Relative path to a single request file. Separate from the ack path
-/// so callers don't accidentally collide.
-pub fn request_path(agent_id: &str, request_id: &str) -> PathBuf {
-    requests_dir(agent_id).join(format!("{request_id}.json"))
-}
-
 /// Scan an agent's request directory rooted at `cache_dir` and return
 /// every request paired with its ack (if any). Missing directory is
 /// treated as empty, not an error.

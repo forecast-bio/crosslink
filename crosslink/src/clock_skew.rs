@@ -102,12 +102,14 @@ pub fn write_skew_violations(cache_dir: &Path, violations: &[SkewViolation]) -> 
     crate::utils::atomic_write(&path, content.as_bytes())
 }
 
-/// Read skew violations from `checkpoint/skew_warnings.json`.
+/// Read back skew violations written by [`write_skew_violations`].
 ///
-/// # Errors
-///
-/// Returns an error if the file exists but cannot be read or parsed.
-pub fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
+/// Test-only: the production reader was removed with the v2 `crosslink compact`
+/// path (#754); only [`write_skew_violations`] remains live (the migration's
+/// internal compaction emits the file). This helper keeps the writer's
+/// round-trip under test.
+#[cfg(test)]
+fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
     let path = cache_dir.join("checkpoint").join("skew_warnings.json");
     if !path.exists() {
         return Ok(Vec::new());

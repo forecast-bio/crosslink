@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{read_tracker_remote, HUB_BRANCH, HUB_CACHE_DIR, MAX_DIVERGENCE};
+use super::{read_tracker_remote, HUB_CACHE_DIR};
 use crate::signing;
 use crate::utils::resolve_main_repo_root;
 
@@ -19,11 +19,14 @@ pub struct SyncManager {
     pub(super) repo_root: PathBuf,
     /// Git remote name for the hub branch (from config, defaults to "origin").
     pub(super) remote: String,
-    /// Operation mode, resolved ONCE here (754a PASS 2). `V3` routes mutations
-    /// to per-agent refs with state-based hydration; `V2` keeps the worktree-
-    /// file flow. Cached so the per-call hot paths (`fetch`, `lock_check`) do
-    /// not re-probe refs on every invocation.
-    pub(super) hub_mode: crate::hub_v3::HubMode,
+    /// Operation mode, resolved at construction (754a PASS 2) and re-resolved
+    /// after a fresh-hub bootstrap (754b). `V3` routes mutations to per-agent
+    /// refs with state-based hydration; `V2` keeps the worktree-file flow.
+    /// Cached so the per-call hot paths (`fetch`, `lock_check`) do not re-probe
+    /// refs on every invocation. Interior mutability lets [`Self::init_cache`]
+    /// flip a fresh `Absent`-resolved `V2` to `V3` once it bootstraps the v3
+    /// marker refs, without invalidating the `&self` API surface.
+    pub(super) hub_mode: std::cell::Cell<crate::hub_v3::HubMode>,
 }
 
 impl SyncManager {
@@ -63,15 +66,16 @@ impl SyncManager {
             cache_dir,
             repo_root,
             remote,
-            hub_mode,
+            hub_mode: std::cell::Cell::new(hub_mode),
         })
     }
 
     /// The resolved operation mode for this hub (V2 worktree-file or V3
-    /// event-only). Decided once at construction; see [`crate::hub_v3::HubMode`].
+    /// event-only). Decided at construction and re-resolved after a fresh-hub
+    /// bootstrap; see [`crate::hub_v3::HubMode`].
     #[must_use]
-    pub const fn hub_mode(&self) -> crate::hub_v3::HubMode {
-        self.hub_mode
+    pub fn hub_mode(&self) -> crate::hub_v3::HubMode {
+        self.hub_mode.get()
     }
 
     /// Get the configured git remote name for the hub branch.
@@ -165,12 +169,6 @@ impl SyncManager {
     ///
     /// Returns an error if the git commit command fails.
     pub(super) fn git_commit_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
-        // Defense-in-depth: refuse to commit if the cache worktree is broken
-        // or pointed at a non-hub branch (#574). This stops every recovery /
-        // bootstrap / upgrade / sync commit path from accidentally writing
-        // into the parent repository if the hub-cache .git link ever breaks.
-        self.verify_cache_worktree()?;
-
         // Best-effort self-heal for stale signingkey configs (GH #565).
         // If this fails, let the commit proceed — it may still succeed, or
         // the real signing error will surface below with full context.
@@ -214,12 +212,6 @@ impl SyncManager {
         Ok(output)
     }
 
-    /// Get the subject line of a commit in the cache worktree.
-    pub fn commit_message(&self, commit: &str) -> Result<String> {
-        let output = self.git_in_cache(&["log", "-1", "--format=%s", commit])?;
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    }
-
     pub(super) fn git_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
         let output = Command::new("git")
             .current_dir(&self.cache_dir)
@@ -240,94 +232,6 @@ impl SyncManager {
             );
         }
         Ok(output)
-    }
-
-    /// Verify that the hub cache directory is a working tree pointed at
-    /// `HUB_BRANCH`, refusing to operate otherwise.
-    ///
-    /// Guards against a class of data-loss bugs (#574) where a missing or
-    /// broken `.git` link in the hub cache causes git invoked with
-    /// `current_dir(cache_dir)` to walk up to the parent repository's git
-    /// directory. Without this guard, `clean_dirty_state` and other recovery
-    /// paths run `git add -A` + `git commit` against the parent repo's index
-    /// and HEAD — silently landing recovery commits on whatever feature branch
-    /// the user has checked out, replacing its tree with hub-branch artifacts.
-    ///
-    /// Two invariants are checked:
-    ///
-    /// 1. `git rev-parse --show-toplevel` from the cache dir resolves to the
-    ///    cache dir itself (catches the walk-up case).
-    /// 2. `git symbolic-ref --short HEAD` returns `HUB_BRANCH` (catches a
-    ///    detached HEAD or any accidental checkout of a non-hub branch).
-    ///
-    /// `symbolic-ref` is used rather than `rev-parse --abbrev-ref` because the
-    /// latter fails with "ambiguous argument 'HEAD'" on an unborn orphan
-    /// branch, which is the legitimate state during the very first
-    /// `init_cache()` commit.
-    pub(super) fn verify_cache_worktree(&self) -> Result<()> {
-        let toplevel_out = Command::new("git")
-            .current_dir(&self.cache_dir)
-            .args(["rev-parse", "--show-toplevel"])
-            .output()
-            .with_context(|| {
-                format!(
-                    "Failed to run git rev-parse in hub cache {}",
-                    self.cache_dir.display()
-                )
-            })?;
-        if !toplevel_out.status.success() {
-            bail!(
-                "hub cache at {} is not a git working tree \
-                 (git rev-parse --show-toplevel failed: {}). \
-                 Refusing to operate to avoid corrupting the parent repository (#574).",
-                self.cache_dir.display(),
-                String::from_utf8_lossy(&toplevel_out.stderr).trim(),
-            );
-        }
-        let resolved_raw = String::from_utf8_lossy(&toplevel_out.stdout)
-            .trim()
-            .to_string();
-        let resolved =
-            std::fs::canonicalize(&resolved_raw).unwrap_or_else(|_| PathBuf::from(&resolved_raw));
-        let expected =
-            std::fs::canonicalize(&self.cache_dir).unwrap_or_else(|_| self.cache_dir.clone());
-        if resolved != expected {
-            bail!(
-                "hub cache at {} is not bound to its own git directory — \
-                 git rev-parse --show-toplevel resolved to {}. This usually means \
-                 the worktree's .git link is missing or broken, so git is walking \
-                 up to the parent repository. Refusing to operate to avoid \
-                 corrupting the parent repository (#574).",
-                self.cache_dir.display(),
-                resolved_raw,
-            );
-        }
-
-        let head_out = Command::new("git")
-            .current_dir(&self.cache_dir)
-            .args(["symbolic-ref", "--short", "HEAD"])
-            .output()
-            .context("Failed to run git symbolic-ref --short HEAD in hub cache")?;
-        if !head_out.status.success() {
-            bail!(
-                "hub cache at {} has detached HEAD or no HEAD: {}. \
-                 Refusing to operate to avoid commits landing on the wrong ref (#574).",
-                self.cache_dir.display(),
-                String::from_utf8_lossy(&head_out.stderr).trim(),
-            );
-        }
-        let branch = String::from_utf8_lossy(&head_out.stdout).trim().to_string();
-        if branch != HUB_BRANCH {
-            bail!(
-                "hub cache at {} is on branch {} (expected {}). \
-                 Refusing to operate to avoid commits landing on the wrong branch (#574).",
-                self.cache_dir.display(),
-                branch,
-                HUB_BRANCH,
-            );
-        }
-
-        Ok(())
     }
 
     /// Copy `.claude/hooks/` from the repo root into the hub cache worktree.
@@ -423,38 +327,6 @@ impl SyncManager {
                      git config set succeeded but user.email is not readable"
                 );
             }
-        }
-        Ok(())
-    }
-
-    /// Count how many commits the local hub branch is ahead of the remote.
-    /// Returns 0 if the remote ref doesn't exist or the count can't be determined.
-    pub(super) fn count_unpushed_commits(&self) -> usize {
-        let remote_ref = format!("{}/{}", self.remote, HUB_BRANCH);
-        let range = format!("{remote_ref}..HEAD");
-        match self.git_in_cache(&["rev-list", "--count", &range]) {
-            Ok(output) => String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse::<usize>()
-                .unwrap_or(0),
-            Err(_) => 0,
-        }
-    }
-
-    /// Check if local has diverged too far from remote and bail if so.
-    pub(crate) fn check_divergence(&self) -> Result<()> {
-        let ahead = self.count_unpushed_commits();
-        if ahead > MAX_DIVERGENCE {
-            bail!(
-                "Hub branch has diverged: {} local commits ahead of remote \
-                 (threshold: {}). This likely indicates a rebase loop. \
-                 Resolve manually with: cd {} && git log --oneline {}/{}..HEAD",
-                ahead,
-                MAX_DIVERGENCE,
-                self.cache_dir.display(),
-                self.remote,
-                HUB_BRANCH
-            );
         }
         Ok(())
     }
