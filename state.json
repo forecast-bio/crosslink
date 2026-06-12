@@ -1,6 +1,6 @@
 {
   "next_display_id": 772,
-  "next_comment_id": 1090,
+  "next_comment_id": 1091,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -21558,11 +21558,20 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T21:46:45.783911058Z",
-      "updated_at": "2026-06-12T21:48:29.440488629Z",
+      "updated_at": "2026-06-12T22:14:14.596723637Z",
       "labels": [
         "bug"
       ],
       "comments": {
+        "1a4b5ef0-af1b-4861-86d6-ff1cbea793ee": {
+          "display_id": 1090,
+          "author": "dashboard-bootstrap",
+          "content": "Committed: pipx-first install chain with PEP 668 classification and the actionable three-option warning; sentinel cpitd source (default-off, weekly, triage-only by construction) on the refactored scan core; /maintain step; work-check.py stderr sync folded in. Director re-verified gates with CI-exact invocations. Awaiting push.",
+          "created_at": "2026-06-12T22:14:14.594566482Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAAFuADXuIU4wdEzb+eSXhyfoxm3bhE8NNxE2J3f+h0sJeryk+OiGiBvT1M8mxDAsIonyihkT2pHu22+L6AtJyBA=="
+        },
         "75e5604b-6e69-4ca2-8f21-678defd32d20": {
           "display_id": 1089,
           "author": "dashboard-bootstrap",
@@ -23875,8 +23884,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T21:48:29.440488629Z",
+    "timestamp": "2026-06-12T22:14:14.596723637Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 164
+    "agent_seq": 165
   }
 }
