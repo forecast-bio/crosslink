@@ -1,5 +1,5 @@
 {
-  "next_display_id": 772,
+  "next_display_id": 773,
   "next_comment_id": 1092,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -459,6 +459,7 @@
     "9448fd71-bc44-4152-8299-367abaca496f": 722,
     "9460fd4a-7e67-49ac-830e-0be55597c9b5": 541,
     "94bda4b1-1175-436b-9b0c-899fa3567ca6": 36,
+    "963050a6-7b16-447a-a2a2-d3e9b52d35e9": 772,
     "963c1073-1ada-4893-ade7-97130da2c405": 476,
     "964693d1-765b-4a66-9906-87731d50f3e2": 167,
     "964ec239-f1a0-4441-baeb-2f309c812009": 238,
@@ -14683,6 +14684,16 @@
         }
       }
     },
+    "963050a6-7b16-447a-a2a2-d3e9b52d35e9": {
+      "uuid": "963050a6-7b16-447a-a2a2-d3e9b52d35e9",
+      "display_id": 772,
+      "title": "Fix GH#615: /design skill zsh nomatch when .design/ absent",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T22:23:16.292826200Z",
+      "updated_at": "2026-06-12T22:23:16.292826200Z"
+    },
     "963c1073-1ada-4893-ade7-97130da2c405": {
       "uuid": "963c1073-1ada-4893-ade7-97130da2c405",
       "display_id": 476,
@@ -23894,8 +23905,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T22:22:32.527435653Z",
+    "timestamp": "2026-06-12T22:23:16.292826200Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 167
+    "agent_seq": 168
   }
 }
