@@ -1,6 +1,6 @@
 {
   "next_display_id": 774,
-  "next_comment_id": 1094,
+  "next_comment_id": 1095,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -6163,11 +6163,20 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T22:26:42.161182933Z",
-      "updated_at": "2026-06-12T22:27:59.346648137Z",
+      "updated_at": "2026-06-12T22:44:53.280962089Z",
       "labels": [
         "bug"
       ],
       "comments": {
+        "22b34a1c-e273-4b5a-b79e-2dbf691012bb": {
+          "display_id": 1094,
+          "author": "dashboard-bootstrap",
+          "content": "Implemented GH#614 reconcile. Launch: removed two dispatch-time mark_running(\"pending\",\"pending\") calls in kickoff/mod.rs; now called from run.rs step 8b after init_worktree_agent (point of no return) with real agent_id + worktree_dir. Reconcile core: reconcile_runs(state, now, probe-closure) in pipeline.rs flips running rows to completed/failed/aborted per RunProbe verdict; probe_run_worktree is the production probe (sentinel DONE->completed w/ mtime, FAILED/CI_FAILED/error->failed, worktree gone/legacy pending->aborted, live agent->untouched). Seam = reconcile_runs_for_display, called in pipeline_status_overview (kickoff status) and wizard build_design_doc_entries -- both already pay worktree/sentinel I/O; non-kickoff reads never touch it. Completion hooks: monitor::status reconcile_completion_by_worktree on terminal sentinel; cleanup reconciles row by worktree before pruning (done->completed, failed->failed, else->aborted). Stage mapping: last row completed->complete, else plan exists->planned, else->designed. Legacy: GH#614 evidence JSON pasted verbatim as fixture, reconciles 2 pending rows to aborted, persists, stage off running. 16 new tests, all gates green (fmt, both clippy modes, lib 1767, bin 2811 (+16), cli 194).",
+          "created_at": "2026-06-12T22:44:53.254009871Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAVfTybxm3RrteJGCK7YEoFkeivw/B8BGdcbH+F5zYvJaRdlTczPghcJ1NQCkI05msrpCkVO/z454nZkFISiYgDg=="
+        },
         "30807e19-5a2a-4626-8e47-332aab8215de": {
           "display_id": 1093,
           "author": "dashboard-bootstrap",
@@ -23953,8 +23962,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T22:27:59.346648137Z",
+    "timestamp": "2026-06-12T22:44:53.280962089Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 176
+    "agent_seq": 177
   }
 }
