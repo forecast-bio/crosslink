@@ -1,5 +1,5 @@
 {
-  "next_display_id": 766,
+  "next_display_id": 767,
   "next_comment_id": 1078,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -466,6 +466,7 @@
     "9738a0bf-0ecc-4ae9-9c4f-863faf408284": 513,
     "973c7732-5cc8-4a55-b87b-ce9c242a8601": 126,
     "97849a28-2709-4f6c-b880-eb2ef5a73553": 480,
+    "97d99e32-9cbf-4a08-aa0a-4ccb01412d85": 766,
     "98112c72-1c96-4c4c-bf48-bb260fcdffb0": 707,
     "99016ade-dc67-418c-bad5-25eb420a17c3": 32,
     "997ce057-ee55-42b7-8d90-6f8d729bfa34": 134,
@@ -14958,6 +14959,16 @@
         }
       }
     },
+    "97d99e32-9cbf-4a08-aa0a-4ccb01412d85": {
+      "uuid": "97d99e32-9cbf-4a08-aa0a-4ccb01412d85",
+      "display_id": 766,
+      "title": "Review GH#626: argument-hint frontmatter in shipped command templates",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T19:16:48.112847467Z",
+      "updated_at": "2026-06-12T19:16:48.112847467Z"
+    },
     "98112c72-1c96-4c4c-bf48-bb260fcdffb0": {
       "uuid": "98112c72-1c96-4c4c-bf48-bb260fcdffb0",
       "display_id": 707,
@@ -23642,8 +23653,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T19:14:28.559016603Z",
+    "timestamp": "2026-06-12T19:16:48.112847467Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 128
+    "agent_seq": 129
   }
 }
