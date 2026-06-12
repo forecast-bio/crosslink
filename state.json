@@ -1,5 +1,5 @@
 {
-  "next_display_id": 764,
+  "next_display_id": 765,
   "next_comment_id": 1075,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -256,6 +256,7 @@
     "5337b2a1-b51b-42f7-b8c6-dda6e0dc8867": 193,
     "5350c817-a87c-42d1-9552-6857f49d1b9c": 198,
     "53a437e2-55d2-47ad-befb-cd347711267e": 747,
+    "54943d56-4c53-4683-8369-8095a71849da": 764,
     "562ecb52-d472-4f77-a8b3-f3aee7c21e59": 618,
     "56b53269-6a34-4f77-9e2c-b9461c0657cb": 282,
     "57235bc0-132b-4184-ba86-7b1b5b20419c": 572,
@@ -8265,6 +8266,16 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAi5h/9d6bM8dYqEDxCIMY1lDPnplrUGCjHoQQZh78uTRJtpi3xhPWTPeuJGWHNIDEJXXa+9K94JyJ+OWWTl3yDQ=="
         }
       }
+    },
+    "54943d56-4c53-4683-8369-8095a71849da": {
+      "uuid": "54943d56-4c53-4683-8369-8095a71849da",
+      "display_id": 764,
+      "title": "Sweep all open GH issues for staleness after hub v3 migration",
+      "status": "open",
+      "priority": "medium",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T18:35:51.187514311Z",
+      "updated_at": "2026-06-12T18:35:51.187514311Z"
     },
     "562ecb52-d472-4f77-a8b3-f3aee7c21e59": {
       "uuid": "562ecb52-d472-4f77-a8b3-f3aee7c21e59",
@@ -23573,8 +23584,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T18:32:47.495317363Z",
+    "timestamp": "2026-06-12T18:35:51.187514311Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 117
+    "agent_seq": 118
   }
 }
