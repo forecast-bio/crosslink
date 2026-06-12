@@ -1,0 +1,10 @@
+{
+  "uuid": "d7e41700-d57a-4b41-ab67-58204bf470fa",
+  "issue_uuid": "8f7be9f1-3633-4a6a-9421-8ab20e772feb",
+  "author": "dashboard-bootstrap",
+  "content": "PASS 1 implementation (754a hub_v3 infra). Plan: (1) sibling-preserving tree core in hub_v3.rs (read_tree_entries via ls-tree, write_tree_with supporting one nesting level, refactor append/commit_log_bytes/commit_blob_to_ref/commit_files_to_ref onto it); (2) heartbeat write/read on agent refs (reuse locks::Heartbeat schema); (3) agent requests on refs with writer-ownership layout requests-out/<target>--<ulid>.json and requests-ack/<ulid>.json (one nesting level); (4) compact_v3 in hub_v3.rs (reduce RefHubSource -> checkpoint commit_blob_to_ref + push_ref_with_lease + REQ-11 own-ref prune only after checkpoint push). v2 finding: requests are plain JSON with requested_by fingerprint, NOT git-signed; poll::process_pending trusts local cache because sync already rejected bad-signer commits at fetch; reduce only WARNS on unsigned events. Mirroring: verify-on-read deferred to same trust model (no per-request sig gate added).",
+  "created_at": "2026-06-12T00:52:50.874095057Z",
+  "kind": "plan",
+  "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+  "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAN92Liz8Ndcp3ugErFVxL8G1FZvVY5cAY3uF6hiUXs5NU44cziKYA4Hg1Bm7M89HT12ktukYQXZPkPXrybZvZDg=="
+}
