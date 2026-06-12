@@ -1,6 +1,6 @@
 {
   "next_display_id": 774,
-  "next_comment_id": 1095,
+  "next_comment_id": 1096,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -6163,7 +6163,7 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T22:26:42.161182933Z",
-      "updated_at": "2026-06-12T22:44:53.280962089Z",
+      "updated_at": "2026-06-12T22:49:29.648872376Z",
       "labels": [
         "bug"
       ],
@@ -6185,6 +6185,15 @@
           "kind": "plan",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8C3lTVj8ZB+dsiX7UmIsiN1vsX/TeuSXEZZqmnajD1tTQDAcf1m4fGu1N4YcEkXwRVFo4PVugYAcdA4+VCi4CQ=="
+        },
+        "e12c4ff0-76b8-45b3-a80b-cd782a9221c8": {
+          "display_id": 1095,
+          "author": "dashboard-bootstrap",
+          "content": "Committed: launch reordered to write real identity past the point of no return; three-layer reconciliation (pure injected core, display-seam lazy pass, moment-of-truth hooks in monitor/cleanup); stage honesty transitions; verbatim GH#614 legacy fixture self-heals. Director-verified CI-exact gates: 1767 lib + 2811 bin + 194 integration. Awaiting push.",
+          "created_at": "2026-06-12T22:49:29.646685088Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAbzWK2W0DdpIFaNGQDxiwuUNJMTguTd+ve3R6Pa9W2xQ3oKtEhki6/FfH8adCK7sgBXHBtlzuvhaa6FYDKWCpDA=="
         }
       }
     },
@@ -23962,8 +23971,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T22:44:53.280962089Z",
+    "timestamp": "2026-06-12T22:49:29.648872376Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 177
+    "agent_seq": 178
   }
 }
