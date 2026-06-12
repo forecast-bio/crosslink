@@ -3,11 +3,12 @@
   "display_id": 753,
   "title": "hub-v3 PR3: migrate hub-v3 command plus version detection and refusal",
   "description": "Third PR of the hub v3 migration (.design/hub-v3-per-agent-refs.md, REQ-9). One-shot conversion: genesis checkpoint on refs/crosslink/checkpoint plus per-agent genesis refs from existing event logs. Old crosslink/hub branch left intact until --finalize. v3 clients refuse v2 hubs with migrate prompt; v2 clients refuse v3 marker ref with upgrade message. Acceptance: AC-6 (full-state diff preservation), AC-7 (cross-version refusal).",
-  "status": "open",
+  "status": "closed",
   "priority": "medium",
   "created_by": "dashboard-bootstrap",
   "created_at": "2026-06-11T18:48:40.201284589Z",
-  "updated_at": "2026-06-11T18:48:58.624995066Z",
+  "updated_at": "2026-06-12T00:47:22.118468883Z",
+  "closed_at": "2026-06-12T00:47:22.118468883Z",
   "labels": [
     "architecture"
   ],
