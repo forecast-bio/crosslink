@@ -1,6 +1,6 @@
 {
   "next_display_id": 761,
-  "next_comment_id": 1071,
+  "next_comment_id": 1072,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13943,7 +13943,7 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-11T18:48:42.330843364Z",
-      "updated_at": "2026-06-12T17:35:00.700800156Z",
+      "updated_at": "2026-06-12T18:04:03.974949986Z",
       "labels": [
         "architecture",
         "v3-cutover"
@@ -14013,6 +14013,15 @@
           "kind": "result",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABATBT5zZv3TReiwW8DVrIPJZeC4b0wjNO3kp9iC4cmsVMBCRiK2iXUcLGQYdedzMTwtNyolfeTRW6kxlZtagbDBw=="
+        },
+        "c83bbc0b-1bb9-4b35-8880-37a260c498f8": {
+          "display_id": 1071,
+          "author": "dashboard-bootstrap",
+          "content": "DELIVERED. Full hub v3 program complete across 8 PRs: #630 hardening, #631 HubSource abstraction, #632 write path + dual-write soak, #633 full event sourcing, #634 migrate command, #635 v3 operation mode, #636/#637 migration fixes, #638 v2 machinery deletion (net -10k lines). This repository migrated and operating on refs (759 issues, 1345 comments through the AC-6 gate). ONLY REMAINING STEP (user-gated, no urgency): crosslink migrate hub-v3 --finalize --yes-delete-v2 after a comfortable soak period -- it deletes the frozen v2 escape-hatch branch and is the one irreversible action.",
+          "created_at": "2026-06-12T18:04:03.876489523Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAG3ad2eO+/TPzwe6CIlFEVx86f9O3sb3NzYSviGXlSbPD09n+BJs0P1YQqVdyt4lNiYjPPY5dtfvoFhmOVnAeBw=="
         },
         "d7e41700-d57a-4b41-ab67-58204bf470fa": {
           "author": "dashboard-bootstrap",
@@ -23472,8 +23481,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T17:52:40.177671308Z",
+    "timestamp": "2026-06-12T18:04:03.974949986Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 99
+    "agent_seq": 100
   }
 }
