@@ -1,6 +1,6 @@
 {
   "next_display_id": 774,
-  "next_comment_id": 1093,
+  "next_comment_id": 1094,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -6163,10 +6163,21 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T22:26:42.161182933Z",
-      "updated_at": "2026-06-12T22:26:49.322671239Z",
+      "updated_at": "2026-06-12T22:27:59.346648137Z",
       "labels": [
         "bug"
-      ]
+      ],
+      "comments": {
+        "30807e19-5a2a-4626-8e47-332aab8215de": {
+          "display_id": 1093,
+          "author": "dashboard-bootstrap",
+          "content": "Grounding: runs IS load-bearing -- three readers (stage_display, kickoff list run_display, wizard status), all consuming runs.last() only. RunRecord already has completed_at: Option<String> that nothing fills: reconciliation was designed-for, never implemented. Direction = reporter option 1 (reconcile), not option 2 (drop). Design: (a) launch rows get REAL agent_id/worktree (trace mark_running callers for the pending literals); (b) reconcile-on-load pass marks stale running rows (worktree gone + no live agent) as aborted; (c) completion detection (kickoff status/monitor sentinel reads, cleanup pruning) marks matching rows completed/failed with completed_at. Matching keys on started_at (legacy pending rows lack ids). pipeline.json stays TRACKED (plans/gaps are shared state; rot was the bug, not tracking) -- answer reporter's side question in close comment.",
+          "created_at": "2026-06-12T22:27:59.244882225Z",
+          "kind": "plan",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8C3lTVj8ZB+dsiX7UmIsiN1vsX/TeuSXEZZqmnajD1tTQDAcf1m4fGu1N4YcEkXwRVFo4PVugYAcdA4+VCi4CQ=="
+        }
+      }
     },
     "3c054dd2-91be-4df8-a650-a0bf83fdb900": {
       "uuid": "3c054dd2-91be-4df8-a650-a0bf83fdb900",
@@ -23942,8 +23953,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T22:26:53.335501952Z",
+    "timestamp": "2026-06-12T22:27:59.346648137Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 175
+    "agent_seq": 176
   }
 }
