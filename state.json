@@ -1,6 +1,6 @@
 {
   "next_display_id": 761,
-  "next_comment_id": 1068,
+  "next_comment_id": 1069,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13943,7 +13943,7 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-11T18:48:42.330843364Z",
-      "updated_at": "2026-06-12T09:57:05.190352848Z",
+      "updated_at": "2026-06-12T10:08:43.453844412Z",
       "labels": [
         "architecture",
         "v3-cutover"
@@ -13986,6 +13986,15 @@
           "kind": "result",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAP8O5d+PxKVTEgjkO4Ni4A6xT+i+wkRqKN1ScQzTeB9/CtAnHvUZiGxSUyAUwP/ovCBmrYpAcvBdI/QcHgL/6AA=="
+        },
+        "c08cc0e2-7932-435c-9a22-4d598362c3e7": {
+          "display_id": 1068,
+          "author": "dashboard-bootstrap",
+          "content": "754b committed: v2 write/repair machinery deleted (net -10k lines), mutations on v2 hubs refuse with migrate prompt, new hubs bootstrap v3 (crosslink/hub-v3-host worktree trick), fresh clones join migrated remotes by fetching refs, AC-10 is a permanent grep-guard test that caught 5 stale doc references pre-commit. Director-verified gates: 1761 lib + 2765 bin + 194 integration, fmt, both clippy profiles. Awaiting push. After merge + reinstall: finalize remains the only outstanding step (user-gated).",
+          "created_at": "2026-06-12T10:08:43.440271244Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABATBT5zZv3TReiwW8DVrIPJZeC4b0wjNO3kp9iC4cmsVMBCRiK2iXUcLGQYdedzMTwtNyolfeTRW6kxlZtagbDBw=="
         },
         "d7e41700-d57a-4b41-ab67-58204bf470fa": {
           "author": "dashboard-bootstrap",
@@ -23445,8 +23454,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T09:57:05.190352848Z",
+    "timestamp": "2026-06-12T10:08:43.453844412Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 95
+    "agent_seq": 96
   }
 }
