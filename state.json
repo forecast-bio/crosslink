@@ -1,6 +1,6 @@
 {
   "next_display_id": 771,
-  "next_comment_id": 1088,
+  "next_comment_id": 1089,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -12162,7 +12162,7 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T21:30:07.394611141Z",
-      "updated_at": "2026-06-12T21:35:18.864873169Z",
+      "updated_at": "2026-06-12T21:43:23.909033824Z",
       "labels": [
         "bug"
       ],
@@ -12175,6 +12175,15 @@
           "kind": "result",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAkwB1PcLlsrR2kqv4LwmNZCk0ltbhmJt7F6MGpEzwaoMJGW+v+lOOfgfU9LPOrJK0XMXmrmCpO2KtQ/nKBiRwCQ=="
+        },
+        "9567f9c9-d1dc-49bb-ad33-5f389bb9d3e9": {
+          "display_id": 1088,
+          "author": "dashboard-bootstrap",
+          "content": "GH#624 auto-closed by PR #644 merge. Hook blocking messages now reach the model via stderr per the Claude Code exit-2 contract; verified empirically on both block paths before merge. Complete.",
+          "created_at": "2026-06-12T21:43:23.851150057Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAQKcgwWGQhfdit3pEQ7pK9eFBBkmM4PKD+NEAiQuKB7cQexhQI+yVyWrB1JHDXPB6NN3bXgy2+GWE8N7KYzXGBQ=="
         }
       }
     },
@@ -23836,8 +23845,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T21:35:18.864873169Z",
+    "timestamp": "2026-06-12T21:43:23.909033824Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 158
+    "agent_seq": 159
   }
 }
