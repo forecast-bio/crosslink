@@ -1,6 +1,6 @@
 {
   "next_display_id": 767,
-  "next_comment_id": 1078,
+  "next_comment_id": 1079,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -14971,10 +14971,21 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T19:16:48.112847467Z",
-      "updated_at": "2026-06-12T19:16:56.572679076Z",
+      "updated_at": "2026-06-12T19:27:23.530392219Z",
       "labels": [
         "triage"
-      ]
+      ],
+      "comments": {
+        "b247cafb-ecb8-4017-9e01-5fc3121cf61a": {
+          "display_id": 1078,
+          "author": "dashboard-bootstrap",
+          "content": "Implemented: argument-hint on 7 arg-taking templates (resources/ shipped copies committed; gitignored local .claude/commands copies synced for this checkout). featree --from dropped after verification against template body; kickoff trimmed per issue sanction; qa.md + crosslink-guide.md gained minimal frontmatter blocks they lacked. Gates green. Awaiting push.",
+          "created_at": "2026-06-12T19:27:23.438995990Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAXhqks3gzDBAFjyghLyTov8OIJgHPq+OsivL5f7ZaNswx/H5anDBXCqdhOHyecB+qPTMORb5Q5AEqezbUvWRvCg=="
+        }
+      }
     },
     "98112c72-1c96-4c4c-bf48-bb260fcdffb0": {
       "uuid": "98112c72-1c96-4c4c-bf48-bb260fcdffb0",
@@ -23660,8 +23671,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T19:17:00.995839063Z",
+    "timestamp": "2026-06-12T19:27:23.530392219Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 131
+    "agent_seq": 132
   }
 }
