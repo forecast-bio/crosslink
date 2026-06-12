@@ -1,6 +1,6 @@
 {
   "next_display_id": 772,
-  "next_comment_id": 1091,
+  "next_comment_id": 1092,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -21558,7 +21558,7 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-12T21:46:45.783911058Z",
-      "updated_at": "2026-06-12T22:14:14.596723637Z",
+      "updated_at": "2026-06-12T22:22:28.998085275Z",
       "labels": [
         "bug"
       ],
@@ -21580,6 +21580,15 @@
           "kind": "plan",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA3YbefvH6oHarGQQ+5lAZGdDO8a7PBzY5yhUaK4oGVpl6da5KvxHhluN7lu+QgMyWnd/TRsm2pvBB8hU4Orx7AQ=="
+        },
+        "91150c91-1581-48cb-a27c-846334d65596": {
+          "display_id": 1091,
+          "author": "dashboard-bootstrap",
+          "content": "GH#621 closed with install-options + sentinel-source usage summary after merge. Complete.",
+          "created_at": "2026-06-12T22:22:28.995986073Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABA8eAG7SThwdR7CtLyb6CTcRqGvHdoaak6ZIzvBlAHazrD09fE8IIUFbjxMrNPkSXbA4oENkayLu7DFkwhNkZMBw=="
         }
       }
     },
@@ -23884,8 +23893,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T22:14:14.596723637Z",
+    "timestamp": "2026-06-12T22:22:28.998085275Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 165
+    "agent_seq": 166
   }
 }
