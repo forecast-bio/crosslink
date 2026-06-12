@@ -1,5 +1,5 @@
 {
-  "next_display_id": 767,
+  "next_display_id": 768,
   "next_comment_id": 1079,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -424,6 +424,7 @@
     "89809899-51db-4d09-838b-a6ec61ebf1f8": 265,
     "89d71301-9973-4b41-96b9-d96448bd3c6f": 232,
     "8a628f7a-e107-4156-bcfc-82ed57334183": 292,
+    "8a72ee1a-368b-4faf-a395-ab52c0d25da8": 767,
     "8a79d1ed-f767-4b48-ad9a-5c9280fc2a77": 667,
     "8b611870-e91b-4502-8a46-0c057ccf8377": 302,
     "8b7e40a5-e7dd-4255-85a0-5b3ed53332d7": 692,
@@ -13594,6 +13595,16 @@
         }
       }
     },
+    "8a72ee1a-368b-4faf-a395-ab52c0d25da8": {
+      "uuid": "8a72ee1a-368b-4faf-a395-ab52c0d25da8",
+      "display_id": 767,
+      "title": "hub v3 visibility: move refs to visible branches + browsable materialized state",
+      "status": "open",
+      "priority": "high",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T19:40:22.651433804Z",
+      "updated_at": "2026-06-12T19:40:22.651433804Z"
+    },
     "8a79d1ed-f767-4b48-ad9a-5c9280fc2a77": {
       "uuid": "8a79d1ed-f767-4b48-ad9a-5c9280fc2a77",
       "display_id": 667,
@@ -23671,8 +23682,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T19:27:23.530392219Z",
+    "timestamp": "2026-06-12T19:40:22.651433804Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 132
+    "agent_seq": 133
   }
 }
