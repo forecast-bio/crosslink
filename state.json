@@ -1,6 +1,6 @@
 {
   "next_display_id": 761,
-  "next_comment_id": 1069,
+  "next_comment_id": 1071,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -13943,7 +13943,7 @@
       "priority": "medium",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-11T18:48:42.330843364Z",
-      "updated_at": "2026-06-12T10:08:43.453844412Z",
+      "updated_at": "2026-06-12T17:35:00.700800156Z",
       "labels": [
         "architecture",
         "v3-cutover"
@@ -13953,6 +13953,15 @@
         "319aa3b4-b853-4767-89a1-685e3093c5e7"
       ],
       "comments": {
+        "0aac7547-e770-4f03-b0d1-9a5ce418f57f": {
+          "display_id": 1069,
+          "author": "dashboard-bootstrap",
+          "content": "Session auto-ended (stale after 802 minutes). No handoff notes provided.",
+          "created_at": "2026-06-12T17:33:48.698495941Z",
+          "kind": "handoff",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAMizAMn9mtL72x7bbdEeBRZwwoUM/MDOIiHFlI96QA/gJtKBJA0UsrI4mVs0sPEoG862IK8ocu95lIwEhQDHnCw=="
+        },
         "56000ff3-b475-4fae-b98b-dab8095242ab": {
           "author": "dashboard-bootstrap",
           "content": "754a committed on feature/754a-v3-operation-mode: three passes (ref-tree infra + heartbeats/requests, mode routing with v3 event-only writes and state hydration, direct-reader sweep). Two correctness bugs found by agents during their own testing (checkpoint churn, claim-confirm partial-view masking) and one latent v3 bug caught in pass 3 (find_stale_locks V1-only heartbeats = all locks stale on v3). Director-verified gates: 1998 lib + 3007 bin + 194 integration, fmt, both clippy profiles. Awaiting push; after merge: run migrate hub-v3 on this repo for real, then 754b deletion PR.",
@@ -13969,6 +13978,15 @@
           "kind": "result",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAzagkeuvXBFreDX8+A8ZX1q/V0MfmRj7q1sOPyUYPUjh1xySbvbXcPv4AGs1Ws04DJMtZBrNACVlquylQam18DQ=="
+        },
+        "8416e3dc-f78c-4ec0-b087-e0d9ec7b826e": {
+          "display_id": 1070,
+          "author": "dashboard-bootstrap",
+          "content": "Session auto-ended (stale after 803 minutes). No handoff notes provided.",
+          "created_at": "2026-06-12T17:35:00.621093441Z",
+          "kind": "handoff",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAm44nSXxpHZ8SgGjmpnomozILEkDYHfNrILeeHnBgFW7Siv0vCpNoV18jdsVzc6BnXRBRuIj0llLOuKGiJxWTCQ=="
         },
         "a1f1e947-3c75-404d-a5c2-8fd35c8ef950": {
           "display_id": 1067,
@@ -23454,8 +23472,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T10:08:43.453844412Z",
+    "timestamp": "2026-06-12T17:35:00.700800156Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 96
+    "agent_seq": 98
   }
 }
