@@ -1,5 +1,5 @@
 {
-  "next_display_id": 771,
+  "next_display_id": 772,
   "next_comment_id": 1089,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -702,6 +702,7 @@
     "e8a1be4e-075f-4048-b0c1-4fd83b77e247": 304,
     "ea485f69-83ff-4847-b174-3516159b8f58": 539,
     "ea48950a-2340-45e1-ab65-30534a3c4bf3": 394,
+    "ea7ce593-a9a4-4b2f-bc5c-e69ed0d9f0f5": 771,
     "ea8b2b52-86c6-47df-a85d-628869b5706c": 168,
     "eade6a06-6929-4fb6-bce5-f7881f5c263c": 349,
     "ec842d71-e9d1-4585-bd1d-8d4fcf184e84": 582,
@@ -21545,6 +21546,16 @@
         }
       }
     },
+    "ea7ce593-a9a4-4b2f-bc5c-e69ed0d9f0f5": {
+      "uuid": "ea7ce593-a9a4-4b2f-bc5c-e69ed0d9f0f5",
+      "display_id": 771,
+      "title": "Fix GH#621: cpitd init failure UX + actually USE cpitd somewhere useful",
+      "status": "open",
+      "priority": "high",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-12T21:46:45.783911058Z",
+      "updated_at": "2026-06-12T21:46:45.783911058Z"
+    },
     "ea8b2b52-86c6-47df-a85d-628869b5706c": {
       "uuid": "ea8b2b52-86c6-47df-a85d-628869b5706c",
       "display_id": 168,
@@ -23846,8 +23857,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-12T21:43:29.128963370Z",
+    "timestamp": "2026-06-12T21:46:45.783911058Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 160
+    "agent_seq": 161
   }
 }
