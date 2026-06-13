@@ -2603,3 +2603,380 @@ fn test_build_watchdog_script_contains_key_elements() {
     assert!(script.contains("-gt 300")); // staleness threshold
     assert!(script.contains("-ge 3")); // max nudges
 }
+
+// ---------------------------------------------------------------------------
+// GH#614: pipeline `runs` reconciliation
+// ---------------------------------------------------------------------------
+
+use super::pipeline::{self, PipelineState, RunProbe, RunRecord};
+
+/// Build a minimal `PipelineState` carrying the supplied run rows.
+fn pipeline_with_runs(stage: &str, runs: Vec<RunRecord>) -> PipelineState {
+    PipelineState {
+        schema_version: 1,
+        design_doc: ".design/foo.md".to_string(),
+        doc_hash: "sha256:deadbeef".to_string(),
+        stage: stage.to_string(),
+        plans: Vec::new(),
+        runs,
+    }
+}
+
+fn running_row(agent_id: &str, worktree: &str, started_at: &str) -> RunRecord {
+    RunRecord {
+        agent_id: agent_id.to_string(),
+        worktree: worktree.to_string(),
+        issue_id: Some(1),
+        started_at: started_at.to_string(),
+        completed_at: None,
+        status: "running".to_string(),
+    }
+}
+
+#[test]
+fn test_mark_running_writes_real_identity_no_pending() {
+    // The launch path's unit-testable portion: mark_running given a real
+    // agent_id and worktree records exactly those, never "pending".
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/foo.md");
+    std::fs::write(&doc, "# Foo\n").unwrap();
+
+    let wt = tmp.path().join(".worktrees/repo--abcd--foo");
+    let state =
+        pipeline::mark_running(&doc, "repo--abcd--foo", &wt.to_string_lossy(), Some(7)).unwrap();
+
+    let row = state.runs.last().unwrap();
+    assert_eq!(row.agent_id, "repo--abcd--foo");
+    assert_ne!(row.agent_id, "pending");
+    assert_eq!(row.worktree, wt.to_string_lossy());
+    assert_ne!(row.worktree, "pending");
+    assert_eq!(row.status, "running");
+    assert_eq!(row.issue_id, Some(7));
+    assert_eq!(state.stage, "running");
+}
+
+#[test]
+fn test_reconcile_done_sentinel_marks_completed_with_timestamp() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (
+            RunProbe::SentinelDone,
+            Some("2026-05-13T10:00:00+00:00".to_string()),
+        )
+    });
+    assert!(changed);
+    let row = &state.runs[0];
+    assert_eq!(row.status, "completed");
+    assert_eq!(
+        row.completed_at.as_deref(),
+        Some("2026-05-13T10:00:00+00:00")
+    );
+    // No row still running, no plan → stage collapses to "complete".
+    assert_eq!(state.stage, "complete");
+}
+
+#[test]
+fn test_reconcile_failed_sentinel_marks_failed() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::SentinelFailed, None)
+    });
+    assert!(changed);
+    assert_eq!(state.runs[0].status, "failed");
+    // Fallback to injected `now` when sentinel mtime is unreadable.
+    assert_eq!(
+        state.runs[0].completed_at.as_deref(),
+        Some("2026-06-12T00:00:00+00:00")
+    );
+}
+
+#[test]
+fn test_reconcile_missing_worktree_marks_aborted() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/gone", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::Gone, None)
+    });
+    assert!(changed);
+    assert_eq!(state.runs[0].status, "aborted");
+    assert_eq!(
+        state.runs[0].completed_at.as_deref(),
+        Some("2026-06-12T00:00:00+00:00")
+    );
+    // No plan, last row aborted → stage falls back to "designed".
+    assert_eq!(state.stage, "designed");
+}
+
+#[test]
+fn test_reconcile_live_agent_row_untouched() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::LiveRunning, None)
+    });
+    assert!(!changed);
+    assert_eq!(state.runs[0].status, "running");
+    assert!(state.runs[0].completed_at.is_none());
+    assert_eq!(state.stage, "running");
+}
+
+#[test]
+fn test_reconcile_all_rows_not_just_last() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![
+            running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00"),
+            running_row("a2", "/wt/a2", "2026-05-13T20:22:43+00:00"),
+            running_row("a3", "/wt/a3", "2026-05-14T20:22:43+00:00"),
+        ],
+    );
+    // Mark every row gone.
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::Gone, None)
+    });
+    assert!(changed);
+    assert!(state.runs.iter().all(|r| r.status == "aborted"));
+}
+
+#[test]
+fn test_probe_pending_worktree_is_gone_when_no_live_agent() {
+    // Legacy "pending"/"pending" rows resolve to Gone.
+    let row = running_row("pending", "pending", "2026-05-12T20:22:43+00:00");
+    let (verdict, _mtime) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::Gone);
+}
+
+#[test]
+fn test_probe_done_sentinel_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt-done");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".kickoff-status"), "DONE\n").unwrap();
+    let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
+    let (verdict, mtime) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::SentinelDone);
+    assert!(mtime.is_some());
+}
+
+#[test]
+fn test_probe_failed_sentinel_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt-fail");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".kickoff-status"), "CI_FAILED\n").unwrap();
+    let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
+    let (verdict, _mtime) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::SentinelFailed);
+}
+
+#[test]
+fn test_probe_live_worktree_running_status() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt-run");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".kickoff-status"), "RUNNING\n").unwrap();
+    let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
+    // Live agent vouches for it.
+    let (verdict, _) = pipeline::probe_run_worktree(&row, &["a1".to_string()]);
+    assert_eq!(verdict, RunProbe::LiveRunning);
+    // No live agent and non-terminal sentinel → indeterminate (left untouched).
+    let (verdict, _) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::Indeterminate);
+}
+
+/// The exact rot shape from GH#614 — a `runs` array of pending/pending/running
+/// rows pasted verbatim from the issue evidence.
+const GH614_LEGACY_PIPELINE_JSON: &str = r#"{
+  "schema_version": 1,
+  "design_doc": ".design/forecast-decode.md",
+  "doc_hash": "sha256:abc",
+  "stage": "running",
+  "plans": [],
+  "runs": [
+    {
+      "agent_id": "pending",
+      "worktree": "pending",
+      "issue_id": 1,
+      "started_at": "2026-05-12T20:22:43.929777+00:00",
+      "status": "running"
+    },
+    {
+      "agent_id": "pending",
+      "worktree": "pending",
+      "issue_id": 1,
+      "started_at": "2026-05-14T09:10:00.000000+00:00",
+      "status": "running"
+    }
+  ]
+}"#;
+
+#[test]
+fn test_legacy_pending_file_reconciles_to_aborted_and_persists() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/forecast-decode.md");
+    std::fs::write(&doc, "# Forecast decode\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/forecast-decode.pipeline.json");
+    std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
+
+    // Old file parses despite its shape (serde defaults tolerate it).
+    let mut state = pipeline::read_pipeline_state(&doc).expect("legacy file must parse");
+    assert_eq!(state.runs.len(), 2);
+    assert!(state.runs.iter().all(|r| r.status == "running"));
+
+    // No live agents → both pending rows are stale → aborted, and persisted.
+    let changed = pipeline::reconcile_runs_for_display(&doc, &mut state, &[]);
+    assert!(changed);
+    assert!(state.runs.iter().all(|r| r.status == "aborted"));
+    assert!(state.runs.iter().all(|r| r.completed_at.is_some()));
+    // "pending" agent_id is left as-is (we never invent identities).
+    assert!(state.runs.iter().all(|r| r.agent_id == "pending"));
+    // Stage no longer claims "running".
+    assert_ne!(state.stage, "running");
+
+    // runs.last()-based display no longer reports running.
+    let display = pipeline::stage_display(&state, &doc);
+    assert!(!display.contains("running"));
+
+    // Persisted to disk: a fresh read sees the reconciled state.
+    let reread = pipeline::read_pipeline_state(&doc).unwrap();
+    assert!(reread.runs.iter().all(|r| r.status == "aborted"));
+}
+
+#[test]
+fn test_reconcile_is_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/forecast-decode.md");
+    std::fs::write(&doc, "# Forecast decode\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/forecast-decode.pipeline.json");
+    std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
+
+    let mut state = pipeline::read_pipeline_state(&doc).unwrap();
+    assert!(pipeline::reconcile_runs_for_display(&doc, &mut state, &[]));
+
+    // Second pass changes nothing and does not rewrite the file.
+    let before = std::fs::read_to_string(&pipeline_file).unwrap();
+    let changed_again = pipeline::reconcile_runs_for_display(&doc, &mut state, &[]);
+    assert!(!changed_again);
+    let after = std::fs::read_to_string(&pipeline_file).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn test_stage_transition_aborted_with_plan_falls_back_to_planned() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/gone", "2026-05-12T20:22:43+00:00")],
+    );
+    state.plans.push(super::pipeline::PlanRecord {
+        agent_id: "p1".to_string(),
+        worktree: "/wt/p1".to_string(),
+        started_at: "2026-05-10T00:00:00+00:00".to_string(),
+        completed_at: Some("2026-05-10T01:00:00+00:00".to_string()),
+        status: "done".to_string(),
+        blocking_gaps: 0,
+        advisory_gaps: 0,
+        plan_file: Some(".design/foo.plan.json".to_string()),
+    });
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::Gone, None)
+    });
+    assert!(changed);
+    assert_eq!(state.runs[0].status, "aborted");
+    // A plan exists → fall back to "planned" rather than "designed".
+    assert_eq!(state.stage, "planned");
+}
+
+#[test]
+fn test_mark_run_finished_matches_by_worktree() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/foo.md");
+    std::fs::write(&doc, "# Foo\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/foo.pipeline.json");
+
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![
+            running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00"),
+            running_row("a2", "/wt/a2", "2026-05-13T20:22:43+00:00"),
+        ],
+    );
+    std::fs::write(
+        &pipeline_file,
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    let updated = pipeline::mark_run_finished(&doc, &mut state, "/wt/a2", None, "completed");
+    assert!(updated);
+    assert_eq!(state.runs[0].status, "running"); // a1 untouched
+    assert_eq!(state.runs[1].status, "completed");
+    assert!(state.runs[1].completed_at.is_some());
+    // Still a running row → stage stays "running".
+    assert_eq!(state.stage, "running");
+}
+
+#[test]
+fn test_mark_run_finished_legacy_fallback_by_started_at() {
+    let doc = Path::new("/nonexistent/.design/foo.md");
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![
+            running_row("pending", "pending", "2026-05-12T20:22:43+00:00"),
+            running_row("pending", "pending", "2026-05-14T09:10:00+00:00"),
+        ],
+    );
+    // worktree "pending" can't path-match; fall back to started_at proximity.
+    let updated = pipeline::mark_run_finished(
+        doc,
+        &mut state,
+        "pending",
+        Some("2026-05-14T09:11:00+00:00"),
+        "completed",
+    );
+    assert!(updated);
+    assert_eq!(state.runs[0].status, "running");
+    assert_eq!(state.runs[1].status, "completed");
+}
+
+#[test]
+fn test_reconcile_completion_by_worktree_scans_design_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/foo.md");
+    std::fs::write(&doc, "# Foo\n").unwrap();
+    let wt = tmp.path().join(".worktrees/repo--abcd--foo");
+    let state = pipeline_with_runs(
+        "running",
+        vec![running_row(
+            "repo--abcd--foo",
+            &wt.to_string_lossy(),
+            "2026-05-12T20:22:43+00:00",
+        )],
+    );
+    std::fs::write(
+        tmp.path().join(".design/foo.pipeline.json"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    let hit =
+        pipeline::reconcile_completion_by_worktree(tmp.path(), &wt.to_string_lossy(), "completed");
+    assert!(hit);
+    let reread = pipeline::read_pipeline_state(&doc).unwrap();
+    assert_eq!(reread.runs[0].status, "completed");
+    assert_eq!(reread.stage, "complete");
+}

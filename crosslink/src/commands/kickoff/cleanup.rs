@@ -237,7 +237,27 @@ pub fn cleanup(
             }
         }
 
-        // 3. Remove the git worktree
+        // 3. Reconcile the matching pipeline run row before the worktree
+        //    disappears (GH#614): once removed, lazy display reconcile can only
+        //    ever see it as "aborted". Capture the truth now from the agent's
+        //    terminal status — DONE → completed, failed → failed, anything else
+        //    (stale/timed-out/stopped) → aborted.
+        if !agent.worktree.is_empty() {
+            if let Some(root) = crosslink_dir.parent() {
+                let pipeline_status = match agent.status.as_str() {
+                    "done" => "completed",
+                    "failed" => "failed",
+                    _ => "aborted",
+                };
+                let _ = super::pipeline::reconcile_completion_by_worktree(
+                    root,
+                    &agent.worktree,
+                    pipeline_status,
+                );
+            }
+        }
+
+        // 4. Remove the git worktree
         if !agent.worktree.is_empty() && std::path::Path::new(&agent.worktree).exists() {
             match Command::new("git")
                 .args(["worktree", "remove", "--force", &agent.worktree])

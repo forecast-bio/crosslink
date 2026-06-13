@@ -1129,8 +1129,17 @@ pub fn launch_wizard(crosslink_dir: &Path) -> Result<Option<WizardChoices>> {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-fn build_design_doc_entries(repo_root: &Path, _crosslink_dir: &Path) -> Vec<DesignDocEntry> {
+fn build_design_doc_entries(repo_root: &Path, crosslink_dir: &Path) -> Vec<DesignDocEntry> {
     let docs = pipeline::scan_design_docs(repo_root);
+
+    // Live agent ids (session/container still up) so reconcile leaves genuinely
+    // active runs untouched while collapsing stale "running" rows (GH#614).
+    let live_ids: Vec<String> = super::monitor::discover_agents(crosslink_dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| a.session.is_some() || a.docker.is_some())
+        .map(|a| a.id)
+        .collect();
 
     docs.into_iter()
         .map(|path| {
@@ -1140,7 +1149,10 @@ fn build_design_doc_entries(repo_root: &Path, _crosslink_dir: &Path) -> Vec<Desi
                 .unwrap_or("unknown")
                 .to_string();
 
-            let pipeline = pipeline::read_pipeline_state(&path);
+            let pipeline = pipeline::read_pipeline_state(&path).map(|mut state| {
+                pipeline::reconcile_runs_for_display(&path, &mut state, &live_ids);
+                state
+            });
 
             let stage_display = pipeline.as_ref().map_or_else(
                 || "\u{2014}".to_string(),

@@ -71,6 +71,25 @@ pub fn status(crosslink_dir: &Path, agent: &str) -> Result<()> {
         agent_status = "timed-out".to_string();
     }
 
+    // Positive-completion hook (GH#614): when this status read positively sees a
+    // terminal sentinel, reconcile the matching pipeline run row now rather than
+    // waiting for the next display pass. Keyed on the worktree path.
+    let normalized = normalize_status(&agent_status);
+    let pipeline_status = if normalized == "done" {
+        Some("completed")
+    } else if normalized == "failed" {
+        Some("failed")
+    } else {
+        None
+    };
+    if let Some(ps) = pipeline_status {
+        let _ = super::pipeline::reconcile_completion_by_worktree(
+            root,
+            &worktree_dir.to_string_lossy(),
+            ps,
+        );
+    }
+
     println!("Agent:     {agent}");
     println!("Worktree:  {}", worktree_dir.display());
     println!("Status:    {agent_status}");

@@ -167,6 +167,23 @@ pub fn run(
     // 8. Initialize crosslink + agent in worktree (only for real launches)
     let agent_id = init_worktree_agent(&worktree_dir, crosslink_dir, &compact_name)?;
 
+    // 8b. Record the pipeline run row now that the worktree and agent identity
+    //     both exist — this is past the launch's point of no return, so the row
+    //     carries the real agent_id and worktree path instead of the legacy
+    //     "pending" placeholders (GH#614). Best-effort: a pipeline-state write
+    //     failure must not abort an otherwise-successful launch.
+    if let Some(doc_path_str) = opts.doc_path {
+        let doc_path = Path::new(doc_path_str);
+        if let Err(e) = super::pipeline::mark_running(
+            doc_path,
+            &agent_id,
+            &worktree_dir.to_string_lossy(),
+            Some(issue_id),
+        ) {
+            tracing::warn!("could not record pipeline run row for {doc_path_str}: {e}");
+        }
+    }
+
     // preflight is guaranteed Some after the dry-run early return above
     let preflight = preflight.context("preflight check was skipped unexpectedly")?;
 
