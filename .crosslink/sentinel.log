@@ -1,5 +1,0 @@
-Sentinel daemon starting...
-  Watching: /home/doll/crosslink/.crosslink
-  Interval: 10 minutes
-  Webhook:  listening on port 9877
-Sentinel received SIGTERM, exiting
