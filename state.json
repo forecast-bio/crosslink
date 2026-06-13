@@ -1005,7 +1005,10 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-13T01:54:30.953851101Z",
-      "updated_at": "2026-06-13T01:54:30.953851101Z"
+      "updated_at": "2026-06-13T01:54:34.428786037Z",
+      "labels": [
+        "release"
+      ]
     },
     "02be3f85-6420-400f-812a-ecb62594d3ff": {
       "uuid": "02be3f85-6420-400f-812a-ecb62594d3ff",
@@ -24076,8 +24079,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-13T01:54:30.953851101Z",
+    "timestamp": "2026-06-13T01:54:34.428786037Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 196
+    "agent_seq": 197
   }
 }
