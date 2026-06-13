@@ -1,6 +1,6 @@
 {
   "next_display_id": 776,
-  "next_comment_id": 1099,
+  "next_comment_id": 1100,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -17053,7 +17053,7 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-13T00:59:19.770700503Z",
-      "updated_at": "2026-06-13T01:07:02.976844711Z",
+      "updated_at": "2026-06-13T01:10:35.394974225Z",
       "labels": [
         "bug"
       ],
@@ -17066,6 +17066,18 @@
           "kind": "result",
           "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPBylM4IRuYucAYDfUAETTe8gCqkgPIUVhZCzSMUXdPpvmer9XFIKNCwtcvOFng4KUOEWml5/t2QxRoyob3m1BQ=="
+        },
+        "5cadc31a-0fb4-46c1-88fb-7a4e3705eb7a": {
+          "display_id": 1099,
+          "author": "dashboard-bootstrap",
+          "content": "Attempted: git cherry-pick 427a58d5 (blocked); user waived for this operation",
+          "created_at": "2026-06-13T01:10:35.392727148Z",
+          "kind": "intervention",
+          "trigger_type": "tool_blocked",
+          "intervention_context": "Re-homing finalize hardening onto fresh branch after adoption PR merged",
+          "driver_key_fingerprint": "SHA256:eHpbrpU/tOUroPHQwwGZTQKY+0tU0E2rZw5zFEs1jHE",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPvEU5gfFWxgj9gNSVStwP4bkW7y5/dbnuqWvi+sXo57I0TX4cwUEJH+AiWcbgXaEw4MQv/FXrihDUyPaCcCKAQ=="
         }
       }
     },
@@ -24043,8 +24055,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-13T01:07:02.976844711Z",
+    "timestamp": "2026-06-13T01:10:35.394974225Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 192
+    "agent_seq": 193
   }
 }
