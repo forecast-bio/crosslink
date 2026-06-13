@@ -7,7 +7,7 @@ description: Commit changes and auto-document the result on the active crosslink
 
 - Working tree status: !`git status --short`
 - Current branch: !`git branch --show-current`
-- Active session: !`crosslink session status 2>/dev/null || echo "No active session"`
+- Active session: !`crosslink session status 2>/dev/null`
 
 ## Your task
 

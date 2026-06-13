@@ -224,10 +224,33 @@ async fn async_watch_loop(
     let should_exit = Arc::new(AtomicBool::new(false));
 
     // Use tokio signal handlers (these compose with select!)
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .context("Failed to register SIGTERM handler")?;
-    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .context("Failed to register SIGINT handler")?;
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<&str>(1);
+    {
+        let tx = shutdown_tx;
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let Ok(mut sigterm) = signal(SignalKind::terminate()) else {
+                    tracing::error!("Failed to register SIGTERM handler");
+                    return;
+                };
+                let Ok(mut sigint) = signal(SignalKind::interrupt()) else {
+                    tracing::error!("Failed to register SIGINT handler");
+                    return;
+                };
+                tokio::select! {
+                    _ = sigterm.recv() => { let _ = tx.send("SIGTERM").await; }
+                    _ = sigint.recv() => { let _ = tx.send("SIGINT").await; }
+                }
+            }
+            #[cfg(windows)]
+            {
+                let _ = tokio::signal::ctrl_c().await;
+                let _ = tx.send("Ctrl-C").await;
+            }
+        });
+    }
 
     // Zombie prevention: spawn a blocking thread to detect stdin closure.
     //
@@ -315,13 +338,10 @@ async fn async_watch_loop(
                 }
             }
 
-            // Shutdown signals
-            _ = sigterm.recv() => {
-                println!("Sentinel received SIGTERM, exiting");
-                break;
-            }
-            _ = sigint.recv() => {
-                println!("Sentinel received SIGINT, exiting");
+            // Shutdown signals (unified via channel from spawned signal task)
+            signal_name = shutdown_rx.recv() => {
+                let name = signal_name.unwrap_or("unknown");
+                println!("Sentinel received {name}, exiting");
                 break;
             }
         }

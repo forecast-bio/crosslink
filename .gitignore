@@ -54,6 +54,7 @@ crosslink/resources/container/crosslink-*
 .crosslink/hook-config.local.json
 .crosslink/integrations/
 .crosslink/rules.local/
+.crosslink/driver-key.pub
 
 # .crosslink/ — DO track these (project-level policy):
 #   .crosslink/hook-config.json   — shared team configuration
@@ -64,6 +65,7 @@ crosslink/resources/container/crosslink-*
 .claude/hooks/
 .claude/commands/
 .claude/mcp/
+.claude/worktrees/
 
 # .claude/ — DO track these (if manually configured):
 #   .claude/settings.json         — Claude Code project settings

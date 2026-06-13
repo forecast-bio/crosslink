@@ -4,6 +4,5 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 59f4bfb0c8d66c23d00e584e20e50d9924a537b3586a21163c767de79bb08766 # shrinks to count = 9
-cc ade5ce790756c45f6609cac553e50b123e15a4579489f268226f77bd010cd9da # shrinks to count = 3
-cc 0a259a28913455d49cf74d0ff80a9cf314c4d44448f7e28c26b5cb8d5df77c84 # shrinks to count = 9
+cc 4a73fcbc7ae82fe6ce3d4d24503257879856f1747e7d9ccc5306bb4c55aeafc4 # shrinks to title = ""
+cc fce8d76dbc92913e462db26f90d6d7aee02dbe78b18037cf7f54d99942ad6644 # shrinks to title = ""

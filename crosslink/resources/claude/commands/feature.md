@@ -7,8 +7,8 @@ argument-hint: <feature description> [--from <ref>]
 ## Context
 
 - Current branch: !`git branch --show-current`
-- Recent release branches: !`git branch --list 'release/*' | tail -5`
-- Existing feature branches: !`git branch --list 'feature/*' | tail -10`
+- Recent release branches: !`git branch --list 'release/*'`
+- Existing feature branches: !`git branch --list 'feature/*'`
 - Working tree status: !`git status --short`
 - Remotes: !`git remote -v`
 

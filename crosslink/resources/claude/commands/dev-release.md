@@ -8,10 +8,10 @@ argument-hint: <version> [--from <branch>] [--to <branch>] [--skip-docs] [--skip
 
 - Project root: !`git rev-parse --show-toplevel`
 - Current branch: !`git branch --show-current`
-- Latest tag: !`git describe --tags --abbrev=0 2>/dev/null || echo "(no tags)"`
-- Active session: !`crosslink session status 2>/dev/null || echo "No active session"`
-- Remote: !`git remote get-url origin 2>/dev/null || echo "(no remote)"`
-- Main branch: !`git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main"`
+- Latest tag: !`git describe --tags --abbrev=0 2>/dev/null`
+- Active session: !`crosslink session status 2>/dev/null`
+- Remote: !`git remote get-url origin 2>/dev/null`
+- Main branch: !`git rev-parse --abbrev-ref origin/HEAD 2>/dev/null`
 
 ## Your task
 

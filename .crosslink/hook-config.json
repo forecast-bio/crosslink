@@ -59,6 +59,7 @@
   "gated_git_commands": [
     "git commit"
   ],
+  "hub_v3.dual_write": true,
   "intervention_tracking": true,
   "kickoff_verification": "local",
   "reminder_drift_threshold": 3,
