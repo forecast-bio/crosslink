@@ -1,6 +1,6 @@
 {
   "next_display_id": 776,
-  "next_comment_id": 1100,
+  "next_comment_id": 1101,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -17053,11 +17053,20 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-13T00:59:19.770700503Z",
-      "updated_at": "2026-06-13T01:10:35.394974225Z",
+      "updated_at": "2026-06-13T01:51:49.538883143Z",
       "labels": [
         "bug"
       ],
       "comments": {
+        "031eda02-abbf-4f53-a1a7-f468495a03d5": {
+          "display_id": 1100,
+          "author": "dashboard-bootstrap",
+          "content": "PR #649 merged; finalize teardown hardening on develop. Ferrotorch re-run pending user. Complete.",
+          "created_at": "2026-06-13T01:51:49.484659348Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAL68H2DGLVb53OK/jYjbhlj6eFPPHcKmdmgTxDHTiiUEqGpgwbUy6QCSVSV2Rk6J10q3IkgOteSveTIccGZKhCA=="
+        },
         "4a73ab24-9ac3-4221-ac1a-c4e3e88ff439": {
           "display_id": 1098,
           "author": "dashboard-bootstrap",
@@ -24055,8 +24064,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-13T01:10:35.394974225Z",
+    "timestamp": "2026-06-13T01:51:49.538883143Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 193
+    "agent_seq": 194
   }
 }
