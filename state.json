@@ -1,5 +1,5 @@
 {
-  "next_display_id": 775,
+  "next_display_id": 776,
   "next_comment_id": 1098,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
@@ -537,6 +537,7 @@
     "ad41bea3-7506-45e3-8ebb-54decca3621c": 559,
     "ad87f7c0-4bf7-494c-a49c-4ed4f4d8fc5f": 285,
     "ada7c58a-4804-4d4a-823b-8c6407789416": 187,
+    "adb6fffb-88bc-4a18-bbe7-9f1ca4ee28e6": 775,
     "ae19f698-80e2-43a7-9ef1-660bccd2f8db": 207,
     "ae687ceb-1e19-485a-8fce-4e5a9f275781": 474,
     "ae9cab82-2430-449f-a91d-dc396c3a85ef": 601,
@@ -17040,6 +17041,16 @@
         }
       }
     },
+    "adb6fffb-88bc-4a18-bbe7-9f1ca4ee28e6": {
+      "uuid": "adb6fffb-88bc-4a18-bbe7-9f1ca4ee28e6",
+      "display_id": 775,
+      "title": "Fix finalize: cannot delete crosslink/hub while hub-cache worktree hosts it (ferrotorch live failure)",
+      "status": "open",
+      "priority": "high",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-13T00:59:19.770700503Z",
+      "updated_at": "2026-06-13T00:59:19.770700503Z"
+    },
     "ae19f698-80e2-43a7-9ef1-660bccd2f8db": {
       "uuid": "ae19f698-80e2-43a7-9ef1-660bccd2f8db",
       "display_id": 207,
@@ -24014,8 +24025,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-13T00:52:03.597822298Z",
+    "timestamp": "2026-06-13T00:59:19.770700503Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 188
+    "agent_seq": 189
   }
 }
