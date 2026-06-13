@@ -71,7 +71,7 @@ Turn ideas into validated, codebase-grounded specs before writing code.
 
 Launch multiple agents and let them coordinate automatically.
 
-- **Distributed locking** — Agents claim issues via a shared git coordination branch, preventing conflicts
+- **Distributed locking** — Agents claim issues through signed events on per-agent git branches, resolved first-claim-wins, preventing conflicts
 - **Agent identity** — Each agent gets a unique ID and SSH signing key (`crosslink agent init`)
 - **`crosslink kickoff`** — Launch autonomous agents in isolated git worktrees
   - Agents explore, implement, test, commit, and self-review — fully tracked through crosslink

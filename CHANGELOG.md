@@ -6,69 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed
-- Hub-state recovery commit silently rewriting feature branch with hub-branch contents on pre-commit retry (GH #574). When the hub-cache `.git` link is missing or broken, every git command run with `current_dir(cache_dir)` was walking up to the parent repository and operating on whatever feature branch the user had checked out. `clean_dirty_state` would then run `git add -A` + `git commit -m "sync: auto-stage dirty hub state (recovery)"` against the parent's index and HEAD, replacing the feature branch's tree with hub artifacts. `SyncManager::verify_cache_worktree` is now a hard preflight on `clean_dirty_state` and `git_commit_in_cache`: it asserts `git rev-parse --show-toplevel` resolves to `cache_dir` and that HEAD is on `crosslink/hub`, refusing loudly otherwise.
+## [0.9.0-beta.1] - 2026-06-13
+
+> Consolidates all changes since the [0.5.2] entry: the v0.6.0-v0.8.0 tags
+> shipped without changelog sections, so their content is folded in here.
+
+### Breaking
+
+- **Hub v3: per-agent-ref coordination storage.** The shared `crosslink/hub`
+  branch with mutable JSON state is replaced by single-writer git refs -
+  visible branches `crosslink/agents/<id>`, `crosslink/checkpoint`,
+  `crosslink/meta` - carrying append-only signed event logs reduced
+  deterministically to materialized state. Pushes to your own ref are always
+  fast-forward; the conflict can no longer occur, and ~10,000 lines of
+  rebase-retry/recovery machinery were deleted outright (guarded by a
+  permanent regression test). Mutations on un-migrated v2 hubs refuse with a
+  migrate prompt; v2 hubs remain readable forever for inspection and
+  migration. The checkpoint branch carries a browsable state tree (per-issue
+  JSON with inline comments, README, milestones) and each agent's branch is
+  its own visible activity/heartbeat feed.
+- `crosslink serve` is deprecated in favor of `crosslink dashboard serve`.
 
 ### Added
-- Design doc for GH issue #367 (#203)
-- Integrate pre-flight check improvements for kickoff command: consolidate the inline prerequisite checks in run() and plan() with a unified preflight_check function that adds resolve_timeout_command() for macOS gtimeout support, PreflightResult struct that threads timeout_cmd through to launch_local() and plan(), and detailed platform-specific install instructions. Keep existing tests intact. Reference the worktree version at .worktrees/kickoff-pre-flight-check-for-required-external-commands-e-g/crosslink/src/commands/kickoff.rs for the target implementation. (#151)
-- TUI: fix issues tab scroll and improve startup/tab-switch latency. Two bugs: (1) Issues tab scroll is broken - selection cursor moves past visible area but list doesn't scroll to follow, viewport never advances. Fix so selected entry is always visible. (2) Startup and tab-switch latency - noticeable delay on launch and switching to Agents tab from synchronous data loading. Introduce TUI-local cache that populates display immediately with stale/empty state, then updates asynchronously once real data arrives. See GitHub issue #240. (#150)
-- Add agent prompting norms for saving research to knowledge repo (#80)
-- Phase 4.1: GitHub PAT storage + token management endpoint (GH #429) (#701)
-- Dashboard: detect + remedy tracked clones without crosslink init / agent config (#710)
-- Dashboard: make alerts clickable to expand with actions (#708)
-- crosslink dashboard discover: filesystem autodiscovery of crosslink-enabled repos (GH #429 followup) (#705)
-- Write DESIGN-CROSSLINK-OPS.md (GH #429 followup) (#688)
-- Phase 5.3: dashboard polish — theme toggle + audible alerts + preferences page (GH #429) (#704)
-- Phase 5.2: dashboard webhook alerting — outbound Slack/Discord/generic JSON on alert fire (GH #429) (#703)
-- Phase 5.1: dashboard export — projects.csv + alerts.csv endpoints + UI download buttons (GH #429) (#702)
-- Phase 4.1: GitHub PAT storage + token management endpoint (GH #429) (#701)
 
-#### Dashboard — multi-project control panel ([GH-429])
+- `crosslink migrate hub-v3` - verified one-shot migration (full-state gate
+  with automatic rollback; idempotent re-run doubles as push retry), adoption
+  path for machines whose remote was already migrated, `--finalize
+  --yes-delete-v2` hard cutover (survives corrupt legacy worktree
+  registrations), and `migrate hub-branches` for the hidden-refs-to-branches
+  rename.
+- Full event sourcing: every issue/milestone mutation emits a signed event;
+  new event variants for comments, time entries, deletion tombstones,
+  milestones, and schedule changes, with deterministic display-id assignment.
+- Dashboard - multi-project control panel (`crosslink dashboard serve`):
+  SCADA-style aggregation of every tracked project with live tiles, alerts
+  (stale locks, silent agents, overdue issues), full write surface with audit
+  trail, webhook alerting (Slack/Discord/JSON), CSV export, GitHub PAT
+  management, filesystem autodiscovery, and a git-native agent control
+  protocol (`crosslink agent request/poll-requests/requests`).
+- Sentinel cpitd source: scheduled code-clone scans filing triage issues
+  (`sentinel.sources.cpitd.*`, default off) - plus pipx-first cpitd install
+  with actionable PEP 668 guidance (GH#621).
+- `--contributor` attribution override on `knowledge add/edit/import`
+  (GH#628).
+- `argument-hint` frontmatter on all arg-taking command templates (GH#626).
 
-- `crosslink dashboard serve` — new SCADA-style panel replacing
-  `crosslink serve`'s single-project focus. Aggregates every tracked
-  project into one view with live tiles, alerts, and full CLI parity
-  for writes.
-- `crosslink dashboard track <path>` / `untrack` / `list` — point the
-  panel at user's existing project workspaces (no private clones).
-- 5-second poll loop per project: git fetch → hub snapshot → counters +
-  derived alerts → SQLite persistence → WebSocket fanout.
-- Alerts surface: `stale_lock`, `silent_agent`, `overdue_issue`,
-  `orphan_subissue`, `unreachable_project` — open/resolve reconciled
-  against derived set on every tick.
-- Write surface (shell out through `run_cli` primitive; every
-  invocation audited to the `actions` table with actor + verb +
-  outcome):
-  - Issues: close, reopen, comment, block, unblock, relate, label,
-    unlabel
-  - Milestones: create (with optional description), add issue,
-    remove issue, close
-  - Locks: claim (with optional branch), release, steal
-  - Agents: send control request (kill / pause / resume / reprioritise)
-    via the git-native protocol from design doc §9
-- Git-native agent control protocol:
-  - `crosslink agent request <target> <kind>` writes a signed JSON
-    under `agents/<target>/requests/` on the hub branch.
-  - `crosslink agent poll-requests` (run automatically every
-    `crosslink sync`) translates incoming requests into local
-    control flags under `.crosslink/agent-flags/` and writes an
-    ack back to the hub so the dashboard shows outcome status.
-  - `crosslink agent requests` lists pending/acked requests for
-    triage.
-- Per-user SQLite index at `~/.crosslink/dashboard.db` with 7 tables
-  (projects, project_state, alerts, pty_sessions, actions, activity,
-  config).
-- React + Vite frontend embedded via `rust-embed`, bundled with the
-  binary. New IA: project grid (default), per-project detail (issues
-  with inline label chips + comment/label/block/relate drawers,
-  agents, locks with Release + Steal controls, milestones with
-  create form), /alerts page grouped by severity.
-- Deprecates `crosslink serve` — prints a warning pointing users at
-  `crosslink dashboard serve`.
+### Fixed
 
-`crosslink serve`'s legacy JSON log format is preserved under the
-new subcommand for log-scraping continuity.
+- Hook blocking messages now reach the model: exit-2 messages write to
+  stderr per the Claude Code hook contract (GH#624).
+- Stray `.crosslink/` directories from cwd drift: hooks can no longer seed
+  them and discovery refuses to bind them (GH#625).
+- Kickoff pipeline `runs` records are reconciled on completion instead of
+  accumulating stale `running` rows forever (GH#614).
+- Hub-sync concurrency hardening: unique fsynced temp files, no live-holder
+  lock stealing, unified worktree locking (#750); plumbing ref writes pinned
+  immune to git signing config (GH#627).
+- Hub-state recovery could rewrite a feature branch with hub contents when
+  the cache worktree link broke (GH#574); corrupt-JSON-committed-over-good-
+  history class eliminated by architecture (GH#616); unrelated-histories
+  divergence error eliminated (GH#629).
+- `/design` first-run zsh glob failure - fixed templates; refresh deployed
+  copies with `crosslink init --force` (GH#615).
 
 ## [0.5.2] - 2026-03-19
 
@@ -365,6 +364,7 @@ new subcommand for log-scraping continuity.
 - Skip worktree agent init and tmux/claude prerequisite checks in dry-run mode
 
 ### Security
+- Security check: verify allowed_signers on meta branch is public-key-only (#768)
 - VS Code extension security hardening (E1-E3) ([GH-169], [GH-175])
 - CI/CD fuzz testing improvements (T1-T5) ([GH-168])
 
