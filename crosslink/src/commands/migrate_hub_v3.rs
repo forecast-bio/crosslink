@@ -1373,18 +1373,119 @@ fn read_meta_allowed_signers(cache_dir: &Path) -> Result<Option<Vec<u8>>> {
 }
 
 /// Delete the local crosslink/hub branch. The branch is checked out in the hub
-/// cache worktree, so the worktree must be removed first (`git worktree remove`).
+/// cache worktree, so every worktree hosting it must be removed first.
 /// `repo_root` is the main repository that owns the branch and object store.
+///
+/// Hardened after a live failure (#775): the registered worktree is not always
+/// at `cache_dir`. A GH#574-era corruption class leaves a SELF-REFERENTIAL
+/// registration whose working directory is its own `.git/worktrees/<id>`
+/// admin dir — `worktree remove <cache_dir>` then fails (not a registered
+/// path), `prune` never reaps it (its gitdir target "exists": itself), and
+/// `branch -D` refuses. So: enumerate the actual registrations, tear down
+/// every worktree on `crosslink/hub` wherever it lives, escalate force
+/// levels, and VERIFY none remain before deleting the branch — surfacing the
+/// captured stderr instead of swallowing it.
 fn delete_v2_branch_local(cache_dir: &Path, repo_root: &Path) -> Result<()> {
-    // Remove the cache worktree from the main repo (force: it may hold the lock
-    // file and runtime artifacts). Best-effort: if it is already gone, continue.
-    let worktree = cache_dir.to_string_lossy().to_string();
-    let _ = run_git(repo_root, &["worktree", "remove", "--force", &worktree]);
-    // Prune any stale worktree administrative entries.
+    let mut teardown_errors: Vec<String> = Vec::new();
+
+    for path in worktrees_on_hub_branch(repo_root)? {
+        // `--force --force` also removes locked worktrees.
+        let removed = run_git(
+            repo_root,
+            &["worktree", "remove", "--force", "--force", &path],
+        );
+        if let Err(e) = removed {
+            // Last resort for corrupt registrations (e.g. the self-referential
+            // admin-dir worktree): delete the directory and let prune reap the
+            // registration. For the self-referential case the directory IS the
+            // admin dir, so this removes the registration itself.
+            teardown_errors.push(format!("worktree remove {path}: {e}"));
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
     let _ = run_git(repo_root, &["worktree", "prune"]);
+
+    // Verify before touching the branch: a leftover registration would make
+    // `branch -D` fail with a less actionable message.
+    let remaining = worktrees_on_hub_branch(repo_root)?;
+    if !remaining.is_empty() {
+        bail!(
+            "cannot delete crosslink/hub: worktree(s) still host it after teardown: {}\n\
+             teardown errors:\n{}",
+            remaining.join(", "),
+            teardown_errors.join("\n")
+        );
+    }
+
     run_git(repo_root, &["branch", "-D", "crosslink/hub"])
         .context("failed to delete local crosslink/hub branch")?;
+
+    // The v2 cache directory may remain as an UNREGISTERED leftover (its
+    // registration was the corrupt one torn down above, or it was never
+    // re-registered). Remove it so the next crosslink command's init_cache
+    // self-heals into a fresh v3 host worktree instead of binding stale junk.
+    if cache_dir.exists() {
+        let still_registered = worktree_paths(repo_root)?
+            .iter()
+            .any(|p| Path::new(p) == cache_dir);
+        if !still_registered {
+            std::fs::remove_dir_all(cache_dir).with_context(|| {
+                format!(
+                    "failed to remove leftover v2 cache dir {}",
+                    cache_dir.display()
+                )
+            })?;
+        }
+    }
     Ok(())
+}
+
+/// All registered worktree paths of `repo_root` (porcelain parse).
+fn worktree_paths(repo_root: &Path) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .context("failed to run git worktree list")?;
+    if !output.status.success() {
+        bail!(
+            "git worktree list failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .map(str::to_string)
+        .collect())
+}
+
+/// Paths of registered worktrees whose checked-out branch is crosslink/hub.
+fn worktrees_on_hub_branch(repo_root: &Path) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .context("failed to run git worktree list")?;
+    if !output.status.success() {
+        bail!(
+            "git worktree list failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut result = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            current = Some(p.to_string());
+        } else if line == "branch refs/heads/crosslink/hub" {
+            if let Some(p) = current.take() {
+                result.push(p);
+            }
+        }
+    }
+    Ok(result)
 }
 
 /// Push the crosslink/hub branch deletion to the remote. `repo_root` is the
@@ -2432,6 +2533,62 @@ mod tests {
         // no-op for a V3-mode caller.
         hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V2);
         hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V3);
+    }
+
+    /// #775 — the ferrotorch finalize failure: a GH#574-era corrupt worktree
+    /// registration whose working directory is its own admin dir
+    /// (`gitdir` -> `.git/worktrees/<id>/.git`, self-referential). The old
+    /// teardown (`worktree remove <cache_dir>` + prune) could not reap it and
+    /// `branch -D crosslink/hub` failed with "used by worktree". The hardened
+    /// teardown must enumerate registrations, remove the corrupt worktree
+    /// wherever it lives, and delete the branch.
+    #[test]
+    fn finalize_teardown_survives_self_referential_worktree() {
+        let (work, _r, crosslink_dir, cache_dir) = setup_v2_hub();
+        let repo_root = work.path();
+
+        // Locate the admin dir from the worktree's .git link file.
+        let git_link = std::fs::read_to_string(cache_dir.join(".git")).unwrap();
+        let admin = git_link
+            .trim()
+            .strip_prefix("gitdir: ")
+            .unwrap()
+            .to_string();
+        let admin = std::path::PathBuf::from(admin);
+        assert!(admin.join("HEAD").exists(), "fixture admin dir must exist");
+
+        // Corrupt exactly as observed live: the registration's gitdir points
+        // at the admin dir itself, the admin dir doubles as the working tree,
+        // and the real cache dir is gone.
+        std::fs::write(admin.join("gitdir"), format!("{}/.git\n", admin.display())).unwrap();
+        std::fs::write(admin.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        std::fs::remove_dir_all(&cache_dir).unwrap();
+
+        // Sanity: git now reports a worktree ON crosslink/hub at the admin dir.
+        let hosts = worktrees_on_hub_branch(repo_root).unwrap();
+        assert_eq!(hosts.len(), 1, "corrupt registration must be visible");
+        assert!(hosts[0].contains(".git"), "host is the admin dir itself");
+
+        // The hardened teardown must succeed where the old one failed.
+        delete_v2_branch_local(&cache_dir, repo_root)
+            .expect("teardown must survive the self-referential registration");
+
+        assert!(
+            worktrees_on_hub_branch(repo_root).unwrap().is_empty(),
+            "no worktree may still host crosslink/hub"
+        );
+        let branch_gone = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["rev-parse", "--verify", "crosslink/hub"])
+            .output()
+            .unwrap();
+        assert!(
+            !branch_gone.status.success(),
+            "crosslink/hub must be deleted"
+        );
+        assert!(!cache_dir.exists(), "leftover cache dir must be cleaned");
+
+        let _ = crosslink_dir;
     }
 
     /// #774 — the "machine that slept through the migration" path: machine B
