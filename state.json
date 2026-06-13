@@ -1,6 +1,6 @@
 {
   "next_display_id": 776,
-  "next_comment_id": 1098,
+  "next_comment_id": 1099,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -17053,10 +17053,21 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-13T00:59:19.770700503Z",
-      "updated_at": "2026-06-13T00:59:23.086212507Z",
+      "updated_at": "2026-06-13T01:07:02.976844711Z",
       "labels": [
         "bug"
-      ]
+      ],
+      "comments": {
+        "4a73ab24-9ac3-4221-ac1a-c4e3e88ff439": {
+          "display_id": 1098,
+          "author": "dashboard-bootstrap",
+          "content": "Committed on fix/754-migrate-adopt-remote-v3 (rides the open adoption PR): porcelain-enumerated teardown of every crosslink/hub-hosting worktree, double-force escalation + directory-removal last resort, verify-before-branch-delete with surfaced stderrs, unregistered-cache cleanup for init_cache self-heal. Test reproduces ferrotorch's self-referential registration exactly. After merge+install, re-run finalize on ferrotorch.",
+          "created_at": "2026-06-13T01:07:02.974643261Z",
+          "kind": "result",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAPBylM4IRuYucAYDfUAETTe8gCqkgPIUVhZCzSMUXdPpvmer9XFIKNCwtcvOFng4KUOEWml5/t2QxRoyob3m1BQ=="
+        }
+      }
     },
     "ae19f698-80e2-43a7-9ef1-660bccd2f8db": {
       "uuid": "ae19f698-80e2-43a7-9ef1-660bccd2f8db",
@@ -24032,8 +24043,8 @@
   },
   "next_milestone_id": 1,
   "watermark": {
-    "timestamp": "2026-06-13T00:59:27.127356516Z",
+    "timestamp": "2026-06-13T01:07:02.976844711Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 191
+    "agent_seq": 192
   }
 }
