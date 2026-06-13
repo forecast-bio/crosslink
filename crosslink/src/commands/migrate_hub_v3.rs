@@ -97,6 +97,71 @@ struct RenamePair {
     new: String,
 }
 
+/// Adopt an already-migrated remote hub (#774).
+///
+/// Reached when the LOCAL hub is still v2 but the REMOTE was migrated to v3 by
+/// another machine (the "machine that slept through the migration" path).
+/// Migrating here would mint a conflicting genesis from stale local state;
+/// instead, fetch the remote's v3 branches into the local namespace, verify
+/// detection now reports V3, and hydrate `SQLite` from the adopted state. The
+/// local `crosslink/hub` v2 branch is left untouched as the same read-only
+/// escape hatch the migrating machine kept.
+fn adopt_remote_v3(crosslink_dir: &Path, cache_dir: &Path, remote: &str) -> Result<()> {
+    println!("remote '{remote}' already hosts a v3 hub — adopting it (no migration performed).");
+
+    hub_v3::fetch_v3_refs_for_join(cache_dir, remote)
+        .context("fetching the remote's v3 branches for adoption failed")?;
+
+    match hub_v3::detect_hub_version(cache_dir)? {
+        HubVersion::V3 { .. } => {}
+        other => bail!(
+            "adoption fetch completed but local detection still reports {other:?}; \
+             the remote's v3 refs may be incomplete — inspect \
+             `git ls-remote {remote} 'refs/heads/crosslink/*'`"
+        ),
+    }
+
+    if let Some(meta) = read_hub_meta(cache_dir)? {
+        print_hub_meta(&meta);
+    }
+
+    // Hydrate SQLite from the adopted state so the local DB reflects the hub
+    // immediately (same reduction path `crosslink sync` uses in v3 mode).
+    let db = crate::db::Database::open(&crosslink_dir.join("issues.db"))
+        .context("opening issues.db for post-adoption hydration")?;
+    let source = crate::hub_source::RefHubSource::new(cache_dir)?;
+    let outcome = crate::compaction::reduce(&source)?;
+    let stats = crate::hydration::hydrate_from_state(&outcome.state, &db)
+        .context("post-adoption hydration failed")?;
+    println!(
+        "adopted v3 hub: {} issue(s), {} comment(s) hydrated. This machine now \
+         operates v3; its agent branch is created on first write.",
+        stats.issues, stats.comments
+    );
+
+    // Honesty guard: adopting an EMPTY hub while the local v2 cache holds
+    // real issues means the remote's v3 genesis did not come from this
+    // project's data (e.g. a fresh machine bootstrapped against a remote
+    // that did not advertise the v2 branch). The local v2 data is NOT lost
+    // (frozen branch), but it was not migrated either — say so loudly.
+    if stats.issues == 0 {
+        let v2_issue_count = read_all_issue_files(&cache_dir.join("issues")).map_or(0, |v| v.len());
+        if v2_issue_count > 0 {
+            println!(
+                "WARNING: the adopted v3 hub is EMPTY but the local v2 hub holds \
+                 {v2_issue_count} issue(s). The remote's v3 genesis did not come from this \
+                 project's v2 data. Your v2 data is intact on the frozen crosslink/hub \
+                 branch but has NOT been migrated — this usually means a machine \
+                 bootstrapped a fresh hub against a remote that did not advertise the \
+                 v2 branch. Consider deleting the remote's empty v3 branches and \
+                 re-running the migration from a machine with the populated v2 hub."
+            );
+        }
+    }
+    print_mixed_version_warning();
+    Ok(())
+}
+
 /// Map an old hidden hub ref to its new visible-branch name, or `None` if the
 /// ref is not a hub ref this migration owns (so siblings are never renamed).
 fn old_to_new_ref(old: &str) -> Option<String> {
@@ -398,7 +463,30 @@ fn migrate_phase_a(
                 cache_dir.display()
             );
         }
-        HubVersion::V2Only => {}
+        HubVersion::V2Only => {
+            // The LOCAL hub is v2 — but if the REMOTE has already been
+            // migrated by another machine, running a second migration here
+            // would mint a conflicting genesis from this machine's stale
+            // pre-migration state (#774, the machine-that-slept-through-the-
+            // migration path). Consult the remote and ADOPT instead.
+            match hub_v3::detect_remote_hub_version(cache_dir, remote) {
+                Ok(HubVersion::V3 { .. }) => {
+                    return adopt_remote_v3(crosslink_dir, cache_dir, remote);
+                }
+                Ok(_) => {
+                    // Remote is v2 or absent — this machine performs the
+                    // first migration as usual.
+                }
+                Err(e) => {
+                    bail!(
+                        "cannot determine the remote hub version ({e}). Refusing to migrate \
+                         blind: if another machine already migrated, a second migration here \
+                         would mint a conflicting genesis from stale local state. Retry when \
+                         the remote '{remote}' is reachable."
+                    );
+                }
+            }
+        }
     }
 
     let agent_id = crate::identity::AgentConfig::load(crosslink_dir)?
@@ -2344,5 +2432,120 @@ mod tests {
         // no-op for a V3-mode caller.
         hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V2);
         hub_v3::warn_if_migrated_v2_operation(&cache_dir, hub_v3::HubMode::V3);
+    }
+
+    /// #774 — the "machine that slept through the migration" path: machine B
+    /// clones while the hub is still v2, machine A migrates, then B runs
+    /// `migrate hub-v3`. B must ADOPT the remote's v3 hub — never mint a
+    /// second genesis from its stale local state.
+    #[test]
+    fn v2_local_v3_remote_adopts_instead_of_migrating() {
+        // Machine A: populated v2 hub pushed to the bare remote.
+        let (_wa, remote_dir, cl_a, cache_a) = setup_v2_hub();
+
+        // Publish A's v2 hub branch so the remote ADVERTISES v2 (real v2
+        // projects do; the fixture builds the hub locally only). Without
+        // this, B's init_cache would see an Absent hub and bootstrap a
+        // conflicting fresh v3 genesis.
+        let push = std::process::Command::new("git")
+            .current_dir(&cache_a)
+            .args(["push", "origin", "crosslink/hub"])
+            .output()
+            .unwrap();
+        assert!(
+            push.status.success(),
+            "fixture must publish the v2 hub branch: {}",
+            String::from_utf8_lossy(&push.stderr)
+        );
+
+        // Machine B: clones while the remote is still v2-only.
+        let work_b = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+            vec!["config", "commit.gpgsign", "false"],
+            vec![
+                "remote",
+                "add",
+                "origin",
+                remote_dir.path().to_str().unwrap(),
+            ],
+            vec!["fetch", "origin", "main"],
+            vec!["checkout", "-b", "main", "origin/main"],
+        ] {
+            std::process::Command::new("git")
+                .current_dir(work_b.path())
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+        let cl_b = work_b.path().join(".crosslink");
+        std::fs::create_dir_all(&cl_b).unwrap();
+        std::fs::write(cl_b.join("hook-config.json"), r#"{"remote":"origin"}"#).unwrap();
+        write_agent(&cl_b, "beta");
+        let sync_b = SyncManager::new(&cl_b).unwrap();
+        sync_b.init_cache().unwrap();
+        let cache_b = sync_b.cache_path().to_path_buf();
+        assert!(
+            matches!(
+                hub_v3::detect_hub_version(&cache_b).unwrap(),
+                HubVersion::V2Only
+            ),
+            "B must start as a v2-only clone"
+        );
+
+        // Machine A migrates; the remote now hosts the authoritative v3 hub.
+        hub_v3(&cl_a, false, false).expect("A's migration must succeed");
+        let remote_checkpoint_before = std::process::Command::new("git")
+            .current_dir(&cache_a)
+            .args(["ls-remote", "origin", "refs/heads/crosslink/checkpoint"])
+            .output()
+            .unwrap();
+        let sha_before = String::from_utf8_lossy(&remote_checkpoint_before.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        assert!(!sha_before.is_empty(), "remote checkpoint must exist");
+
+        // Machine B runs migrate hub-v3: must ADOPT, not re-migrate.
+        hub_v3(&cl_b, false, false).expect("B must adopt the remote v3 hub");
+
+        // B's local detection flips to V3.
+        assert!(
+            matches!(
+                hub_v3::detect_hub_version(&cache_b).unwrap(),
+                HubVersion::V3 { .. }
+            ),
+            "B must operate v3 after adoption"
+        );
+
+        // No second genesis: the remote checkpoint is byte-identical.
+        let remote_checkpoint_after = std::process::Command::new("git")
+            .current_dir(&cache_a)
+            .args(["ls-remote", "origin", "refs/heads/crosslink/checkpoint"])
+            .output()
+            .unwrap();
+        let sha_after = String::from_utf8_lossy(&remote_checkpoint_after.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(
+            sha_before, sha_after,
+            "adoption must never move the remote checkpoint"
+        );
+
+        // B's reduction sees A's state.
+        let source = crate::hub_source::RefHubSource::new(&cache_b).unwrap();
+        let state = crate::compaction::reduce(&source).unwrap().state;
+        assert!(
+            !state.issues.is_empty(),
+            "B must see the migrated issues after adoption"
+        );
+
+        // Idempotent: a second run hits the already-migrated no-op path.
+        hub_v3(&cl_b, false, false).expect("re-run after adoption must be a no-op");
     }
 }
