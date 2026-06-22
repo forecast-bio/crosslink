@@ -282,7 +282,7 @@ fn setup_migrated_v3_hub() -> V3Hub {
     drop(lock);
 
     // Migrate to v3 (the real command).
-    super::migrate_hub_v3::hub_v3(&crosslink_dir, false, false).unwrap();
+    super::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false).unwrap();
 
     V3Hub {
         work,

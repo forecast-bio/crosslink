@@ -876,6 +876,11 @@ enum MigrateCommands {
     ///
     /// With `--finalize --yes-delete-v2`: re-verifies, then deletes the legacy
     /// crosslink/hub branch locally and on the remote (the hard cutover).
+    ///
+    /// With `--remigrate-from-v2`: regenerates the v3 genesis from the CURRENT
+    /// crosslink/hub tip and force-pushes it, superseding a stale remote v3 hub
+    /// (the recovery path when a v2-only binary kept writing after an earlier
+    /// migration — forecast-bio/crosslink#653).
     HubV3 {
         /// Delete the legacy crosslink/hub branch (destructive cutover).
         #[arg(long)]
@@ -883,6 +888,15 @@ enum MigrateCommands {
         /// Required confirmation for `--finalize` (it deletes the v2 branch).
         #[arg(long)]
         yes_delete_v2: bool,
+        /// Adopt a remote v3 hub even when it is STALE relative to the live
+        /// crosslink/hub (v2) branch. Without this flag, adopting a v3 hub that
+        /// is behind the v2 branch is refused (it would hide newer issues).
+        #[arg(long)]
+        adopt_stale: bool,
+        /// Regenerate v3 from the CURRENT crosslink/hub (v2) tip and force-push
+        /// it, superseding any existing (stale) remote v3 hub.
+        #[arg(long)]
+        remigrate_from_v2: bool,
     },
     /// Move the v3 hub refs to VISIBLE branches (#767), one-shot per machine.
     ///
@@ -2732,9 +2746,17 @@ fn main() -> Result<()> {
             MigrateCommands::HubV3 {
                 finalize,
                 yes_delete_v2,
+                adopt_stale,
+                remigrate_from_v2,
             } => {
                 let crosslink_dir = find_crosslink_dir()?;
-                commands::migrate_hub_v3::hub_v3(&crosslink_dir, finalize, yes_delete_v2)
+                commands::migrate_hub_v3::hub_v3(
+                    &crosslink_dir,
+                    finalize,
+                    yes_delete_v2,
+                    adopt_stale,
+                    remigrate_from_v2,
+                )
             }
             MigrateCommands::HubBranches => {
                 let crosslink_dir = find_crosslink_dir()?;

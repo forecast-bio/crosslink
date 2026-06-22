@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `crosslink migrate hub-v3 --remigrate-from-v2` - regenerates the v3 genesis
+  from the current `crosslink/hub` (v2) tip and force-pushes it, superseding a
+  stale remote v3 hub. The discoverable recovery path when a v2-only binary
+  kept writing after an earlier migration (forecast-bio/crosslink#653).
+
+### Changed
+
+- `crosslink migrate hub-v3` now guards against silently adopting a **stale**
+  remote v3 hub. Before adopting, it compares the remote's genesis against the
+  live `crosslink/hub` (v2) tip; if v2 has advanced past the genesis, adoption
+  is refused (with the issue/commit delta and the `--remigrate-from-v2`
+  remedy) unless `--adopt-stale` is passed. `--finalize` applies the same check
+  and refuses to delete the v2 branch while it is ahead of v3, so a stale adopt
+  can never escalate to real data loss (forecast-bio/crosslink#653).
+
 ## [0.9.0-beta.1] - 2026-06-13
 
 > First beta of the 0.9 line. The 0.6.0-0.8.0 sections below were authored on

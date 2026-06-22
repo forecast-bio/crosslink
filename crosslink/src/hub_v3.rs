@@ -501,6 +501,30 @@ pub fn push_ref_with_lease(
     Ok(classify_push_output(&output))
 }
 
+/// Force-push a ref, overwriting the remote tip unconditionally.
+///
+/// Used ONLY by the `migrate hub-v3 --remigrate-from-v2` recovery path
+/// (forecast-bio/crosslink#653): the regenerated v3 genesis does not descend
+/// from the stale remote v3 hub it supersedes, so a fast-forward or
+/// `--force-with-lease` push would be rejected. The operation is explicitly
+/// opted into and serialized under the hub write lock.
+///
+/// # Errors
+///
+/// Returns an error only if `git push` cannot be spawned.
+pub fn push_ref_force(repo_dir: &Path, remote: &str, ref_name: &str) -> Result<PushOutcome> {
+    // Leading `+` on the refspec forces the update; `--force` is belt-and-braces.
+    let refspec = format!("+{ref_name}:{ref_name}");
+
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["push", "--force", remote, &refspec])
+        .output()
+        .with_context(|| format!("failed to run git push --force for ref '{ref_name}'"))?;
+
+    Ok(classify_push_output(&output))
+}
+
 /// Classify a `git push` process output into a [`PushOutcome`].
 ///
 /// Shared by [`push_ref`] and [`push_ref_with_lease`]. A failed

@@ -1222,7 +1222,8 @@ mod tests {
         let lock = sync.acquire_lock().unwrap();
         crate::compaction::compact(&cache_dir, "alpha", true, &lock).unwrap();
         drop(lock);
-        crate::commands::migrate_hub_v3::hub_v3(&crosslink_dir, false, false).unwrap();
+        crate::commands::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false)
+            .unwrap();
 
         // Reconstruct the writer AFTER migration so it operates in V3 mode
         // (SharedWriter caches its hub mode at construction).
