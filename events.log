@@ -1,0 +1,1 @@
+{"agent_id":"anon-ab6221f8","agent_seq":1,"timestamp":"2026-06-22T17:52:01.465961502Z","event":{"type":"IssueCreated","uuid":"f2958c16-3a4a-4247-bcc6-b49b847599cd","title":"hub-v3: divergence guard on adopt + --remigrate-from-v2 path (forecast-bio/crosslink#653)","priority":"high","created_by":"anon-ab6221f8"}}
