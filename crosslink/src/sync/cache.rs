@@ -268,14 +268,13 @@ impl SyncManager {
     /// checkpoint/meta/agents hub branches (#767). A single empty genesis
     /// commit gives `git log` etc. a valid HEAD.
     fn init_v3_host_worktree(&self) -> Result<()> {
-        self.git_in_repo(&[
-            "worktree",
-            "add",
-            "--orphan",
-            "-b",
+        // `git worktree add --orphan` needs Git >= 2.42.0; older Git (e.g.
+        // Ubuntu 22.04's 2.34.1) takes an equivalent fallback (#655).
+        crate::git_compat::add_orphan_worktree(
+            &self.repo_root,
             super::HUB_V3_HOST_BRANCH,
             &self.cache_path_str(),
-        ])?;
+        )?;
         self.ensure_cache_git_identity()?;
         self.git_commit_in_cache(&[
             "--allow-empty",
