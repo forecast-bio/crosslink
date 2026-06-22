@@ -12,6 +12,7 @@ pub mod db;
 pub mod events;
 pub mod external;
 pub mod findings;
+pub mod git_compat;
 pub mod hub_source;
 pub mod hub_v3;
 #[cfg(test)]

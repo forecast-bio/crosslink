@@ -23,6 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and refuses to delete the v2 branch while it is ahead of v3, so a stale adopt
   can never escalate to real data loss (forecast-bio/crosslink#653).
 
+### Fixed
+
+- `crosslink sync` / `crosslink init` no longer fail on Git < 2.42.0 (e.g.
+  Ubuntu 22.04 LTS, which ships Git 2.34.1) with `unknown option 'orphan'`.
+  Hub-v3 and knowledge cache setup used `git worktree add --orphan` (added in
+  Git 2.42.0); on older Git they now fall back to an equivalent sequence
+  (detached worktree + `git checkout --orphan` + clearing the tree) that yields
+  the same empty unborn orphan branch (forecast-bio/crosslink#655).
+
 ## [0.9.0-beta.1] - 2026-06-13
 
 > First beta of the 0.9 line. The 0.6.0-0.8.0 sections below were authored on

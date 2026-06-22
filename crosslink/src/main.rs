@@ -54,6 +54,7 @@ mod db;
 mod events;
 mod external;
 mod findings;
+mod git_compat;
 mod hub_source;
 mod hub_v3;
 mod hydration;

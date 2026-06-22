@@ -49,15 +49,14 @@ impl KnowledgeManager {
                 ])?;
             }
         } else {
-            // No remote branch — create orphan branch with worktree
-            self.git_in_repo(&[
-                "worktree",
-                "add",
-                "--orphan",
-                "-b",
+            // No remote branch — create orphan branch with worktree.
+            // `git worktree add --orphan` needs Git >= 2.42.0; older Git (e.g.
+            // Ubuntu 22.04's 2.34.1) takes an equivalent fallback (#655).
+            crate::git_compat::add_orphan_worktree(
+                &self.repo_root,
                 KNOWLEDGE_BRANCH,
                 &self.cache_path_str(),
-            ])?;
+            )?;
 
             // Initialize with index.md
             let now = Utc::now().format("%Y-%m-%d").to_string();
