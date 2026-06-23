@@ -404,6 +404,9 @@ enum Commands {
         /// Skip compaction after creation (batch mode -- display ID assigned later)
         #[arg(long)]
         defer_id: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
@@ -432,6 +435,9 @@ enum Commands {
         /// Add labels to the issue
         #[arg(short, long)]
         label: Vec<String>,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
@@ -523,12 +529,18 @@ enum Commands {
         /// Priority (low, medium, high, critical)
         #[arg(short, long, default_value = "medium")]
         priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
         /// Add labels to the subissue
         #[arg(short, long)]
         label: Vec<String>,
         /// Set as current session work item
         #[arg(short, long)]
         work: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Alias for `timer start`
@@ -582,6 +594,9 @@ enum IssueCommands {
         /// Skip compaction after creation (batch mode -- display ID assigned later)
         #[arg(long)]
         defer_id: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
@@ -609,6 +624,9 @@ enum IssueCommands {
         /// Add labels to the issue
         #[arg(short, long)]
         label: Vec<String>,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
@@ -2321,6 +2339,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             label,
             work,
             defer_id,
+            force,
             parent,
             scheduled,
             due,
@@ -2334,6 +2353,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 quiet,
                 crosslink_dir: Some(&crosslink_dir),
                 defer_id: parent.is_none() && defer_id,
+                force,
             };
             // Subissues don't carry scheduling dates (GH #361 REQ-12); the
             // command handler rejects the combination with a clear error.
@@ -2348,6 +2368,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                     &title,
                     description.as_deref(),
                     &priority,
+                    template.as_deref(),
                     &opts,
                 )
             } else {
@@ -2371,6 +2392,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             priority,
             template,
             label,
+            force,
             parent,
             scheduled,
             due,
@@ -2384,6 +2406,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 quiet,
                 crosslink_dir: Some(&crosslink_dir),
                 defer_id: false,
+                force,
             };
             if let Some(parent_id) = parent {
                 if scheduled.is_some() || due.is_some() {
@@ -2396,6 +2419,7 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                     &title,
                     description.as_deref(),
                     &priority,
+                    template.as_deref(),
                     &opts,
                 )
             } else {
@@ -2774,6 +2798,7 @@ fn main() -> Result<()> {
             label,
             work,
             defer_id,
+            force,
             parent,
             scheduled,
             due,
@@ -2786,6 +2811,7 @@ fn main() -> Result<()> {
                 label,
                 work,
                 defer_id,
+                force,
                 parent,
                 scheduled,
                 due,
@@ -2800,6 +2826,7 @@ fn main() -> Result<()> {
             priority,
             template,
             label,
+            force,
             parent,
             scheduled,
             due,
@@ -2810,6 +2837,7 @@ fn main() -> Result<()> {
                 priority,
                 template,
                 label,
+                force,
                 parent,
                 scheduled,
                 due,
@@ -2873,6 +2901,7 @@ fn main() -> Result<()> {
                     label,
                     work,
                     defer_id: false,
+                    force: false,
                     parent,
                     scheduled: None,
                     due: None,
@@ -2924,8 +2953,10 @@ fn main() -> Result<()> {
             title,
             description,
             priority,
+            template,
             label,
             work,
+            force,
         } => {
             hint(
                 cli.quiet,
@@ -2936,10 +2967,11 @@ fn main() -> Result<()> {
                     title,
                     description,
                     priority,
-                    template: None,
+                    template,
                     label,
                     work,
                     defer_id: false,
+                    force,
                     parent: Some(parent),
                     scheduled: None,
                     due: None,

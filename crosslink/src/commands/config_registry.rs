@@ -286,6 +286,13 @@ pub static REGISTRY: &[ConfigKey] = &[
         group: ConfigGroup::Sentinel,
         hot_swappable: true,
     },
+    ConfigKey {
+        key: "template_required_fields",
+        config_type: ConfigType::Map,
+        description: "Per-template required fields in issue descriptions (gh#658)",
+        group: ConfigGroup::Workflow,
+        hot_swappable: false,
+    },
 ];
 
 pub fn find_registry_key(key: &str) -> Option<&'static ConfigKey> {

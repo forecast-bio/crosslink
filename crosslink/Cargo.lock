@@ -474,6 +474,7 @@ dependencies = [
  "portable-pty",
  "proptest",
  "ratatui",
+ "regex",
  "reqwest",
  "rusqlite",
  "rust-embed",
