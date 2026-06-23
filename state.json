@@ -918,6 +918,10 @@
     "779": {
       "agent_id": "dashboard-bootstrap",
       "claimed_at": "2026-06-13T03:03:50.825680130Z"
+    },
+    "784": {
+      "agent_id": "dashboard-bootstrap",
+      "claimed_at": "2026-06-23T17:14:30.358699580Z"
     }
   },
   "issues": {
@@ -24368,8 +24372,8 @@
     }
   ],
   "watermark": {
-    "timestamp": "2026-06-23T17:14:19.696538223Z",
+    "timestamp": "2026-06-23T17:14:30.358699580Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 212
+    "agent_seq": 213
   }
 }
