@@ -4715,7 +4715,10 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-23T17:14:10.726860179Z",
-      "updated_at": "2026-06-23T17:14:10.726860179Z"
+      "updated_at": "2026-06-23T17:14:19.696538223Z",
+      "labels": [
+        "feature"
+      ]
     },
     "2b7a7e7a-bcf5-4769-ad6a-9b285681a4ad": {
       "uuid": "2b7a7e7a-bcf5-4769-ad6a-9b285681a4ad",
@@ -24365,8 +24368,8 @@
     }
   ],
   "watermark": {
-    "timestamp": "2026-06-23T17:14:10.726860179Z",
+    "timestamp": "2026-06-23T17:14:19.696538223Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 211
+    "agent_seq": 212
   }
 }
