@@ -1,6 +1,6 @@
 {
-  "next_display_id": 780,
-  "next_comment_id": 1107,
+  "next_display_id": 785,
+  "next_comment_id": 1112,
   "display_id_map": {
     "00a365a3-7b31-465a-aced-4f1e39c68f8b": 118,
     "01b74b94-82e0-4bda-9bed-7eace0292544": 70,
@@ -53,6 +53,7 @@
     "1165df13-3294-4c44-8615-ef7226aa03fa": 389,
     "11e05eec-12e5-4f01-9c31-30ffbb64c9cc": 449,
     "12614095-9614-4da5-9215-ad3a029525bf": 553,
+    "135aa6c0-bf14-4adc-9bc8-48ef375ebbac": 782,
     "13cda8ef-e0b7-4329-8874-7acf0cff2ec8": 216,
     "13dc0c68-3fe4-4dcf-83fc-83f0564a42db": 574,
     "14344570-e120-4e79-b327-76457f6e2874": 144,
@@ -129,6 +130,7 @@
     "2a230aa1-67b5-4d7b-b5fd-e8bd3d5a4407": 350,
     "2a539098-3693-47a5-89be-57048b06251d": 725,
     "2b0297d5-d2e8-43d2-83e9-cde340e95d43": 490,
+    "2b25520c-7ac1-49b7-b242-fa7c19065401": 784,
     "2b7a7e7a-bcf5-4769-ad6a-9b285681a4ad": 460,
     "2c1d8bb0-5820-40cf-a273-b8d5d618e456": 560,
     "2c589820-01ae-4264-ae8f-31a508e8d163": 410,
@@ -216,6 +218,7 @@
     "43b0aa40-40d6-470e-aab1-27aabc529468": 188,
     "44068cd8-17f0-4b57-8159-7c86a35a3a75": 373,
     "442f0cd4-5561-420e-b8a7-0b96802ef48b": 378,
+    "4458c5a4-3ea7-45d5-9019-696ffc596bfc": 783,
     "44f745ff-0689-4f27-b2d7-294d04772b36": 462,
     "451c1bb8-d469-4c80-8cfb-5ba944619786": 131,
     "45bbff37-39a8-4736-8a59-e3a18b9cd2d4": 663,
@@ -681,6 +684,7 @@
     "dfebabfa-a1b9-4368-8305-9a7d8bdc51c9": 413,
     "e04ea189-7ee7-4568-b491-2be56119e731": 486,
     "e05119c3-b4a1-482c-8041-439768b62b56": 649,
+    "e0584461-63fb-4412-b266-0c06d4c1cc03": 781,
     "e0b6a490-1afc-415e-8b19-9ba77f2771b1": 327,
     "e0b6a6ea-a5d9-4607-8d7d-c9f42e4d12da": 697,
     "e0dea756-5442-4bf4-be76-142b175d7a54": 296,
@@ -736,6 +740,7 @@
     "f150a620-0441-494a-aa3a-bfe622e010d9": 514,
     "f1ea5c01-598c-4a3c-abee-7abcca34f8f4": 37,
     "f250e3a1-83c8-4c69-ad5a-b2568ba0bf25": 684,
+    "f2958c16-3a4a-4247-bcc6-b49b847599cd": 780,
     "f3c3feb7-737a-4cf0-96a3-f132a002515b": 644,
     "f3de1608-6c29-40cd-96be-55d813078cae": 672,
     "f3de9fde-21a7-4cc3-8778-552bf7aa4239": 65,
@@ -2356,6 +2361,28 @@
           "kind": "result",
           "signed_by": "SHA256:6GbEO9gckWEeR3l6YB3LUaTe1Oc9qqn0WLtMVuu7a8A",
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgqj5+UR1olg7w0+zZwuWbsWpzM2FlVsxso1l+rn8dSfAAAAASY3Jvc3NsaW5rLWJhY2tmaWxsAAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5AAAAQENw4tx3RNsvxtOdX+3wFyT345+Z6C7+C3wyKXk+zB38ihs4wsmVRDDKDQ6/976gN8jZSPMTnB5W4IGk0r4F6wk="
+        }
+      }
+    },
+    "135aa6c0-bf14-4adc-9bc8-48ef375ebbac": {
+      "uuid": "135aa6c0-bf14-4adc-9bc8-48ef375ebbac",
+      "display_id": 782,
+      "title": "hub-v3: git worktree add --orphan fails on Git <2.42 (forecast-bio/crosslink#655)",
+      "status": "open",
+      "priority": "high",
+      "created_by": "anon-ab6221f8",
+      "created_at": "2026-06-22T18:29:02.043561019Z",
+      "updated_at": "2026-06-22T18:36:53.316100800Z",
+      "labels": [
+        "bug"
+      ],
+      "comments": {
+        "35b8a6e0-c1a6-4179-8522-b6666b6a9ed6": {
+          "display_id": 1109,
+          "author": "anon-ab6221f8",
+          "content": "Fix forecast-bio/crosslink#655: git worktree add --orphan requires Git >=2.42.0; fails on Ubuntu 22.04's 2.34.1 with 'unknown option orphan'. Two production call sites: sync/cache.rs init_v3_host_worktree (crosslink/hub-v3-host) and knowledge/sync.rs init_cache (crosslink/knowledge). Added src/git_compat.rs with cached git-version detection (parse git --version, gate at 2.42) + add_orphan_worktree() that uses --orphan on new git and a fallback on old git: 'worktree add --detach' then 'checkout --orphan' then 'rm -rf .' to clear the tree, producing the identical unborn-orphan-empty-tree state. CROSSLINK_FORCE_WORKTREE_ORPHAN_FALLBACK env forces the fallback for testing. Both call sites rewired. Tests: version parse, gate boundary, fallback-equivalence (asserts unborn HEAD + empty index + root first commit); 320 sync+knowledge tests pass with the fallback FORCED end-to-end. clippy+fmt clean.",
+          "created_at": "2026-06-22T18:36:53.316093141Z",
+          "kind": "plan"
         }
       }
     },
@@ -4679,6 +4706,16 @@
           "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAwT95KOr6ctBXhZJdOgcHrwQZBpJgz3FC5v3/+9XPgzTflyU5H98HwdDLUx3cQawCPSNKXGTUyYPZOhP/sgLuCg=="
         }
       }
+    },
+    "2b25520c-7ac1-49b7-b242-fa7c19065401": {
+      "uuid": "2b25520c-7ac1-49b7-b242-fa7c19065401",
+      "display_id": 784,
+      "title": "feat(hook-config): template_required_fields validation on issue create (gh#658)",
+      "status": "open",
+      "priority": "high",
+      "created_by": "dashboard-bootstrap",
+      "created_at": "2026-06-23T17:14:10.726860179Z",
+      "updated_at": "2026-06-23T17:14:10.726860179Z"
     },
     "2b7a7e7a-bcf5-4769-ad6a-9b285681a4ad": {
       "uuid": "2b7a7e7a-bcf5-4769-ad6a-9b285681a4ad",
@@ -7328,6 +7365,28 @@
         }
       }
     },
+    "4458c5a4-3ea7-45d5-9019-696ffc596bfc": {
+      "uuid": "4458c5a4-3ea7-45d5-9019-696ffc596bfc",
+      "display_id": 783,
+      "title": "dashboard serve crashes serving static assets (forecast-bio/crosslink#654)",
+      "status": "open",
+      "priority": "high",
+      "created_by": "anon-ab6221f8",
+      "created_at": "2026-06-22T18:47:11.883759937Z",
+      "updated_at": "2026-06-22T19:00:04.227638091Z",
+      "labels": [
+        "bug"
+      ],
+      "comments": {
+        "d13da9a5-2361-4239-86d8-4a1cfaaf5a7e": {
+          "display_id": 1110,
+          "author": "anon-ab6221f8",
+          "content": "Investigation: cannot reproduce the reported crash on current develop (identical to beta commit 7854152b for src/server/*). Faithfully reproduced the reporter's setup: built the real Vite frontend (produces the EXACT asset index-COsZ_-s7.js, 621KB + index-CZch84yR.css), rebuilt a RELEASE binary so rust-embed embeds it, and tested BOTH serving modes:\n- embedded (cargo install path): GET / =200, GET /assets/index-COsZ_-s7.js =200 (full 621851 bytes), CSS =200 — process ALIVE.\n- --dashboard-dir (ServeDir): same, all 200, process ALIVE.\nAlso probed CORS Origin, OPTIONS preflight, Range, missing asset, path traversal — all handled, no crash, in debug AND release.\nCode analysis: serve_embedded is panic-safe (header() stores error, body().unwrap_or_else catches it; mime_guess yields valid ASCII). No panic=abort in any profile, no process::exit/abort, no unsafe, no panic hook in the request path. Under panic=unwind a per-connection handler panic returns 500 and cannot kill the process. The only process-killers (stack overflow / abort) have no path here for a static GET.\nConclusion: not a reproducible code defect in the static-serving path on current code. Likely environment-specific (their Linux build/runtime) or browser-triggered WS/PTY, or a stale binary. Need the reporter's RUST_BACKTRACE output + exit signal (dmesg for SIGSEGV/OOM) to localize.",
+          "created_at": "2026-06-22T19:00:04.227631730Z",
+          "kind": "observation"
+        }
+      }
+    },
     "44f745ff-0689-4f27-b2d7-294d04772b36": {
       "uuid": "44f745ff-0689-4f27-b2d7-294d04772b36",
       "display_id": 462,
@@ -8139,10 +8198,21 @@
       "priority": "high",
       "created_by": "dashboard-bootstrap",
       "created_at": "2026-06-13T03:03:41.427059020Z",
-      "updated_at": "2026-06-13T03:03:46.332400257Z",
+      "updated_at": "2026-06-23T16:56:57.174194614Z",
       "labels": [
         "bug"
-      ]
+      ],
+      "comments": {
+        "8fa02f60-a5bb-482c-824b-f5f50bae6122": {
+          "display_id": 1111,
+          "author": "dashboard-bootstrap",
+          "content": "Session auto-ended (stale after 15761 minutes). No handoff notes provided.",
+          "created_at": "2026-06-23T16:56:57.128182193Z",
+          "kind": "handoff",
+          "signed_by": "SHA256:Mo1WTOTK4LiH6tRPxuqcXZEu28j7nHfcNKzBc8ZRg70",
+          "signature": "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgoAVSoPNZVKcrMVLDFcYmdht4ApGHpHxrnyaIXR6QJBMAAAARY3Jvc3NsaW5rLWNvbW1lbnQAAAAAAAAABnNoYTUxMgAAAFMAAAALc3NoLWVkMjU1MTkAAABAOAP0pvo0pVksCuag/2kfFgoG6y6nDfg3CoLsu/zS40pDaZ3KbJCab0MQBCq7cm77/DmRUmmZBJBlo8HEiwvWCQ=="
+        }
+      }
     },
     "502f3ae1-21a5-4cfd-8097-ea1cb2f5564d": {
       "uuid": "502f3ae1-21a5-4cfd-8097-ea1cb2f5564d",
@@ -21062,6 +21132,35 @@
         }
       }
     },
+    "e0584461-63fb-4412-b266-0c06d4c1cc03": {
+      "uuid": "e0584461-63fb-4412-b266-0c06d4c1cc03",
+      "display_id": 781,
+      "title": "hub-v3: divergence guard on adopt + --remigrate-from-v2 path (forecast-bio/crosslink#653)",
+      "status": "open",
+      "priority": "high",
+      "created_by": "anon-ab6221f8",
+      "created_at": "2026-06-22T17:53:29.308194033Z",
+      "updated_at": "2026-06-22T18:11:09.851836944Z",
+      "labels": [
+        "bug"
+      ],
+      "comments": {
+        "9913a31a-73d0-4079-b38d-3f4463a6b2d6": {
+          "display_id": 1107,
+          "author": "anon-ab6221f8",
+          "content": "Implementing forecast-bio/crosslink#653 fixes 1+2 (+4). Approach:\n1. Divergence guard on adopt: in adopt_remote_v3, read the remote v3 HubMeta.migrated_from_commit (lightweight FETCH_HEAD read), compare against the live crosslink/hub (v2) tip via 'git rev-list --count <genesis>..<v2tip>'. If v2 is ahead, refuse to adopt (clear message with counts + remedies) unless new --adopt-stale flag is passed.\n2. Real re-migrate: new --remigrate-from-v2 flag regenerates the v3 genesis from the CURRENT v2 tip (reusing build_genesis_from_files + seed_v3_refs + AC-6 verify) and force-pushes to supersede the stale remote v3 refs. Extract migrate_phase_a body into a shared build_and_publish_v3(force_push) helper.\n3. Harden --finalize: refuse to delete the v2 branch when v2 is ahead of the v3 genesis (same divergence helper), so a stale adopt can never escalate to real loss.\nNew CLI flags on HubV3: --adopt-stale, --remigrate-from-v2. Tests for the divergence helper + adopt/finalize refusal + remigrate happy path.",
+          "created_at": "2026-06-22T17:57:22.292763197Z",
+          "kind": "plan"
+        },
+        "c729f9bb-709e-4866-a284-7e6050ef8977": {
+          "display_id": 1108,
+          "author": "anon-ab6221f8",
+          "content": "Committed 15f32cdf on fix/653-hub-v3-remigrate-divergence-guard (off develop). Delivered: (1) divergence guard on adopt with --adopt-stale override, (2) migrate hub-v3 --remigrate-from-v2 recovery path (force-push supersede), (3) hardened --finalize to refuse deleting v2 while ahead of v3. New hub_v3::push_ref_force. 4 new tests + all 16 migrate_hub_v3 + 15 operation tests green; clippy + fmt clean; CHANGELOG updated. Waiting on human push, then PR --base develop.",
+          "created_at": "2026-06-22T18:11:09.851830437Z",
+          "kind": "result"
+        }
+      }
+    },
     "e0b6a490-1afc-415e-8b19-9ba77f2771b1": {
       "uuid": "e0b6a490-1afc-415e-8b19-9ba77f2771b1",
       "display_id": 327,
@@ -22743,6 +22842,19 @@
         "bug"
       ]
     },
+    "f2958c16-3a4a-4247-bcc6-b49b847599cd": {
+      "uuid": "f2958c16-3a4a-4247-bcc6-b49b847599cd",
+      "display_id": 780,
+      "title": "hub-v3: divergence guard on adopt + --remigrate-from-v2 path (forecast-bio/crosslink#653)",
+      "status": "open",
+      "priority": "high",
+      "created_by": "anon-ab6221f8",
+      "created_at": "2026-06-22T17:52:01.465961502Z",
+      "updated_at": "2026-06-22T17:52:07.104253397Z",
+      "labels": [
+        "bug"
+      ]
+    },
     "f3c3feb7-737a-4cf0-96a3-f132a002515b": {
       "uuid": "f3c3feb7-737a-4cf0-96a3-f132a002515b",
       "display_id": 644,
@@ -24190,9 +24302,71 @@
     }
   },
   "next_milestone_id": 1,
+  "unsigned_event_warnings": [
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 1,
+      "timestamp": "2026-06-22T17:52:01.465961502Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 2,
+      "timestamp": "2026-06-22T17:52:07.104253397Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 3,
+      "timestamp": "2026-06-22T17:53:29.308194033Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 4,
+      "timestamp": "2026-06-22T17:53:33.597227378Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 5,
+      "timestamp": "2026-06-22T17:57:22.292769096Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 6,
+      "timestamp": "2026-06-22T18:11:09.851836944Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 7,
+      "timestamp": "2026-06-22T18:29:02.043561019Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 8,
+      "timestamp": "2026-06-22T18:29:06.308332073Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 9,
+      "timestamp": "2026-06-22T18:36:53.316100800Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 10,
+      "timestamp": "2026-06-22T18:47:11.883759937Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 11,
+      "timestamp": "2026-06-22T18:47:16.420549810Z"
+    },
+    {
+      "agent_id": "anon-ab6221f8",
+      "agent_seq": 12,
+      "timestamp": "2026-06-22T19:00:04.227638091Z"
+    }
+  ],
   "watermark": {
-    "timestamp": "2026-06-13T03:14:41.526857494Z",
+    "timestamp": "2026-06-23T17:14:10.726860179Z",
     "agent_id": "dashboard-bootstrap",
-    "agent_seq": 209
+    "agent_seq": 211
   }
 }
