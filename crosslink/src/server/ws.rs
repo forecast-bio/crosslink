@@ -28,8 +28,8 @@ use tokio::sync::broadcast;
 
 use crate::server::state::AppState;
 use crate::server::types::{
-    WsAgentStatusEvent, WsExecutionProgressEvent, WsHeartbeatEvent, WsIssueUpdatedEvent,
-    WsLockChangedEvent, WsSubscribeMessage,
+    WsAgentStatusEvent, WsDashboardAlertsEvent, WsDashboardProjectEvent, WsExecutionProgressEvent,
+    WsHeartbeatEvent, WsIssueUpdatedEvent, WsLockChangedEvent, WsSubscribeMessage,
 };
 
 /// Internal channel capacity.  256 slots before lagged receivers start dropping.
@@ -52,6 +52,11 @@ pub enum WsEvent {
     IssueUpdated(WsIssueUpdatedEvent),
     LockChanged(WsLockChangedEvent),
     ExecutionProgress(WsExecutionProgressEvent),
+    /// Dashboard aggregator emitted fresh `project_state` for a
+    /// tracked project. Fires once per poll-loop tick per project.
+    DashboardProjectUpdated(WsDashboardProjectEvent),
+    /// Dashboard aggregator's alert set for a project changed.
+    DashboardAlertsChanged(WsDashboardAlertsEvent),
 }
 
 impl WsEvent {
@@ -63,6 +68,7 @@ impl WsEvent {
             Self::IssueUpdated(_) => "issues",
             Self::LockChanged(_) => "locks",
             Self::ExecutionProgress(_) => "execution",
+            Self::DashboardProjectUpdated(_) | Self::DashboardAlertsChanged(_) => "dashboard",
         }
     }
 

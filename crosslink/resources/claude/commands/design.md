@@ -1,6 +1,7 @@
 ---
-allowed-tools: Bash(crosslink *), Bash(git *), Bash(gh *), Bash(ls *), Bash(mkdir *), Read, Grep, Glob, Write
+allowed-tools: Bash(crosslink *), Bash(git *), Bash(gh *), Bash(ls *), Bash(find *), Bash(mkdir *), Read, Grep, Glob, Write
 description: Interactive, iterative design document authoring grounded in codebase exploration
+argument-hint: ["feature description"] | --issue <id> | --gh-issue <number> | --continue <slug>
 ---
 
 ## Context
@@ -8,8 +9,8 @@ description: Interactive, iterative design document authoring grounded in codeba
 - Current repo root: !`git rev-parse --show-toplevel`
 - Current branch: !`git branch --show-current`
 - Active session: !`crosslink session status`
-- Existing design docs: !`ls .design/*.md 2>/dev/null`
-- Architecture files: !`ls README.md CLAUDE.md ARCHITECTURE.md ADR.md 2>/dev/null`
+- Existing design docs: !`find .design -maxdepth 1 -name '*.md' -type f 2>/dev/null || true`
+- Architecture files: !`find . -maxdepth 1 -type f \( -name README.md -o -name CLAUDE.md -o -name ARCHITECTURE.md -o -name ADR.md \) 2>/dev/null`
 
 ## Your task
 

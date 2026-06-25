@@ -39,6 +39,7 @@ pub struct SourcesConfig {
     pub internal_hygiene: InternalHygieneConfig,
     pub github_ci: GitHubCIConfig,
     pub maintenance_sweep: MaintenanceSweepSourceConfig,
+    pub cpitd: CpitdSourceConfig,
 }
 
 /// GitHub label polling configuration.
@@ -104,6 +105,32 @@ impl Default for MaintenanceSweepSourceConfig {
 #[serde(default)]
 pub struct GitHubCIConfig {
     pub enabled: bool,
+}
+
+/// cpitd clone-detection source configuration.
+///
+/// Runs `cpitd` clone detection on an interval (default weekly) and files
+/// crosslink issues for newly detected clones, surfacing each as a sentinel
+/// signal. Disabled by default — clone scanning is a periodic, opt-in concern.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CpitdSourceConfig {
+    pub enabled: bool,
+    /// Hours between clone scans (default 168 = weekly).
+    pub interval_hours: u64,
+    /// Minimum token sequence length to report (passthrough to cpitd, matches
+    /// the `crosslink cpitd scan` CLI default).
+    pub min_tokens: u32,
+}
+
+impl Default for CpitdSourceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_hours: 168,
+            min_tokens: 50,
+        }
+    }
 }
 
 /// Default agent settings for dispatched agents.

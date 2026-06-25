@@ -632,6 +632,14 @@ pub enum WsEventType {
     IssueUpdated,
     LockChanged,
     ExecutionProgress,
+    /// Dashboard aggregator: `project_state` row was upserted for a
+    /// tracked project. Frontend invalidates the relevant query cache
+    /// entry. GH #429.
+    DashboardProjectUpdated,
+    /// Dashboard aggregator: alert set for a project changed (some
+    /// combination of opens + resolves happened in one poll tick).
+    /// Frontend invalidates the alerts query. GH #429.
+    DashboardAlertsChanged,
 }
 
 /// Server → Client: a new agent heartbeat was received.
@@ -697,6 +705,34 @@ pub struct WsExecutionProgressEvent {
     pub status: StageStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+}
+
+/// Server → Client: dashboard aggregator wrote fresh `project_state`
+/// for a tracked repository. Frontend uses this to invalidate React
+/// Query caches so tiles refresh ahead of the 5s poll.
+#[derive(Debug, Clone, Serialize)]
+pub struct WsDashboardProjectEvent {
+    /// Always serializes as `"dashboard_project_updated"`.
+    #[serde(rename = "type")]
+    pub event_type: WsEventType,
+    /// `owner/repo` slug of the project whose state advanced.
+    pub slug: String,
+}
+
+/// Server → Client: alert set for a project changed. Carries summary
+/// counts so the frontend can update badge counts without a second
+/// round-trip for the common case.
+#[derive(Debug, Clone, Serialize)]
+pub struct WsDashboardAlertsEvent {
+    /// Always serializes as `"dashboard_alerts_changed"`.
+    #[serde(rename = "type")]
+    pub event_type: WsEventType,
+    /// `owner/repo` slug of the project whose alerts changed.
+    pub slug: String,
+    /// Number of alerts newly opened during this poll tick.
+    pub opened: u32,
+    /// Number of alerts resolved during this poll tick.
+    pub resolved: u32,
 }
 
 /// Client → Server: subscribe to specific event channels.

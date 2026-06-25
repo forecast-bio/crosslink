@@ -97,6 +97,13 @@ pub static REGISTRY: &[ConfigKey] = &[
         hot_swappable: true,
     },
     ConfigKey {
+        key: "kickoff.allowed_tools",
+        config_type: ConfigType::StringArray,
+        description: "Extra Bash tool patterns appended to the kickoff agent's --allowedTools list",
+        group: ConfigGroup::Agents,
+        hot_swappable: true,
+    },
+    ConfigKey {
         key: "signing_enforcement",
         config_type: ConfigType::Enum(&["disabled", "audit", "enforced"]),
         description: "SSH signature verification level for coordination branch",
@@ -203,6 +210,27 @@ pub static REGISTRY: &[ConfigKey] = &[
         hot_swappable: true,
     },
     ConfigKey {
+        key: "sentinel.sources.cpitd.enabled",
+        config_type: ConfigType::Bool,
+        description: "Enable periodic cpitd clone-detection source (default off)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.sources.cpitd.interval_hours",
+        config_type: ConfigType::Integer,
+        description: "Hours between cpitd clone scans (default 168 = weekly)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
+        key: "sentinel.sources.cpitd.min_tokens",
+        config_type: ConfigType::Integer,
+        description: "Minimum token sequence length cpitd reports as a clone (default 50)",
+        group: ConfigGroup::Sentinel,
+        hot_swappable: true,
+    },
+    ConfigKey {
         key: "sentinel.default_agent.model",
         config_type: ConfigType::String,
         description: "Default model for sentinel-dispatched agents",
@@ -257,6 +285,13 @@ pub static REGISTRY: &[ConfigKey] = &[
         description: "Timeout multiplier for escalation attempt as percentage (150 = 1.5x)",
         group: ConfigGroup::Sentinel,
         hot_swappable: true,
+    },
+    ConfigKey {
+        key: "template_required_fields",
+        config_type: ConfigType::Map,
+        description: "Per-template required fields in issue descriptions (gh#658)",
+        group: ConfigGroup::Workflow,
+        hot_swappable: false,
     },
 ];
 
@@ -542,6 +577,17 @@ impl WalkthroughCore {
                             "true" => serde_json::Value::Bool(true),
                             _ => serde_json::Value::Bool(false),
                         },
+                        // `ConfigType::String` options are a render-only
+                        // placeholder (`"(text)"`) — the TUI has no
+                        // text-input affordance today, so the placeholder
+                        // is never an intentional value. Persisting it
+                        // corrupts every `String`-typed key on every new
+                        // repo (GH#739: `tracker_remote = "(text)"` made
+                        // push fail with `RemoteMisconfigured`; the
+                        // sentinel model keys silently broke too). Skip
+                        // — `apply_tui_choices` then preserves the
+                        // template default.
+                        ConfigType::String => continue,
                         _ => serde_json::Value::String(val_str.to_string()),
                     };
                     result.insert(entry.key.to_string(), val);
@@ -549,5 +595,57 @@ impl WalkthroughCore {
             }
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod walkthrough_core_tests {
+    use super::*;
+
+    /// Regression test for GH#739.
+    ///
+    /// `options_for_key` returns `vec!["(text)"]` for every
+    /// `ConfigType::String` key as a render-only UI placeholder.
+    /// Before the fix, `build_config` would dump that placeholder
+    /// into the persisted config; `apply_tui_choices` then overwrote
+    /// the template defaults, leaving every new repo with
+    /// `tracker_remote = "(text)"` and every push failing as
+    /// `RemoteMisconfigured`. The fix makes `build_config` skip
+    /// `ConfigType::String` entries entirely so the template
+    /// defaults survive. This test enforces that contract.
+    #[test]
+    fn build_config_never_emits_string_typed_keys_with_text_placeholder() {
+        let empty = serde_json::json!({});
+        let core = WalkthroughCore::new(&empty, 0);
+        let built = core.build_config();
+
+        // Every String-typed key in the registry must be absent from
+        // the build output (so the embedded template's value survives).
+        let string_keys: Vec<&str> = REGISTRY
+            .iter()
+            .filter(|e| matches!(e.config_type, ConfigType::String))
+            .map(|e| e.key)
+            .collect();
+        assert!(
+            !string_keys.is_empty(),
+            "registry must contain at least one ConfigType::String key for this test to be meaningful"
+        );
+        for key in &string_keys {
+            assert!(
+                !built.contains_key(*key),
+                "GH#739: build_config emitted a value for ConfigType::String key '{key}' \
+                 (would overwrite the template default with the UI placeholder '(text)')"
+            );
+        }
+
+        // Belt-and-braces: no value in the entire build output may
+        // be the literal "(text)" placeholder, regardless of type.
+        for (k, v) in &built {
+            assert_ne!(
+                v.as_str(),
+                Some("(text)"),
+                "GH#739: build_config emitted the '(text)' UI placeholder as the value for '{k}'"
+            );
+        }
     }
 }

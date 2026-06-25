@@ -44,6 +44,59 @@ pub fn status_from_heartbeat(heartbeat: &Heartbeat) -> AgentStatus {
     }
 }
 
+/// Resolve the filesystem path (and recursion mode) to watch for heartbeat
+/// changes, dispatched by hub mode.
+///
+/// - **V2**: `<.crosslink>/.hub-cache/heartbeats/`, non-recursive — heartbeats
+///   are flat worktree files, watched exactly as before.
+/// - **V3**: the main repo's `.git/refs/heads/crosslink/` directory, recursive —
+///   heartbeats live on per-agent refs, so loose-ref updates under that tree
+///   are the change signal. The git common dir is resolved against the hub
+///   cache (which shares the main repo's ref namespace); if that resolution
+///   fails the function falls back to the v2 path, which simply won't exist on
+///   a v3 hub and degrades to polling-only.
+fn resolve_watch_target(
+    sync: &SyncManager,
+    crosslink_dir: &std::path::Path,
+) -> (PathBuf, RecursiveMode) {
+    let v2_path = crosslink_dir.join(".hub-cache").join("heartbeats");
+    if !sync.hub_mode().is_v3() {
+        return (v2_path, RecursiveMode::NonRecursive);
+    }
+    git_common_dir(sync.cache_path()).map_or((v2_path, RecursiveMode::NonRecursive), |git_dir| {
+        (
+            git_dir.join("refs").join("heads").join("crosslink"),
+            RecursiveMode::Recursive,
+        )
+    })
+}
+
+/// Resolve the git common dir (`--git-common-dir`) for `repo_dir`, the directory
+/// that holds the shared ref store even when `repo_dir` is a linked worktree.
+/// Returns an absolute path; `None` if git plumbing fails.
+fn git_common_dir(repo_dir: &std::path::Path) -> Option<PathBuf> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_dir)
+        .args(["rev-parse", "--git-common-dir"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(&raw);
+    if path.is_absolute() {
+        Some(path)
+    } else {
+        // `--git-common-dir` is relative to repo_dir when not absolute.
+        Some(repo_dir.join(path))
+    }
+}
+
 /// Spawn a background task that watches the hub cache for heartbeat changes
 /// and broadcasts events to all WebSocket clients.
 ///
@@ -60,9 +113,21 @@ pub fn start_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) {
 async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> Result<()> {
     let sync = SyncManager::new(&crosslink_dir)?;
 
-    // Hub cache is always at <main-repo-root>/.crosslink/.hub-cache/.
-    // We watch the heartbeats/ subdirectory for file-level changes.
-    let watch_path = crosslink_dir.join(".hub-cache").join("heartbeats");
+    // Mode-aware watch target.
+    //
+    // V2: heartbeats are worktree files under
+    // `<main-repo>/.crosslink/.hub-cache/heartbeats/`; watch that directory for
+    // file-level mtime changes — the original, unchanged behavior.
+    //
+    // V3: there is no heartbeats directory. Each agent's heartbeat lives on its
+    // own ref (`refs/heads/crosslink/agents/<id>` -> `heartbeat.json`); the change
+    // signal is REF MOVEMENT. Loose-ref updates land as files under the main
+    // repo's `.git/refs/heads/crosslink/`, so we watch that directory recursively. The
+    // tradeoff: refs packed into `.git/packed-refs` (after gc / fetch) do not
+    // fire a per-file event, but the 30s polling fallback re-reads
+    // `read_heartbeats_auto` (which scans the refs) and closes that gap — the
+    // same staleness ceiling the v2 poll already provides.
+    let (watch_path, watch_recursive) = resolve_watch_target(&sync, &crosslink_dir);
 
     // Bridge notify (sync) → tokio (async) with an mpsc channel.
     // We only need a "something changed" signal; the actual event details are
@@ -82,7 +147,7 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
     // Attempt to start watching.  If the directory doesn't exist yet (hub not
     // initialised), fall back to polling only.
     let watch_active = if watch_path.exists() {
-        match watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
+        match watcher.watch(&watch_path, watch_recursive) {
             Ok(()) => true,
             Err(e) => {
                 tracing::warn!(
@@ -94,7 +159,7 @@ async fn run_watcher(crosslink_dir: PathBuf, tx: broadcast::Sender<WsEvent>) -> 
         }
     } else {
         tracing::info!(
-            "watcher: heartbeats directory not found at {}, polling only",
+            "watcher: heartbeat watch path not found at {}, polling only",
             watch_path.display()
         );
         false
@@ -293,12 +358,73 @@ mod tests {
         (work_dir, remote_dir, sync)
     }
 
-    /// Write a heartbeat JSON file directly into the hub cache's heartbeats dir.
+    /// Write a heartbeat onto its agent's v3 ref (the bootstrapped hub is v3, so
+    /// `read_heartbeats_auto` reads ref heartbeats, not worktree files).
     fn write_heartbeat_file(sync: &SyncManager, hb: &Heartbeat) {
-        let hb_dir = sync.cache_path().join("heartbeats");
-        std::fs::create_dir_all(&hb_dir).unwrap();
-        let json = serde_json::to_string_pretty(hb).unwrap();
-        std::fs::write(hb_dir.join(format!("{}.json", hb.agent_id)), json).unwrap();
+        crate::hub_v3::write_heartbeat_to_ref(sync.cache_path(), &hb.agent_id, hb).unwrap();
+    }
+
+    /// V2 hub (frozen / pre-migration, inspected via the dashboard): the watch
+    /// target is the worktree `heartbeats/` dir, non-recursive.
+    #[test]
+    fn test_resolve_watch_target_v2_heartbeats_dir() {
+        // A bare cache dir with no v3 marker refs resolves to V2 mode.
+        let dir = tempfile::tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(crosslink_dir.join(".hub-cache")).unwrap();
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+        assert!(!sync.hub_mode().is_v3());
+
+        let (path, mode) = resolve_watch_target(&sync, &crosslink_dir);
+        assert_eq!(path, crosslink_dir.join(".hub-cache").join("heartbeats"));
+        assert!(matches!(mode, RecursiveMode::NonRecursive));
+    }
+
+    /// V3 hub: the watch target is the main repo's `.git/refs/heads/crosslink/`
+    /// directory, recursive — ref movement is the change signal.
+    #[test]
+    fn test_resolve_watch_target_v3_refs_dir() {
+        let (_work, _remote, sync) = setup_watcher_env();
+        let cache_dir = sync.cache_path().to_path_buf();
+        let crosslink_dir = cache_dir.parent().unwrap().to_path_buf();
+
+        // Stamp the v3 marker refs (META + CHECKPOINT) so HubMode resolves V3.
+        let meta = crate::hub_v3::HubMeta {
+            hub_version: 3,
+            migrated_from_commit: "0".repeat(40),
+            migrated_at: Utc::now(),
+            finalized_at: None,
+        };
+        let hub_json = serde_json::to_vec_pretty(&meta).unwrap();
+        crate::hub_v3::commit_files_to_ref(
+            &cache_dir,
+            crate::hub_v3::META_REF,
+            &[("hub.json", &hub_json)],
+            "v3 meta",
+        )
+        .unwrap();
+        let state = crate::checkpoint::CheckpointState::default();
+        let state_json = serde_json::to_vec_pretty(&state).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            &cache_dir,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &state_json,
+            "v3 checkpoint",
+        )
+        .unwrap();
+
+        // Re-resolve the SyncManager so it picks up V3 mode.
+        let sync_v3 = SyncManager::new(&crosslink_dir).unwrap();
+        assert!(sync_v3.hub_mode().is_v3(), "hub must resolve to V3");
+
+        let (path, mode) = resolve_watch_target(&sync_v3, &crosslink_dir);
+        assert!(
+            path.ends_with(std::path::Path::new("refs").join("heads").join("crosslink")),
+            "v3 watch target must be .git/refs/heads/crosslink, got {}",
+            path.display()
+        );
+        assert!(matches!(mode, RecursiveMode::Recursive));
     }
 
     #[test]

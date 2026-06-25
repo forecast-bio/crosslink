@@ -34,7 +34,16 @@ use crate::utils::format_issue_id;
 
 #[derive(Debug, Deserialize)]
 struct CpitdOutput {
+    #[serde(default)]
     clone_reports: Vec<CpitdCloneReport>,
+    /// `total_pairs` is the field name in cpitd ≤ 0.2.x; cpitd 0.3.0
+    /// renamed it to `total_groups` to reflect the move from "pairs of
+    /// files" to "N-way clone groups". Accept either via `serde(alias)`
+    /// so the empty-output path doesn't fail to parse. The full schema
+    /// migration for non-empty `clone_reports` (new `locations` model
+    /// vs. old `file_a`/`file_b`/`groups`) is a separate concern —
+    /// this annotation just unblocks the "no clones found" path.
+    #[serde(default, alias = "total_groups")]
     total_pairs: usize,
 }
 
@@ -57,6 +66,14 @@ struct CpitdCloneGroup {
 // ---------------------------------------------------------------------------
 // Installation detection
 // ---------------------------------------------------------------------------
+
+/// Whether the `cpitd` binary is resolvable on PATH.
+///
+/// Exposed so non-CLI callers (e.g. the sentinel cpitd source) can gate on
+/// the binary's presence and degrade gracefully when it's absent.
+pub fn cpitd_available() -> bool {
+    find_cpitd()
+}
 
 fn find_cpitd() -> bool {
     Command::new("cpitd")
@@ -226,6 +243,59 @@ fn relate_clone_issues(db: &Database, created: &[(i64, String, String)]) {
 // Public commands
 // ---------------------------------------------------------------------------
 
+/// Outcome of a clone scan: the crosslink issue ids that were created or
+/// updated. `created` holds `(id, file_a, file_b)` so callers can relate or
+/// surface newly-filed clones; `updated` holds ids that already existed and
+/// got a rescan comment.
+#[derive(Debug, Default)]
+pub struct ScanOutcome {
+    /// Newly created clone issues: `(issue_id, file_a, file_b)`.
+    pub created: Vec<(i64, String, String)>,
+    /// Existing clone issues that were re-confirmed and commented on.
+    pub updated: Vec<i64>,
+}
+
+/// Core scan-and-file-issues logic, usable as a library function.
+///
+/// Shells to `cpitd`, parses its JSON, and files/updates crosslink clone
+/// issues, returning the created/updated issue ids. Emits no progress output
+/// (the CLI wrapper handles user-facing prints). The caller must ensure the
+/// `cpitd` binary is present (see [`cpitd_available`]); if it is absent this
+/// returns an error from the underlying command.
+pub fn scan_and_file(
+    db: &Database,
+    paths: &[String],
+    min_tokens: u32,
+    ignore_patterns: &[String],
+) -> Result<ScanOutcome> {
+    let output = run_cpitd(paths, min_tokens, ignore_patterns)?;
+
+    let mut outcome = ScanOutcome::default();
+
+    for report in &output.clone_reports {
+        if let Some(existing_id) = find_existing_clone_issue(db, &report.file_a, &report.file_b)? {
+            let comment = format!(
+                "[cpitd rescan] {} total cloned lines, {} group(s)",
+                report.total_cloned_lines,
+                report.groups.len(),
+            );
+            db.add_comment(existing_id, &comment, "note")?;
+            outcome.updated.push(existing_id);
+        } else {
+            let id = create_clone_issue(db, report, true)?;
+            outcome
+                .created
+                .push((id, report.file_a.clone(), report.file_b.clone()));
+        }
+    }
+
+    if outcome.created.len() > 1 {
+        relate_clone_issues(db, &outcome.created);
+    }
+
+    Ok(outcome)
+}
+
 pub fn scan(
     db: &Database,
     paths: &[String],
@@ -242,20 +312,17 @@ pub fn scan(
         println!("Running cpitd clone detection...");
     }
 
-    let output = run_cpitd(paths, min_tokens, ignore_patterns)?;
-
-    if output.clone_reports.is_empty() {
-        if !quiet {
-            println!("No code clones detected.");
-        }
-        return Ok(());
-    }
-
-    if !quiet {
-        println!("Found {} clone pair(s).\n", output.total_pairs);
-    }
-
     if dry_run {
+        let output = run_cpitd(paths, min_tokens, ignore_patterns)?;
+        if output.clone_reports.is_empty() {
+            if !quiet {
+                println!("No code clones detected.");
+            }
+            return Ok(());
+        }
+        if !quiet {
+            println!("Found {} clone pair(s).\n", output.total_pairs);
+        }
         for report in &output.clone_reports {
             println!(
                 "  Would create: {} <-> {} ({} lines, {} group(s))",
@@ -268,38 +335,32 @@ pub fn scan(
         return Ok(());
     }
 
-    let mut created_count = 0usize;
-    let mut updated_count = 0usize;
-    let mut created_ids: Vec<(i64, String, String)> = Vec::new();
+    let outcome = scan_and_file(db, paths, min_tokens, ignore_patterns)?;
 
-    for report in &output.clone_reports {
-        if let Some(existing_id) = find_existing_clone_issue(db, &report.file_a, &report.file_b)? {
-            let comment = format!(
-                "[cpitd rescan] {} total cloned lines, {} group(s)",
-                report.total_cloned_lines,
-                report.groups.len(),
-            );
-            db.add_comment(existing_id, &comment, "note")?;
-            updated_count += 1;
-            if !quiet {
-                println!(
-                    "  Updated issue {} (clone still present)",
-                    format_issue_id(existing_id)
-                );
-            }
-        } else {
-            let id = create_clone_issue(db, report, quiet)?;
-            created_ids.push((id, report.file_a.clone(), report.file_b.clone()));
-            created_count += 1;
+    if outcome.created.is_empty() && outcome.updated.is_empty() {
+        if !quiet {
+            println!("No code clones detected.");
         }
-    }
-
-    if created_ids.len() > 1 {
-        relate_clone_issues(db, &created_ids);
+        return Ok(());
     }
 
     if !quiet {
-        println!("\ncpitd scan complete: {created_count} created, {updated_count} updated");
+        for (id, _, _) in &outcome.created {
+            // Title already printed by create_clone_issue when not quiet; but
+            // scan_and_file runs quiet, so surface the created ids here.
+            println!("  Created issue {}", format_issue_id(*id));
+        }
+        for id in &outcome.updated {
+            println!(
+                "  Updated issue {} (clone still present)",
+                format_issue_id(*id)
+            );
+        }
+        println!(
+            "\ncpitd scan complete: {} created, {} updated",
+            outcome.created.len(),
+            outcome.updated.len()
+        );
     }
 
     Ok(())

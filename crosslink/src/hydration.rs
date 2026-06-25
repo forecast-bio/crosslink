@@ -13,7 +13,7 @@ use anyhow::Result;
 use crate::db::{Database, HydratedIssue, HydratedMilestone};
 use crate::issue_file::{
     read_all_issue_files, read_all_milestone_files, read_comment_files, read_layout_version,
-    read_milestones_file, write_comment_file, CommentFile, IssueFile,
+    read_milestones_file, IssueFile,
 };
 
 /// Deduplicate issue files that share the same `display_id`.
@@ -69,6 +69,8 @@ struct SavedIssue {
     created_at: String,
     updated_at: String,
     closed_at: Option<String>,
+    scheduled_at: Option<String>,
+    due_at: Option<String>,
 }
 
 /// Tuple of comment fields saved from `SQLite` before hydration clears them.
@@ -140,7 +142,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
         .conn
         .prepare(
             "SELECT id, uuid, title, description, status, priority, parent_id, \
-             created_by, created_at, updated_at, closed_at FROM issues WHERE uuid IS NOT NULL",
+             created_by, created_at, updated_at, closed_at, scheduled_at, due_at \
+             FROM issues WHERE uuid IS NOT NULL",
         )?
         .query_map([], |row| {
             Ok(SavedIssue {
@@ -155,6 +158,8 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
                 closed_at: row.get(10)?,
+                scheduled_at: row.get(11)?,
+                due_at: row.get(12)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -271,6 +276,347 @@ pub fn hydrate_to_sqlite(cache_dir: &Path, db: &Database) -> Result<HydrationSta
     result
 }
 
+/// Hydrate the local `SQLite` database from a materialized v3
+/// [`CheckpointState`] (754a PASS 2 — hub-version-routed operation).
+///
+/// This is the V3 analogue of [`hydrate_to_sqlite`]: instead of reading
+/// `issues/*.json` worktree files, it maps the reduced `CompactIssue` /
+/// `CompactMilestone` state straight into the same `db.insert_hydrated_*`
+/// row-insertion helpers, so every table is populated identically to the
+/// file-based path. It preserves the same three invariants:
+///
+/// - **Single transaction.** All clears + inserts run inside one
+///   `db.transaction()` with foreign keys toggled off around it, exactly as
+///   the file path does (#461).
+/// - **#443 session preservation / SQLite-only merge.** Issues that exist in
+///   `SQLite` (created via direct `db.create_issue`, `created_by IS NULL`) but
+///   not in the reduced state are snapshotted with their children and
+///   re-inserted, so `init --force` / partial-sync rows are never wiped (#427,
+///   #310). The session `active_issue_id` FK survives via the same FK-off
+///   clear/reinsert dance.
+/// - **Data-loss guard.** When the reduced state carries NO issues, hydration
+///   is skipped (returns default stats) rather than clearing a populated
+///   `SQLite` — the analogue of [`hydrate_to_sqlite`]'s empty-`issue_files`
+///   early return, which guards against wiping local state from an empty or
+///   not-yet-fetched checkpoint.
+///
+/// Display ids come from the reduction (`CompactIssue.display_id`); issues
+/// whose id is not yet frozen (provisional, REQ-4) get a deterministic negative
+/// local id, matching the file path's offline-issue handling.
+///
+/// # Errors
+///
+/// Returns an error if any database operation fails.
+pub fn hydrate_from_state(
+    state: &crate::checkpoint::CheckpointState,
+    db: &Database,
+) -> Result<HydrationStats> {
+    // Data-loss guard: an empty reduced state (no checkpoint yet, or fetch has
+    // not run) must never clear a populated SQLite. Mirrors the empty-issue
+    // early return on the file path.
+    if state.issues.is_empty() && state.milestones.is_empty() {
+        return Ok(HydrationStats::default());
+    }
+
+    // #443 / #427: snapshot SQLite-only issues (UUIDs absent from the reduced
+    // state) so direct-SQLite rows are preserved across the clear/reinsert.
+    let state_uuids: std::collections::HashSet<String> =
+        state.issues.keys().map(uuid::Uuid::to_string).collect();
+    let all_rows: Vec<SavedIssue> = db
+        .conn
+        .prepare(
+            "SELECT id, uuid, title, description, status, priority, parent_id, \
+             created_by, created_at, updated_at, closed_at, scheduled_at, due_at \
+             FROM issues WHERE uuid IS NOT NULL",
+        )?
+        .query_map([], |row| {
+            Ok(SavedIssue {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                title: row.get(2)?,
+                description: row.get(3)?,
+                status: row.get(4)?,
+                priority: row.get(5)?,
+                parent_id: row.get(6)?,
+                created_by: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                closed_at: row.get(10)?,
+                scheduled_at: row.get(11)?,
+                due_at: row.get(12)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let sqlite_only_rows: Vec<SavedIssue> = all_rows
+        .into_iter()
+        .filter(|row| !state_uuids.contains(&row.uuid) && row.created_by.is_none())
+        .collect();
+    if !sqlite_only_rows.is_empty() {
+        tracing::info!(
+            "hydrate_from_state: preserving {} SQLite-only issue(s) not in reduced state",
+            sqlite_only_rows.len()
+        );
+    }
+    let preserved_ids: Vec<i64> = sqlite_only_rows.iter().map(|r| r.id).collect();
+    let saved_children = snapshot_children(db, &preserved_ids)?;
+
+    // Build uuid -> display_id lookup for cross-references (blockers/related/
+    // parent/milestone). Issues without a frozen display id get a deterministic
+    // negative local id assigned during insertion below.
+    let mut uuid_to_id: HashMap<String, i64> = state
+        .issues
+        .values()
+        .filter_map(|i| i.display_id.map(|id| (i.uuid.to_string(), id)))
+        .collect();
+    let milestone_uuid_to_id: HashMap<String, i64> = state
+        .milestones
+        .values()
+        .filter_map(|m| m.display_id.map(|id| (m.uuid.to_string(), id)))
+        .collect();
+
+    let mut stats = HydrationStats::default();
+
+    db.set_foreign_keys(false)?;
+    let result = db.transaction(|| {
+        db.clear_shared_data()?;
+
+        // Milestones first (issues reference them).
+        for m in state.milestones.values() {
+            let Some(ms_id) = m.display_id else {
+                continue; // provisional milestone id — skip the FK target row
+            };
+            let created_at = m.created_at.to_rfc3339();
+            let closed_at = m.closed_at.map(|dt| dt.to_rfc3339());
+            db.insert_hydrated_milestone(&HydratedMilestone {
+                id: ms_id,
+                uuid: &m.uuid.to_string(),
+                name: &m.name,
+                description: m.description.as_deref(),
+                status: m.status.as_str(),
+                created_at: &created_at,
+                closed_at: closed_at.as_deref(),
+            })?;
+            stats.milestones += 1;
+        }
+
+        hydrate_state_issues(
+            db,
+            state,
+            &mut uuid_to_id,
+            &milestone_uuid_to_id,
+            &mut stats,
+        )?;
+        hydrate_state_dependencies(db, state, &uuid_to_id, &mut stats);
+        hydrate_state_relations(db, state, &uuid_to_id, &mut stats);
+
+        restore_sqlite_only_issues(db, &sqlite_only_rows, &saved_children, &mut stats)?;
+        Ok(stats)
+    });
+
+    if let Err(e) = db.set_foreign_keys(true) {
+        tracing::warn!("failed to re-enable foreign key constraints: {}", e);
+    }
+    result
+}
+
+/// Topologically order issue uuids from a [`CheckpointState`] so parents precede
+/// children (foreign-key safe), deterministically. Mirrors [`topo_sort_issues`]
+/// but operates on the reduced state's `CompactIssue` map.
+fn topo_sort_state_issues(
+    state: &crate::checkpoint::CheckpointState,
+) -> Vec<&crate::checkpoint::CompactIssue> {
+    let present: std::collections::HashSet<uuid::Uuid> = state.issues.keys().copied().collect();
+    let mut roots: Vec<&crate::checkpoint::CompactIssue> = Vec::new();
+    let mut children: Vec<&crate::checkpoint::CompactIssue> = Vec::new();
+    for issue in state.issues.values() {
+        match issue.parent_uuid {
+            Some(p) if present.contains(&p) => children.push(issue),
+            _ => roots.push(issue),
+        }
+    }
+    roots.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.uuid.cmp(&b.uuid)));
+    let mut sorted = roots;
+    let mut remaining = children;
+    for _ in 0..10 {
+        if remaining.is_empty() {
+            break;
+        }
+        let sorted_uuids: std::collections::HashSet<uuid::Uuid> =
+            sorted.iter().map(|i| i.uuid).collect();
+        let (mut ready, still): (Vec<_>, Vec<_>) = remaining
+            .into_iter()
+            .partition(|i| i.parent_uuid.is_none_or(|p| sorted_uuids.contains(&p)));
+        ready.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.uuid.cmp(&b.uuid)));
+        sorted.extend(ready);
+        remaining = still;
+    }
+    sorted.extend(remaining);
+    sorted
+}
+
+/// Insert issues + their child rows (labels, comments, time entries, milestone
+/// link) from a reduced [`CheckpointState`]. The V3 analogue of [`hydrate_issues`].
+fn hydrate_state_issues(
+    db: &Database,
+    state: &crate::checkpoint::CheckpointState,
+    uuid_to_id: &mut HashMap<String, i64>,
+    milestone_uuid_to_id: &HashMap<String, i64>,
+    stats: &mut HydrationStats,
+) -> Result<()> {
+    // Negative local ids for issues without a frozen display id, and for v3
+    // comments/time-entries (event-only identity, no counter-claimed i64).
+    let mut next_local_id: i64 = -1;
+    let mut next_v2_comment_id: i64 = -1;
+
+    for issue in topo_sort_state_issues(state) {
+        let display_id = issue.display_id.unwrap_or_else(|| {
+            let local = next_local_id;
+            next_local_id -= 1;
+            uuid_to_id.insert(issue.uuid.to_string(), local);
+            local
+        });
+
+        let parent_id = issue
+            .parent_uuid
+            .and_then(|u| uuid_to_id.get(&u.to_string()).copied());
+        let created_at = issue.created_at.to_rfc3339();
+        let updated_at = issue.updated_at.to_rfc3339();
+        let closed_at = issue.closed_at.map(|dt| dt.to_rfc3339());
+        let scheduled_at = issue.scheduled_at.map(|dt| dt.to_rfc3339());
+        let due_at = issue.due_at.map(|dt| dt.to_rfc3339());
+
+        db.insert_hydrated_issue(&HydratedIssue {
+            id: display_id,
+            uuid: &issue.uuid.to_string(),
+            title: &issue.title,
+            description: issue.description.as_deref(),
+            status: issue.status.as_str(),
+            priority: issue.priority.as_str(),
+            parent_id,
+            created_by: Some(&issue.created_by),
+            created_at: &created_at,
+            updated_at: &updated_at,
+            closed_at: closed_at.as_deref(),
+            scheduled_at: scheduled_at.as_deref(),
+            due_at: due_at.as_deref(),
+        })?;
+        stats.issues += 1;
+
+        for label in &issue.labels {
+            db.insert_hydrated_label(display_id, label)?;
+        }
+
+        // Comments are keyed by uuid; emit in deterministic uuid order (BTreeMap).
+        for (comment_uuid, c) in &issue.comments {
+            let comment_created = c.created_at.to_rfc3339();
+            // Reduction-assigned i64 id if frozen, else a deterministic negative id.
+            let cid = c.display_id.unwrap_or_else(|| {
+                let id = next_v2_comment_id;
+                next_v2_comment_id -= 1;
+                id
+            });
+            db.insert_hydrated_comment(
+                cid,
+                display_id,
+                Some(&comment_uuid.to_string()),
+                Some(&c.author),
+                &c.content,
+                &comment_created,
+                &c.kind,
+                c.trigger_type.as_deref(),
+                c.intervention_context.as_deref(),
+                c.driver_key_fingerprint.as_deref(),
+            )?;
+            stats.comments += 1;
+        }
+
+        for (entry_uuid, te) in &issue.time_entries {
+            let started = te.started_at.to_rfc3339();
+            let ended = te.ended_at.map(|dt| dt.to_rfc3339());
+            // Time entries have no natural i64 identity in v3; derive a stable
+            // negative id from the entry uuid's low bytes so re-hydration is
+            // idempotent (INSERT ... id PRIMARY KEY).
+            let te_id = te
+                .display_id
+                .unwrap_or_else(|| negative_id_from_uuid(entry_uuid));
+            db.insert_hydrated_time_entry(
+                te_id,
+                display_id,
+                &started,
+                ended.as_deref(),
+                te.duration_seconds,
+            )?;
+        }
+
+        if let Some(ms_uuid) = &issue.milestone_uuid {
+            if let Some(&ms_id) = milestone_uuid_to_id.get(&ms_uuid.to_string()) {
+                db.insert_hydrated_milestone_issue(ms_id, display_id)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Derive a stable negative i64 id from a uuid's first 7 bytes, used for v3
+/// time entries that carry no counter-claimed id. Always negative so it never
+/// collides with positive reduction-assigned ids.
+fn negative_id_from_uuid(u: &uuid::Uuid) -> i64 {
+    let b = u.as_bytes();
+    let mut acc: i64 = 0;
+    for &byte in &b[..7] {
+        acc = (acc << 8) | i64::from(byte);
+    }
+    -(acc + 1)
+}
+
+/// Insert dependency rows from each issue's `blockers` set. V3 analogue of
+/// [`hydrate_dependencies`]. Dangling references (deleted blocker) are skipped.
+fn hydrate_state_dependencies(
+    db: &Database,
+    state: &crate::checkpoint::CheckpointState,
+    uuid_to_id: &HashMap<String, i64>,
+    stats: &mut HydrationStats,
+) {
+    for issue in state.issues.values() {
+        let Some(&blocked_id) = uuid_to_id.get(&issue.uuid.to_string()) else {
+            continue;
+        };
+        for blocker_uuid in &issue.blockers {
+            if let Some(&blocker_id) = uuid_to_id.get(&blocker_uuid.to_string()) {
+                if let Err(e) = db.insert_dependency_raw(blocker_id, blocked_id) {
+                    tracing::warn!("hydrate_from_state: dependency insert failed: {e}");
+                    continue;
+                }
+                stats.dependencies += 1;
+            }
+        }
+    }
+}
+
+/// Insert relation rows from each issue's `related` set. V3 analogue of
+/// [`hydrate_relations`].
+fn hydrate_state_relations(
+    db: &Database,
+    state: &crate::checkpoint::CheckpointState,
+    uuid_to_id: &HashMap<String, i64>,
+    stats: &mut HydrationStats,
+) {
+    for issue in state.issues.values() {
+        let Some(&issue_id) = uuid_to_id.get(&issue.uuid.to_string()) else {
+            continue;
+        };
+        for related_uuid in &issue.related {
+            if let Some(&related_id) = uuid_to_id.get(&related_uuid.to_string()) {
+                if let Err(e) = db.insert_relation_raw(issue_id, related_id) {
+                    tracing::warn!("hydrate_from_state: relation insert failed: {e}");
+                    continue;
+                }
+                stats.relations += 1;
+            }
+        }
+    }
+}
+
 /// Deduplicate issue files and load milestone entries from cache.
 fn dedup_and_load_milestones<'a>(
     issue_files: &'a [IssueFile],
@@ -381,6 +727,8 @@ fn hydrate_issues(
         let created_at = issue.created_at.to_rfc3339();
         let updated_at = issue.updated_at.to_rfc3339();
         let closed_at = issue.closed_at.map(|dt| dt.to_rfc3339());
+        let scheduled_at = issue.scheduled_at.map(|dt| dt.to_rfc3339());
+        let due_at = issue.due_at.map(|dt| dt.to_rfc3339());
 
         db.insert_hydrated_issue(&HydratedIssue {
             id: display_id,
@@ -394,6 +742,8 @@ fn hydrate_issues(
             created_at: &created_at,
             updated_at: &updated_at,
             closed_at: closed_at.as_deref(),
+            scheduled_at: scheduled_at.as_deref(),
+            due_at: due_at.as_deref(),
         })?;
         stats.issues += 1;
 
@@ -566,6 +916,8 @@ fn restore_sqlite_only_issues(
             created_at: &row.created_at,
             updated_at: &row.updated_at,
             closed_at: row.closed_at.as_deref(),
+            scheduled_at: row.scheduled_at.as_deref(),
+            due_at: row.due_at.as_deref(),
         })?;
         stats.issues += 1;
     }
@@ -665,53 +1017,6 @@ fn hydrate_relations(
         }
     }
     Ok(())
-}
-
-/// Migrate inline comments from v1 issue files to standalone v2 comment files.
-///
-/// For each issue that has inline `comments`, writes a standalone
-/// `issues/{uuid}/comments/{comment-uuid}.json` file using `write_comment_file`.
-/// This is called during a v1-to-v2 layout upgrade to split inline comments into
-/// their own files.
-///
-/// Returns the number of comment files written.
-///
-/// # Errors
-///
-/// Returns an error if reading issue files or writing comment files fails.
-pub fn migrate_inline_comments_to_v2(cache_dir: &Path) -> Result<usize> {
-    let issues_dir = cache_dir.join("issues");
-    let issue_files = read_all_issue_files(&issues_dir)?;
-
-    let mut count = 0;
-    for issue in &issue_files {
-        if issue.comments.is_empty() {
-            continue;
-        }
-        for comment in &issue.comments {
-            let comment_uuid = uuid::Uuid::new_v4();
-            let cf = CommentFile {
-                uuid: comment_uuid,
-                issue_uuid: issue.uuid,
-                author: comment.author.clone(),
-                content: comment.content.clone(),
-                created_at: comment.created_at,
-                kind: comment.kind.clone(),
-                trigger_type: comment.trigger_type.clone(),
-                intervention_context: comment.intervention_context.clone(),
-                driver_key_fingerprint: comment.driver_key_fingerprint.clone(),
-                signed_by: comment.signed_by.clone(),
-                signature: comment.signature.clone(),
-            };
-            let path = issues_dir
-                .join(issue.uuid.to_string())
-                .join("comments")
-                .join(format!("{comment_uuid}.json"));
-            write_comment_file(&path, &cf)?;
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 // ── Lazy auto-hydration ─────────────────────────────────────────────
@@ -828,6 +1133,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
             labels: vec![],
             comments: vec![],
             blockers: vec![],
@@ -1571,148 +1878,6 @@ mod tests {
 
         let stats = hydrate_to_sqlite(cache.path(), &db).unwrap();
         assert_eq!(stats.comments, 0); // v2 path not entered
-    }
-
-    // ---- migrate_inline_comments_to_v2 ----
-
-    #[test]
-    fn test_migrate_inline_comments_no_issues() {
-        let cache = tempdir().unwrap();
-        // Empty issues dir — no migration needed
-        let issues_dir = cache.path().join("issues");
-        std::fs::create_dir_all(&issues_dir).unwrap();
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_no_comments() {
-        let cache = tempdir().unwrap();
-        // Issue with no comments — nothing to migrate
-        let issue = make_issue(1, "No comments");
-        write_issues_to_cache(cache.path(), &[issue]);
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_writes_files() {
-        let cache = tempdir().unwrap();
-
-        let mut issue = make_issue(1, "Issue with comments");
-        issue.comments = vec![
-            CommentEntry {
-                id: 1,
-                author: "agent-1".to_string(),
-                content: "First".to_string(),
-                created_at: Utc::now(),
-                kind: "note".to_string(),
-                trigger_type: None,
-                intervention_context: None,
-                driver_key_fingerprint: None,
-                signed_by: None,
-                signature: None,
-            },
-            CommentEntry {
-                id: 2,
-                author: "agent-2".to_string(),
-                content: "Second".to_string(),
-                created_at: Utc::now(),
-                kind: "decision".to_string(),
-                trigger_type: None,
-                intervention_context: None,
-                driver_key_fingerprint: None,
-                signed_by: None,
-                signature: None,
-            },
-        ];
-        let issue_uuid = issue.uuid;
-        write_issues_to_cache(cache.path(), &[issue]);
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 2);
-
-        // Verify the comment files were actually written
-        let comments_dir = cache
-            .path()
-            .join("issues")
-            .join(issue_uuid.to_string())
-            .join("comments");
-        let entries: Vec<_> = std::fs::read_dir(&comments_dir)
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .is_some_and(|x| x == "json")
-            })
-            .collect();
-        assert_eq!(entries.len(), 2);
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_preserves_optional_fields() {
-        let cache = tempdir().unwrap();
-
-        let mut issue = make_issue(1, "Intervention issue");
-        issue.comments = vec![CommentEntry {
-            id: 1,
-            author: "agent".to_string(),
-            content: "Blocked by policy".to_string(),
-            created_at: Utc::now(),
-            kind: "intervention".to_string(),
-            trigger_type: Some("tool_blocked".to_string()),
-            intervention_context: Some("tried to delete /etc/passwd".to_string()),
-            driver_key_fingerprint: Some("SHA256:xyz".to_string()),
-            signed_by: Some("SHA256:xyz".to_string()),
-            signature: Some("sig==".to_string()),
-        }];
-        let issue_uuid = issue.uuid;
-        write_issues_to_cache(cache.path(), &[issue]);
-
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 1);
-
-        // Read the written file back and check optional fields survived
-        let comments_dir = cache
-            .path()
-            .join("issues")
-            .join(issue_uuid.to_string())
-            .join("comments");
-        let json_path = std::fs::read_dir(&comments_dir)
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .find(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .is_some_and(|x| x == "json")
-            })
-            .unwrap()
-            .path();
-
-        let cf: CommentFile =
-            serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
-        assert_eq!(cf.kind, "intervention");
-        assert_eq!(cf.trigger_type.as_deref(), Some("tool_blocked"));
-        assert_eq!(
-            cf.intervention_context.as_deref(),
-            Some("tried to delete /etc/passwd")
-        );
-        assert_eq!(cf.driver_key_fingerprint.as_deref(), Some("SHA256:xyz"));
-        assert_eq!(cf.signed_by.as_deref(), Some("SHA256:xyz"));
-        assert_eq!(cf.signature.as_deref(), Some("sig=="));
-    }
-
-    #[test]
-    fn test_migrate_inline_comments_nonexistent_issues_dir() {
-        // Issues dir doesn't exist at all — read_all_issue_files returns empty vec
-        let cache = tempdir().unwrap();
-        let count = migrate_inline_comments_to_v2(cache.path()).unwrap();
-        assert_eq!(count, 0);
     }
 
     // ---- time entry with no ended_at ----

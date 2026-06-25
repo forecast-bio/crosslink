@@ -9,6 +9,7 @@ and imported by the other hook scripts (work-check.py, prompt-guard.py, etc.).
 import json
 import os
 import subprocess
+from contextlib import suppress
 
 
 def project_root_from_script():
@@ -67,19 +68,32 @@ def _resolve_main_repo_root(start_dir):
         return None
 
 
+def _is_initialized_crosslink_dir(candidate):
+    """Whether a .crosslink candidate is an initialized crosslink project dir.
+
+    `crosslink init` always writes hook-config.json. Stray `.crosslink/`
+    directories seeded in subdirectories by cwd drift (GH#625) lack it —
+    they contain only hydration caches. Binding to a stray sends hook
+    caches/heartbeats to the wrong place, so candidates without the marker
+    are skipped.
+    """
+    return os.path.isfile(os.path.join(candidate, 'hook-config.json'))
+
+
 def find_crosslink_dir():
-    """Find the .crosslink directory.
+    """Find the INITIALIZED .crosslink directory (GH#625-safe).
 
     Prefers the project root derived from the hook script's own path
     (reliable even when cwd is a subdirectory), falling back to walking
     up from cwd, then checking if we're in a git worktree and looking
-    in the main repo root.
+    in the main repo root. Candidates without hook-config.json are
+    strays and are never bound.
     """
     # Primary: resolve from script location
     root = project_root_from_script()
     if root:
         candidate = os.path.join(root, '.crosslink')
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and _is_initialized_crosslink_dir(candidate):
             return candidate
 
     # Fallback: walk up from cwd
@@ -87,7 +101,7 @@ def find_crosslink_dir():
     start = current
     for _ in range(10):
         candidate = os.path.join(current, '.crosslink')
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and _is_initialized_crosslink_dir(candidate):
             return candidate
         parent = os.path.dirname(current)
         if parent == current:
@@ -98,7 +112,7 @@ def find_crosslink_dir():
     main_root = _resolve_main_repo_root(start)
     if main_root:
         candidate = os.path.join(main_root, '.crosslink')
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and _is_initialized_crosslink_dir(candidate):
             return candidate
 
     return None
@@ -145,20 +159,18 @@ def load_config_merged(crosslink_dir):
     config = {}
     config_path = os.path.join(crosslink_dir, "hook-config.json")
     if os.path.isfile(config_path):
-        try:
+        # Missing/malformed config falls back to {} — hooks stay permissive
+        # rather than hard-failing on a broken JSON file.
+        with suppress(json.JSONDecodeError, OSError):
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
 
     local_path = os.path.join(crosslink_dir, "hook-config.local.json")
     if os.path.isfile(local_path):
-        try:
+        with suppress(json.JSONDecodeError, OSError):
             with open(local_path, "r", encoding="utf-8") as f:
                 local = json.load(f)
             _merge_with_extend(config, local)
-        except (json.JSONDecodeError, OSError):
-            pass
 
     return config
 
@@ -236,13 +248,12 @@ def save_guard_state(crosslink_dir, state):
     if not crosslink_dir:
         return
     cache_dir = os.path.join(crosslink_dir, ".cache")
-    try:
+    # Drift state is best-effort — a write failure must not break the hook.
+    with suppress(OSError):
         os.makedirs(cache_dir, exist_ok=True)
         state_path = os.path.join(cache_dir, "guard-state.json")
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(state, f)
-    except OSError:
-        pass
 
 
 def reset_drift_counter(crosslink_dir):
@@ -259,24 +270,40 @@ def reset_drift_counter(crosslink_dir):
 def is_agent_context(crosslink_dir):
     """Check if we're running inside an agent worktree.
 
-    Returns True if:
-    1. .crosslink/agent.json exists (crosslink kickoff agent), OR
-    2. CWD is inside a .claude/worktrees/ path (Claude Code sub-agent)
+    Returns True if either:
+    1. .crosslink/agent.json exists AND its `role` field is "agent"
+       (crosslink agent init / kickoff / bootstrap), OR
+    2. CWD is inside a .claude/worktrees/ path (Claude Code sub-agent
+       launched via the Agent tool with isolation: "worktree").
 
-    Both types of agent get relaxed tracking mode so they can operate
-    autonomously without active crosslink issues or gated git commits.
+    Agents get relaxed tracking mode so they can operate autonomously
+    without active crosslink issues or gated git commits.
+
+    Important: `agent.json` presence alone is NOT sufficient. As of
+    `crosslink init` auto-provisioning a hub-cache signing identity
+    (2026-03-30), every main repo has `agent.json` — but it's tagged
+    `role: driver` there, and human-driving sessions must stay on the
+    strict top-level hook rules. Identities written before the `role`
+    field existed deserialize to `driver` (safe default). See GH #566.
     """
     if not crosslink_dir:
         return False
-    if os.path.isfile(os.path.join(crosslink_dir, "agent.json")):
-        return True
-    # Detect Claude Code sub-agent worktrees (Agent tool with isolation: "worktree")
-    try:
-        cwd = os.getcwd()
-        if "/.claude/worktrees/" in cwd:
+    agent_json_path = os.path.join(crosslink_dir, "agent.json")
+    if os.path.isfile(agent_json_path):
+        # Malformed or unreadable agent.json falls through to the cwd check;
+        # treating it as agent would silently weaken hook rules.
+        data = None
+        with suppress(json.JSONDecodeError, OSError):
+            with open(agent_json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        if isinstance(data, dict) and data.get("role") == "agent":
             return True
-    except OSError:
-        pass
+    # Detect Claude Code sub-agent worktrees (Agent tool with isolation: "worktree")
+    cwd = None
+    with suppress(OSError):
+        cwd = os.getcwd()
+    if cwd and "/.claude/worktrees/" in cwd:
+        return True
     return False
 
 

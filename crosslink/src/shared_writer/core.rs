@@ -1,22 +1,19 @@
 //! Core types and infrastructure for `SharedWriter`.
 //!
-//! Contains the `SharedWriter` struct, `new()`, the retry-loop
-//! (`write_commit_push` / `emit_compact_push`), git helpers,
-//! counter management, and issue file resolution.
+//! Contains the `SharedWriter` struct, `new()`, the v3 event-only write path
+//! (`write_commit_push` / `emit_compact_push` -> `commit_v3`), envelope
+//! signing, and issue/milestone resolution from the reduced v3 state. Mutations
+//! on a legacy v2 hub are refused (#754, REQ-10).
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use std::cell::Cell;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::db::Database;
 use crate::identity::AgentConfig;
-use crate::issue_file::{
-    read_counters, read_issue_file, read_milestone_file, write_counters, Counters, IssueFile,
-    MilestoneEntry,
-};
+use crate::issue_file::{IssueFile, MilestoneEntry};
 use crate::sync::SyncManager;
 
 // Hub cache write lock is in sync/cache.rs — acquired via self.sync.acquire_lock()
@@ -26,25 +23,30 @@ pub(super) const KIND_INTERVENTION: &str = "intervention";
 /// SSH signing namespace for crosslink comments.
 pub(super) const SIGNING_NAMESPACE: &str = "crosslink-comment";
 
-/// Content to write in a single atomic commit-push operation.
+/// The events a mutation emits in `HubMode::V3`.
+///
+/// Historically this carried the v2 worktree files and counters too; the v2
+/// write path is deleted (#754, REQ-10), so a mutation now produces events
+/// only. The `prepare` closure builds these once and `commit_v3` appends them
+/// to the agent's own ref.
 pub(super) struct WriteSet {
-    /// Files to write: (relative path in cache, serialized content).
-    pub files: Vec<(String, Vec<u8>)>,
-    /// Updated counters, if any.
-    pub counters: Option<Counters>,
-    /// If true, stage removals (`git rm`) instead of additions (`git add`).
-    pub use_git_rm: bool,
+    /// Events to append to the agent's own ref (REQ-1).
+    pub events: Vec<crate::events::Event>,
 }
 
-/// Maximum number of push retries on conflict before giving up.
-pub(super) const MAX_RETRIES: usize = 3;
+/// Refusal message emitted when a mutation is attempted on a legacy v2 hub.
+///
+/// The v2 write path is deleted (#754, REQ-10). The v2 branch is kept as a
+/// read-only escape hatch until `crosslink migrate hub-v3 --finalize`, so the
+/// fix is to migrate, not to repair the v2 layout.
+pub(super) const V2_WRITE_REFUSAL: &str = "this hub uses the legacy v2 layout; run `crosslink migrate hub-v3` to migrate (the v2 branch is kept as an escape hatch until --finalize)";
 
 /// Maximum time to wait for lock confirmation compaction (design doc section 8).
 pub(super) const LOCK_CONFIRM_TIMEOUT_SECS: u64 = 30;
 
 /// Outcome of a `write_commit_push` operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PushOutcome {
+pub enum PushOutcome {
     /// Commit was pushed to remote successfully.
     Pushed,
     /// Commit was saved locally but push failed (offline or all retries exhausted).
@@ -53,14 +55,20 @@ pub(super) enum PushOutcome {
 
 /// Write-side coordinator for multi-agent shared issue tracking.
 ///
-/// Handles: generate UUID -> claim display ID -> write JSON -> commit ->
-/// push (with rebase-retry) -> update local `SQLite`.
+/// Handles: build events -> append to the agent's own ref -> fast-forward push
+/// -> reduce -> hydrate local `SQLite` (hub v3, #754). Display ids are assigned
+/// by the reduction, not claimed from a counter.
 pub struct SharedWriter {
     pub(super) sync: SyncManager,
     pub(super) agent: AgentConfig,
     pub(super) cache_dir: PathBuf,
     /// Per-session event sequence counter, monotonically increasing.
     pub(super) event_seq: Cell<u64>,
+    /// The most recent reduced state from a v3 `commit_v3` / fetch. The
+    /// create/comment/milestone flows read the reduction-assigned display id
+    /// from here (`state.display_id_map[uuid]`, REQ-4) for CLI output; `None`
+    /// before the first v3 mutation.
+    pub(super) last_v3_state: std::cell::RefCell<Option<crate::checkpoint::CheckpointState>>,
 }
 
 impl SharedWriter {
@@ -112,22 +120,70 @@ impl SharedWriter {
         std::fs::create_dir_all(cache_dir.join("issues"))?;
         std::fs::create_dir_all(cache_dir.join("meta").join("milestones"))?;
 
-        // Initialize event sequence counter from existing log
-        let event_seq = Cell::new(Self::read_max_event_seq(&cache_dir, &agent.agent_id));
+        // Initialize event sequence counter from existing log. In V3 the
+        // authoritative log is the agent's OWN REF (read via git cat-file);
+        // in V2 it is the worktree `events.log` file. read_max_event_seq
+        // dispatches by mode so a fresh worktree (post-prune) does not reset
+        // the sequence below the ref's tip.
+        let event_seq = Cell::new(Self::read_max_event_seq(
+            &cache_dir,
+            &agent.agent_id,
+            sync.hub_mode(),
+        ));
+
+        // Minimal v3-aware warn: if the hub has already been migrated to v3 but
+        // we resolved v2 mode (an exotic concurrent-migration race), warn once.
+        // Cheap (a rev-parse), non-fatal — never blocks the operation. No-op
+        // when this client resolved V3 mode (clients route by hub version).
+        crate::hub_v3::warn_if_migrated_v2_operation(&cache_dir, sync.hub_mode());
 
         Ok(Some(Self {
             sync,
             agent,
             cache_dir,
             event_seq,
+            last_v3_state: std::cell::RefCell::new(None),
         }))
     }
 
+    /// The configured agent id for this writer.
+    ///
+    /// Used only by tests since the v2 write path (the production consumer) was
+    /// deleted (#754); kept as a tested accessor.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn agent_id(&self) -> &str {
         &self.agent.agent_id
     }
 
+    /// The resolved operation mode (V2 worktree-file or V3 event-only) of the
+    /// underlying `SyncManager`.
+    pub(super) fn hub_mode(&self) -> crate::hub_v3::HubMode {
+        self.sync.hub_mode()
+    }
+
+    /// Whether this writer operates a v3 hub (event-only, per-agent refs).
+    pub(super) fn is_v3(&self) -> bool {
+        self.hub_mode().is_v3()
+    }
+
+    /// Public accessor for v3 mode, for cross-module callers (`agent_requests`).
+    #[must_use]
+    pub fn is_v3_public(&self) -> bool {
+        self.is_v3()
+    }
+
+    /// Public accessor for the hub-cache directory (the v3 ref repo dir), for
+    /// cross-module callers (`agent_requests` v3 poll).
+    #[must_use]
+    pub fn cache_dir_public(&self) -> &Path {
+        &self.cache_dir
+    }
+
     /// Derive the `.crosslink/` directory from the cache path.
+    ///
+    /// Used only by tests since the v2 write path (the production consumer) was
+    /// deleted (#754); kept as a tested accessor.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn crosslink_dir(&self) -> &Path {
         self.cache_dir.parent().unwrap_or_else(|| {
             tracing::warn!("cache_dir has no parent, falling back to cache_dir itself");
@@ -141,6 +197,26 @@ impl SharedWriter {
     /// If the retry also fails, warns the user to run `crosslink sync`
     /// so the caller can continue gracefully.
     pub fn hydrate_with_retry(&self, db: &Database) {
+        // V3: hydrate from the reduced state cached by the last commit_v3 /
+        // refresh_v3_state (event-only operation — no worktree issue files to
+        // read). If no state is cached yet (first call before any v3 mutation),
+        // reduce now so SQLite still reflects the hub.
+        if self.is_v3() {
+            if self.last_v3_state.borrow().is_none() {
+                if let Err(e) = self.refresh_v3_state() {
+                    tracing::warn!("v3 hydrate: state refresh failed: {e}");
+                    return;
+                }
+            }
+            if let Some(state) = self.last_v3_state.borrow().as_ref() {
+                if let Err(e) = crate::hydration::hydrate_from_state(state, db) {
+                    tracing::warn!(
+                        "v3 hydrate_from_state failed ({e}). Run `crosslink sync` to recover."
+                    );
+                }
+            }
+            return;
+        }
         match crate::hydration::hydrate_to_sqlite(&self.cache_dir, db) {
             Ok(_) => {}
             Err(first_err) => {
@@ -158,50 +234,22 @@ impl SharedWriter {
         }
     }
 
-    /// Path to the promoted-UUIDs tracking file (machine-local, not shared).
-    pub(super) fn promoted_uuids_path(&self) -> PathBuf {
-        self.crosslink_dir().join(".promoted-uuids")
-    }
-
-    /// Read the set of UUIDs that have already been promoted.
-    pub(super) fn read_promoted_uuids(&self) -> HashSet<Uuid> {
-        let path = self.promoted_uuids_path();
-        std::fs::read_to_string(&path).map_or_else(
-            |_| HashSet::new(),
-            |content| {
-                content
-                    .lines()
-                    .filter_map(|line| line.trim().parse::<Uuid>().ok())
-                    .collect()
-            },
-        )
-    }
-
-    /// Append promoted UUIDs to the tracking file.
-    pub(super) fn record_promoted_uuids(&self, uuids: &[Uuid]) -> Result<()> {
-        use std::io::Write;
-        let path = self.promoted_uuids_path();
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .with_context(|| format!("Failed to open promoted UUIDs file: {}", path.display()))?;
-        for uuid in uuids {
-            writeln!(file, "{uuid}")?;
-        }
-        Ok(())
-    }
-
-    /// Check the current hub layout version.
-    pub(super) fn layout_version(&self) -> u32 {
-        let meta_dir = self.sync.cache_path().join("meta");
-        crate::issue_file::read_layout_version(&meta_dir).unwrap_or(1)
-    }
-
     // ---- Event emission infrastructure ----
 
-    /// Read the max `agent_seq` from an existing event log.
-    pub(super) fn read_max_event_seq(cache_dir: &Path, agent_id: &str) -> u64 {
+    /// Read the max `agent_seq` from this agent's existing event log.
+    ///
+    /// V2: reads the worktree file `agents/<id>/events.log`. V3: reads the
+    /// agent's OWN REF (`refs/heads/crosslink/agents/<id>` -> `events.log`) via git
+    /// cat-file, since there is no worktree log in v3 and the ref is the only
+    /// durable record of the sequence high-water mark (including after a prune).
+    pub(super) fn read_max_event_seq(
+        cache_dir: &Path,
+        agent_id: &str,
+        mode: crate::hub_v3::HubMode,
+    ) -> u64 {
+        if mode.is_v3() {
+            return crate::hub_v3::read_max_event_seq_from_ref(cache_dir, agent_id).unwrap_or(0);
+        }
         let log_path = cache_dir.join("agents").join(agent_id).join("events.log");
         crate::events::read_events(&log_path).map_or(0, |events| {
             events.iter().map(|e| e.agent_seq).max().unwrap_or(0)
@@ -213,14 +261,6 @@ impl SharedWriter {
         let seq = self.event_seq.get() + 1;
         self.event_seq.set(seq);
         seq
-    }
-
-    /// Path to this agent's event log file.
-    pub(super) fn event_log_path(&self) -> PathBuf {
-        self.cache_dir
-            .join("agents")
-            .join(&self.agent.agent_id)
-            .join("events.log")
     }
 
     /// Resolve the agent's SSH private key to an absolute path, if configured.
@@ -274,86 +314,83 @@ impl SharedWriter {
         envelope
     }
 
-    /// Emit an event, run compaction, and push all changes.
+    /// Emit an event to the agent's own ref and push it (fast-forward).
     ///
-    /// The event is appended once to the log before the retry loop.
-    /// On push conflict, compaction is re-run after rebase to incorporate
-    /// any new remote events.
+    /// V3-only (#754, REQ-10): lock claim/release route through the event-only
+    /// own-ref path. `commit_v3` reduces locks from events into the checkpoint;
+    /// the claim-confirm read (`read_lock_v2`) then resolves the winner from the
+    /// reduced state. A mutation on a legacy v2 hub is refused — locks are
+    /// mutations, so they cannot be claimed against a v2 layout.
     pub(super) fn emit_compact_push(
         &self,
         event: crate::events::Event,
-        message: &str,
+        _message: &str,
     ) -> Result<PushOutcome> {
         // Serialize access to the hub cache via SyncManager's lock (#372)
+        let lock_guard = self.sync.acquire_lock()?;
+
+        if !self.is_v3() {
+            bail!(V2_WRITE_REFUSAL);
+        }
+        self.commit_v3(vec![event], &lock_guard)
+    }
+
+    /// Write an agent control request to the driver's own ref.
+    ///
+    /// V3-only (#754, REQ-10): the DRIVER writes the request into ITS OWN ref
+    /// under `requests-out/<target>--<ulid>.json` (single-writer invariant) and
+    /// pushes the ref (fast-forward). A v2 hub is refused.
+    ///
+    /// # Errors
+    /// Returns an error if the cache can't be prepared, the ref write fails, or
+    /// the request's JSON encoding fails.
+    pub fn write_agent_request(
+        &self,
+        target_agent_id: &str,
+        request: &crate::agent_requests::AgentRequest,
+    ) -> Result<PushOutcome> {
+        // Serialize access to the hub cache (#372).
         let _lock_guard = self.sync.acquire_lock()?;
 
-        let envelope = self.create_envelope(event);
-        let log_path = self.event_log_path();
-        crate::events::append_event(&log_path, &envelope)?;
-
-        for attempt in 0..MAX_RETRIES {
-            // Run compaction (force=true since we own the write path)
-            let _ = crate::compaction::compact(&self.cache_dir, &self.agent.agent_id, true)?;
-
-            // Stage event log + compaction output
-            let rel_log = format!("agents/{}/events.log", self.agent.agent_id);
-            self.git_in_cache(&["add", &rel_log])?;
-            // Stage compaction output directories that exist (#472)
-            for dir in ["checkpoint/", "issues/", "locks/"] {
-                if self.cache_dir.join(dir).exists() {
-                    self.git_in_cache(&["add", dir])?;
-                }
-            }
-
-            // Commit (unsigned when no SSH key)
-            let commit_msg = format!(
-                "{}: {} at {}",
-                self.agent.agent_id,
-                message,
-                Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
-            );
-            let commit_result = self.git_commit_in_cache(&commit_msg);
-            if let Err(ref e) = commit_result {
-                let err_str = e.to_string();
-                if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
-                    return Ok(PushOutcome::Pushed);
-                }
-            }
-            commit_result?;
-
-            // Push
-            let remote = self.sync.remote();
-            let push_result = self.git_in_cache(&["push", remote, crate::sync::HUB_BRANCH]);
-            match push_result {
-                Ok(_) => return Ok(PushOutcome::Pushed),
-                Err(e) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("Could not resolve host")
-                        || err_str.contains("Could not read from remote")
-                    {
-                        tracing::warn!(
-                            "Warning: push failed (offline), changes saved locally only: {}",
-                            message
-                        );
-                        return Ok(PushOutcome::LocalOnly);
-                    }
-                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                        if attempt < MAX_RETRIES - 1 {
-                            self.check_divergence()?;
-                            self.recover_from_push_conflict(remote)?;
-                            continue;
-                        }
-                        tracing::warn!(
-                            "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
-                            MAX_RETRIES, message
-                        );
-                        return Ok(PushOutcome::LocalOnly);
-                    }
-                    return Err(e);
-                }
-            }
+        if !self.is_v3() {
+            bail!(V2_WRITE_REFUSAL);
         }
-        Ok(PushOutcome::Pushed)
+        crate::hub_v3::write_request_to_own_ref(
+            &self.cache_dir,
+            &self.agent.agent_id,
+            target_agent_id,
+            request,
+        )?;
+        Ok(self.push_own_ref_outcome())
+    }
+
+    /// Write an ack for a previously-received agent request.
+    ///
+    /// V3-only (#754, REQ-10): the TARGET agent writes the ack into ITS OWN ref
+    /// under `requests-ack/<ulid>.json` (single-writer invariant) and pushes the
+    /// ref. `target_agent_id` here IS the acking agent (the poll passes its own
+    /// id). A v2 hub is refused.
+    ///
+    /// # Errors
+    /// Returns an error if the cache can't be prepared, the ref write fails, or
+    /// the ack's JSON encoding fails.
+    pub fn write_agent_ack(
+        &self,
+        _target_agent_id: &str,
+        ack: &crate::agent_requests::AgentRequestAck,
+    ) -> Result<PushOutcome> {
+        let _lock_guard = self.sync.acquire_lock()?;
+
+        if !self.is_v3() {
+            bail!(V2_WRITE_REFUSAL);
+        }
+        crate::hub_v3::write_ack_to_own_ref(
+            &self.cache_dir,
+            &self.agent.agent_id,
+            &ack.request_id,
+            ack,
+        )?;
+        Ok(self.push_own_ref_outcome())
     }
 
     // ---- Private helpers ----
@@ -396,257 +433,89 @@ impl SharedWriter {
             .map_or((None, None), |sig| (Some(fingerprint), Some(sig)))
     }
 
-    /// Scan all issue files from the cache, applying a filter predicate.
-    ///
-    /// Supports both V1 (`issues/{uuid}.json`) and V2 (`issues/{uuid}/issue.json`)
-    /// layouts. Shared implementation used by `find_offline_issues` and
-    /// `load_issue_by_display_id`.
-    pub(super) fn scan_issues<F>(&self, mut filter: F) -> Result<Vec<IssueFile>>
-    where
-        F: FnMut(&IssueFile) -> bool,
-    {
-        let issues_dir = self.cache_dir.join("issues");
-        let mut results = Vec::new();
-        if !issues_dir.exists() {
-            return Ok(results);
-        }
-        for entry in std::fs::read_dir(&issues_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            // V1: issues/{uuid}.json (flat file)
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(issue) = read_issue_file(&path) {
-                    if filter(&issue) {
-                        results.push(issue);
-                    }
-                }
-            }
-            // V2: issues/{uuid}/issue.json (directory per issue)
-            if path.is_dir() {
-                let issue_file = path.join("issue.json");
-                if issue_file.exists() {
-                    if let Ok(issue) = read_issue_file(&issue_file) {
-                        if filter(&issue) {
-                            results.push(issue);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(results)
-    }
-
-    /// Find all issue files in the cache with `display_id: null` created by this agent.
-    ///
-    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
-    /// Skips issues whose UUIDs appear in the promoted-UUIDs tracking file to
-    /// prevent re-promotion loops (gh#313).
-    pub(super) fn find_offline_issues(&self) -> Result<Vec<IssueFile>> {
-        // Load the set of already-promoted UUIDs so we never re-promote them.
-        let promoted = self.read_promoted_uuids();
-        let agent_id = self.agent.agent_id.clone();
-
-        let mut offline = self.scan_issues(|issue| {
-            issue.display_id.is_none()
-                && issue.created_by == agent_id
-                && !promoted.contains(&issue.uuid)
-        })?;
-        // Sort by created_at for deterministic ID assignment
-        offline.sort_by_key(|i| i.created_at);
-        Ok(offline)
-    }
-
-    /// Claim N sequential display IDs from `meta/counters.json`.
-    ///
-    /// Returns `(first_claimed_id, updated_counters)`.
-    ///
-    /// Before claiming, the counter is reconciled against the highest
-    /// `display_id` actually present in the hub-cache issue files. This
-    /// prevents a class of collision bugs where `counters.json` falls out
-    /// of sync with the real state — e.g. a freshly-cloned repo whose
-    /// `counters.json` defaults to 1 but whose `issues/` directory
-    /// already contains closed issues with larger IDs; or a local cache
-    /// whose counter was decremented by a previous offline rollback
-    /// without observing that other agents had meanwhile pushed issues
-    /// with higher IDs. See `reconcile_display_counter`.
-    pub(super) fn claim_display_id(&self, count: i64) -> Result<(i64, Counters)> {
-        let mut counters = self.read_counters()?;
-        self.reconcile_display_counter(&mut counters)?;
-        let first = counters.next_display_id;
-        counters.next_display_id += count;
-        Ok((first, counters))
-    }
-
-    /// Claim a milestone display ID from `meta/counters.json`.
-    ///
-    /// Returns `(claimed_id, updated_counters)`.
-    ///
-    /// As with `claim_display_id`, the counter is reconciled against the
-    /// highest `display_id` present in the on-disk milestone files
-    /// before assignment so that stale `counters.json` does not produce
-    /// colliding IDs.
-    pub(super) fn claim_milestone_id(&self) -> Result<(i64, Counters)> {
-        let mut counters = self.read_counters()?;
-        self.reconcile_milestone_counter(&mut counters)?;
-        let id = counters.next_milestone_id;
-        counters.next_milestone_id += 1;
-        Ok((id, counters))
-    }
-
-    /// Reconcile `counters.next_display_id` with the actual maximum
-    /// `display_id` present in the hub-cache issue files (open OR
-    /// closed). If the counter is behind, advance it past the max so
-    /// the next claim cannot collide with an existing file.
-    ///
-    /// Typical scenarios where the counter falls behind:
-    /// - Fresh clone: `meta/counters.json` does not yet exist so
-    ///   `read_counters` returns `Counters::default()` with
-    ///   `next_display_id = 1`, but the hub branch already has issues
-    ///   with much higher IDs.
-    /// - Offline rollback: `rewrite_as_offline` decrements the counter
-    ///   on local push failure. If another agent meanwhile pushed a
-    ///   new issue that reuses the same slot, the next online sync
-    ///   pulls it in but the local counter still points at the freed
-    ///   slot.
-    /// - Mixed hub/local state: merges and fast-forwards can leave
-    ///   `counters.json` lagging behind the issues directory.
-    ///
-    /// This is O(N) over issues-in-cache. That cost is paid only when
-    /// minting a new `display_id` (typically a handful of times per
-    /// command), not on every read.
-    pub(super) fn reconcile_display_counter(&self, counters: &mut Counters) -> Result<()> {
-        let max_existing = self
-            .scan_issues(|_| true)?
-            .iter()
-            .filter_map(|i| i.display_id)
-            .max()
-            .unwrap_or(0);
-        if counters.next_display_id <= max_existing {
-            counters.next_display_id = max_existing + 1;
-        }
-        Ok(())
-    }
-
-    /// Reconcile `counters.next_milestone_id` with the actual maximum
-    /// `display_id` present in the on-disk milestone files. See
-    /// [`reconcile_display_counter`] for the full rationale; the same
-    /// failure modes apply to milestones.
-    pub(super) fn reconcile_milestone_counter(&self, counters: &mut Counters) -> Result<()> {
-        let milestones_dir = self.cache_dir.join("meta").join("milestones");
-        let mut max_existing = 0i64;
-        if milestones_dir.exists() {
-            for entry in std::fs::read_dir(&milestones_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                    continue;
-                }
-                if let Ok(ms) = read_milestone_file(&path) {
-                    if ms.display_id > max_existing {
-                        max_existing = ms.display_id;
-                    }
-                }
-            }
-        }
-        if counters.next_milestone_id <= max_existing {
-            counters.next_milestone_id = max_existing + 1;
-        }
-        Ok(())
-    }
-
-    /// Load a milestone entry by `display_id` from per-file storage.
+    /// Load a milestone entry by `display_id`, reconstructed from the reduced
+    /// v3 state's `CompactMilestone` (v3-only; no worktree milestone files).
     pub(super) fn load_milestone_by_id(&self, display_id: i64) -> Result<MilestoneEntry> {
-        let milestones_dir = self.cache_dir.join("meta").join("milestones");
-        if milestones_dir.exists() {
-            for entry in std::fs::read_dir(&milestones_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                    continue;
-                }
-                if let Ok(ms) = read_milestone_file(&path) {
-                    if ms.display_id == display_id {
-                        return Ok(ms);
-                    }
-                }
-            }
+        if self.last_v3_state.borrow().is_none() {
+            self.refresh_v3_state()?;
         }
-        bail!("Milestone #{display_id} not found in shared cache")
-    }
-
-    /// Read counters from the cache.
-    pub(super) fn read_counters(&self) -> Result<Counters> {
-        let path = self.cache_dir.join("meta").join("counters.json");
-        read_counters(&path)
-    }
-
-    /// Write counters to the cache.
-    pub(super) fn write_counters_to_cache(&self, counters: &Counters) -> Result<()> {
-        let path = self.cache_dir.join("meta").join("counters.json");
-        write_counters(&path, counters)
-    }
-
-    /// Path to an issue JSON file in the cache.
-    ///
-    /// V1: `issues/{uuid}.json`
-    /// V2: `issues/{uuid}/issue.json`
-    pub(super) fn issue_path(&self, uuid: &Uuid) -> PathBuf {
-        if self.layout_version() >= 2 {
-            self.cache_dir
-                .join("issues")
-                .join(uuid.to_string())
-                .join("issue.json")
-        } else {
-            self.cache_dir.join("issues").join(format!("{uuid}.json"))
-        }
-    }
-
-    /// Relative path to an issue JSON file (for `WriteSet` entries and git staging).
-    ///
-    /// V1: `issues/{uuid}.json`
-    /// V2: `issues/{uuid}/issue.json`
-    pub(super) fn issue_rel_path(&self, uuid: &Uuid) -> String {
-        if self.layout_version() >= 2 {
-            format!("issues/{uuid}/issue.json")
-        } else {
-            format!("issues/{uuid}.json")
-        }
-    }
-
-    /// Relative path to a comment JSON file (V2 layout only).
-    ///
-    /// `issues/{issue_uuid}/comments/{comment_uuid}.json`
-    pub(super) fn comment_rel_path(issue_uuid: &Uuid, comment_uuid: &Uuid) -> String {
-        format!("issues/{issue_uuid}/comments/{comment_uuid}.json")
-    }
-
-    /// Load an issue JSON file by its display ID.
-    ///
-    /// Scans the issues directory for a file matching the display ID.
-    /// Supports both v1 (`issues/{uuid}.json`) and v2 (`issues/{uuid}/issue.json`) layouts.
-    pub(super) fn load_issue_by_display_id(&self, display_id: i64) -> Result<IssueFile> {
-        let mut matches = self.scan_issues(|issue| issue.display_id == Some(display_id))?;
-        matches.pop().ok_or_else(|| {
-            anyhow::anyhow!(
-                "Issue {} not found in shared cache",
-                crate::utils::format_issue_id(display_id)
-            )
+        let state = self.last_v3_state.borrow();
+        let state = state.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("v3 state unavailable while loading milestone {display_id}")
+        })?;
+        let cm = state
+            .milestones
+            .values()
+            .find(|m| m.display_id == Some(display_id))
+            .ok_or_else(|| anyhow::anyhow!("Milestone #{display_id} not found in v3 state"))?;
+        Ok(MilestoneEntry {
+            uuid: cm.uuid,
+            display_id,
+            name: cm.name.clone(),
+            description: cm.description.clone(),
+            status: cm.status,
+            created_at: cm.created_at,
+            closed_at: cm.closed_at,
         })
     }
 
-    /// Load an issue by ID, supporting both positive (real) and negative (offline) IDs.
+    /// Load an issue by its display ID, reconstructed from the reduced v3 state
+    /// (v3-only; no worktree issue files). The prepare closures use the loaded
+    /// `IssueFile` only to read the issue's uuid and current fields.
+    pub(super) fn load_issue_by_display_id(&self, display_id: i64) -> Result<IssueFile> {
+        if self.last_v3_state.borrow().is_none() {
+            self.refresh_v3_state()?;
+        }
+        let state = self.last_v3_state.borrow();
+        let state = state.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("v3 state unavailable while loading issue {display_id}")
+        })?;
+        let ci = state
+            .issues
+            .values()
+            .find(|i| i.display_id == Some(display_id))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Issue {} not found in v3 state",
+                    crate::utils::format_issue_id(display_id)
+                )
+            })?;
+        Ok(IssueFile {
+            uuid: ci.uuid,
+            display_id: ci.display_id,
+            title: ci.title.clone(),
+            description: ci.description.clone(),
+            status: ci.status,
+            priority: ci.priority,
+            parent_uuid: ci.parent_uuid,
+            created_by: ci.created_by.clone(),
+            created_at: ci.created_at,
+            updated_at: ci.updated_at,
+            closed_at: ci.closed_at,
+            scheduled_at: ci.scheduled_at,
+            due_at: ci.due_at,
+            labels: ci.labels.iter().cloned().collect(),
+            comments: vec![],
+            blockers: ci.blockers.iter().copied().collect(),
+            related: ci.related.iter().copied().collect(),
+            milestone_uuid: ci.milestone_uuid,
+            time_entries: vec![],
+        })
+    }
+
+    /// Load an issue by its display ID from the reduced v3 state.
     ///
-    /// For negative IDs, consults `SQLite` to resolve the UUID first.
+    /// Negative (offline) ids are a v2-only concept — v3 reduction assigns every
+    /// issue an authoritative id, so a negative id cannot be resolved here.
     pub(super) fn load_issue_by_id(&self, id: i64, db: &Database) -> Result<IssueFile> {
         let resolved = db.resolve_id(id);
         if resolved >= 0 {
             self.load_issue_by_display_id(resolved)
         } else {
-            let uuid_str = db.get_issue_uuid_by_id(resolved)?;
-            let uuid: Uuid = uuid_str.parse().with_context(|| {
-                format!("Invalid UUID for local issue L{}", resolved.unsigned_abs())
-            })?;
-            read_issue_file(&self.issue_path(&uuid))
+            bail!(
+                "negative (offline) issue id L{} is not valid on a v3 hub",
+                resolved.unsigned_abs()
+            )
         }
     }
 
@@ -678,48 +547,351 @@ impl SharedWriter {
         }
     }
 
-    /// Write files from a `WriteSet` to the cache directory and update counters.
-    fn apply_write_set(&self, write_set: &WriteSet) -> Result<()> {
-        if !write_set.use_git_rm {
-            for (rel_path, content) in &write_set.files {
-                // Validate JSON content before writing to prevent corruption
-                if std::path::Path::new(rel_path)
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("json"))
-                {
-                    if let Err(e) = serde_json::from_slice::<serde_json::Value>(content) {
-                        bail!("Refusing to write invalid JSON to hub cache: {rel_path} ({e})");
-                    }
-                }
-                let full = self.cache_dir.join(rel_path);
-                if let Some(parent) = full.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::write(&full, content)?;
+    // ──────────────────────────── V3 write path ─────────────────────────
+    //
+    // 754a PASS 2. In `HubMode::V3` a mutation writes EVENTS ONLY to the
+    // agent's own ref. No worktree files, no counter reads, no rebase/conflict
+    // machinery: pushes to the own ref are fast-forward by construction
+    // (single-writer-per-ref), and ids are reduction-assigned so there is no
+    // offline-promotion or counter-revert dance. The entire v2 offline/promote
+    // path is UNNECESSARY in v3 because (a) ids come from reduction (no
+    // double-mint to revert) and (b) every push is an own-ref fast-forward (no
+    // rebase). A failed push leaves the events durable on the LOCAL ref; the
+    // next successful push delivers them.
 
-                // Clean up stale V1 flat file when writing V2 directory
-                // format (#428). The sync-level cleanup_stale_layout_files()
-                // is the guarantee; this is opportunistic (#478).
-                if rel_path.ends_with("/issue.json") {
-                    if let Some(uuid_dir) = rel_path.strip_suffix("/issue.json") {
-                        let v1_path = self.cache_dir.join(format!("{uuid_dir}.json"));
-                        if v1_path.exists() {
-                            if let Err(e) = std::fs::remove_file(&v1_path) {
-                                tracing::warn!(
-                                    "stale V1 file {} could not be removed (sync cleanup will retry): {}",
-                                    v1_path.display(),
-                                    e
-                                );
-                            }
-                        }
-                    }
+    /// Normalize a mutation's events for the v3 write path: drop any
+    /// `display_id` so the reducer assigns the authoritative id (REQ-4). The
+    /// prepare closures emit `display_id: None` already; this is a belt-and-
+    /// braces pass over `IssueCreated` / `CommentAdded` / `TimeEntryAdded` /
+    /// `MilestoneCreated` so any stray claimed id becomes a pure-v3 emitter.
+    fn normalize_events_for_v3(events: Vec<crate::events::Event>) -> Vec<crate::events::Event> {
+        use crate::events::Event;
+        events
+            .into_iter()
+            .map(|e| match e {
+                Event::IssueCreated {
+                    uuid,
+                    title,
+                    description,
+                    priority,
+                    labels,
+                    parent_uuid,
+                    created_by,
+                    display_id: _,
+                    scheduled_at,
+                    due_at,
+                } => Event::IssueCreated {
+                    uuid,
+                    title,
+                    description,
+                    priority,
+                    labels,
+                    parent_uuid,
+                    created_by,
+                    display_id: None,
+                    scheduled_at,
+                    due_at,
+                },
+                Event::CommentAdded {
+                    issue_uuid,
+                    comment_uuid,
+                    display_id: _,
+                    author,
+                    content,
+                    created_at,
+                    kind,
+                    trigger_type,
+                    intervention_context,
+                    driver_key_fingerprint,
+                    signed_by,
+                    signature,
+                } => Event::CommentAdded {
+                    issue_uuid,
+                    comment_uuid,
+                    display_id: None,
+                    author,
+                    content,
+                    created_at,
+                    kind,
+                    trigger_type,
+                    intervention_context,
+                    driver_key_fingerprint,
+                    signed_by,
+                    signature,
+                },
+                Event::TimeEntryAdded {
+                    issue_uuid,
+                    entry_uuid,
+                    display_id: _,
+                    started_at,
+                    ended_at,
+                    duration_seconds,
+                } => Event::TimeEntryAdded {
+                    issue_uuid,
+                    entry_uuid,
+                    display_id: None,
+                    started_at,
+                    ended_at,
+                    duration_seconds,
+                },
+                Event::MilestoneCreated {
+                    uuid,
+                    display_id: _,
+                    name,
+                    description,
+                    created_at,
+                } => Event::MilestoneCreated {
+                    uuid,
+                    display_id: None,
+                    name,
+                    description,
+                    created_at,
+                },
+                other => other,
+            })
+            .collect()
+    }
+
+    /// Append `events` to this agent's OWN REF, push it (fast-forward), then
+    /// reduce + hydrate so `SQLite` reflects the mutation immediately.
+    ///
+    /// Caller MUST already hold the hub write lock (`sync.acquire_lock()`,
+    /// REQ-8 single local lock). Returns the [`PushOutcome`]: `Pushed` when the
+    /// own ref reached the remote (or no remote is configured), `LocalOnly`
+    /// when the push failed benignly (offline / transient) — the events are
+    /// durable on the local ref and the next successful push delivers them.
+    ///
+    /// On success the reduced [`crate::checkpoint::CheckpointState`] is cached
+    /// in `self.last_v3_state` so create/comment/milestone flows can read the
+    /// reduction-assigned display id (REQ-4).
+    fn commit_v3(
+        &self,
+        events: Vec<crate::events::Event>,
+        _lock: &crate::sync::HubWriteLock,
+    ) -> Result<PushOutcome> {
+        let agent_id = self.agent.agent_id.clone();
+        let normalized = Self::normalize_events_for_v3(events);
+
+        // 1. Envelope + append each event to the OWN REF (sibling-preserving).
+        //    Sequence numbers come from `self.event_seq`, initialized in `new`
+        //    from the ref's log (read_max_event_seq in V3 mode). No worktree
+        //    `events.log` is written — the ref is the only log.
+        for event in normalized {
+            let envelope = self.create_envelope(event);
+            crate::hub_v3::append_event_to_ref(&self.cache_dir, &agent_id, &envelope)
+                .context("v3: failed to append event to agent ref")?;
+        }
+
+        // 2. Push the own ref (plain fast-forward CAS). A non-Pushed outcome is
+        //    benign: the events stay durable on the local ref. NonFastForward on
+        //    our OWN ref would indicate identity collision / tampering (REQ-1)
+        //    — surfaced loudly but still treated as LocalOnly (state is durable).
+        let remote = self.sync.remote();
+        let mut outcome = PushOutcome::Pushed;
+        if self.sync.remote_exists() {
+            match crate::hub_v3::push_agent_ref(&self.cache_dir, remote, &agent_id)? {
+                crate::hub_v3::PushOutcome::Pushed => {}
+                crate::hub_v3::PushOutcome::NonFastForward => {
+                    tracing::error!(
+                        "v3 own-ref push for agent '{agent_id}' was rejected as non-fast-forward \
+                         — identity collision or ref tampering (REQ-1); events remain durable \
+                         on the local ref"
+                    );
+                    outcome = PushOutcome::LocalOnly;
+                }
+                crate::hub_v3::PushOutcome::NoRemote => {
+                    outcome = PushOutcome::LocalOnly;
+                }
+                crate::hub_v3::PushOutcome::Failed(detail) => {
+                    tracing::warn!(
+                        "v3 own-ref push for agent '{agent_id}' did not complete ({detail}); \
+                         events saved locally only"
+                    );
+                    outcome = PushOutcome::LocalOnly;
+                }
+            }
+        } else {
+            outcome = PushOutcome::LocalOnly;
+        }
+
+        // 3. Fetch + adopt OTHER agents' refs BEFORE reducing, so the reduced
+        //    state (and the checkpoint we write) reflects the full event set —
+        //    not just our local view. This is what makes the lock claim-confirm
+        //    correct: an earlier-ordered claim from another agent that arrives
+        //    here is seen now, rather than being masked by a checkpoint we
+        //    advanced from a partial view. The hub write lock is already held
+        //    (we are inside write_commit_push / emit_compact_push), so we use the
+        //    lock-free fetch_and_adopt_v3_refs rather than sync.fetch() (which
+        //    would re-acquire the non-reentrant lock and deadlock).
+        if self.sync.remote_exists() {
+            self.sync.fetch_and_adopt_v3_refs();
+        }
+
+        // 4. Reduce -> cache state for display-id lookup + hydration. Write +
+        //    push the checkpoint (pure cache, REQ-7). The write path does NOT
+        //    prune the own ref: pruning every mutation would rewrite the own ref
+        //    each time (and a prune followed by a plain push is non-fast-forward).
+        //    REQ-11 prune is confined to the explicit `compact` command.
+        self.refresh_v3_state()?;
+        self.write_and_push_v3_checkpoint();
+
+        Ok(outcome)
+    }
+
+    /// Reduce-free checkpoint refresh for the write path: serialize the cached
+    /// `last_v3_state`, write it to the local checkpoint ref (idempotent), and
+    /// push it (best-effort). NO prune. A failure is logged, never fatal — the
+    /// checkpoint is a pure cache (REQ-7) and readers reduce on demand.
+    fn write_and_push_v3_checkpoint(&self) {
+        let bytes = {
+            let state = self.last_v3_state.borrow();
+            let Some(state) = state.as_ref() else {
+                return;
+            };
+            let mut state = state.clone();
+            state.compaction_lease = None;
+            match serde_json::to_vec_pretty(&state) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("v3: checkpoint serialization failed (non-fatal): {e}");
+                    return;
+                }
+            }
+        };
+        // Idempotent: skip when the local checkpoint already matches.
+        if let Ok(Some(tip)) =
+            crate::hub_v3::git_rev_parse_optional(&self.cache_dir, crate::hub_v3::CHECKPOINT_REF)
+        {
+            let spec = format!("{tip}:state.json");
+            if let Ok(Some(existing)) =
+                crate::hub_v3::git_cat_file_blob_optional(&self.cache_dir, &spec)
+            {
+                if existing == bytes {
+                    return;
                 }
             }
         }
-        if let Some(ref c) = write_set.counters {
-            self.write_counters_to_cache(c)?;
+        if let Err(e) = crate::hub_v3::commit_blob_to_ref(
+            &self.cache_dir,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "crosslink v3 checkpoint",
+        ) {
+            tracing::warn!("v3: checkpoint write failed (non-fatal): {e}");
+            return;
         }
+        if self.sync.remote_exists() {
+            let expected = crate::hub_v3::git_rev_parse_optional(
+                &self.cache_dir,
+                "refs/crosslink-remote/checkpoint",
+            )
+            .ok()
+            .flatten();
+            match crate::hub_v3::push_ref_with_lease(
+                &self.cache_dir,
+                self.sync.remote(),
+                crate::hub_v3::CHECKPOINT_REF,
+                expected.as_deref(),
+            ) {
+                Ok(
+                    crate::hub_v3::PushOutcome::Pushed | crate::hub_v3::PushOutcome::NonFastForward,
+                ) => {}
+                Ok(other) => tracing::debug!("v3: checkpoint push did not complete: {other:?}"),
+                Err(e) => tracing::debug!("v3: checkpoint push error (benign): {e}"),
+            }
+        }
+    }
+
+    /// Reduce the current v3 ref namespace and cache the materialized state in
+    /// `self.last_v3_state` (for display-id lookup). Does NOT touch `SQLite` —
+    /// the caller drives hydration onto its own `&Database` via
+    /// [`Self::hydrate_with_retry`], which dispatches to `hydrate_from_state`
+    /// under V3 using this cached state.
+    fn refresh_v3_state(&self) -> Result<()> {
+        let source = crate::hub_source::RefHubSource::new(&self.cache_dir)
+            .context("v3: failed to construct RefHubSource for state refresh")?;
+        let outcome =
+            crate::compaction::reduce(&source).context("v3: reduction for state refresh failed")?;
+        *self.last_v3_state.borrow_mut() = Some(outcome.state);
         Ok(())
+    }
+
+    /// Push this agent's OWN ref and map the result to a [`PushOutcome`].
+    /// Shared by the v3 request/ack writers. A non-`Pushed` result is benign:
+    /// the data is durable on the local ref and delivers on the next push.
+    fn push_own_ref_outcome(&self) -> PushOutcome {
+        if !self.sync.remote_exists() {
+            return PushOutcome::LocalOnly;
+        }
+        match crate::hub_v3::push_agent_ref(
+            &self.cache_dir,
+            self.sync.remote(),
+            &self.agent.agent_id,
+        ) {
+            Ok(crate::hub_v3::PushOutcome::Pushed) => PushOutcome::Pushed,
+            Ok(other) => {
+                tracing::warn!(
+                    "v3 own-ref push for '{}' did not complete: {other:?}; saved locally",
+                    self.agent.agent_id
+                );
+                PushOutcome::LocalOnly
+            }
+            Err(e) => {
+                tracing::warn!("v3 own-ref push for '{}' error: {e}", self.agent.agent_id);
+                PushOutcome::LocalOnly
+            }
+        }
+    }
+
+    /// V3 lock claim-confirm helper: fetch every other agent's ref, reduce, and
+    /// re-cache the state so a subsequent `read_lock_v2` sees the full event set
+    /// (first-claim-wins winner). `sync.fetch()` is the v3 fetch (adopts other
+    /// agents' refs + checkpoint, then compacts), after which `refresh_v3_state`
+    /// re-reduces and caches. A fetch failure (offline) is non-fatal — we then
+    /// confirm against the local view, which is the best available.
+    pub(super) fn confirm_v3_locks(&self) -> Result<()> {
+        if let Err(e) = self.sync.fetch() {
+            tracing::warn!("v3 lock confirm: fetch failed ({e}); confirming against local view");
+        }
+        self.refresh_v3_state()
+    }
+
+    /// Look up the reduction-assigned display id for `uuid` from the last
+    /// cached v3 state (`display_id_map`, REQ-4). Returns `None` when the id is
+    /// not yet frozen by reduction (provisional) or no state is cached.
+    pub(super) fn v3_assigned_display_id(&self, uuid: &Uuid) -> Option<i64> {
+        self.last_v3_state
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.display_id_map.get(uuid).copied())
+    }
+
+    /// Look up the reduction-assigned comment display id from the last cached
+    /// v3 state, by the comment's host issue display id and the comment uuid.
+    /// Returns `None` when the comment's id is provisional (not yet frozen) or
+    /// the state/issue/comment is not present.
+    pub(super) fn v3_assigned_comment_id(
+        &self,
+        issue_display_id: i64,
+        comment_uuid: &Uuid,
+    ) -> Option<i64> {
+        let state = self.last_v3_state.borrow();
+        let state = state.as_ref()?;
+        let issue = state
+            .issues
+            .values()
+            .find(|i| i.display_id == Some(issue_display_id))?;
+        issue.comments.get(comment_uuid).and_then(|c| c.display_id)
+    }
+
+    /// Look up the reduction-assigned milestone display id for `uuid` from the
+    /// last cached v3 state. Returns `None` when not yet assigned by reduction.
+    pub(super) fn v3_assigned_milestone_id(&self, uuid: &Uuid) -> Option<i64> {
+        self.last_v3_state
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.milestones.get(uuid).and_then(|m| m.display_id))
     }
 
     /// Generate content, commit, and push with retry.
@@ -728,251 +900,24 @@ impl SharedWriter {
     /// re-read any mutable state (counters, issue files) from the cache
     /// which may have changed after a rebase pull.  This prevents stale
     /// display-ID collisions when two agents race.
-    pub(super) fn write_commit_push<F>(&self, mut prepare: F, message: &str) -> Result<PushOutcome>
+    ///
+    /// V3-only (#754, REQ-10): `prepare` is run ONCE to produce the events,
+    /// which are appended to the agent's own ref and pushed fast-forward (see
+    /// [`Self::commit_v3`]). A mutation on a legacy v2 hub is refused — the v2
+    /// worktree-file write path is deleted.
+    pub(super) fn write_commit_push<F>(&self, mut prepare: F, _message: &str) -> Result<PushOutcome>
     where
         F: FnMut(&Self) -> Result<WriteSet>,
     {
         // Serialize access to the hub cache via SyncManager's lock (#400, #457)
-        let _lock_guard = self.sync.acquire_lock()?;
+        let lock_guard = self.sync.acquire_lock()?;
 
-        for attempt in 0..MAX_RETRIES {
-            // Recover from broken git states before attempting write (#454, #455, #456)
-            self.hub_health_check();
-
-            // (Re-)generate content -- reads fresh counters/files after rebase
-            let write_set = prepare(self)?;
-
-            // Write files to cache and update counters
-            self.apply_write_set(&write_set)?;
-
-            // Collect relative paths for staging
-            let mut paths: Vec<String> = write_set.files.iter().map(|(p, _)| p.clone()).collect();
-            if write_set.counters.is_some() {
-                paths.push("meta/counters.json".to_string());
-            }
-
-            // Stage
-            for path in &paths {
-                if write_set.use_git_rm {
-                    // Use `git rm` (not --cached) so files are removed from
-                    // both the index AND the working directory atomically.
-                    // This prevents split state where the file is gone from
-                    // disk but the commit fails (#427). --force handles
-                    // modified files; --ignore-unmatch handles retries where
-                    // the file is already gone.
-                    // -r enables recursive removal for V2 directories (#460)
-                    // INTENTIONAL: git rm is best-effort — --ignore-unmatch handles missing files on retry
-                    if let Err(e) =
-                        self.git_in_cache(&["rm", "-r", "--force", "--ignore-unmatch", path])
-                    {
-                        tracing::debug!(
-                            "git rm for '{}' did not succeed (may be already removed): {}",
-                            path,
-                            e
-                        );
-                    }
-                } else {
-                    self.git_in_cache(&["add", path])?;
-                }
-            }
-
-            // Commit (unsigned when no SSH key)
-            let commit_msg = format!(
-                "{}: {} at {}",
-                self.agent.agent_id,
-                message,
-                Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
-            );
-            let commit_result = self.git_commit_in_cache(&commit_msg);
-            if let Err(e) = &commit_result {
-                let err_str = e.to_string();
-                if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
-                    return Ok(PushOutcome::Pushed);
-                }
-                // Commit failed — if we were deleting files (git rm), restore
-                // Commit failed — reset index and working directory to HEAD
-                // to prevent split state (#427, #468). This is safe because
-                // the commit didn't succeed, so HEAD is the correct state.
-                if write_set.use_git_rm {
-                    if let Err(reset_err) = self.git_in_cache(&["reset", "--hard", "HEAD"]) {
-                        tracing::error!(
-                            "hub cache may be corrupt: commit failed and reset failed: {}",
-                            reset_err
-                        );
-                    }
-                }
-                commit_result?;
-            }
-
-            // Push
-            let remote = self.sync.remote();
-            let push_result = self.git_in_cache(&["push", remote, crate::sync::HUB_BRANCH]);
-            match push_result {
-                Ok(_) => return Ok(PushOutcome::Pushed),
-                Err(e) => {
-                    let err_str = e.to_string();
-                    // Offline -- commit is local, will push on next sync
-                    if err_str.contains("Could not resolve host")
-                        || err_str.contains("Could not read from remote")
-                    {
-                        tracing::warn!(
-                            "Warning: push failed (offline), changes saved locally only: {}",
-                            message
-                        );
-                        return Ok(PushOutcome::LocalOnly);
-                    }
-                    // Conflict -- reset commit AND working directory, pull latest,
-                    // then retry. The prepare closure re-reads fresh state on the
-                    // next iteration, so losing working dir changes is safe.
-                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                        if attempt < MAX_RETRIES - 1 {
-                            // Bail if local has diverged too far -- sign of a rebase loop
-                            self.check_divergence()?;
-                            // Escalating recovery: get to a known-good state (#466)
-                            self.recover_from_push_conflict(remote)?;
-                            continue;
-                        }
-                        // All retries exhausted -- keep as local-only
-                        tracing::warn!(
-                            "Warning: push failed after {} retries (conflict), changes saved locally only: {}",
-                            MAX_RETRIES, message
-                        );
-                        return Ok(PushOutcome::LocalOnly);
-                    }
-                    // Other error -- propagate
-                    return Err(e);
-                }
-            }
-        }
-        Ok(PushOutcome::Pushed)
-    }
-
-    /// Check if local has diverged too far from remote and bail if so.
-    /// Delegates to `SyncManager::check_divergence` via the shared `sync` field.
-    pub(super) fn check_divergence(&self) -> Result<()> {
-        self.sync.check_divergence()
-    }
-
-    /// Run hub health checks to recover from broken git states.
-    /// Delegates to `SyncManager::hub_health_check` via the shared `sync` field.
-    pub(super) fn hub_health_check(&self) {
-        self.sync.hub_health_check();
-    }
-
-    /// Run a git command in the cache worktree.
-    pub(super) fn git_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
-        let output = std::process::Command::new("git")
-            .current_dir(&self.cache_dir)
-            .args(args)
-            .output()
-            .with_context(|| format!("Failed to run git {args:?} in cache"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {args:?} in cache failed: {stderr}");
-        }
-        Ok(output)
-    }
-
-    /// Escalating recovery from a push conflict (#466).
-    ///
-    /// Attempts to get the hub cache back to a known-good state so the
-    /// retry loop can re-prepare and push again. Each step verifies it
-    /// worked before moving on:
-    ///
-    /// 1. Reset HEAD~1 to undo our commit
-    /// 2. Pull --rebase to sync with remote
-    /// 3. If rebase conflicts: abort, then reset to remote
-    /// 4. Verify we're on the branch and not mid-rebase
-    pub(super) fn recover_from_push_conflict(&self, remote: &str) -> Result<()> {
-        let remote_ref = format!("{}/{}", remote, crate::sync::HUB_BRANCH);
-
-        // Step 1: undo our commit
-        if self.git_in_cache(&["reset", "--hard", "HEAD~1"]).is_err() {
-            tracing::warn!("reset HEAD~1 failed, falling back to reset to remote");
-            self.git_in_cache(&["reset", "--hard", &remote_ref])?;
-            return self.verify_clean_state();
+        if !self.is_v3() {
+            bail!(V2_WRITE_REFUSAL);
         }
 
-        // Step 2: pull latest from remote
-        let pull_result = self.git_in_cache(&["pull", "--rebase", remote, crate::sync::HUB_BRANCH]);
-
-        if let Err(e) = pull_result {
-            let err_str = e.to_string();
-            if err_str.contains("CONFLICT")
-                || err_str.contains("rebase")
-                || err_str.contains("could not apply")
-            {
-                // Step 3: rebase conflicted — abort and force-align to remote
-                let _ = self.git_in_cache(&["rebase", "--abort"]);
-                self.git_in_cache(&["reset", "--hard", &remote_ref])?;
-            } else {
-                // Pull failed for non-conflict reason — health check + retry
-                self.hub_health_check();
-                self.git_in_cache(&["pull", "--rebase", remote, crate::sync::HUB_BRANCH])?;
-            }
-        }
-
-        // Step 4: verify we're in a known-good state before returning
-        self.verify_clean_state()
-    }
-
-    /// Verify the hub cache is in a clean, usable state.
-    ///
-    /// Checks: on the correct branch, not mid-rebase, clean working directory.
-    /// Called after recovery operations to confirm they actually worked.
-    fn verify_clean_state(&self) -> Result<()> {
-        // Must be on the hub branch, not detached
-        if self.git_in_cache(&["symbolic-ref", "HEAD"]).is_err() {
-            bail!("hub cache recovery failed: HEAD is still detached");
-        }
-
-        // Must not be mid-rebase
-        let git_dir = self.git_in_cache(&["rev-parse", "--git-dir"]).map_or_else(
-            |_| self.cache_dir.join(".git"),
-            |o| {
-                let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                let p = PathBuf::from(&raw);
-                if p.is_absolute() {
-                    p
-                } else {
-                    self.cache_dir.join(p)
-                }
-            },
-        );
-
-        if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
-            bail!("hub cache recovery failed: still in mid-rebase state");
-        }
-
-        Ok(())
-    }
-
-    /// Run a git commit in the cache worktree, disabling signing when
-    /// the agent has no SSH key (anonymous/pre-init mode).
-    pub(super) fn git_commit_in_cache(&self, message: &str) -> Result<std::process::Output> {
-        self.git_commit_in_cache_with_args(&["-m", message])
-    }
-
-    /// Run a git commit with arbitrary args in the cache worktree,
-    /// disabling signing when the agent has no SSH key.
-    pub(super) fn git_commit_in_cache_with_args(
-        &self,
-        args: &[&str],
-    ) -> Result<std::process::Output> {
-        let has_key = self.agent.ssh_key_path.is_some();
-        let mut cmd = std::process::Command::new("git");
-        cmd.current_dir(&self.cache_dir);
-        if !has_key {
-            cmd.args(["-c", "commit.gpgsign=false"]);
-        }
-        cmd.arg("commit").args(args);
-        let output = cmd
-            .output()
-            .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git commit {args:?} in cache failed: {stderr}");
-        }
-        Ok(output)
+        // Run prepare ONCE: it produces the events that drive the ref-only write.
+        let write_set = prepare(self)?;
+        self.commit_v3(write_set.events, &lock_guard)
     }
 }

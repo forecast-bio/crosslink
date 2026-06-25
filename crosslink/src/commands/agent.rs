@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-use crate::identity::AgentConfig;
+use crate::identity::{AgentConfig, AgentRole};
 use crate::signing;
 use crate::sync;
 use crate::utils::format_issue_id;
@@ -15,13 +15,22 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
             description,
             no_key,
             force,
-        } => init(
-            crosslink_dir,
-            &agent_id,
-            description.as_deref(),
-            no_key,
-            force,
-        ),
+            role,
+        } => {
+            let parsed_role = match role.as_deref() {
+                Some("driver") => AgentRole::Driver,
+                Some("agent") | None => AgentRole::Agent,
+                Some(other) => bail!("invalid role {other:?}; expected 'driver' or 'agent'"),
+            };
+            init(
+                crosslink_dir,
+                &agent_id,
+                description.as_deref(),
+                no_key,
+                force,
+                parsed_role,
+            )
+        }
         AgentCommands::Status => status(crosslink_dir),
         AgentCommands::Prompt {
             session,
@@ -45,27 +54,268 @@ pub fn run(command: AgentCommands, crosslink_dir: &Path) -> Result<()> {
                 description.as_deref(),
                 no_key,
             )?;
-            // Ensure the agent directory exists on the hub branch
-            let cl_dir = target_path.join(".crosslink");
-            if let Ok(s) = sync::SyncManager::new(&cl_dir) {
-                if let Err(e) = s.ensure_agent_dir(&identity) {
-                    tracing::warn!(
-                        "could not create agent dir on hub: {e} — will be created on next sync"
-                    );
-                }
-            }
+            // The agent's v3 ref is created on its first hub write (heartbeat /
+            // mutation), so there is no separate agent-directory bootstrap step
+            // anymore (the v2 `agents/<id>/` write path was removed in 754b).
+            Ok(())
+        }
+        AgentCommands::Request {
+            target,
+            kind,
+            subject_issue,
+            reason,
+        } => request(
+            crosslink_dir,
+            &target,
+            &kind,
+            subject_issue,
+            reason.as_deref(),
+        ),
+        AgentCommands::Requests { target, pending } => {
+            list_requests(crosslink_dir, target.as_deref(), pending)
+        }
+        AgentCommands::PollRequests => poll_requests(crosslink_dir),
+        AgentCommands::Flags { strict } => {
+            show_flags(crosslink_dir, strict);
             Ok(())
         }
     }
 }
 
-/// `crosslink agent init <agent-id> [-d "description"] [--no-key] [--force]`
+/// `crosslink agent flags [--strict]`
+///
+/// Reports whether `paused` / `kill` / `reprioritise` flags are set
+/// in `.crosslink/agent-flags/`. With `--strict`, exits 2 when either
+/// `paused` or `kill` is active so `PreToolUse` hooks can block tool
+/// invocation cleanly.
+fn show_flags(crosslink_dir: &Path, strict: bool) {
+    let paused = crate::agent_flags::is_paused(crosslink_dir);
+    let kill = crate::agent_flags::should_exit(crosslink_dir);
+    let hint = crate::agent_flags::read_reprioritise_hint(crosslink_dir)
+        .ok()
+        .flatten();
+
+    let json = serde_json::json!({
+        "paused": paused,
+        "kill": kill,
+        "reprioritise": hint.as_ref().map(|h| serde_json::json!({
+            "issue_id": h.issue_id,
+            "from_request_id": h.from_request_id,
+        })),
+    });
+    println!("{json}");
+
+    if strict && (paused || kill) {
+        // Exit code 2 = "blocked by control flag". Distinguishes from
+        // genuine errors (1) so hooks can pattern-match cleanly.
+        std::process::exit(2);
+    }
+}
+
+/// `crosslink agent poll-requests`
+///
+/// Scans the hub cache for pending requests targeted at this agent,
+/// applies each one's local flag (pause / resume / kill / reprioritise),
+/// and writes an ack to the hub so drivers see the outcome. Idempotent
+/// — already-acked requests are skipped.
+fn poll_requests(crosslink_dir: &Path) -> Result<()> {
+    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "agent poll-requests requires shared-writer mode (run `crosslink agent init` first)"
+        )
+    })?;
+    let agent = AgentConfig::load(crosslink_dir)?
+        .ok_or_else(|| anyhow::anyhow!("no agent config; run `crosslink agent init`"))?;
+
+    let result =
+        crate::agent_requests::poll::process_pending(&writer, crosslink_dir, &agent.agent_id)?;
+
+    if result.acted.is_empty() && result.skipped_existing_ack == 0 {
+        println!("No pending requests for {}.", agent.agent_id);
+        return Ok(());
+    }
+    for a in &result.acted {
+        println!(
+            "{}  {:?}  acted={}  {}  ({:?})",
+            a.request_id, a.kind, a.acted, a.result, a.push_outcome
+        );
+    }
+    if result.skipped_existing_ack > 0 {
+        println!(
+            "Skipped {} already-acked request(s).",
+            result.skipped_existing_ack
+        );
+    }
+    Ok(())
+}
+
+/// `crosslink agent request <target> <kind> [--subject-issue N] [--reason "..."]`
+///
+/// Writes a signed JSON file to `agents/<target>/requests/<ulid>.json`
+/// on `crosslink/hub`. The target agent's polling loop picks it up and
+/// executes the action (design doc §9).
+fn request(
+    crosslink_dir: &Path,
+    target: &str,
+    kind_str: &str,
+    subject_issue: Option<i64>,
+    reason: Option<&str>,
+) -> Result<()> {
+    let kind = crate::agent_requests::RequestKind::parse(kind_str)?;
+
+    let writer = crate::shared_writer::SharedWriter::new(crosslink_dir)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "agent request requires hub access — run `crosslink sync` to initialize, or `crosslink agent init` for a full agent identity"
+        )
+    })?;
+
+    // Drivers (operators) may not have run `crosslink agent init`;
+    // they have a `user.signingkey` in git but no agent.json. Fall
+    // back to that fingerprint so the dashboard can send requests
+    // without forcing operators through agent setup.
+    let requested_by = if let Some(driver) = AgentConfig::load(crosslink_dir)? {
+        driver
+            .ssh_fingerprint
+            .clone()
+            .unwrap_or_else(|| format!("agent:{}", driver.agent_id))
+    } else {
+        let workspace_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+        resolve_driver_signing_key(workspace_root).unwrap_or_else(|| "driver:unknown".to_string())
+    };
+
+    let req = crate::agent_requests::AgentRequest {
+        request_id: crate::agent_requests::new_request_id(),
+        kind,
+        subject: crate::agent_requests::RequestSubject {
+            issue_id: subject_issue,
+        },
+        requested_by,
+        requested_at: chrono::Utc::now().to_rfc3339(),
+        reason: reason.map(str::to_string),
+    };
+
+    let outcome = writer.write_agent_request(target, &req)?;
+    match outcome {
+        crate::shared_writer::PushOutcome::Pushed => {
+            println!(
+                "Request {} ({}) sent to {}.",
+                req.request_id, kind_str, target
+            );
+        }
+        crate::shared_writer::PushOutcome::LocalOnly => {
+            println!(
+                "Request {} ({}) saved locally for {} (push deferred — offline or contested hub).",
+                req.request_id, kind_str, target
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Read `user.signingkey` from the workspace's git config and turn it
+/// into a fingerprint. Used as a fallback identity when no agent.json
+/// exists. Returns `None` if the config is unset or the key file
+/// can't be fingerprinted.
+fn resolve_driver_signing_key(workspace_root: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .args(["config", "user.signingkey"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    // user.signingkey can be either a raw fingerprint or a path to a
+    // public/private key file. If it's a path we fingerprint it; if
+    // not we just record what's there as the principal.
+    let path = std::path::Path::new(&raw);
+    if path.exists() {
+        let pub_path = if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("pub"))
+        {
+            path.to_path_buf()
+        } else {
+            std::path::PathBuf::from(format!("{raw}.pub"))
+        };
+        if pub_path.exists() {
+            if let Ok(fp) = signing::get_key_fingerprint(&pub_path) {
+                return Some(fp);
+            }
+        }
+    }
+    Some(raw)
+}
+
+/// `crosslink agent requests [--target <id>] [--pending]`
+fn list_requests(crosslink_dir: &Path, target: Option<&str>, pending_only: bool) -> Result<()> {
+    let sync = sync::SyncManager::new(crosslink_dir)?;
+    let cache = sync.cache_path();
+    if !cache.exists() {
+        println!("No hub cache present (nothing synced yet).");
+        return Ok(());
+    }
+
+    let agents_dir = cache.join("agents");
+    if !agents_dir.exists() {
+        println!("No agents on hub yet.");
+        return Ok(());
+    }
+
+    let agent_ids: Vec<String> = if let Some(t) = target {
+        vec![t.to_string()]
+    } else {
+        std::fs::read_dir(&agents_dir)
+            .with_context(|| format!("read_dir {}", agents_dir.display()))?
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect()
+    };
+
+    let mut total = 0;
+    for agent_id in agent_ids {
+        let entries = crate::agent_requests::scan(cache, &agent_id)?;
+        for row in entries {
+            if pending_only && row.ack.is_some() {
+                continue;
+            }
+            total += 1;
+            let status = row
+                .ack
+                .as_ref()
+                .map_or_else(|| "pending".to_string(), |a| format!("acked: {}", a.result));
+            let subject = row
+                .request
+                .subject
+                .issue_id
+                .map_or_else(|| "-".to_string(), format_issue_id);
+            println!(
+                "{agent_id}  {}  {:?}  subject={subject}  [{status}]  by {}",
+                row.request.request_id, row.request.kind, row.request.requested_by
+            );
+        }
+    }
+
+    if total == 0 {
+        println!("No requests found.");
+    }
+    Ok(())
+}
+
+/// `crosslink agent init <agent-id> [-d "description"] [--no-key] [--force] [--role driver|agent]`
 pub fn init(
     crosslink_dir: &Path,
     agent_id: &str,
     description: Option<&str>,
     no_key: bool,
     force: bool,
+    role: AgentRole,
 ) -> Result<()> {
     match AgentConfig::load(crosslink_dir) {
         Ok(Some(_)) if force => {
@@ -81,11 +331,20 @@ pub fn init(
             );
         }
     }
-    let mut config = AgentConfig::init(crosslink_dir, agent_id, description)?;
+    // Role drives downstream signing: `Driver` makes hub commits
+    // sign with the main repo's `user.signingkey` (the human's
+    // GitHub-registered key); `Agent` makes them sign with this
+    // agent's own key (subagent worktree attribution). See #718.
+    let mut config = AgentConfig::init_with_role(crosslink_dir, agent_id, description, role)?;
 
     // Generate SSH key unless opted out
     if !no_key {
-        let keys_dir = crosslink_dir.join("keys");
+        // GH#610: store keys under the main repo's `.crosslink/keys/` so
+        // they outlive `git worktree remove` of an agent worktree. The
+        // worktree-scoped `user.signingkey` on the hub-cache (which is
+        // also rooted in the main repo) then references a stable path.
+        let host_crosslink = signing::host_crosslink_dir(crosslink_dir);
+        let keys_dir = host_crosslink.join("keys");
         match signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
             Ok(keypair) => {
                 // Store relative path from .crosslink/
@@ -119,9 +378,59 @@ pub fn init(
                 }
             }
             Err(e) => {
-                println!("  Warning: Could not generate SSH key: {e}");
-                println!("  Signing will be unavailable. Use --no-key to suppress this warning.");
+                // On --force re-runs, key-gen errors with "already exists".
+                // Reuse the on-disk key; otherwise agent.json loses
+                // ssh_key_path and shared_writer silently disables signing.
+                // GH#610: prefer the host-side keys dir (where new agents
+                // store their keys) and fall back to the worktree-local
+                // path for legacy agents whose keys predate the relocation.
+                let rel_path = format!("keys/{agent_id}_ed25519");
+                let host_private = host_crosslink.join(&rel_path);
+                let host_public = host_crosslink.join(format!("keys/{agent_id}_ed25519.pub"));
+                let (private_path, public_path) = if host_private.exists() && host_public.exists() {
+                    (host_private, host_public)
+                } else {
+                    (
+                        crosslink_dir.join(&rel_path),
+                        crosslink_dir.join(format!("keys/{agent_id}_ed25519.pub")),
+                    )
+                };
+                if private_path.exists() && public_path.exists() {
+                    if let (Ok(fp), Ok(pub_key)) = (
+                        signing::get_key_fingerprint(&public_path),
+                        signing::read_public_key(&public_path),
+                    ) {
+                        config.ssh_key_path = Some(rel_path);
+                        config.ssh_fingerprint = Some(fp);
+                        config.ssh_public_key = Some(pub_key);
+                        let path = crosslink_dir.join("agent.json");
+                        if let Ok(json) = serde_json::to_string_pretty(&config) {
+                            let _ = std::fs::write(&path, json);
+                            println!("  SSH key: reused existing key (commit signing enabled)");
+                        }
+                    } else {
+                        println!("  Warning: Could not reuse existing SSH key: {e}");
+                        println!("  Signing will be unavailable. Use --no-key to suppress.");
+                    }
+                } else {
+                    println!("  Warning: Could not generate SSH key: {e}");
+                    println!(
+                        "  Signing will be unavailable. Use --no-key to suppress this warning."
+                    );
+                }
             }
+        }
+    }
+
+    // Re-run `configure_signing` unconditionally so that even in the
+    // key-already-existed path, or the `--no-key` path, the hub-cache
+    // worktree picks up the role-appropriate signing key (#718). The
+    // helper is idempotent and role-aware — driver workspaces get
+    // the human's GitHub-registered key, agent worktrees get the
+    // agent's own key.
+    if let Ok(sync) = crate::sync::SyncManager::new(crosslink_dir) {
+        if let Err(e) = sync.configure_signing(crosslink_dir) {
+            tracing::warn!("could not (re)configure commit signing after agent init: {e}");
         }
     }
 
@@ -274,11 +583,28 @@ pub fn bootstrap(
     let crosslink_dir = target_dir.join(".crosslink");
     std::fs::create_dir_all(&crosslink_dir).context("Failed to create .crosslink directory")?;
 
-    // Step 4: Initialize agent identity (skip if already exists)
-    if AgentConfig::load(&crosslink_dir)?.is_some() {
-        println!("Agent already configured in this repo, skipping identity init.");
-    } else {
-        AgentConfig::init(&crosslink_dir, agent_id, description)?;
+    // Step 4: Initialize agent identity (skip if already exists).
+    // Bootstrap provisions an autonomous agent — tag role accordingly (GH #566).
+    // If a driver-typed identity already exists (e.g. from a prior `crosslink
+    // init` in this repo), promote it to `agent` in place so hooks treat the
+    // bootstrapped workspace correctly.
+    match AgentConfig::load(&crosslink_dir)? {
+        Some(existing) if existing.role == AgentRole::Agent => {
+            println!("Agent already configured in this repo, skipping identity init.");
+        }
+        Some(mut existing) => {
+            println!(
+                "Promoting existing identity '{}' to agent role.",
+                existing.agent_id
+            );
+            existing.role = AgentRole::Agent;
+            let path = crosslink_dir.join("agent.json");
+            let json = serde_json::to_string_pretty(&existing)?;
+            std::fs::write(&path, json)?;
+        }
+        None => {
+            AgentConfig::init_with_role(&crosslink_dir, agent_id, description, AgentRole::Agent)?;
+        }
     }
 
     let mut config = AgentConfig::load(&crosslink_dir)?
@@ -286,7 +612,9 @@ pub fn bootstrap(
 
     // Step 5: Generate SSH key unless opted out
     if !no_key && config.ssh_key_path.is_none() {
-        let keys_dir = crosslink_dir.join("keys");
+        // GH#610: see `init` above — keys live under the main repo's
+        // `.crosslink/keys/` so they survive agent-worktree cleanup.
+        let keys_dir = signing::host_crosslink_dir(&crosslink_dir).join("keys");
         match signing::generate_agent_key(&keys_dir, agent_id, &config.machine_id) {
             Ok(keypair) => {
                 let rel_path = format!("keys/{agent_id}_ed25519");
@@ -648,7 +976,15 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", Some("Test agent"), true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            Some("Test agent"),
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -661,8 +997,23 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
-        let result = init(&crosslink_dir, "worker-2", None, true, false);
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
+        let result = init(
+            &crosslink_dir,
+            "worker-2",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        );
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -676,8 +1027,24 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
-        init(&crosslink_dir, "worker-2", Some("New agent"), true, true).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
+        init(
+            &crosslink_dir,
+            "worker-2",
+            Some("New agent"),
+            true,
+            true,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-2");
@@ -693,7 +1060,15 @@ mod tests {
         // Write invalid JSON
         std::fs::write(crosslink_dir.join("agent.json"), "not valid json").unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -712,7 +1087,15 @@ mod tests {
         )
         .unwrap();
 
-        init(&crosslink_dir, "worker-1", None, true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "worker-1",
+            None,
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
 
         let config = AgentConfig::load(&crosslink_dir).unwrap().unwrap();
         assert_eq!(config.agent_id, "worker-1");
@@ -734,7 +1117,15 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        init(&crosslink_dir, "my-agent", Some("My agent"), true, false).unwrap();
+        init(
+            &crosslink_dir,
+            "my-agent",
+            Some("My agent"),
+            true,
+            false,
+            AgentRole::Agent,
+        )
+        .unwrap();
         status(&crosslink_dir).unwrap();
     }
 }

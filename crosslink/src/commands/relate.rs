@@ -14,12 +14,19 @@ pub fn add(
     db.require_issue(related_id)?;
 
     if let Some(w) = writer {
-        w.add_relation(db, issue_id, related_id)?;
-        println!(
-            "Linked {} ↔ {}",
-            format_issue_id(issue_id),
-            format_issue_id(related_id)
-        );
+        if w.add_relation(db, issue_id, related_id)? {
+            println!(
+                "Linked {} ↔ {}",
+                format_issue_id(issue_id),
+                format_issue_id(related_id)
+            );
+        } else {
+            println!(
+                "Issues {} and {} are already related",
+                format_issue_id(issue_id),
+                format_issue_id(related_id)
+            );
+        }
     } else if db.add_relation(issue_id, related_id)? {
         println!(
             "Linked {} ↔ {}",
@@ -44,12 +51,19 @@ pub fn remove(
     related_id: i64,
 ) -> Result<()> {
     if let Some(w) = writer {
-        w.remove_relation(db, issue_id, related_id)?;
-        println!(
-            "Unlinked {} ↔ {}",
-            format_issue_id(issue_id),
-            format_issue_id(related_id)
-        );
+        if w.remove_relation(db, issue_id, related_id)? {
+            println!(
+                "Unlinked {} ↔ {}",
+                format_issue_id(issue_id),
+                format_issue_id(related_id)
+            );
+        } else {
+            println!(
+                "No relation found between {} and {}",
+                format_issue_id(issue_id),
+                format_issue_id(related_id)
+            );
+        }
     } else if db.remove_relation(issue_id, related_id)? {
         println!(
             "Unlinked {} ↔ {}",

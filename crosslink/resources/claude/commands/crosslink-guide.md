@@ -1,3 +1,8 @@
+---
+description: Answer questions about crosslink usage and commands
+argument-hint: [question about crosslink]
+---
+
 You are helping the user understand and use crosslink, an issue tracker designed for AI-assisted development. Read the project's CLAUDE.md for the full command reference, then answer the user's question using that context.
 
 ## What is Crosslink?

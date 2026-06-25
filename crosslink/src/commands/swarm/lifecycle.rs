@@ -741,6 +741,7 @@ pub fn launch(
             doc_path: None,
             skip_permissions: false,
             runtime: kickoff::KickoffRuntime::Claude,
+            permission_mode: None,
         };
 
         match kickoff::run(crosslink_dir, db, writer, &opts) {

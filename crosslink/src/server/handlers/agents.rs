@@ -751,17 +751,22 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Seed a heartbeat file in the hub cache
-        let heartbeats_dir = crosslink_dir.join(".hub-cache").join("heartbeats");
-        std::fs::create_dir_all(&heartbeats_dir).unwrap();
+        // Seed a v2-layout heartbeat (`agents/<id>/heartbeat.json`) — the bare
+        // cache dir resolves to V2 mode, and `read_heartbeats_v2` reads this
+        // location (retained for frozen / pre-migration hub inspection).
+        let agent_dir = crosslink_dir
+            .join(".hub-cache")
+            .join("agents")
+            .join(agent_id);
+        std::fs::create_dir_all(&agent_dir).unwrap();
         let hb = serde_json::json!({
             "agent_id": agent_id,
-            "last_heartbeat": chrono::Utc::now().to_rfc3339(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
             "active_issue_id": null,
             "machine_id": "test-machine"
         });
         std::fs::write(
-            heartbeats_dir.join(format!("{agent_id}.json")),
+            agent_dir.join("heartbeat.json"),
             serde_json::to_string(&hb).unwrap(),
         )
         .unwrap();
@@ -1101,17 +1106,20 @@ mod tests {
         let crosslink_dir = dir.path().join(".crosslink");
         std::fs::create_dir_all(&crosslink_dir).unwrap();
 
-        // Seed a heartbeat file in the hub cache.
-        let heartbeats_dir = crosslink_dir.join(".hub-cache").join("heartbeats");
-        std::fs::create_dir_all(&heartbeats_dir).unwrap();
+        // Seed a v2-layout heartbeat (`agents/<id>/heartbeat.json`).
+        let agent_dir = crosslink_dir
+            .join(".hub-cache")
+            .join("agents")
+            .join(agent_id);
+        std::fs::create_dir_all(&agent_dir).unwrap();
         let hb = serde_json::json!({
             "agent_id": agent_id,
-            "last_heartbeat": chrono::Utc::now().to_rfc3339(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
             "active_issue_id": null,
             "machine_id": "test-machine"
         });
         std::fs::write(
-            heartbeats_dir.join(format!("{agent_id}.json")),
+            agent_dir.join("heartbeat.json"),
             serde_json::to_string(&hb).unwrap(),
         )
         .unwrap();
@@ -1149,42 +1157,88 @@ mod tests {
         assert_eq!(body["kickoff_status"], "completed");
     }
 
-    /// Seed a locks.json file in the hub cache with one active lock.
-    fn test_app_with_lock(agent_id: &str, issue_id: i64) -> (axum::Router, tempfile::TempDir) {
+    /// Build a real **v3** hub in a git repo and seed one lock into the
+    /// checkpoint (REQ-5: locks are reduced into the checkpoint, which is what
+    /// `read_locks_v3` reads). When `fresh_heartbeat` is true the holder also
+    /// gets a current heartbeat on its agent ref so the lock is NOT stale.
+    fn test_app_with_lock_v3(
+        agent_id: &str,
+        issue_id: i64,
+        branch: &str,
+        fresh_heartbeat: bool,
+    ) -> Option<(axum::Router, tempfile::TempDir)> {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db_path = dir.path().join("test.db");
-        let db = Database::open(&db_path).expect("test db");
-        let crosslink_dir = dir.path().join(".crosslink");
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(&hub_cache).unwrap();
+        let repo_root = dir.path();
+        let ok = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo_root)
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            return None;
+        }
+        for cfg in [["user.email", "t@t.local"], ["user.name", "t"]] {
+            let _ = std::process::Command::new("git")
+                .args(["config", cfg[0], cfg[1]])
+                .current_dir(repo_root)
+                .status();
+        }
 
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                issue_id.to_string(): {
-                    "agent_id": agent_id,
-                    "branch": "feature/test",
-                    "claimed_at": chrono::Utc::now().to_rfc3339(),
-                    "signed_by": ""
-                }
+        let crosslink_dir = repo_root.join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let sync = crate::sync::SyncManager::new(&crosslink_dir).unwrap();
+        sync.init_cache().unwrap();
+        assert!(sync.hub_mode().is_v3());
+        let cache_dir = sync.cache_path();
+
+        let claimed_at = if fresh_heartbeat {
+            chrono::Utc::now()
+        } else {
+            chrono::Utc::now() - chrono::Duration::minutes(120)
+        };
+        let mut cp = crate::checkpoint::CheckpointState {
+            watermark: Some(crate::hub_v3::genesis_sentinel_watermark()),
+            ..Default::default()
+        };
+        cp.locks.insert(
+            issue_id,
+            crate::checkpoint::LockEntry {
+                agent_id: agent_id.to_string(),
+                branch: Some(branch.to_string()),
+                claimed_at,
             },
-            "settings": {
-                "stale_lock_timeout_minutes": 30
-            }
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string(&locks_json).unwrap(),
+        );
+        let bytes = serde_json::to_vec_pretty(&cp).unwrap();
+        crate::hub_v3::commit_blob_to_ref(
+            cache_dir,
+            crate::hub_v3::CHECKPOINT_REF,
+            "state.json",
+            &bytes,
+            "test: seed v3 lock",
         )
         .unwrap();
 
+        if fresh_heartbeat {
+            let hb = crate::locks::Heartbeat {
+                agent_id: agent_id.to_string(),
+                last_heartbeat: claimed_at,
+                active_issue_id: Some(issue_id),
+                machine_id: "test-machine".to_string(),
+            };
+            crate::hub_v3::write_heartbeat_to_ref(cache_dir, agent_id, &hb).unwrap();
+        }
+
+        let db = Database::open(&repo_root.join("test.db")).expect("test db");
         let state = AppState::new(db, crosslink_dir);
-        (build_router(state, None), dir)
+        Some((build_router(state, None), dir))
     }
 
     #[tokio::test]
     async fn test_list_locks_with_one_lock() {
-        let (app, _dir) = test_app_with_lock("lock-agent", 42);
+        let Some((app, _dir)) = test_app_with_lock_v3("lock-agent", 42, "feature/test", true)
+        else {
+            return; // git unavailable
+        };
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1205,63 +1259,21 @@ mod tests {
         assert_eq!(items[0]["is_stale"], false);
     }
 
-    /// Build a test app where the hub cache has a lock and a stale heartbeat so
-    /// that `list_stale_locks` returns at least one entry (exercises lines 407-417).
+    /// Build a test app where the v3 checkpoint has a lock whose holder has no
+    /// fresh heartbeat, so `list_stale_locks` returns at least one entry.
     fn test_app_with_stale_lock(
         agent_id: &str,
         issue_id: i64,
-    ) -> (axum::Router, tempfile::TempDir) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let db_path = dir.path().join("test.db");
-        let db = Database::open(&db_path).expect("test db");
-        let crosslink_dir = dir.path().join(".crosslink");
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-
-        // A heartbeat that is 120 minutes old → agent is stale (threshold is 30 min)
-        let old_time = chrono::Utc::now() - chrono::Duration::minutes(120);
-        let hb = serde_json::json!({
-            "agent_id": agent_id,
-            "last_heartbeat": old_time.to_rfc3339(),
-            "active_issue_id": issue_id,
-            "machine_id": "test-machine"
-        });
-        std::fs::write(
-            hub_cache
-                .join("heartbeats")
-                .join(format!("{agent_id}.json")),
-            serde_json::to_string(&hb).unwrap(),
-        )
-        .unwrap();
-
-        // A lock entry claimed at the same old time
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                issue_id.to_string(): {
-                    "agent_id": agent_id,
-                    "branch": "feature/stale-test",
-                    "claimed_at": old_time.to_rfc3339(),
-                    "signed_by": ""
-                }
-            },
-            "settings": {
-                "stale_lock_timeout_minutes": 30
-            }
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string(&locks_json).unwrap(),
-        )
-        .unwrap();
-
-        let state = AppState::new(db, crosslink_dir);
-        (build_router(state, None), dir)
+    ) -> Option<(axum::Router, tempfile::TempDir)> {
+        // No fresh heartbeat → the lock is stale.
+        test_app_with_lock_v3(agent_id, issue_id, "feature/stale-test", false)
     }
 
     #[tokio::test]
     async fn test_list_stale_locks_with_stale_entry() {
-        let (app, _dir) = test_app_with_stale_lock("stale-agent", 77);
+        let Some((app, _dir)) = test_app_with_stale_lock("stale-agent", 77) else {
+            return; // git unavailable
+        };
         let resp = app
             .oneshot(
                 Request::builder()

@@ -13,6 +13,16 @@ use crate::hydration::hydrate_to_sqlite;
 
 const FLUSH_INTERVAL_SECS: u64 = 30;
 
+/// Hydrate `SQLite` from the reduced v3 [`crate::checkpoint::CheckpointState`] for
+/// a daemon tick. Reduces the current v3 ref namespace and maps it into `SQLite`
+/// via `hydrate_from_state`, returning the same `HydrationStats` shape the v2
+/// `hydrate_to_sqlite` returns so the tick's reporting is uniform.
+fn hydrate_v3_tick(cache_dir: &Path, db: &Database) -> Result<crate::hydration::HydrationStats> {
+    let source = crate::hub_source::RefHubSource::new(cache_dir)?;
+    let outcome = crate::compaction::reduce(&source)?;
+    crate::hydration::hydrate_from_state(&outcome.state, db)
+}
+
 pub fn start(crosslink_dir: &Path) -> Result<()> {
     let pid_file = crosslink_dir.join("daemon.pid");
     let log_file = crosslink_dir.join("daemon.log");
@@ -260,7 +270,15 @@ pub fn run_daemon(crosslink_dir: &Path) -> Result<()> {
                             match sync.fetch() {
                                 Ok(()) => {
                                     if let Ok(db) = Database::open(&db_path) {
-                                        match hydrate_to_sqlite(sync.cache_path(), &db) {
+                                        // V3: hydrate from the reduced state (the
+                                        // v3 fetch already adopted refs +
+                                        // compacted); V2 reads JSON files.
+                                        let hydrate_result = if sync.hub_mode().is_v3() {
+                                            hydrate_v3_tick(sync.cache_path(), &db)
+                                        } else {
+                                            hydrate_to_sqlite(sync.cache_path(), &db)
+                                        };
+                                        match hydrate_result {
                                             Ok(stats) => {
                                                 crate::hydration::record_hydrated_ref(
                                                     crosslink_dir,

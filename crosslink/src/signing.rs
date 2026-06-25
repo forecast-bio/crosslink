@@ -24,23 +24,58 @@ pub struct SshKeyPair {
 /// Result of signature verification on a commit.
 ///
 /// Replaces the old `GpgVerification` enum with SSH-aware variants.
+/// Outcome of verifying a commit's signature.
+///
+/// Carries only the discriminant: the sole consumer (the dashboard signature
+/// badge) maps it to a `Valid` / `Unsigned` / `Invalid` / `Unknown` state and
+/// does not surface the commit hash, signer, or failure reason. The richer
+/// payload (commit / fingerprint / principal / reason) was consumed by the v2
+/// hub-commit signing-enforcement report, which is gone with the v2 write path
+/// (#754); reintroduce fields here when a consumer needs them again.
 #[derive(Debug)]
 pub enum SignatureVerification {
-    /// Signature is valid and (optionally) the signer is identified.
-    Valid {
-        commit: String,
-        fingerprint: Option<String>,
-        principal: Option<String>,
-    },
+    /// Signature is valid.
+    Valid,
     /// Commit exists but is not signed.
-    Unsigned { commit: String },
+    Unsigned,
     /// Signature verification failed.
-    Invalid { commit: String, reason: String },
+    Invalid,
     /// No commits exist on the branch yet.
     NoCommits,
 }
 
 // ── Key generation ──────────────────────────────────────────────────
+
+/// Resolve the *host* (main-repo) crosslink directory for storing
+/// agent signing keys.
+///
+/// Agent keys live under the main repo's `.crosslink/keys/` rather
+/// than each agent worktree's own `.crosslink/keys/` so that the
+/// key file survives `git worktree remove` when a kickoff agent is
+/// cleaned up (GH#610). Without this, the worktree-scoped
+/// `user.signingkey` reference on the hub-cache outlives the file
+/// it points at, breaking every subsequent `crosslink sync` until
+/// a human re-points it (see also GH#565 for the C-path repair
+/// that catches the residual breakage).
+///
+/// Behaviour:
+///
+/// - When `crosslink_dir` is inside a git worktree, walks up via
+///   [`crate::utils::resolve_main_repo_root`] and returns
+///   `<main-repo>/.crosslink`.
+/// - When `crosslink_dir` is already the main repo's crosslink dir
+///   (the driver case), returns it unchanged.
+/// - When git can't resolve a repo (e.g. unit-test temp dirs with
+///   no `git init`), returns `crosslink_dir` unchanged so callers
+///   continue to behave as if there were no worktree.
+#[must_use]
+pub fn host_crosslink_dir(crosslink_dir: &Path) -> PathBuf {
+    let worktree_root = crosslink_dir.parent().unwrap_or(crosslink_dir);
+    crate::utils::resolve_main_repo_root(worktree_root).map_or_else(
+        || crosslink_dir.to_path_buf(),
+        |root| root.join(".crosslink"),
+    )
+}
 
 /// Generate a new Ed25519 SSH key pair for an agent.
 ///
@@ -616,64 +651,32 @@ impl AllowedSigners {
     pub fn is_trusted(&self, principal: &str) -> bool {
         self.entries.iter().any(|e| e.principal == principal)
     }
+
+    /// Check if a public key is already trusted under any principal.
+    ///
+    /// Compares by the `<type> <base64>` body, ignoring trailing
+    /// comments. Used by signing self-registration (GH#585) to make
+    /// "ensure my key is trusted" idempotent regardless of what
+    /// principal it was previously registered under.
+    #[must_use]
+    pub fn contains_key(&self, public_key: &str) -> bool {
+        let target = key_body(public_key);
+        self.entries
+            .iter()
+            .any(|e| key_body(&e.public_key) == target)
+    }
+}
+
+/// Extract the `<type> <base64>` portion of an SSH public-key line,
+/// dropping any trailing comment / principal data.
+fn key_body(line: &str) -> String {
+    line.split_whitespace()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ── SSH verify-commit output parsing ────────────────────────────────
-
-/// Parse SSH signature info from `git verify-commit` stderr output.
-///
-/// When `gpg.format=ssh`, git outputs lines like:
-/// `Good "git" signature for principal with ED25519 key SHA256:xxxx`
-///
-/// Returns `(principal, fingerprint)` if found.
-#[must_use]
-pub fn parse_ssh_verify_output(output: &str) -> Option<(String, String)> {
-    for line in output.lines() {
-        if line.contains("Good") && line.contains("signature for") {
-            if let Some(for_idx) = line.find("signature for ") {
-                let after_for = &line[for_idx + "signature for ".len()..];
-                if let Some(with_idx) = after_for.find(" with ") {
-                    let principal = after_for[..with_idx].to_string();
-                    if let Some(key_idx) = after_for.find("key ") {
-                        let fingerprint = after_for[key_idx + "key ".len()..].trim().to_string();
-                        return Some((principal, fingerprint));
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Parse GPG fingerprint from `git verify-commit --raw` output (legacy).
-///
-/// Looks for lines like: `[GNUPG:] VALIDSIG <fingerprint> ...`
-#[must_use]
-pub fn parse_gpg_fingerprint(gpg_output: &str) -> Option<String> {
-    for line in gpg_output.lines() {
-        if line.contains("VALIDSIG") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                return Some(parts[2].to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Try to parse verify-commit output, handling both SSH and GPG formats.
-#[must_use]
-pub fn parse_verify_output(stderr: &str) -> Option<(Option<String>, String)> {
-    // Try SSH format first
-    if let Some((principal, fingerprint)) = parse_ssh_verify_output(stderr) {
-        return Some((Some(principal), fingerprint));
-    }
-    // Fall back to GPG format
-    if let Some(fp) = parse_gpg_fingerprint(stderr) {
-        return Some((None, fp));
-    }
-    None
-}
 
 // ── Per-entry signing ────────────────────────────────────────────────
 
@@ -907,70 +910,6 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_parse_ssh_verify_output_valid() {
-        let output =
-            r#"Good "git" signature for m1@crosslink with ED25519 key SHA256:AbCdEf123456"#;
-        let result = parse_ssh_verify_output(output);
-        assert_eq!(
-            result,
-            Some((
-                "m1@crosslink".to_string(),
-                "SHA256:AbCdEf123456".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn test_parse_ssh_verify_output_multiline() {
-        let output = "some preamble\nGood \"git\" signature for driver@example.com with ECDSA key SHA256:XyZ789\nmore stuff";
-        let result = parse_ssh_verify_output(output);
-        assert_eq!(
-            result,
-            Some((
-                "driver@example.com".to_string(),
-                "SHA256:XyZ789".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn test_parse_ssh_verify_output_no_match() {
-        assert!(parse_ssh_verify_output("").is_none());
-        assert!(parse_ssh_verify_output("Bad signature").is_none());
-        assert!(parse_ssh_verify_output("Good but no signature for").is_none());
-    }
-
-    #[test]
-    fn test_parse_gpg_fingerprint_valid() {
-        let output = "[GNUPG:] VALIDSIG ABCDEF1234567890 2024-01-01 12345678\n[GNUPG:] GOODSIG";
-        let fp = parse_gpg_fingerprint(output);
-        assert_eq!(fp, Some("ABCDEF1234567890".to_string()));
-    }
-
-    #[test]
-    fn test_parse_gpg_fingerprint_no_match() {
-        assert!(parse_gpg_fingerprint("").is_none());
-        assert!(parse_gpg_fingerprint("[GNUPG:] GOODSIG ABC123").is_none());
-    }
-
-    #[test]
-    fn test_parse_verify_output_ssh_preferred() {
-        let output = r#"Good "git" signature for agent@host with ED25519 key SHA256:Test123"#;
-        let result = parse_verify_output(output);
-        assert_eq!(
-            result,
-            Some((Some("agent@host".to_string()), "SHA256:Test123".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_verify_output_gpg_fallback() {
-        let output = "[GNUPG:] VALIDSIG DEADBEEF 2024-01-01";
-        let result = parse_verify_output(output);
-        assert_eq!(result, Some((None, "DEADBEEF".to_string())));
-    }
-
-    #[test]
     fn test_allowed_signers_roundtrip() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("allowed_signers");
@@ -1102,6 +1041,105 @@ mod tests {
         let path = dir.path().join("bad.pub");
         std::fs::write(&path, "not an ssh key").unwrap();
         assert!(read_public_key(&path).is_err());
+    }
+
+    // ── host_crosslink_dir (GH#610) ──────────────────────────────────
+
+    /// In a temp dir with no git metadata, `resolve_main_repo_root`
+    /// returns `None`; `host_crosslink_dir` falls back to the input.
+    #[test]
+    fn test_host_crosslink_dir_no_git_returns_input() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let resolved = host_crosslink_dir(&crosslink_dir);
+        assert_eq!(resolved, crosslink_dir);
+    }
+
+    /// In a plain (non-worktree) git repo, `host_crosslink_dir`
+    /// returns the same `.crosslink/` it was given.
+    #[test]
+    fn test_host_crosslink_dir_main_repo_is_identity() {
+        let dir = tempdir().unwrap();
+        Command::new("git")
+            .current_dir(dir.path())
+            .args(["init", "-b", "main"])
+            .output()
+            .unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        let resolved = host_crosslink_dir(&crosslink_dir);
+        // Canonicalize both sides — macOS resolves /tmp through /private/tmp,
+        // and `resolve_main_repo_root` canonicalises internally.
+        let expected = crosslink_dir.canonicalize().unwrap_or(crosslink_dir);
+        let actual = resolved.canonicalize().unwrap_or(resolved);
+        assert_eq!(actual, expected);
+    }
+
+    /// In a linked git worktree, `host_crosslink_dir` walks back up to
+    /// the main repo's `.crosslink/` (the whole point of the helper).
+    #[test]
+    fn test_host_crosslink_dir_worktree_resolves_to_main() {
+        let main = tempdir().unwrap();
+        let main_root = main.path();
+
+        // Build a main repo with one commit so `git worktree add` has
+        // something to branch from.
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["init", "-b", "main"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["config", "user.email", "t@t.local"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["config", "user.name", "t"])
+            .output()
+            .unwrap();
+        std::fs::write(main_root.join("a"), "x").unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["add", "."])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(main_root)
+            .args(["commit", "-m", "init", "--no-gpg-sign"])
+            .output()
+            .unwrap();
+
+        // The main repo's crosslink dir — the answer we expect.
+        let main_crosslink = main_root.join(".crosslink");
+        std::fs::create_dir_all(&main_crosslink).unwrap();
+
+        // Add a linked worktree under the main repo on a fresh branch.
+        let wt_root = main_root.join(".worktrees").join("agent-abcd");
+        Command::new("git")
+            .current_dir(main_root)
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "agent-test",
+                wt_root.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        let wt_crosslink = wt_root.join(".crosslink");
+        std::fs::create_dir_all(&wt_crosslink).unwrap();
+
+        let resolved = host_crosslink_dir(&wt_crosslink);
+        // Canonicalise so /tmp ↔ /private/tmp on macOS doesn't trip us.
+        let expected = main_crosslink.canonicalize().unwrap_or(main_crosslink);
+        let actual = resolved.canonicalize().unwrap_or(resolved);
+        assert_eq!(
+            actual, expected,
+            "worktree's host_crosslink_dir should resolve to the main repo's .crosslink/"
+        );
     }
 
     // Integration tests requiring ssh-keygen on PATH
@@ -1714,48 +1752,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ssh_verify_output_good_no_key_field() {
-        // Has "Good" and "signature for" and " with " but no "key " in after_for
-        let output = r#"Good "git" signature for user@host with ED25519 SHA256:Abc"#;
-        let result = parse_ssh_verify_output(output);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_ssh_verify_output_good_no_with() {
-        // Has "Good" and "signature for" but no " with " keyword
-        let output = r#"Good "git" signature for user@host ED25519 key SHA256:Abc"#;
-        let result = parse_ssh_verify_output(output);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_verify_output_no_match() {
-        let result = parse_verify_output("nothing useful here");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_verify_output_empty() {
-        let result = parse_verify_output("");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_parse_gpg_fingerprint_short_validsig_line() {
-        // VALIDSIG with only 2 whitespace-separated parts (fewer than 3)
-        let output = "[GNUPG:] VALIDSIG";
-        assert!(parse_gpg_fingerprint(output).is_none());
-    }
-
-    #[test]
-    fn test_parse_gpg_fingerprint_exactly_three_parts() {
-        let output = "[GNUPG:] VALIDSIG FINGERPRINT123";
-        let fp = parse_gpg_fingerprint(output);
-        assert_eq!(fp, Some("FINGERPRINT123".to_string()));
-    }
-
-    #[test]
     fn test_allowed_signers_parse_malformed_no_space() {
         let content = "nospacehere\n";
         let signers = AllowedSigners::parse(content);
@@ -1905,42 +1901,10 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
 
     #[test]
     fn test_signature_verification_debug_variants() {
-        let valid = SignatureVerification::Valid {
-            commit: "abc123".to_string(),
-            fingerprint: Some("SHA256:abc".to_string()),
-            principal: Some("user@host".to_string()),
-        };
-        let debug_str = format!("{valid:?}");
-        assert!(debug_str.contains("Valid"));
-        assert!(debug_str.contains("abc123"));
-
-        let unsigned = SignatureVerification::Unsigned {
-            commit: "def456".to_string(),
-        };
-        let debug_str = format!("{unsigned:?}");
-        assert!(debug_str.contains("Unsigned"));
-
-        let invalid = SignatureVerification::Invalid {
-            commit: "ghi789".to_string(),
-            reason: "bad sig".to_string(),
-        };
-        let debug_str = format!("{invalid:?}");
-        assert!(debug_str.contains("Invalid"));
-
-        let no_commits = SignatureVerification::NoCommits;
-        let debug_str = format!("{no_commits:?}");
-        assert!(debug_str.contains("NoCommits"));
-    }
-
-    #[test]
-    fn test_signature_verification_valid_no_fingerprint_no_principal() {
-        let v = SignatureVerification::Valid {
-            commit: "abc".to_string(),
-            fingerprint: None,
-            principal: None,
-        };
-        let debug = format!("{v:?}");
-        assert!(debug.contains("None"));
+        assert!(format!("{:?}", SignatureVerification::Valid).contains("Valid"));
+        assert!(format!("{:?}", SignatureVerification::Unsigned).contains("Unsigned"));
+        assert!(format!("{:?}", SignatureVerification::Invalid).contains("Invalid"));
+        assert!(format!("{:?}", SignatureVerification::NoCommits).contains("NoCommits"));
     }
 
     #[test]
@@ -2370,5 +2334,76 @@ f@host sk-ecdsa-sha2-nistp256 FFFF\n";
         )
         .unwrap();
         assert!(!invalid, "Tampered content should fail verification");
+    }
+
+    // ========================================================================
+    // GH#585: AllowedSigners::contains_key
+    // ========================================================================
+
+    fn signers_with(entries: &[(&str, &str, Option<&str>)]) -> AllowedSigners {
+        AllowedSigners {
+            entries: entries
+                .iter()
+                .map(|(p, k, m)| AllowedSignerEntry {
+                    principal: (*p).to_string(),
+                    public_key: (*k).to_string(),
+                    metadata_comment: m.map(str::to_string),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_contains_key_exact_match() {
+        let signers = signers_with(&[(
+            "agent@crosslink",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@host",
+            None,
+        )]);
+        assert!(signers.contains_key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@host"));
+    }
+
+    #[test]
+    fn test_contains_key_matches_ignoring_trailing_comment() {
+        // The same key under different principals / with different trailing
+        // comments should still match — what matters is the cryptographic body.
+        let signers = signers_with(&[(
+            "agent@crosslink",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@host-A",
+            None,
+        )]);
+        assert!(signers.contains_key(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample driver@completely-different-host"
+        ));
+        assert!(signers.contains_key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample"));
+    }
+
+    #[test]
+    fn test_contains_key_rejects_different_key() {
+        let signers = signers_with(&[(
+            "agent@crosslink",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@host",
+            None,
+        )]);
+        // Same type, different base64 body — must NOT match.
+        assert!(!signers.contains_key("ssh-ed25519 AAAADifferent agent@host"));
+    }
+
+    #[test]
+    fn test_contains_key_rejects_different_key_type() {
+        let signers = signers_with(&[(
+            "agent@crosslink",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample",
+            None,
+        )]);
+        // Same base64 body (highly unlikely in real keys, but) different type
+        // — different cryptographic key.
+        assert!(!signers.contains_key("ssh-rsa AAAAC3NzaC1lZDI1NTE5AAAAIExample"));
+    }
+
+    #[test]
+    fn test_contains_key_empty_signers() {
+        let signers = signers_with(&[]);
+        assert!(!signers.contains_key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample"));
     }
 }

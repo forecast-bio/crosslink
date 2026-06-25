@@ -1,6 +1,7 @@
 ---
 allowed-tools: Bash(git *), Bash(crosslink *), Bash(cargo *), Bash(npm *), Bash(gh *), Bash(ls *), Bash(cat *), Bash(grep *), Bash(wc *), Read, Grep, Glob
 description: Guided release automation — version bump, changelog, docs, tests, PR, tag, publish
+argument-hint: <version> [--from <branch>] [--to <branch>] [--skip-docs] [--skip-tests]
 ---
 
 ## Context

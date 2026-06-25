@@ -1,3 +1,4 @@
+pub mod embedded;
 pub mod errors;
 pub mod handlers;
 pub mod routes;
@@ -71,7 +72,42 @@ pub async fn run(
     db: Database,
     crosslink_dir: PathBuf,
 ) -> Result<()> {
-    let state = AppState::new(db, crosslink_dir.clone());
+    run_with_dashboard_db(port, dashboard_dir, db, crosslink_dir, None).await
+}
+
+/// Variant of [`run`] that additionally registers a per-user dashboard
+/// `SQLite` path with `AppState`, enabling the `/api/v1/dashboard` API
+/// routes (GH #429). `crosslink dashboard serve` uses this variant;
+/// the deprecated `crosslink serve` passes `None` via [`run`].
+///
+/// # Errors
+/// As [`run`].
+pub async fn run_with_dashboard_db(
+    port: u16,
+    dashboard_dir: Option<PathBuf>,
+    db: Database,
+    crosslink_dir: PathBuf,
+    dashboard_db_path: Option<PathBuf>,
+) -> Result<()> {
+    let mut state = AppState::new(db, crosslink_dir.clone());
+
+    // When a dashboard DB is configured, spawn the 5-second poll loop
+    // alongside the server and wire its broadcast sender to the same
+    // channel the WebSocket hub fanouts from (state.ws_tx). That way
+    // `WsEvent::DashboardProjectUpdated` events emitted by the poll
+    // loop reach connected WS clients without any extra plumbing.
+    let poll_handle = if let Some(path) = dashboard_db_path {
+        state = state.with_dashboard_db(path.clone());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let cancel_clone = cancel.clone();
+        let tx = state.ws_tx.clone();
+        let handle = tokio::spawn(async move {
+            crate::dashboard::poll::run(path, cancel_clone, Some(tx)).await;
+        });
+        Some((cancel, handle))
+    } else {
+        None
+    };
 
     // Start the heartbeat watcher in the background.
     watcher::start_watcher(crosslink_dir, state.ws_tx.clone());
@@ -104,12 +140,19 @@ pub async fn run(
         .layer(cors);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    println!("crosslink serve: listening on http://{addr}");
+    println!("crosslink dashboard: listening on http://{addr}");
+    // The dashboard reads `?token=<value>` on first load, persists it
+    // to sessionStorage, and strips it from the URL (see
+    // `dashboard/src/auth/bootstrap.ts`). Subsequent reloads in the
+    // same tab reuse the stored token.
     if has_dashboard {
-        // The dashboard reads `?token=<value>` on first load, persists it to
-        // sessionStorage, and strips it from the URL (see
-        // `dashboard/src/auth/bootstrap.ts`). Subsequent reloads in the same
-        // tab reuse the stored token.
+        // --dashboard-dir override in effect: frontend served from disk.
+        println!(
+            "  Dashboard: http://{addr}/?token={}  (from --dashboard-dir)",
+            state.auth_token
+        );
+    } else {
+        // Default path: serve the embedded bundle from the binary.
         println!("  Dashboard: http://{addr}/?token={}", state.auth_token);
     }
     println!("  API:       http://{addr}/api/v1/health");
@@ -117,7 +160,14 @@ pub async fn run(
     println!("  Auth:      Bearer {}", state.auth_token);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let serve_result = axum::serve(listener, app).await;
 
+    // Shut down the poll loop cleanly when the server exits.
+    if let Some((cancel, handle)) = poll_handle {
+        cancel.cancel();
+        let _ = handle.await;
+    }
+
+    serve_result?;
     Ok(())
 }

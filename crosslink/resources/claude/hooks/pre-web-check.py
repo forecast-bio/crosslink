@@ -22,22 +22,32 @@ def _project_root_from_script():
         return None
 
 
+def _is_initialized_crosslink_dir(candidate):
+    """GH#625: only an initialized dir (hook-config.json present) counts.
+
+    Stray .crosslink/ dirs seeded in subdirectories by cwd drift lack the
+    marker and must never be bound.
+    """
+    return os.path.isfile(os.path.join(candidate, 'hook-config.json'))
+
+
 def find_crosslink_dir():
-    """Find the .crosslink directory.
+    """Find the INITIALIZED .crosslink directory (GH#625-safe).
 
     Prefers the project root derived from the hook script's own path,
-    falling back to walking up from cwd.
+    falling back to walking up from cwd. Candidates without
+    hook-config.json are strays and are skipped.
     """
     root = _project_root_from_script()
     if root:
         candidate = os.path.join(root, '.crosslink')
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and _is_initialized_crosslink_dir(candidate):
             return candidate
 
     current = os.getcwd()
     for _ in range(10):
         candidate = os.path.join(current, '.crosslink')
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and _is_initialized_crosslink_dir(candidate):
             return candidate
         parent = os.path.dirname(current)
         if parent == current:
@@ -116,7 +126,12 @@ def main():
         input_data = json.load(sys.stdin)
         tool_name = input_data.get('tool_name', '')
     except (json.JSONDecodeError, ValueError, TypeError):
-        print("pre-web-check: failed to parse stdin — blocking tool call (fail-closed)")
+        # GH#624: blocking messages MUST go to stderr — Claude Code only
+        # shows stderr to the model on exit 2; stdout is silently dropped.
+        print(
+            "pre-web-check: failed to parse stdin — blocking tool call (fail-closed)",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     # Find crosslink directory and load web rules

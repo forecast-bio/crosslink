@@ -29,17 +29,24 @@ def run_crosslink(args):
         return None
 
 
+def _is_initialized(candidate):
+    """GH#625: only a dir with hook-config.json counts; strays are skipped."""
+    return os.path.isfile(os.path.join(candidate, "hook-config.json"))
+
+
 def check_crosslink_initialized():
-    """Check if .crosslink directory exists.
+    """Check if an INITIALIZED .crosslink directory exists (GH#625-safe).
 
     Prefers the project root derived from the hook script's own path
     (reliable even when cwd is a subdirectory), falling back to walking
-    up from cwd.
+    up from cwd. Stray .crosslink dirs without hook-config.json never
+    count as initialized.
     """
     # Primary: resolve from script location (.claude/hooks/ -> project root)
     try:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        if os.path.isdir(os.path.join(root, ".crosslink")):
+        candidate = os.path.join(root, ".crosslink")
+        if os.path.isdir(candidate) and _is_initialized(candidate):
             return True
     except (NameError, OSError):
         pass
@@ -48,7 +55,7 @@ def check_crosslink_initialized():
     current = os.getcwd()
     while True:
         candidate = os.path.join(current, ".crosslink")
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and _is_initialized(candidate):
             return True
         parent = os.path.dirname(current)
         if parent == current:

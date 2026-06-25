@@ -1,6 +1,7 @@
 ---
 allowed-tools: Bash(crosslink *), Bash(which *), Bash(tmux *)
 description: Create a worktree and launch a background claude agent in tmux to implement a feature
+argument-hint: <feature description> [--issue <id>] [--verify local|ci|thorough] [--container docker|podman]
 ---
 
 ## Context

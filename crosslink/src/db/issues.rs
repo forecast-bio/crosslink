@@ -72,7 +72,7 @@ impl Database {
     /// Returns an error if the database query fails.
     pub fn get_subissues(&self, parent_id: i64) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at FROM issues WHERE parent_id = ?1 ORDER BY id",
+            "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at, scheduled_at, due_at FROM issues WHERE parent_id = ?1 ORDER BY id",
         )?;
 
         let issues = stmt
@@ -111,7 +111,7 @@ impl Database {
     pub fn get_issue(&self, id: i64) -> Result<Option<Issue>> {
         let id = self.resolve_id(id);
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at FROM issues WHERE id = ?1",
+            "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at, scheduled_at, due_at FROM issues WHERE id = ?1",
         )?;
 
         Ok(stmt.query_row([id], issue_from_row).ok())
@@ -167,7 +167,7 @@ impl Database {
         priority_filter: Option<&str>,
     ) -> Result<Vec<Issue>> {
         let mut sql = String::from(
-            "SELECT DISTINCT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at FROM issues i",
+            "SELECT DISTINCT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at, i.scheduled_at, i.due_at FROM issues i",
         );
         let mut conditions = Vec::new();
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -318,7 +318,7 @@ impl Database {
         let pattern = format!("%{escaped}%");
         let mut stmt = self.conn.prepare(
             r"
-            SELECT DISTINCT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at
+            SELECT DISTINCT i.id, i.title, i.description, i.status, i.priority, i.parent_id, i.created_at, i.updated_at, i.closed_at, i.scheduled_at, i.due_at
             FROM issues i
             LEFT JOIN comments c ON i.id = c.issue_id
             WHERE i.title LIKE ?1 ESCAPE '\' COLLATE NOCASE
@@ -369,7 +369,7 @@ impl Database {
     /// Returns an error if the database query fails.
     pub fn list_archived_issues(&self) -> Result<Vec<Issue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at FROM issues WHERE status = 'archived' ORDER BY id DESC",
+            "SELECT id, title, description, status, priority, parent_id, created_at, updated_at, closed_at, scheduled_at, due_at FROM issues WHERE status = 'archived' ORDER BY id DESC",
         )?;
 
         let issues = stmt

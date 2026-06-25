@@ -312,6 +312,8 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
             labels: vec!["feature".to_string()],
             comments: vec![],
             blockers: vec![],

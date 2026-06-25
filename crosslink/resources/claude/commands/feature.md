@@ -1,6 +1,7 @@
 ---
 allowed-tools: Bash(git *), Bash(crosslink *)
 description: Create a feature branch from a human-readable description
+argument-hint: <feature description> [--from <ref>]
 ---
 
 ## Context

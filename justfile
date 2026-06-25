@@ -233,6 +233,42 @@ test-proptest cases="1000":
 audit:
     cd crosslink && cargo audit
 
+# ─── Container image ─────────────────────────────────────────────────
+
+# Build the crosslink-agent container image locally for the host architecture.
+# Drops a static musl binary into the build context, then `docker buildx build
+# --load` produces a single-arch image tagged ghcr.io/forecast-bio/crosslink-agent:<tag>.
+# Default tag is `local` so this never collides with published `:nightly`/`:latest`.
+build-image tag="local":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    HOST_ARCH="$(uname -m)"
+    case "$HOST_ARCH" in
+        x86_64|amd64) RUST_TARGET=x86_64-unknown-linux-musl; DOCKER_ARCH=amd64; PLATFORM=linux/amd64 ;;
+        aarch64|arm64) RUST_TARGET=aarch64-unknown-linux-musl; DOCKER_ARCH=arm64; PLATFORM=linux/arm64 ;;
+        *) echo "Unsupported host arch: $HOST_ARCH"; exit 1 ;;
+    esac
+    echo "==> Building crosslink for ${RUST_TARGET}"
+    rustup target add "${RUST_TARGET}" >/dev/null
+    cd crosslink && cargo build --locked --release --target "${RUST_TARGET}"
+    cd ..
+    cp "crosslink/target/${RUST_TARGET}/release/crosslink" \
+       "crosslink/resources/container/crosslink-${DOCKER_ARCH}"
+    echo "==> Building image ghcr.io/forecast-bio/crosslink-agent:{{tag}} for ${PLATFORM}"
+    docker buildx build \
+        --platform "${PLATFORM}" \
+        --build-arg "TARGETARCH=${DOCKER_ARCH}" \
+        --load \
+        -t "ghcr.io/forecast-bio/crosslink-agent:{{tag}}" \
+        crosslink/resources/container
+    echo "==> Built ghcr.io/forecast-bio/crosslink-agent:{{tag}} (${DOCKER_ARCH})"
+
+# Push a locally-built image to GHCR. Use only for emergency manual publishes;
+# routine publishing is owned by .github/workflows/container-image.yml.
+# Requires: `docker login ghcr.io` first (PAT with write:packages scope).
+push-image tag:
+    docker push "ghcr.io/forecast-bio/crosslink-agent:{{tag}}"
+
 # ─── CI composite ────────────────────────────────────────────────────
 
 # Run what CI runs (lint → build → test)

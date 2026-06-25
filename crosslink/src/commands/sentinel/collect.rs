@@ -507,6 +507,27 @@ fn build_fix_template(ctx: &TemplateContext<'_>) -> String {
     )
 }
 
+/// Post a comment to a GitHub issue via `gh`.
+fn post_gh_comment(gh_issue_number: i64, body: &str) -> Result<()> {
+    let output = Command::new("gh")
+        .args([
+            "issue",
+            "comment",
+            &gh_issue_number.to_string(),
+            "--body",
+            body,
+        ])
+        .output()
+        .context("Failed to run `gh issue comment`")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("gh issue comment failed: {}", stderr.trim());
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,25 +574,4 @@ mod tests {
         assert_eq!(classify_status("partial-write", 1), None);
         assert_eq!(classify_status("  ", 1), None);
     }
-}
-
-/// Post a comment to a GitHub issue via `gh`.
-fn post_gh_comment(gh_issue_number: i64, body: &str) -> Result<()> {
-    let output = Command::new("gh")
-        .args([
-            "issue",
-            "comment",
-            &gh_issue_number.to_string(),
-            "--body",
-            body,
-        ])
-        .output()
-        .context("Failed to run `gh issue comment`")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("gh issue comment failed: {}", stderr.trim());
-    }
-
-    Ok(())
 }

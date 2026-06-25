@@ -127,13 +127,28 @@ pub fn build_router(state: AppState, dashboard_dir: Option<std::path::PathBuf>) 
 
     let mut app = Router::new()
         .nest("/api/v1", api)
+        .nest("/api/v1/dashboard", crate::dashboard::api::build_router())
+        .nest("/api/v1/dashboard", crate::dashboard::github_api::router())
+        .nest("/api/v1/dashboard", crate::dashboard::export::router())
+        .nest("/api/v1/dashboard", crate::dashboard::webhook_api::router())
+        .nest("/api/v1", crate::dashboard::pty_api::rest_router())
+        .nest("/ws", crate::dashboard::pty_api::ws_router())
         .route("/ws", get(ws_handler))
         .with_state(state);
 
-    // Serve static dashboard files if a directory was provided.
+    // Dashboard asset serving.
+    //
+    // Precedence:
+    //   1. If `--dashboard-dir <path>` was provided, serve from disk
+    //      (development workflow — live-edit the frontend without a
+    //      `cargo build` between changes).
+    //   2. Otherwise, fall back to the embedded bundle built into the
+    //      binary via `rust-embed` (the `cargo install` path — GH #429).
     if let Some(dir) = dashboard_dir {
         use tower_http::services::ServeDir;
         app = app.fallback_service(ServeDir::new(dir));
+    } else {
+        app = app.fallback(super::embedded::serve_embedded);
     }
 
     app

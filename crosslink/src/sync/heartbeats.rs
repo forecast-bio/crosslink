@@ -1,23 +1,35 @@
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 
 use super::core::SyncManager;
-use super::HUB_BRANCH;
 use crate::identity::AgentConfig;
 use crate::locks::Heartbeat;
 
 impl SyncManager {
-    /// Write and optionally push a heartbeat file for this agent.
+    /// Write and push this agent's heartbeat.
     ///
-    /// Acquires the hub write lock to prevent races with concurrent git
-    /// operations (fetch, `write_commit_push`) in the same cache worktree.
+    /// v3 is the only mode that writes (754b): the heartbeat is written to the
+    /// agent's OWN ref (`refs/heads/crosslink/agents/<id>`, sibling-preserving,
+    /// single-writer) and that ref is pushed. There is no worktree file and no
+    /// v2 commit flow — the v2 `crosslink/hub` branch is frozen.
+    ///
+    /// On a v2-only / uninitialized hub there is nothing to write (the v2 write
+    /// path is gone); the call is a no-op so callers on legacy hubs still
+    /// succeed without error.
     ///
     /// # Errors
     ///
-    /// Returns an error if the heartbeat file cannot be written or pushed.
+    /// Returns an error if the heartbeat cannot be written to or pushed from the
+    /// agent ref.
     pub fn push_heartbeat(&self, agent: &AgentConfig, active_issue_id: Option<i64>) -> Result<()> {
-        // Acquire the hub write lock to serialize with other cache mutations (#352)
+        // Acquire the hub write lock to serialize with other cache mutations (#352).
         let _lock_guard = self.acquire_lock()?;
+
+        if !self.hub_mode.get().is_v3() {
+            // v2 hub is frozen — no heartbeat write path remains. (Inspection of
+            // a pre-migration hub's last heartbeats still works via read.)
+            return Ok(());
+        }
 
         let heartbeat = Heartbeat {
             agent_id: agent.agent_id.clone(),
@@ -26,97 +38,52 @@ impl SyncManager {
             machine_id: agent.machine_id.clone(),
         };
 
-        // Ensure heartbeats directory exists
-        let hb_dir = self.cache_dir.join("heartbeats");
-        std::fs::create_dir_all(&hb_dir)?;
-
-        let filename = format!("{}.json", agent.agent_id);
-        let path = hb_dir.join(&filename);
-        let json = serde_json::to_string_pretty(&heartbeat)?;
-        std::fs::write(&path, json)?;
-
-        // Stage the heartbeat file
-        self.git_in_cache(&["add", &format!("heartbeats/{filename}")])?;
-
-        // Commit (may fail if nothing changed, that's fine)
-        let msg = format!(
-            "heartbeat: {} at {}",
-            agent.agent_id,
-            Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
-        );
-        let commit_result = self.git_commit_in_cache(&["-m", &msg]);
-        if let Err(e) = &commit_result {
-            let err_str = e.to_string();
-            if err_str.contains("nothing to commit") || err_str.contains("no changes added") {
-                return Ok(());
-            }
-            commit_result?;
-        }
-
-        // Push (best-effort — may fail if offline or conflicts)
-        let push_result = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]);
-        if let Err(e) = &push_result {
-            let err_str = e.to_string();
-            if err_str.contains("Could not resolve host")
-                || err_str.contains("Could not read from remote")
-            {
-                tracing::warn!("heartbeat push failed (offline), changes saved locally only");
-                return Ok(());
-            }
-            // If push is rejected (conflict), clean dirty state and try pull+push once
-            if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                // Bail if local has diverged too far — sign of a rebase loop
-                self.check_divergence()?;
-
-                self.clean_dirty_state()?;
-                if self
-                    .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
-                    .is_err()
-                {
-                    self.hub_health_check();
-                    self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
-                }
-                if let Err(retry_err) = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]) {
+        // Write the heartbeat to the agent's OWN REF (sibling-preserving,
+        // single-writer) and push the ref.
+        crate::hub_v3::write_heartbeat_to_ref(&self.cache_dir, &agent.agent_id, &heartbeat)?;
+        if self.remote_exists() {
+            match crate::hub_v3::push_agent_ref(&self.cache_dir, &self.remote, &agent.agent_id)? {
+                crate::hub_v3::PushOutcome::Pushed | crate::hub_v3::PushOutcome::NoRemote => {}
+                other => {
                     tracing::warn!(
-                        "heartbeat push failed after retry (conflict), changes saved locally only: {}",
-                        retry_err
+                        "v3 heartbeat push for '{}' did not complete: {other:?}",
+                        agent.agent_id
                     );
                 }
             }
         }
-
         Ok(())
     }
 
-    /// Read all heartbeat files from the V1 cache (`heartbeats/` directory).
+    /// Read heartbeats for the resolved hub mode.
+    ///
+    /// - v3: each agent ref's `heartbeat.json` (the single source — a v3 hub has
+    ///   no worktree heartbeat files).
+    /// - v2 (inspection of a frozen / pre-migration hub): the V2 layout
+    ///   `agents/{id}/heartbeat.json` worktree files.
+    ///
+    /// The legacy V1 `heartbeats/*.json` directory is gone (754b): it was only
+    /// ever written by the deleted v2 write path and is not part of the v3
+    /// migration genesis.
     ///
     /// # Errors
     ///
-    /// Returns an error if the heartbeats directory cannot be read.
-    pub fn read_heartbeats(&self) -> Result<Vec<Heartbeat>> {
-        let dir = self.cache_dir.join("heartbeats");
-        if !dir.exists() {
-            return Ok(Vec::new());
+    /// Returns an error if heartbeat files cannot be read.
+    pub fn read_heartbeats_auto(&self) -> Result<Vec<Heartbeat>> {
+        if self.hub_mode.get().is_v3() {
+            return Ok(crate::hub_v3::read_heartbeats_from_refs(&self.cache_dir)?
+                .into_iter()
+                .map(|(_, hb)| hb)
+                .collect());
         }
-        let mut heartbeats = Vec::new();
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "json") {
-                let content = std::fs::read_to_string(&path)?;
-                if let Ok(hb) = serde_json::from_str::<Heartbeat>(&content) {
-                    heartbeats.push(hb);
-                }
-            }
-        }
-        Ok(heartbeats)
+        self.read_heartbeats_v2()
     }
 
     /// Read heartbeats from the V2 layout (`agents/{id}/heartbeat.json`).
     ///
-    /// V2 heartbeat files use `timestamp` (RFC 3339) instead of `last_heartbeat`,
-    /// and may lack `active_issue_id` / `machine_id`. This method converts them
-    /// into the common `Heartbeat` struct.
+    /// Retained for inspecting a frozen / pre-migration v2 hub. V2 heartbeat
+    /// files use `timestamp` (RFC 3339) instead of `last_heartbeat` and may lack
+    /// `active_issue_id` / `machine_id`; this converts them to [`Heartbeat`].
     ///
     /// # Errors
     ///
@@ -140,7 +107,7 @@ impl SyncManager {
             let Ok(content) = std::fs::read_to_string(&hb_path) else {
                 continue;
             };
-            // Try native Heartbeat format first, then V2 JSON format
+            // Try native Heartbeat format first, then V2 JSON format.
             if let Ok(hb) = serde_json::from_str::<Heartbeat>(&content) {
                 heartbeats.push(hb);
             } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -173,116 +140,5 @@ impl SyncManager {
             }
         }
         Ok(heartbeats)
-    }
-
-    /// Read heartbeats using the appropriate method based on hub layout version.
-    ///
-    /// V1: reads `heartbeats/*.json`
-    /// V2: reads `agents/*/heartbeat.json`, merged with any V1 heartbeats
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if heartbeat files cannot be read.
-    pub fn read_heartbeats_auto(&self) -> Result<Vec<Heartbeat>> {
-        use std::collections::HashMap;
-
-        let mut heartbeats = self.read_heartbeats()?;
-        if self.is_v2_layout() {
-            let v2 = self.read_heartbeats_v2()?;
-            // Merge V2 heartbeats, preferring the one with the most recent timestamp
-            let mut by_agent: HashMap<String, Heartbeat> = HashMap::new();
-            for hb in heartbeats.into_iter().chain(v2) {
-                by_agent
-                    .entry(hb.agent_id.clone())
-                    .and_modify(|existing| {
-                        if hb.last_heartbeat > existing.last_heartbeat {
-                            *existing = hb.clone();
-                        }
-                    })
-                    .or_insert(hb);
-            }
-            heartbeats = by_agent.into_values().collect();
-        }
-        Ok(heartbeats)
-    }
-
-    /// Create the agent directory on the hub branch if it doesn't exist.
-    ///
-    /// Creates `agents/{agent_id}/heartbeat.json` with an initial heartbeat.
-    /// Returns `Ok(true)` if the directory was created, `Ok(false)` if it already existed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the directory or heartbeat file cannot be created.
-    pub fn ensure_agent_dir(&self, agent_id: &str) -> Result<bool> {
-        if !self.create_agent_dir_files(agent_id)? {
-            return Ok(false);
-        }
-
-        // Stage and commit
-        self.git_in_cache(&["add", &format!("agents/{agent_id}/heartbeat.json")])?;
-        self.git_commit_in_cache(&[
-            "-m",
-            &format!("bootstrap: initialize agent directory for {agent_id}"),
-        ])?;
-
-        // Push with retry on rebase conflict
-        for attempt in 0..3 {
-            let push_result = self.git_in_cache(&["push", &self.remote, HUB_BRANCH]);
-            match push_result {
-                Ok(_) => return Ok(true),
-                Err(e) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("Could not resolve host")
-                        || err_str.contains("Could not read from remote")
-                    {
-                        return Ok(true); // Offline — commit is local
-                    }
-                    if err_str.contains("rejected") || err_str.contains("non-fast-forward") {
-                        if attempt < 2 {
-                            // Bail if local has diverged too far — sign of a rebase loop
-                            self.check_divergence()?;
-                            if self
-                                .git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])
-                                .is_err()
-                            {
-                                self.hub_health_check();
-                                self.git_in_cache(&["pull", "--rebase", &self.remote, HUB_BRANCH])?;
-                            }
-                            continue;
-                        }
-                        bail!("Push failed after 3 retries for agent dir {agent_id}");
-                    }
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(true)
-    }
-
-    /// Create the agent directory and heartbeat file on disk (no git ops).
-    ///
-    /// Returns `Ok(true)` if created, `Ok(false)` if the directory already exists.
-    pub(super) fn create_agent_dir_files(&self, agent_id: &str) -> Result<bool> {
-        let agents_dir = self.cache_dir.join("agents").join(agent_id);
-        if agents_dir.exists() {
-            return Ok(false);
-        }
-
-        std::fs::create_dir_all(&agents_dir)
-            .with_context(|| format!("Failed to create agent directory for {agent_id}"))?;
-
-        // Write initial heartbeat
-        let heartbeat = serde_json::json!({
-            "agent_id": agent_id,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "status": "active"
-        });
-        let heartbeat_path = agents_dir.join("heartbeat.json");
-        std::fs::write(&heartbeat_path, serde_json::to_string_pretty(&heartbeat)?)
-            .with_context(|| "Failed to write initial heartbeat")?;
-
-        Ok(true)
     }
 }

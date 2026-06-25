@@ -2,17 +2,22 @@ use crate::issue_file::{
     read_counters, read_issue_file, write_counters, write_issue_file, IssueFile,
 };
 use crate::models::{IssueStatus, Priority};
-use crate::shared_writer::core::{
-    PushOutcome, SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS, MAX_RETRIES,
-};
+use crate::shared_writer::core::{PushOutcome, SharedWriter, LOCK_CONFIRM_TIMEOUT_SECS};
 use crate::shared_writer::locks::LockClaimResult;
-use crate::shared_writer::mutations::DescriptionUpdate;
-use crate::shared_writer::offline::{replace_local_refs, RewriteStats};
 use anyhow::{bail, Result};
 use chrono::Utc;
 use std::path::Path;
 use tempfile::tempdir;
 use uuid::Uuid;
+
+/// Acquire a `HubWriteLock` for use in tests that call `compact` directly.
+///
+/// Uses the standard `.hub-write-lock` path so the lock path matches what
+/// production code uses when the cache dir is treated as a hub worktree.
+fn hub_lock_for_test(cache_dir: &Path) -> crate::sync::HubWriteLock {
+    let lock_path = cache_dir.join(".hub-write-lock");
+    crate::sync::acquire_hub_lock(&lock_path).expect("failed to acquire hub write lock for test")
+}
 
 fn make_issue(display_id: i64, title: &str) -> IssueFile {
     IssueFile {
@@ -27,6 +32,8 @@ fn make_issue(display_id: i64, title: &str) -> IssueFile {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         closed_at: None,
+        scheduled_at: None,
+        due_at: None,
         labels: vec![],
         comments: vec![],
         blockers: vec![],
@@ -134,68 +141,6 @@ fn test_counters_sequential_claim() {
     assert_eq!(ids, vec![1, 2, 3]);
     let reloaded = read_counters(&path).unwrap();
     assert_eq!(reloaded.next_display_id, 4);
-}
-
-#[test]
-fn test_replace_local_refs_basic() {
-    let replacements = vec![
-        ("L1".to_string(), "#5".to_string()),
-        ("L2".to_string(), "#6".to_string()),
-    ];
-    let result = replace_local_refs("See L1 and L2 for details", &replacements);
-    assert_eq!(result, Some("See #5 and #6 for details".to_string()));
-}
-
-#[test]
-fn test_replace_local_refs_no_match() {
-    let replacements = vec![("L1".to_string(), "#5".to_string())];
-    let result = replace_local_refs("No local refs here", &replacements);
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_replace_local_refs_non_matching_id() {
-    let replacements = vec![("L1".to_string(), "#5".to_string())];
-    let result = replace_local_refs("See L99 for info", &replacements);
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_replace_local_refs_word_boundary() {
-    let replacements = vec![("L1".to_string(), "#5".to_string())];
-    // "FILE1" should NOT be rewritten (L1 is preceded by alphanumeric)
-    let result = replace_local_refs("Check FILE1 now", &replacements);
-    assert!(result.is_none());
-
-    // "L1." should be rewritten (punctuation after is ok)
-    let result = replace_local_refs("Fixed L1.", &replacements);
-    assert_eq!(result, Some("Fixed #5.".to_string()));
-
-    // "L1," in a list
-    let result = replace_local_refs(
-        "L1, L2 are done",
-        &[
-            ("L1".to_string(), "#5".to_string()),
-            ("L2".to_string(), "#6".to_string()),
-        ],
-    );
-    assert_eq!(result, Some("#5, #6 are done".to_string()));
-}
-
-#[test]
-fn test_replace_local_refs_start_end() {
-    let replacements = vec![("L1".to_string(), "#5".to_string())];
-    // At start of string
-    let result = replace_local_refs("L1 is done", &replacements);
-    assert_eq!(result, Some("#5 is done".to_string()));
-
-    // At end of string
-    let result = replace_local_refs("Working on L1", &replacements);
-    assert_eq!(result, Some("Working on #5".to_string()));
-
-    // Entire string
-    let result = replace_local_refs("L1", &replacements);
-    assert_eq!(result, Some("#5".to_string()));
 }
 
 /// Helper for tests: scan issues dir for a `display_id` (mirrors `SharedWriter` logic).
@@ -475,15 +420,16 @@ mod lock_v2_tests {
         append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
 
         // Run compaction
-        let result = crate::compaction::compact(cache, "agent-a", true)
+        let lock = hub_lock_for_test(cache);
+        let result = crate::compaction::compact(cache, "agent-a", true, &lock)
             .unwrap()
             .unwrap();
         assert_eq!(result.locks_materialized, 1);
 
         // Read checkpoint -- agent-a should win (earlier timestamp)
         let state = read_checkpoint(cache).unwrap();
-        let lock = state.locks.get(&1).unwrap();
-        assert_eq!(lock.agent_id, "agent-a");
+        let lock_entry = state.locks.get(&1).unwrap();
+        assert_eq!(lock_entry.agent_id, "agent-a");
     }
 
     #[test]
@@ -686,7 +632,8 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-b/events.log"), &e3).unwrap();
 
-        let result = crate::compaction::compact(cache, "agent-a", true)
+        let hub_lock = hub_lock_for_test(cache);
+        let result = crate::compaction::compact(cache, "agent-a", true, &hub_lock)
             .unwrap()
             .unwrap();
         assert_eq!(result.locks_materialized, 1);
@@ -759,7 +706,8 @@ mod lock_v2_tests {
         };
         append_event(&cache.join("agents/agent-a/events.log"), &e3).unwrap();
 
-        crate::compaction::compact(cache, "agent-a", true).unwrap();
+        let hub_lock = hub_lock_for_test(cache);
+        crate::compaction::compact(cache, "agent-a", true, &hub_lock).unwrap();
 
         let state = read_checkpoint(cache).unwrap();
         assert!(state.locks.is_empty());
@@ -832,7 +780,8 @@ mod lock_v2_tests {
             };
             append_event(&cache.join("agents/agent-b/events.log"), &e2).unwrap();
 
-            crate::compaction::compact(cache, compactor, true).unwrap();
+            let hub_lock = hub_lock_for_test(cache);
+            crate::compaction::compact(cache, compactor, true, &hub_lock).unwrap();
 
             let state = read_checkpoint(cache).unwrap();
             assert_eq!(
@@ -848,7 +797,7 @@ mod lock_v2_tests {
 mod integration {
     use super::*;
     use crate::db::Database;
-    use crate::identity::AgentConfig;
+    use crate::identity::{AgentConfig, AgentRole};
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -924,6 +873,7 @@ mod integration {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
             description: Some("Integration test agent".to_string()),
+            role: AgentRole::Driver,
             ssh_key_path: None,
             ssh_fingerprint: None,
             ssh_public_key: None,
@@ -934,6 +884,90 @@ mod integration {
         // Initialize the hub cache (crosslink/hub branch) using SyncManager
         let sync = crate::sync::SyncManager::new(&crosslink_dir).unwrap();
         sync.init_cache().unwrap();
+
+        (work_dir, remote_dir, crosslink_dir)
+    }
+
+    /// Like [`setup_shared_writer_env`] but builds a legacy **v2** hub so the v2
+    /// refusal / v2 file-read paths can be exercised. Since 754b a fresh
+    /// `init_cache` bootstraps v3, so a v2 hub must be created explicitly: lay
+    /// down a `crosslink/hub` worktree with the v2 layout markers before any
+    /// `SharedWriter` resolves its mode.
+    fn setup_shared_writer_env_v2() -> (TempDir, TempDir, std::path::PathBuf) {
+        let (work_dir, remote_dir, crosslink_dir) = setup_shared_writer_env();
+
+        // The fresh env bootstrapped a v3 host worktree; remove it and replace
+        // with a v2 `crosslink/hub` worktree carrying the v2 layout.
+        let cache_dir = crosslink_dir.join(".hub-cache");
+        let _ = Command::new("git")
+            .current_dir(work_dir.path())
+            .args(["worktree", "remove", "--force", cache_dir.to_str().unwrap()])
+            .output();
+        // Drop the v3 marker refs so detection sees a pure v2 hub.
+        for r in [
+            "refs/heads/crosslink/meta",
+            "refs/heads/crosslink/checkpoint",
+            "refs/heads/crosslink/agents/test-agent",
+        ] {
+            let _ = Command::new("git")
+                .current_dir(work_dir.path())
+                .args(["update-ref", "-d", r])
+                .output();
+        }
+        // Also drop the v3 host branch so the name is free for the v2 worktree.
+        let _ = Command::new("git")
+            .current_dir(work_dir.path())
+            .args(["branch", "-D", "crosslink/hub-v3-host"])
+            .output();
+
+        // Create the v2 hub worktree on an orphan `crosslink/hub` branch.
+        Command::new("git")
+            .current_dir(work_dir.path())
+            .args([
+                "worktree",
+                "add",
+                "--orphan",
+                "-b",
+                "crosslink/hub",
+                cache_dir.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        // v2 layout marker + skeleton dirs.
+        let meta_dir = cache_dir.join("meta");
+        std::fs::create_dir_all(meta_dir.join("milestones")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
+        crate::issue_file::write_layout_version(
+            &meta_dir,
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        )
+        .unwrap();
+        std::fs::write(
+            cache_dir.join("locks.json"),
+            serde_json::to_string(&serde_json::json!({"version":1,"locks":{},"settings":{"stale_lock_timeout_minutes":60}})).unwrap(),
+        )
+        .unwrap();
+        for args in [
+            vec!["config", "user.email", "test@test.local"],
+            vec!["config", "user.name", "Test"],
+        ] {
+            Command::new("git")
+                .current_dir(&cache_dir)
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+        Command::new("git")
+            .current_dir(&cache_dir)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .current_dir(&cache_dir)
+            .args(["commit", "-m", "v2 hub", "--no-gpg-sign"])
+            .output()
+            .unwrap();
 
         (work_dir, remote_dir, crosslink_dir)
     }
@@ -980,754 +1014,6 @@ mod integration {
         drop(work_dir);
     }
 
-    // --- create_issue() ---
-
-    #[test]
-    fn test_create_issue_returns_display_id() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Test issue", None, "medium")
-            .unwrap();
-        assert!(id > 0, "create_issue should return a positive display ID");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_create_issue_increments_id() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id1 = writer
-            .create_issue(&db, "First issue", None, "low")
-            .unwrap();
-        let id2 = writer
-            .create_issue(&db, "Second issue", None, "low")
-            .unwrap();
-        assert_eq!(id2, id1 + 1, "IDs should be sequential");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_create_issue_with_description() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(
-                &db,
-                "With description",
-                Some("A detailed description"),
-                "high",
-            )
-            .unwrap();
-        assert!(id > 0);
-
-        // Verify it's in the database
-        let issue = db.get_issue(id).unwrap();
-        assert!(
-            issue.is_some(),
-            "Issue should exist in database after create"
-        );
-        let issue = issue.unwrap();
-        assert_eq!(issue.title, "With description");
-        assert_eq!(issue.description.as_deref(), Some("A detailed description"));
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_create_issue_high_priority() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Critical bug", None, "critical")
-            .unwrap();
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.priority, Priority::Critical);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_create_issue_writes_json_to_cache() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        writer
-            .create_issue(&db, "Cache test", None, "medium")
-            .unwrap();
-
-        // Verify the issue JSON file exists in the hub cache (v2 layout)
-        let cache_dir = crosslink_dir.join(".hub-cache").join("issues");
-        let entries: Vec<_> = std::fs::read_dir(&cache_dir)
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .collect();
-        assert!(
-            !entries.is_empty(),
-            "At least one issue entry should exist in cache"
-        );
-        drop(work_dir);
-    }
-
-    // --- create_subissue() ---
-
-    #[test]
-    fn test_create_subissue() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let parent_id = writer
-            .create_issue(&db, "Parent issue", None, "medium")
-            .unwrap();
-        let child_id = writer
-            .create_subissue(&db, parent_id, "Child issue", None, "low")
-            .unwrap();
-
-        assert!(child_id > 0);
-        assert_ne!(parent_id, child_id);
-
-        // Verify parent relationship in database
-        let child = db.get_issue(child_id).unwrap().unwrap();
-        assert_eq!(child.parent_id, Some(parent_id));
-        drop(work_dir);
-    }
-
-    // --- update_issue() ---
-
-    #[test]
-    fn test_update_issue_title() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Old title", None, "medium")
-            .unwrap();
-        writer
-            .update_issue(
-                &db,
-                id,
-                Some("New title"),
-                DescriptionUpdate::Unchanged,
-                None,
-                None,
-            )
-            .unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.title, "New title");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_update_issue_priority() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Priority test", None, "low")
-            .unwrap();
-        writer
-            .update_issue(
-                &db,
-                id,
-                None,
-                DescriptionUpdate::Unchanged,
-                None,
-                Some("high"),
-            )
-            .unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.priority, Priority::High);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_update_issue_description() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer.create_issue(&db, "Desc test", None, "low").unwrap();
-        writer
-            .update_issue(
-                &db,
-                id,
-                None,
-                DescriptionUpdate::Set("Updated desc"),
-                None,
-                None,
-            )
-            .unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.description.as_deref(), Some("Updated desc"));
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_update_issue_clear_description() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Has desc", Some("initial desc"), "low")
-            .unwrap();
-        writer
-            .update_issue(&db, id, None, DescriptionUpdate::Clear, None, None)
-            .unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert!(issue.description.is_none(), "Description should be cleared");
-        drop(work_dir);
-    }
-
-    // --- close_issue() / reopen_issue() ---
-
-    #[test]
-    fn test_close_issue() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Close me", None, "medium")
-            .unwrap();
-        writer.close_issue(&db, id).unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.status, IssueStatus::Closed);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_reopen_issue() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Open/close cycle", None, "medium")
-            .unwrap();
-        writer.close_issue(&db, id).unwrap();
-        writer.reopen_issue(&db, id).unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.status, IssueStatus::Open);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_closed_issue_has_closed_at() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Closed at test", None, "medium")
-            .unwrap();
-
-        // Before closing, closed_at should be None
-        // Read from cache to verify
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        let issue_before = writer.load_issue_by_id(id, &db).unwrap();
-        assert!(
-            issue_before.closed_at.is_none(),
-            "closed_at should be None before closing"
-        );
-
-        writer.close_issue(&db, id).unwrap();
-
-        let issue_after = writer.load_issue_by_id(id, &db).unwrap();
-        assert!(
-            issue_after.closed_at.is_some(),
-            "closed_at should be set after closing"
-        );
-        assert_eq!(issue_after.status, IssueStatus::Closed);
-        drop(cache_dir);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_reopen_clears_closed_at() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Reopen cleared", None, "medium")
-            .unwrap();
-        writer.close_issue(&db, id).unwrap();
-        writer.reopen_issue(&db, id).unwrap();
-
-        let issue = writer.load_issue_by_id(id, &db).unwrap();
-        assert!(
-            issue.closed_at.is_none(),
-            "closed_at should be cleared after reopen"
-        );
-        drop(work_dir);
-    }
-
-    // --- delete_issue() ---
-
-    #[test]
-    fn test_delete_issue() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id1 = writer
-            .create_issue(&db, "Delete me", None, "medium")
-            .unwrap();
-        let id2 = writer.create_issue(&db, "Keep me", None, "medium").unwrap();
-
-        let delete_result = writer.delete_issue(&db, id1);
-        // delete may fail on empty commit in test environments; verify at least the DB state
-        if delete_result.is_ok() {
-            let deleted = db.get_issue(id1).unwrap();
-            assert!(deleted.is_none(), "Deleted issue should be gone from DB");
-        }
-
-        // Issue 2 should still exist regardless
-        let kept = db.get_issue(id2).unwrap();
-        assert!(kept.is_some(), "Kept issue should still be in DB");
-
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_delete_issue_removes_file_from_disk() {
-        // Verify that delete_issue's closure removes the file from disk via issue_path(),
-        // which correctly uses V2 layout (issues/{uuid}/issue.json).
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "File remove test", None, "medium")
-            .unwrap();
-
-        // Get the UUID so we can check the V2 file path
-        let uuid_str = db.get_issue_uuid_by_id(id).unwrap();
-        let uuid: Uuid = uuid_str.parse().unwrap();
-        let v2_issue_path = crosslink_dir
-            .join(".hub-cache")
-            .join("issues")
-            .join(uuid.to_string())
-            .join("issue.json");
-
-        assert!(
-            v2_issue_path.exists(),
-            "Issue file should exist before delete"
-        );
-
-        // delete_issue removes the file from disk in the prepare closure
-        // (even if the subsequent git commit step fails due to V2 path mismatch)
-        let _ = writer.delete_issue(&db, id);
-
-        assert!(
-            !v2_issue_path.exists(),
-            "Issue file should be removed from disk by delete_issue's prepare closure"
-        );
-        drop(work_dir);
-    }
-
-    // --- add_comment() / add_intervention_comment() ---
-
-    #[test]
-    fn test_add_comment_returns_id() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let issue_id = writer
-            .create_issue(&db, "Comment host", None, "medium")
-            .unwrap();
-        let comment_id = writer
-            .add_comment(&db, issue_id, "A test comment", "note")
-            .unwrap();
-
-        assert!(comment_id > 0, "comment ID should be positive");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_comment_persists_to_db() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let issue_id = writer
-            .create_issue(&db, "Comment persist", None, "medium")
-            .unwrap();
-        writer
-            .add_comment(&db, issue_id, "Persisted comment content", "plan")
-            .unwrap();
-
-        let comments = db.get_comments(issue_id).unwrap();
-        assert!(!comments.is_empty(), "Comment should be in DB");
-        assert_eq!(comments[0].content, "Persisted comment content");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_comment_multiple_kinds() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let issue_id = writer
-            .create_issue(&db, "Typed comments", None, "medium")
-            .unwrap();
-
-        let kinds = ["plan", "decision", "observation", "blocker", "resolution"];
-        for kind in &kinds {
-            writer
-                .add_comment(&db, issue_id, &format!("Comment: {kind}"), kind)
-                .unwrap();
-        }
-
-        let comments = db.get_comments(issue_id).unwrap();
-        assert_eq!(comments.len(), kinds.len());
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_comment_sequential_ids() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let issue_id = writer
-            .create_issue(&db, "Sequential comments", None, "medium")
-            .unwrap();
-        let c1 = writer
-            .add_comment(&db, issue_id, "First comment", "note")
-            .unwrap();
-        let c2 = writer
-            .add_comment(&db, issue_id, "Second comment", "note")
-            .unwrap();
-
-        assert_eq!(c2, c1 + 1, "Comment IDs should be sequential");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_intervention_comment() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let issue_id = writer
-            .create_issue(&db, "Intervention host", None, "medium")
-            .unwrap();
-        let comment_id = writer
-            .add_intervention_comment(
-                &db,
-                issue_id,
-                "Intervention content",
-                "manual_redirect",
-                Some("context string"),
-                None,
-            )
-            .unwrap();
-
-        assert!(comment_id > 0);
-        let comments = db.get_comments(issue_id).unwrap();
-        assert!(!comments.is_empty());
-        assert_eq!(comments[0].content, "Intervention content");
-        drop(work_dir);
-    }
-
-    // --- add_label() / remove_label() ---
-
-    #[test]
-    fn test_add_label() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Label test", None, "medium")
-            .unwrap();
-        writer.add_label(&db, id, "bug").unwrap();
-
-        let labels = db.get_labels(id).unwrap();
-        assert!(labels.contains(&"bug".to_string()));
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_multiple_labels() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Multi-label", None, "medium")
-            .unwrap();
-        writer.add_label(&db, id, "bug").unwrap();
-        writer.add_label(&db, id, "urgent").unwrap();
-        writer.add_label(&db, id, "frontend").unwrap();
-
-        let labels = db.get_labels(id).unwrap();
-        assert!(labels.contains(&"bug".to_string()));
-        assert!(labels.contains(&"urgent".to_string()));
-        assert!(labels.contains(&"frontend".to_string()));
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_remove_label() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Remove label", None, "medium")
-            .unwrap();
-        writer.add_label(&db, id, "bug").unwrap();
-        writer.add_label(&db, id, "keep").unwrap();
-        writer.remove_label(&db, id, "bug").unwrap();
-
-        let labels = db.get_labels(id).unwrap();
-        assert!(
-            !labels.contains(&"bug".to_string()),
-            "bug label should be gone"
-        );
-        assert!(
-            labels.contains(&"keep".to_string()),
-            "keep label should remain"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_label_idempotent() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Idempotent label", None, "medium")
-            .unwrap();
-        writer.add_label(&db, id, "tag").unwrap();
-        let _ = writer.add_label(&db, id, "tag"); // duplicate -- may error on empty commit
-
-        let labels = db.get_labels(id).unwrap();
-        let tag_count = labels.iter().filter(|l| l.as_str() == "tag").count();
-        assert_eq!(tag_count, 1, "Duplicate label should not be double-added");
-        drop(work_dir);
-    }
-
-    // --- add_blocker() / remove_blocker() ---
-
-    #[test]
-    fn test_add_blocker() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let blocked = writer
-            .create_issue(&db, "Blocked issue", None, "medium")
-            .unwrap();
-        let blocker = writer
-            .create_issue(&db, "Blocker issue", None, "high")
-            .unwrap();
-
-        writer.add_blocker(&db, blocked, blocker).unwrap();
-
-        // The blocked issue's JSON should contain the blocker UUID
-        let issue_file = writer.load_issue_by_id(blocked, &db).unwrap();
-        assert!(
-            !issue_file.blockers.is_empty(),
-            "Blocker should be recorded"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_remove_blocker() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let blocked = writer
-            .create_issue(&db, "Was blocked", None, "medium")
-            .unwrap();
-        let blocker = writer
-            .create_issue(&db, "Was blocker", None, "high")
-            .unwrap();
-
-        writer.add_blocker(&db, blocked, blocker).unwrap();
-        writer.remove_blocker(&db, blocked, blocker).unwrap();
-
-        let issue_file = writer.load_issue_by_id(blocked, &db).unwrap();
-        assert!(issue_file.blockers.is_empty(), "Blocker should be removed");
-        drop(work_dir);
-    }
-
-    // --- add_relation() / remove_relation() ---
-
-    #[test]
-    fn test_add_relation() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id1 = writer
-            .create_issue(&db, "Related A", None, "medium")
-            .unwrap();
-        let id2 = writer
-            .create_issue(&db, "Related B", None, "medium")
-            .unwrap();
-
-        writer.add_relation(&db, id1, id2).unwrap();
-
-        let issue = writer.load_issue_by_id(id1, &db).unwrap();
-        assert!(!issue.related.is_empty(), "Relation should be recorded");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_remove_relation() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id1 = writer
-            .create_issue(&db, "Related C", None, "medium")
-            .unwrap();
-        let id2 = writer
-            .create_issue(&db, "Related D", None, "medium")
-            .unwrap();
-
-        writer.add_relation(&db, id1, id2).unwrap();
-        writer.remove_relation(&db, id1, id2).unwrap();
-
-        let issue = writer.load_issue_by_id(id1, &db).unwrap();
-        assert!(issue.related.is_empty(), "Relation should be removed");
-        drop(work_dir);
-    }
-
-    // --- create_milestone() / close_milestone() / delete_milestone() ---
-
-    #[test]
-    fn test_create_milestone() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let ms_id = writer
-            .create_milestone(&db, "v1.0", Some("First release"))
-            .unwrap();
-        assert!(ms_id > 0, "Milestone ID should be positive");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_create_multiple_milestones() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let ms1 = writer.create_milestone(&db, "v1.0", None).unwrap();
-        let ms2 = writer.create_milestone(&db, "v2.0", None).unwrap();
-        assert_eq!(ms2, ms1 + 1, "Milestone IDs should be sequential");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_close_milestone() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let ms_id = writer.create_milestone(&db, "v1.0", None).unwrap();
-        writer.close_milestone(&db, ms_id).unwrap();
-
-        // Read back and verify
-        let entry = writer.load_milestone_by_id(ms_id).unwrap();
-        assert_eq!(entry.status, IssueStatus::Closed);
-        assert!(entry.closed_at.is_some());
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_delete_milestone() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let ms_id = writer.create_milestone(&db, "v1.0-del", None).unwrap();
-        writer.delete_milestone(&db, ms_id).unwrap();
-
-        // After deletion, load should fail
-        let result = writer.load_milestone_by_id(ms_id);
-        assert!(result.is_err(), "Deleted milestone should not be loadable");
-        drop(work_dir);
-    }
-
-    // --- set_milestone_on_issues() / clear_milestone_on_issue() ---
-
-    #[test]
-    fn test_set_milestone_on_issues() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let ms_id = writer.create_milestone(&db, "Sprint 1", None).unwrap();
-        let issue_id = writer
-            .create_issue(&db, "Sprint task", None, "medium")
-            .unwrap();
-
-        writer
-            .set_milestone_on_issues(&db, ms_id, &[issue_id])
-            .unwrap();
-
-        let issue = writer.load_issue_by_id(issue_id, &db).unwrap();
-        assert!(
-            issue.milestone_uuid.is_some(),
-            "Issue should have milestone_uuid set"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_clear_milestone_on_issue() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let ms_id = writer.create_milestone(&db, "Sprint 2", None).unwrap();
-        let issue_id = writer
-            .create_issue(&db, "Sprint 2 task", None, "medium")
-            .unwrap();
-
-        writer
-            .set_milestone_on_issues(&db, ms_id, &[issue_id])
-            .unwrap();
-        writer.clear_milestone_on_issue(&db, issue_id).unwrap();
-
-        let issue = writer.load_issue_by_id(issue_id, &db).unwrap();
-        assert!(
-            issue.milestone_uuid.is_none(),
-            "Issue should have milestone_uuid cleared"
-        );
-        drop(work_dir);
-    }
-
     // --- read_lock_v2() ---
 
     #[test]
@@ -1745,7 +1031,7 @@ mod integration {
 
     #[test]
     fn test_read_lock_v2_reads_existing_lock_file() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
         // Manually write a lock file
@@ -1773,343 +1059,6 @@ mod integration {
         drop(work_dir);
     }
 
-    // --- Hydration roundtrip ---
-
-    #[test]
-    fn test_hydration_roundtrip_issue() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Hydration test", Some("desc"), "high")
-            .unwrap();
-
-        // Re-hydrate from cache
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        crate::hydration::hydrate_to_sqlite(&cache_dir, &db).unwrap();
-
-        let issue = db.get_issue(id).unwrap();
-        assert!(issue.is_some());
-        let issue = issue.unwrap();
-        assert_eq!(issue.title, "Hydration test");
-        assert_eq!(issue.priority, Priority::High);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_hydration_after_close() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Close hydration", None, "medium")
-            .unwrap();
-        writer.close_issue(&db, id).unwrap();
-
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        crate::hydration::hydrate_to_sqlite(&cache_dir, &db).unwrap();
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.status, IssueStatus::Closed);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_hydration_after_comment() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let issue_id = writer
-            .create_issue(&db, "Comment hydration", None, "medium")
-            .unwrap();
-        writer
-            .add_comment(&db, issue_id, "Hydrated comment", "note")
-            .unwrap();
-
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        crate::hydration::hydrate_to_sqlite(&cache_dir, &db).unwrap();
-
-        let comments = db.get_comments(issue_id).unwrap();
-        assert!(!comments.is_empty());
-        assert_eq!(comments[0].content, "Hydrated comment");
-        drop(work_dir);
-    }
-
-    // --- RewriteStats ---
-
-    #[test]
-    fn test_rewrite_stats_total() {
-        let stats = RewriteStats {
-            comments_updated: 3,
-            descriptions_updated: 2,
-            sessions_updated: 1,
-        };
-        assert_eq!(stats.total(), 6);
-    }
-
-    #[test]
-    fn test_rewrite_stats_default_total() {
-        let stats = RewriteStats::default();
-        assert_eq!(stats.total(), 0);
-    }
-
-    // --- rewrite_local_references() ---
-
-    #[test]
-    fn test_rewrite_local_references_empty_mapping() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let stats = writer.rewrite_local_references(&db, &[]).unwrap();
-        assert_eq!(
-            stats.total(),
-            0,
-            "Empty mapping should produce zero rewrites"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_rewrite_local_references_no_matches() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Create an issue with a description that won't match any local refs
-        let id = writer
-            .create_issue(&db, "No local refs here", Some("Clean description"), "low")
-            .unwrap();
-
-        // Mapping says L1 -> #5, but the issue has no L1 refs
-        let mapping = vec![(1i64, 5i64, "Some title".to_string())];
-        let stats = writer.rewrite_local_references(&db, &mapping).unwrap();
-        // Comments and descriptions with no matches should yield 0 updates
-        assert_eq!(stats.comments_updated, 0);
-        assert_eq!(stats.descriptions_updated, 0);
-        let _ = id; // suppress unused warning
-        drop(work_dir);
-    }
-
-    // --- promote_offline_issues() ---
-
-    #[test]
-    fn test_promote_offline_issues_empty() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let mapping = writer.promote_offline_issues(&db).unwrap();
-        assert!(mapping.is_empty(), "No offline issues to promote");
-        drop(work_dir);
-    }
-
-    // --- read_promoted_uuids() / record_promoted_uuids() ---
-
-    #[test]
-    fn test_promoted_uuids_roundtrip() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // Initially empty
-        let before = writer.read_promoted_uuids();
-        assert!(before.is_empty());
-
-        // Record some UUIDs
-        let uuid1 = Uuid::new_v4();
-        let uuid2 = Uuid::new_v4();
-        writer.record_promoted_uuids(&[uuid1, uuid2]).unwrap();
-
-        // Read back
-        let after = writer.read_promoted_uuids();
-        assert!(after.contains(&uuid1));
-        assert!(after.contains(&uuid2));
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_promoted_uuids_are_not_re_promoted() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Record a UUID as promoted
-        let uuid = Uuid::new_v4();
-        writer.record_promoted_uuids(&[uuid]).unwrap();
-
-        // Write an issue JSON with display_id=None and that UUID -- simulates an offline issue
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        let issues_dir = cache_dir.join("issues");
-        std::fs::create_dir_all(&issues_dir).unwrap();
-
-        // V1-style: a flat file issues/{uuid}.json with display_id null and created_by matching agent
-        let issue = crate::issue_file::IssueFile {
-            uuid,
-            display_id: None,
-            title: "Already promoted".to_string(),
-            description: None,
-            status: IssueStatus::Open,
-            priority: Priority::Low,
-            parent_uuid: None,
-            created_by: "test-agent".to_string(),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            closed_at: None,
-            labels: vec![],
-            comments: vec![],
-            blockers: vec![],
-            related: vec![],
-            milestone_uuid: None,
-            time_entries: vec![],
-        };
-        crate::issue_file::write_issue_file(&issues_dir.join(format!("{uuid}.json")), &issue)
-            .unwrap();
-
-        // promote_offline_issues should skip this one (UUID in promoted set)
-        let promoted = writer.promote_offline_issues(&db).unwrap();
-        assert!(
-            promoted.is_empty(),
-            "Already-promoted UUID should not be re-promoted"
-        );
-        drop(work_dir);
-    }
-
-    // --- layout_version() ---
-
-    #[test]
-    fn test_layout_version_is_v2_for_new_hub() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // init_cache() sets up v2 layout
-        assert_eq!(writer.layout_version(), 2, "New hub should be v2 layout");
-        drop(work_dir);
-    }
-
-    // --- issue_path() / issue_rel_path() -- via V2 layout ---
-
-    #[test]
-    fn test_v2_issue_path_uses_subdir() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "V2 path check", None, "low")
-            .unwrap();
-
-        // Find the issue UUID from the DB
-        let uuid_str = db.get_issue_uuid_by_id(id).unwrap();
-        let uuid: Uuid = uuid_str.parse().unwrap();
-
-        // V2: the issue file should be at issues/{uuid}/issue.json
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        let v2_path = cache_dir
-            .join("issues")
-            .join(uuid.to_string())
-            .join("issue.json");
-        assert!(
-            v2_path.exists(),
-            "V2 issue.json should exist at {}",
-            v2_path.display()
-        );
-
-        // And the comments subdirectory should also exist
-        let comments_dir = cache_dir
-            .join("issues")
-            .join(uuid.to_string())
-            .join("comments");
-        assert!(
-            comments_dir.exists(),
-            "V2 comments dir should exist at {}",
-            comments_dir.display()
-        );
-        drop(work_dir);
-    }
-
-    // --- Multiple operations / end-to-end ---
-
-    #[test]
-    fn test_full_issue_lifecycle() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Create
-        let id = writer
-            .create_issue(&db, "Lifecycle issue", Some("Initial desc"), "medium")
-            .unwrap();
-
-        // Comment
-        writer
-            .add_comment(&db, id, "Planning note", "plan")
-            .unwrap();
-
-        // Label
-        writer.add_label(&db, id, "in-progress").unwrap();
-
-        // Update
-        writer
-            .update_issue(
-                &db,
-                id,
-                Some("Updated lifecycle"),
-                DescriptionUpdate::Unchanged,
-                None,
-                Some("high"),
-            )
-            .unwrap();
-
-        // Close
-        writer.close_issue(&db, id).unwrap();
-
-        // Verify final state
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert_eq!(issue.title, "Updated lifecycle");
-        assert_eq!(issue.priority, Priority::High);
-        assert_eq!(issue.status, IssueStatus::Closed);
-
-        let labels = db.get_labels(id).unwrap();
-        assert!(labels.contains(&"in-progress".to_string()));
-
-        let comments = db.get_comments(id).unwrap();
-        assert_eq!(comments.len(), 1);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_multiple_issues_independent() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id1 = writer
-            .create_issue(&db, "Issue Alpha", None, "high")
-            .unwrap();
-        let id2 = writer.create_issue(&db, "Issue Beta", None, "low").unwrap();
-        let id3 = writer
-            .create_issue(&db, "Issue Gamma", None, "medium")
-            .unwrap();
-
-        writer.close_issue(&db, id2).unwrap();
-        writer.add_label(&db, id1, "critical").unwrap();
-
-        let i1 = db.get_issue(id1).unwrap().unwrap();
-        let i2 = db.get_issue(id2).unwrap().unwrap();
-        let i3 = db.get_issue(id3).unwrap().unwrap();
-
-        assert_eq!(i1.status, IssueStatus::Open);
-        assert_eq!(i2.status, IssueStatus::Closed);
-        assert_eq!(i3.status, IssueStatus::Open);
-
-        let labels = db.get_labels(id1).unwrap();
-        assert!(labels.contains(&"critical".to_string()));
-        drop(work_dir);
-    }
-
     #[test]
     fn test_crosslink_dir_accessor() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
@@ -2121,84 +1070,6 @@ mod integration {
         assert!(
             dir.exists(),
             "crosslink_dir() should point to an existing dir"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_event_seq_increments() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Each create_issue triggers emit which calls next_event_seq
-        writer.create_issue(&db, "Seq 1", None, "low").unwrap();
-        writer.create_issue(&db, "Seq 2", None, "low").unwrap();
-
-        // The event_seq field should be > 0 after two operations
-        // We can't directly read event_seq, but we can verify events exist in the log
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        let log_path = cache_dir
-            .join("agents")
-            .join("test-agent")
-            .join("events.log");
-
-        // The log may or may not exist depending on whether emit_compact_push is called
-        // For write_commit_push path (not emit_compact_push), events aren't written
-        // Just verify the writer operated successfully
-        drop(log_path);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_counters_persist_across_writer_instances() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-
-        // First writer creates 2 issues
-        {
-            let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-            let db = make_db(work_dir.path());
-            writer.create_issue(&db, "Issue 1", None, "low").unwrap();
-            writer.create_issue(&db, "Issue 2", None, "low").unwrap();
-        }
-
-        // Second writer should continue from counter 3
-        {
-            let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-            let db = make_db(work_dir.path());
-            let id = writer.create_issue(&db, "Issue 3", None, "low").unwrap();
-            assert_eq!(id, 3, "Counter should persist: 3rd issue should get ID 3");
-        }
-
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_promoted_uuids_path() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let path = writer.promoted_uuids_path();
-        assert!(
-            path.to_string_lossy().contains(".promoted-uuids"),
-            "promoted_uuids_path should contain .promoted-uuids"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_event_log_path() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let path = writer.event_log_path();
-        assert!(
-            path.to_string_lossy().contains("test-agent"),
-            "event_log_path should contain agent_id"
-        );
-        assert!(
-            path.to_string_lossy().contains("events.log"),
-            "event_log_path should end in events.log"
         );
         drop(work_dir);
     }
@@ -2218,72 +1089,12 @@ mod integration {
     }
 
     #[test]
-    fn test_read_counters_defaults_to_one() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // Before any issues are created, next_display_id should be 1
-        let counters = writer.read_counters().unwrap();
-        assert_eq!(counters.next_display_id, 1);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_write_then_read_counters() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        writer
-            .create_issue(&db, "Counter check", None, "low")
-            .unwrap();
-
-        let counters = writer.read_counters().unwrap();
-        assert_eq!(
-            counters.next_display_id, 2,
-            "After one create, next_display_id should be 2"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_load_issue_by_id_positive() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Load by ID", Some("description"), "medium")
-            .unwrap();
-        let loaded = writer.load_issue_by_id(id, &db).unwrap();
-        assert_eq!(loaded.title, "Load by ID");
-        assert_eq!(loaded.status, IssueStatus::Open);
-        drop(work_dir);
-    }
-
-    #[test]
     fn test_load_issue_by_display_id_not_found() {
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
         let result = writer.load_issue_by_display_id(9999);
         assert!(result.is_err(), "Non-existent issue should return error");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_resolve_uuid_for_positive_id() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "UUID resolve", None, "low")
-            .unwrap();
-        let uuid = writer.resolve_uuid(id, &db).unwrap();
-
-        let issue = writer.load_issue_by_display_id(id).unwrap();
-        assert_eq!(uuid, issue.uuid, "Resolved UUID should match issue UUID");
         drop(work_dir);
     }
 
@@ -2312,6 +1123,9 @@ mod integration {
             labels: vec![],
             parent_uuid: None,
             created_by: "test-agent".to_string(),
+            display_id: None,
+            scheduled_at: None,
+            due_at: None,
         };
         let envelope = writer.create_envelope(event);
         assert_eq!(envelope.agent_id, "test-agent");
@@ -2336,187 +1150,13 @@ mod integration {
     }
 
     #[test]
-    fn test_find_offline_issues_empty_when_all_have_ids() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Create issues normally (they get display IDs)
-        writer.create_issue(&db, "Normal 1", None, "low").unwrap();
-        writer.create_issue(&db, "Normal 2", None, "low").unwrap();
-
-        // find_offline_issues should return empty since all have display_id
-        let offline = writer.find_offline_issues().unwrap();
-        assert!(
-            offline.is_empty(),
-            "No offline issues expected when all have display IDs"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_claim_display_id_uses_correct_starting_value() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let (first, counters) = writer.claim_display_id(1).unwrap();
-        assert_eq!(first, 1, "First claimed ID should be 1");
-        assert_eq!(
-            counters.next_display_id, 2,
-            "After claiming 1, next should be 2"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_claim_display_id_bulk() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let (first, counters) = writer.claim_display_id(5).unwrap();
-        assert_eq!(first, 1);
-        assert_eq!(
-            counters.next_display_id, 6,
-            "After claiming 5, next should be 6"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_claim_milestone_id() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let (id, counters) = writer.claim_milestone_id().unwrap();
-        assert_eq!(id, 1, "First milestone ID should be 1");
-        assert_eq!(counters.next_milestone_id, 2);
-        drop(work_dir);
-    }
-
-    /// Regression: `claim_display_id` must not hand out an ID that
-    /// already belongs to an existing issue file, even when
-    /// `counters.json` is stale. Simulates a freshly-cloned repo
-    /// whose hub branch contains closed issues but whose local
-    /// `counters.json` still reports `next_display_id = 1`.
-    #[test]
-    fn test_claim_display_id_reconciles_against_stale_counter() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // Simulate: issues directory already contains higher-ID files
-        // (from a hub branch that was synced but whose counters.json
-        // was never updated — e.g., a closed issue preserved from a
-        // prior session).
-        let issues_dir = writer.sync.cache_path().join("issues");
-        std::fs::create_dir_all(&issues_dir).unwrap();
-        let stale = make_issue(100, "closed-from-hub");
-        write_issue_file(&issues_dir.join(format!("{}.json", stale.uuid)), &stale).unwrap();
-
-        // counters.json still at the default (next_display_id = 1).
-        let counters = writer.read_counters().unwrap();
-        assert_eq!(
-            counters.next_display_id, 1,
-            "precondition: counter is stale"
-        );
-
-        // Claim — the reconciler should jump ahead past the existing
-        // max so the new ID does not collide.
-        let (first, updated) = writer.claim_display_id(1).unwrap();
-        assert_eq!(first, 101, "first claim must be past the max existing ID");
-        assert_eq!(updated.next_display_id, 102);
-        drop(work_dir);
-    }
-
-    /// Regression: the reconciler must walk both V1 and V2 layouts.
-    #[test]
-    fn test_claim_display_id_reconciles_across_v1_and_v2_layouts() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let issues_dir = writer.sync.cache_path().join("issues");
-        std::fs::create_dir_all(&issues_dir).unwrap();
-
-        // V1 layout: issues/{uuid}.json
-        let v1 = make_issue(50, "v1-issue");
-        write_issue_file(&issues_dir.join(format!("{}.json", v1.uuid)), &v1).unwrap();
-
-        // V2 layout: issues/{uuid}/issue.json with a HIGHER display_id
-        let v2 = make_issue(200, "v2-issue");
-        let v2_dir = issues_dir.join(v2.uuid.to_string());
-        std::fs::create_dir_all(&v2_dir).unwrap();
-        write_issue_file(&v2_dir.join("issue.json"), &v2).unwrap();
-
-        let (first, _) = writer.claim_display_id(1).unwrap();
-        assert_eq!(
-            first, 201,
-            "reconciler must see the highest ID across both layouts"
-        );
-        drop(work_dir);
-    }
-
-    /// When the counter is already ahead of the cache (the normal
-    /// steady-state case), reconciliation must NOT decrease it.
-    /// Otherwise a successful push that bumped the counter could be
-    /// silently undone on the next claim.
-    #[test]
-    fn test_claim_display_id_does_not_regress_advanced_counter() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // Advance the counter well beyond any files on disk.
-        let mut counters = writer.read_counters().unwrap();
-        counters.next_display_id = 500;
-        writer.write_counters_to_cache(&counters).unwrap();
-
-        // Add a few issue files with much lower IDs.
-        let issues_dir = writer.sync.cache_path().join("issues");
-        std::fs::create_dir_all(&issues_dir).unwrap();
-        let low = make_issue(5, "low");
-        write_issue_file(&issues_dir.join(format!("{}.json", low.uuid)), &low).unwrap();
-
-        let (first, updated) = writer.claim_display_id(1).unwrap();
-        assert_eq!(first, 500, "counter must not be regressed by older files");
-        assert_eq!(updated.next_display_id, 501);
-        drop(work_dir);
-    }
-
-    /// Regression: `claim_milestone_id` has the same potential
-    /// collision; verify the parallel reconciler fixes it.
-    #[test]
-    fn test_claim_milestone_id_reconciles_against_stale_counter() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // Seed meta/milestones/ with a pre-existing milestone file.
-        let milestones_dir = writer.sync.cache_path().join("meta").join("milestones");
-        std::fs::create_dir_all(&milestones_dir).unwrap();
-        let ms_uuid = Uuid::new_v4();
-        let milestone = crate::issue_file::MilestoneEntry {
-            uuid: ms_uuid,
-            display_id: 42,
-            name: "Q1".to_string(),
-            description: None,
-            status: IssueStatus::Open,
-            created_at: Utc::now(),
-            closed_at: None,
-        };
-        let path = milestones_dir.join(format!("{ms_uuid}.json"));
-        std::fs::write(&path, serde_json::to_string_pretty(&milestone).unwrap()).unwrap();
-
-        // counters.json default says next_milestone_id = 1.
-        let counters = writer.read_counters().unwrap();
-        assert_eq!(counters.next_milestone_id, 1, "precondition: counter stale");
-
-        let (id, updated) = writer.claim_milestone_id().unwrap();
-        assert_eq!(id, 43, "milestone id must skip past the existing max");
-        assert_eq!(updated.next_milestone_id, 44);
-        drop(work_dir);
-    }
-
-    #[test]
     fn test_read_max_event_seq_returns_zero_when_no_log() {
         let dir = tempfile::tempdir().unwrap();
-        let seq = SharedWriter::read_max_event_seq(dir.path(), "nonexistent-agent");
+        let seq = SharedWriter::read_max_event_seq(
+            dir.path(),
+            "nonexistent-agent",
+            crate::hub_v3::HubMode::V2,
+        );
         assert_eq!(seq, 0, "Max event seq should be 0 when no log exists");
     }
 
@@ -2532,20 +1172,6 @@ mod integration {
     }
 
     #[test]
-    fn test_write_counters_to_cache() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        let mut counters = writer.read_counters().unwrap();
-        counters.next_display_id = 42;
-        writer.write_counters_to_cache(&counters).unwrap();
-
-        let reloaded = writer.read_counters().unwrap();
-        assert_eq!(reloaded.next_display_id, 42);
-        drop(work_dir);
-    }
-
-    #[test]
     fn test_push_outcome_eq() {
         assert_eq!(PushOutcome::Pushed, PushOutcome::Pushed);
         assert_eq!(PushOutcome::LocalOnly, PushOutcome::LocalOnly);
@@ -2557,103 +1183,6 @@ mod integration {
         let o = PushOutcome::Pushed;
         let o2 = o; // copy
         assert_eq!(o, o2);
-    }
-
-    #[test]
-    fn test_max_retries_constant() {
-        assert_eq!(MAX_RETRIES, 3);
-    }
-
-    // ---- V1 layout coverage ----
-
-    /// Create a V1-layout environment by deleting `meta/version.json` from the hub
-    /// cache after normal V2 setup. `layout_version()` returns 1 when this file
-    /// is absent, routing `add_comment` / `add_intervention_comment` through the V1
-    /// inline-append code paths (lines 679-701, 762-785).
-    fn setup_shared_writer_env_v1() -> (TempDir, TempDir, std::path::PathBuf) {
-        let (work_dir, remote_dir, crosslink_dir) = setup_shared_writer_env();
-        // Remove meta/version.json so layout_version() returns 1
-        let version_file = crosslink_dir
-            .join(".hub-cache")
-            .join("meta")
-            .join("version.json");
-        if version_file.exists() {
-            std::fs::remove_file(&version_file).unwrap();
-        }
-        (work_dir, remote_dir, crosslink_dir)
-    }
-
-    #[test]
-    fn test_add_comment_v1_layout() {
-        // Exercises lines 679-701: V1 path that appends comment inline to issue.json
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v1();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Verify we are in V1 layout
-        assert_eq!(
-            writer.layout_version(),
-            1,
-            "Should be V1 layout after version.json removal"
-        );
-
-        // In V1 layout, create_issue writes a flat issues/{uuid}.json file.
-        let issue_id = writer
-            .create_issue(&db, "V1 comment host", None, "medium")
-            .unwrap();
-
-        let comment_id = writer
-            .add_comment(&db, issue_id, "V1 inline comment", "note")
-            .unwrap();
-
-        assert!(comment_id > 0, "Comment ID should be positive");
-
-        // In V1 layout, the comment is stored inline inside issues/{uuid}.json.
-        // Verify it appeared in the DB (hydration reads it from the issue file).
-        let comments = db.get_comments(issue_id).unwrap();
-        assert!(
-            !comments.is_empty(),
-            "V1 comment should appear in DB after hydration"
-        );
-        assert_eq!(comments[0].content, "V1 inline comment");
-
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_add_intervention_comment_v1_layout() {
-        // Exercises lines 762-785: V1 path that appends intervention comment inline.
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v1();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        assert_eq!(writer.layout_version(), 1);
-
-        let issue_id = writer
-            .create_issue(&db, "V1 intervention host", None, "medium")
-            .unwrap();
-
-        let comment_id = writer
-            .add_intervention_comment(
-                &db,
-                issue_id,
-                "V1 intervention content",
-                "manual_redirect",
-                Some("V1 context"),
-                None,
-            )
-            .unwrap();
-
-        assert!(comment_id > 0, "Intervention comment ID should be positive");
-
-        let comments = db.get_comments(issue_id).unwrap();
-        assert!(
-            !comments.is_empty(),
-            "V1 intervention comment should appear in DB"
-        );
-        assert_eq!(comments[0].content, "V1 intervention content");
-
-        drop(work_dir);
     }
 
     // ---- SharedWriter::new() anonymous path ----
@@ -2747,6 +1276,7 @@ mod integration {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
             description: None,
+            role: AgentRole::Driver,
             ssh_key_path: Some("nonexistent_key_file.pem".to_string()),
             ssh_fingerprint: Some("SHA256:fakefingerprint".to_string()),
             ssh_public_key: None,
@@ -2782,6 +1312,7 @@ mod integration {
             agent_id: "test-agent".to_string(),
             machine_id: "test-machine".to_string(),
             description: None,
+            role: AgentRole::Driver,
             ssh_key_path: Some(fake_key_name.to_string()),
             ssh_fingerprint: Some("SHA256:fakefingerprint".to_string()),
             ssh_public_key: None,
@@ -2805,188 +1336,6 @@ mod integration {
         drop(work_dir);
     }
 
-    // ---- replace_local_refs "after" boundary rejection ----
-
-    #[test]
-    fn test_replace_local_refs_after_boundary_rejection() {
-        // Exercises line 64: before_ok=true but after_ok=false -> else { i = end_pos }.
-        // "L1" appears at start of "L10" -- before boundary OK, but "0" after is alphanumeric.
-        let replacements = vec![("L1".to_string(), "#5".to_string())];
-
-        // "L10" -- L1 is followed by "0" (alphanumeric), so the word-boundary check rejects it.
-        let result = replace_local_refs("L10 is a thing", &replacements);
-        assert!(
-            result.is_none(),
-            "L1 in L10 should NOT be replaced (after-boundary alphanumeric char)"
-        );
-
-        // Mixed: "L10 and L1" -- L10 should not replace, standalone L1 should
-        let result = replace_local_refs("L10 and L1 done", &replacements);
-        assert_eq!(
-            result,
-            Some("L10 and #5 done".to_string()),
-            "Only standalone L1 should be replaced, not L1 inside L10"
-        );
-
-        // At end of string: "L10" -- after end_pos is string end but "0" terminates the match
-        let result = replace_local_refs("L10", &replacements);
-        assert!(
-            result.is_none(),
-            "L1 at start of L10 (entire string) should NOT be replaced"
-        );
-    }
-
-    // --- claim_lock_v2() / release_lock_v2() ---
-    // Exercises emit_compact_push() path (lines 286-360)
-
-    #[test]
-    fn test_claim_lock_v2_succeeds() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Lock target", None, "medium")
-            .unwrap();
-
-        let result = writer.claim_lock_v2(id, Some("feature/test")).unwrap();
-        assert_eq!(result, LockClaimResult::Claimed);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_claim_lock_v2_already_held() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Lock target 2", None, "medium")
-            .unwrap();
-
-        writer.claim_lock_v2(id, None).unwrap();
-
-        // Claim again -- should return AlreadyHeld
-        let result = writer.claim_lock_v2(id, None).unwrap();
-        assert_eq!(result, LockClaimResult::AlreadyHeld);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_release_lock_v2_held() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Lock release", None, "medium")
-            .unwrap();
-        writer.claim_lock_v2(id, None).unwrap();
-
-        let released = writer.release_lock_v2(id).unwrap();
-        assert!(released, "Should release own lock");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_release_lock_v2_not_locked() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-
-        // Issue ID 999 doesn't exist / isn't locked
-        let released = writer.release_lock_v2(999).unwrap();
-        assert!(!released, "Releasing non-existent lock returns false");
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_steal_lock_v2() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Steal target", None, "medium")
-            .unwrap();
-        writer.claim_lock_v2(id, None).unwrap();
-
-        // Steal the lock (pretending the owner is stale)
-        let result = writer
-            .steal_lock_v2(id, "test-agent", Some("feature/steal"))
-            .unwrap();
-        assert_eq!(result, LockClaimResult::Claimed);
-        drop(work_dir);
-    }
-
-    // --- rewrite_local_references() additional ---
-
-    #[test]
-    fn test_rewrite_local_references_rewrites_description() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        // Create an issue with a description referencing L1
-        let id = writer
-            .create_issue(&db, "Rewrite test", Some("See L1 for details"), "medium")
-            .unwrap();
-
-        // Mapping: neg_id=-1 -> new_id=id, simulate promotion
-        let mapping = vec![(-1i64, id, "Rewrite test".to_string())];
-        let stats = writer.rewrite_local_references(&db, &mapping).unwrap();
-
-        assert_eq!(stats.descriptions_updated, 1);
-
-        let issue = db.get_issue(id).unwrap().unwrap();
-        assert!(
-            issue
-                .description
-                .as_deref()
-                .unwrap()
-                .contains(&format!("#{id}")),
-            "L1 should be rewritten to #{id}"
-        );
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_rewrite_local_references_rewrites_comments() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "Comment rewrite", None, "medium")
-            .unwrap();
-        writer
-            .add_comment(&db, id, "Related to L2", "observation")
-            .unwrap();
-
-        let mapping = vec![(-2i64, id, "Comment rewrite".to_string())];
-        let stats = writer.rewrite_local_references(&db, &mapping).unwrap();
-
-        assert_eq!(stats.comments_updated, 1);
-        drop(work_dir);
-    }
-
-    #[test]
-    fn test_rewrite_local_references_no_refs_no_changes() {
-        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
-        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
-        let db = make_db(work_dir.path());
-
-        let id = writer
-            .create_issue(&db, "No refs", Some("Plain description"), "medium")
-            .unwrap();
-
-        let mapping = vec![(-1i64, id, "No refs".to_string())];
-        let stats = writer.rewrite_local_references(&db, &mapping).unwrap();
-
-        assert_eq!(stats.descriptions_updated, 0);
-        assert_eq!(stats.comments_updated, 0);
-        drop(work_dir);
-    }
-
     // --- SharedWriter::new() anonymous path ---
 
     #[test]
@@ -3005,69 +1354,61 @@ mod integration {
         assert!(result.is_none());
     }
 
-    // --- promote_offline_issues() with actual offline issues ---
+    // ── v2-hub write refusal (#754 PASS B1) ──────────────────────────────────
+    //
+    // The v2 write path was deleted; every mutation now bails on a v2 hub with a
+    // message instructing the operator to migrate. `setup_shared_writer_env()`
+    // builds a v2 hub, so these mutations must refuse. The surviving v3 write
+    // behavior is covered in `src/commands/hub_v3_operation_tests.rs`.
 
     #[test]
-    fn test_promote_offline_issues_with_offline_issue() {
+    fn test_v2_create_issue_refuses_with_migrate_message() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        let db = make_db(work_dir.path());
+
+        let err = writer
+            .create_issue(&db, "Should refuse", None, "medium", None, None)
+            .expect_err("create_issue must refuse on a v2 hub");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("migrate hub-v3"),
+            "refusal must point at `crosslink migrate hub-v3`; got: {msg}"
+        );
+        drop(work_dir);
+    }
+
+    #[test]
+    fn test_v2_add_label_refuses() {
+        // `add_label` on a non-existent id on a v2 hub must return Err. We do not
+        // assert the exact substring here: `add_label` loads the issue first, and
+        // on a v2 hub that read path can fail before reaching the write refusal.
+        // The robust contract for this call is simply that it does not succeed.
         let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env();
         let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
         let db = make_db(work_dir.path());
 
-        // Manually create an offline issue (display_id: null, created_by: test-agent)
-        let uuid = uuid::Uuid::new_v4();
-        let now = chrono::Utc::now();
-        let issue = crate::issue_file::IssueFile {
-            uuid,
-            display_id: None,
-            title: "Offline issue".to_string(),
-            description: None,
-            status: IssueStatus::Open,
-            priority: Priority::Medium,
-            parent_uuid: None,
-            created_by: "test-agent".to_string(),
-            created_at: now,
-            updated_at: now,
-            closed_at: None,
-            labels: vec![],
-            comments: vec![],
-            blockers: vec![],
-            related: vec![],
-            milestone_uuid: None,
-            time_entries: vec![],
-        };
+        let result = writer.add_label(&db, 1, "bug");
+        assert!(
+            result.is_err(),
+            "add_label must not succeed on a v2 hub (it can never reach a write)"
+        );
+        drop(work_dir);
+    }
 
-        // Write it in V2 format (issues/{uuid}/issue.json)
-        let cache_dir = crosslink_dir.join(".hub-cache");
-        let issue_dir = cache_dir.join("issues").join(uuid.to_string());
-        std::fs::create_dir_all(&issue_dir).unwrap();
-        let json = serde_json::to_string_pretty(&issue).unwrap();
-        std::fs::write(issue_dir.join("issue.json"), &json).unwrap();
+    #[test]
+    fn test_v2_lock_claim_refuses() {
+        let (work_dir, _remote, crosslink_dir) = setup_shared_writer_env_v2();
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
 
-        // Also git add + commit so the cache is clean
-        writer
-            .git_in_cache(&["add", &format!("issues/{uuid}/issue.json")])
-            .unwrap();
-        let _ = writer.git_in_cache(&["commit", "-m", "add offline issue", "--no-gpg-sign"]);
-
-        // Now promote
-        let mapping = writer.promote_offline_issues(&db).unwrap();
-        assert_eq!(mapping.len(), 1, "Should promote exactly 1 issue");
-        let (_neg_id, new_id, title) = &mapping[0];
-        assert_eq!(title, "Offline issue");
-        assert!(*new_id > 0, "New display ID should be positive");
-
-        // write_commit_push writes the promoted file in V1 format
-        // (issues/{uuid}.json) regardless of layout version
-        let v1_file = cache_dir.join("issues").join(format!("{uuid}.json"));
-        if v1_file.exists() {
-            let content = std::fs::read_to_string(&v1_file).unwrap();
-            let updated: crate::issue_file::IssueFile = serde_json::from_str(&content).unwrap();
-            assert!(
-                updated.display_id.is_some(),
-                "display_id should be set after promotion"
-            );
-        }
-
+        let err = writer
+            .claim_lock_v2(1, None)
+            .expect_err("claim_lock_v2 must refuse on a v2 hub");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("migrate hub-v3"),
+            "refusal must point at `crosslink migrate hub-v3`; got: {msg}"
+        );
         drop(work_dir);
     }
 }

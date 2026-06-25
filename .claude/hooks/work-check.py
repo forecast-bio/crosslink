@@ -265,17 +265,82 @@ def is_issue_close_command(input_data):
     return None
 
 
+def check_control_flags(crosslink_dir):
+    """Block tool use when an operator has set the pause / kill flag
+    via the dashboard's agent-request protocol.
+
+    Calls `crosslink agent flags --strict` which exits 2 when blocking
+    flags are set. We re-emit a friendly explanation and exit 2
+    ourselves so the model sees a useful refusal, not a raw exit code.
+    """
+    if not crosslink_dir:
+        return
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["crosslink", "agent", "flags", "--strict"],
+            capture_output=True,
+            text=True,
+            cwd=crosslink_dir,
+            timeout=3,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # crosslink not on PATH or hung — fail open (don't block) so
+        # missing tooling never wedges Claude Code.
+        return
+    if proc.returncode == 0:
+        return
+    if proc.returncode == 2 and proc.stdout.strip():
+        try:
+            state = json.loads(proc.stdout.strip())
+        except (json.JSONDecodeError, ValueError):
+            state = {}
+        if state.get("kill"):
+            # GH#624: blocking messages MUST go to stderr — Claude Code only
+            # shows stderr to the model on exit 2; stdout is silently dropped.
+            print(
+                "AGENT KILL REQUESTED — an operator (dashboard or CLI) has "
+                "asked this agent to stop after the current tool use.\n"
+                "Acknowledge the request, summarise progress, then exit "
+                "your session cleanly. Do not attempt further tool calls.",
+                file=sys.stderr,
+            )
+        else:
+            hint = state.get("reprioritise")
+            extra = ""
+            if hint:
+                extra = (
+                    f"\nReprioritise hint pending: switch focus to issue "
+                    f"#{hint.get('issue_id')} when resuming."
+                )
+            print(
+                "AGENT PAUSED — an operator has paused this agent via the "
+                "dashboard. Tool use is blocked until they resume.\n"
+                "Wait for the resume signal or explain to the user that "
+                "you've been paused." + extra,
+                file=sys.stderr,
+            )
+        sys.exit(2)
+
+
 def main():
     try:
         input_data = json.load(sys.stdin)
         tool_name = input_data.get('tool_name', '')
     except (json.JSONDecodeError, ValueError, TypeError):
-        print("work-check: failed to parse stdin — blocking tool call (fail-closed)")
+        print(
+            "work-check: failed to parse stdin — blocking tool call (fail-closed)",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     # Only check on Write, Edit, Bash
     if tool_name not in ('Write', 'Edit', 'Bash'):
         sys.exit(0)
+
+    # Operator-driven kill / pause flags from the dashboard's agent-
+    # request protocol take priority over everything else.
+    check_control_flags(find_crosslink_dir())
 
     # Allow Claude Code to manage its own memory/config in ~/.claude/
     if tool_name in ('Write', 'Edit') and is_claude_memory_path(input_data):
@@ -302,7 +367,8 @@ def main():
             "--- INTERVENTION LOGGING ---\n"
             "Log this blocked action for the audit trail:\n"
             "  crosslink intervene <issue-id> \"Attempted: <command>\" "
-            "--trigger tool_blocked --context \"<what you were trying to accomplish>\""
+            "--trigger tool_blocked --context \"<what you were trying to accomplish>\"",
+            file=sys.stderr,
         )
         sys.exit(2)
 
@@ -323,7 +389,8 @@ def main():
                 "--- INTERVENTION LOGGING ---\n"
                 "If a human redirected you here, log the intervention:\n"
                 "  crosslink intervene <issue-id> \"Redirected to create issue before commit\" "
-                "--trigger redirect --context \"Attempted git commit without active issue\""
+                "--trigger redirect --context \"Attempted git commit without active issue\"",
+                file=sys.stderr,
             )
             sys.exit(2)
 
@@ -339,7 +406,7 @@ def main():
                     "This documents WHY the change was made, not just WHAT changed."
                 ).format(id=issue_id)
                 if comment_discipline == "required":
-                    print(msg)
+                    print(msg, file=sys.stderr)
                     sys.exit(2)
                 else:
                     print("Reminder: " + msg)
@@ -372,7 +439,7 @@ def main():
                     "This creates the audit trail for the work that was done."
                 ).format(id=issue_id)
                 if comment_discipline == "required":
-                    print(msg)
+                    print(msg, file=sys.stderr)
                     sys.exit(2)
                 else:
                     print("Reminder: " + msg)
@@ -443,7 +510,7 @@ def main():
     )
 
     if tracking_mode == "strict":
-        print(strict_msg)
+        print(strict_msg, file=sys.stderr)
         sys.exit(2)
     else:
         # normal mode: remind but allow

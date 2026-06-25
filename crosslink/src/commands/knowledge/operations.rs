@@ -18,6 +18,49 @@ fn current_agent_id(crosslink_dir: &Path) -> String {
         .map_or_else(|| "unknown".to_string(), |a| a.agent_id)
 }
 
+/// Validate and dedupe explicit `--contributor` overrides (GH#628).
+///
+/// The knowledge project is resolved by cwd, so a driver adding a page to
+/// another repo's knowledge would otherwise always be attributed to that
+/// repo's local `agent.json` identity. These overrides let the recorded
+/// contributor reflect the actual author. Validation is deliberately loose
+/// (contributors are free-form identities like `anon-ab6221f8`, not hub
+/// agent ids): non-empty, at most 64 chars, no whitespace or control chars.
+///
+/// # Errors
+///
+/// Returns an error naming the offending value when validation fails.
+fn validate_contributors(raw: &[String]) -> Result<Vec<String>> {
+    let mut out: Vec<String> = Vec::with_capacity(raw.len());
+    for c in raw {
+        let c = c.trim();
+        if c.is_empty() {
+            bail!("--contributor cannot be empty");
+        }
+        if c.len() > 64 {
+            bail!("--contributor '{c}' exceeds 64 characters");
+        }
+        if c.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
+            bail!("--contributor '{c}' must not contain whitespace or control characters");
+        }
+        if !out.iter().any(|e| e == c) {
+            out.push(c.to_string());
+        }
+    }
+    Ok(out)
+}
+
+/// Resolve the contributors to record: explicit overrides when given,
+/// otherwise the local agent identity.
+fn resolve_contributors(crosslink_dir: &Path, overrides: &[String]) -> Result<Vec<String>> {
+    let validated = validate_contributors(overrides)?;
+    if validated.is_empty() {
+        Ok(vec![current_agent_id(crosslink_dir)])
+    } else {
+        Ok(validated)
+    }
+}
+
 /// Ensure the knowledge cache is initialized, creating it if needed.
 fn ensure_initialized(km: &KnowledgeManager) -> Result<()> {
     if !km.is_initialized() {
@@ -36,6 +79,7 @@ fn warn_resolved_conflicts(outcome: &SyncOutcome) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add(
     crosslink_dir: &Path,
     slug: &str,
@@ -44,6 +88,7 @@ pub fn add(
     sources: &[String],
     content: Option<&str>,
     from_doc: Option<&std::path::Path>,
+    contributors: &[String],
 ) -> Result<()> {
     let km = KnowledgeManager::new(crosslink_dir)?;
     ensure_initialized(&km)?;
@@ -82,7 +127,7 @@ pub fn add(
         std::string::ToString::to_string,
     );
 
-    let agent_id = current_agent_id(crosslink_dir);
+    let page_contributors = resolve_contributors(crosslink_dir, contributors)?;
 
     let parsed_sources: Vec<Source> = sources
         .iter()
@@ -103,7 +148,7 @@ pub fn add(
         title: display_title.clone(),
         tags: all_tags,
         sources: parsed_sources,
-        contributors: vec![agent_id],
+        contributors: page_contributors,
         created: now.clone(),
         updated: now,
     };
@@ -251,6 +296,7 @@ pub fn edit(
     append_to_section: Option<&str>,
     tags: &[String],
     sources: &[String],
+    contributors: &[String],
 ) -> Result<()> {
     // Validate: section-based flags require --content
     if (replace_section.is_some() || append_to_section.is_some()) && content.is_none() {
@@ -268,7 +314,7 @@ pub fn edit(
 
     let existing = km.read_page(slug)?;
     let now = Utc::now().format("%Y-%m-%d").to_string();
-    let agent_id = current_agent_id(crosslink_dir);
+    let new_contributors = resolve_contributors(crosslink_dir, contributors)?;
 
     let mut fm = parse_frontmatter(&existing).unwrap_or_else(|| PageFrontmatter {
         title: slug.to_string(),
@@ -282,9 +328,11 @@ pub fn edit(
     // Update timestamp
     fm.updated.clone_from(&now);
 
-    // Add contributor if not already present
-    if !fm.contributors.iter().any(|c| c == &agent_id) {
-        fm.contributors.push(agent_id);
+    // Add contributors (explicit overrides or the local agent) without duplicating
+    for contributor in new_contributors {
+        if !fm.contributors.iter().any(|c| c == &contributor) {
+            fm.contributors.push(contributor);
+        }
     }
 
     // Add new tags without duplicating
@@ -407,6 +455,7 @@ pub fn import(
     extra_tags: &[String],
     overwrite: bool,
     dry_run: bool,
+    contributors: &[String],
 ) -> Result<()> {
     if !directory.is_dir() {
         bail!("'{}' is not a directory", directory.display());
@@ -423,7 +472,7 @@ pub fn import(
         return Ok(());
     }
 
-    let agent_id = current_agent_id(crosslink_dir);
+    let page_contributors = resolve_contributors(crosslink_dir, contributors)?;
     let now = Utc::now().format("%Y-%m-%d").to_string();
 
     let mut imported = 0u32;
@@ -457,7 +506,13 @@ pub fn import(
         }
 
         match import_single_file(
-            &km, file_path, &slug, &path_tags, extra_tags, &agent_id, &now,
+            &km,
+            file_path,
+            &slug,
+            &path_tags,
+            extra_tags,
+            &page_contributors,
+            &now,
         ) {
             Ok(()) => imported += 1,
             Err(e) => {
@@ -559,7 +614,7 @@ fn import_single_file(
     slug: &str,
     path_tags: &[String],
     extra_tags: &[String],
-    agent_id: &str,
+    contributors: &[String],
     now: &str,
 ) -> Result<()> {
     let raw = std::fs::read_to_string(file_path)
@@ -572,8 +627,10 @@ fn import_single_file(
                 fm.tags.push(tag.clone());
             }
         }
-        if !fm.contributors.iter().any(|c| c == agent_id) {
-            fm.contributors.push(agent_id.to_string());
+        for contributor in contributors {
+            if !fm.contributors.iter().any(|c| c == contributor) {
+                fm.contributors.push(contributor.clone());
+            }
         }
         let body = extract_body(&raw);
         let mut content = serialize_frontmatter(&fm);
@@ -593,7 +650,7 @@ fn import_single_file(
             title,
             tags: all_tags,
             sources: Vec::new(),
-            contributors: vec![agent_id.to_string()],
+            contributors: contributors.to_vec(),
             created: now.to_string(),
             updated: now.to_string(),
         };
@@ -865,6 +922,70 @@ mod tests {
 
         let km = KnowledgeManager::new(&crosslink_dir).unwrap();
         (km, dir)
+    }
+
+    // ==================== contributor override (GH#628) ====================
+
+    #[test]
+    fn test_validate_contributors_accepts_and_dedupes() {
+        let raw = vec![
+            "maxine".to_string(),
+            " anon-ab6221f8 ".to_string(),
+            "maxine".to_string(),
+        ];
+        let out = validate_contributors(&raw).unwrap();
+        assert_eq!(out, vec!["maxine".to_string(), "anon-ab6221f8".to_string()]);
+    }
+
+    #[test]
+    fn test_validate_contributors_rejects_bad_values() {
+        assert!(validate_contributors(&[String::new()]).is_err());
+        assert!(validate_contributors(&["   ".to_string()]).is_err());
+        assert!(validate_contributors(&["two words".to_string()]).is_err());
+        assert!(validate_contributors(&["a".repeat(65)]).is_err());
+    }
+
+    #[test]
+    fn test_resolve_contributors_falls_back_to_local_agent() {
+        let dir = tempdir().unwrap();
+        let crosslink_dir = dir.path().join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+        // No agent.json in the fixture: local identity resolves to "unknown".
+        let resolved = resolve_contributors(&crosslink_dir, &[]).unwrap();
+        assert_eq!(resolved, vec!["unknown".to_string()]);
+
+        // Explicit overrides replace the local identity entirely.
+        let resolved =
+            resolve_contributors(&crosslink_dir, &["actual-author".to_string()]).unwrap();
+        assert_eq!(resolved, vec!["actual-author".to_string()]);
+    }
+
+    #[test]
+    fn test_import_records_multiple_contributor_overrides() {
+        let (km, dir) = setup_km();
+        let raw = "# Heading\n\nBody.\n";
+        import_single_file(
+            &km,
+            &{
+                let p = dir.path().join("multi.md");
+                std::fs::write(&p, raw).unwrap();
+                p
+            },
+            "multi",
+            &[],
+            &[],
+            &["author-a".to_string(), "author-b".to_string()],
+            "2026-06-12",
+        )
+        .unwrap();
+
+        let content = km.read_page("multi").unwrap();
+        let fm = parse_frontmatter(&content).unwrap();
+        assert_eq!(
+            fm.contributors,
+            vec!["author-a".to_string(), "author-b".to_string()]
+        );
     }
 
     // ==================== extract_body Tests ====================
@@ -1386,7 +1507,7 @@ mod tests {
             "test-import",
             &["docs".to_string()],
             &["extra".to_string()],
-            "bot",
+            &["bot".to_string()],
             "2026-03-01",
         )
         .unwrap();
@@ -1418,7 +1539,7 @@ mod tests {
             "my-doc",
             &[],
             &["imported".to_string()],
-            "bot",
+            &["bot".to_string()],
             "2026-03-01",
         )
         .unwrap();

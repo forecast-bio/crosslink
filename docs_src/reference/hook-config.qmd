@@ -4,7 +4,7 @@ title: "Hook configuration"
 
 Hooks run automatically during agent sessions and rarely need manual configuration. This reference documents the full configuration surface for fine-tuning enforcement behavior.
 
-Hook behavior is controlled by `.crosslink/hook-config.json`. This file is created by `crosslink init` and can be edited to customize enforcement.
+Hook behavior is controlled by `.crosslink/hook-config.json`. This file is created by `crosslink init` and can be edited to customize enforcement. For machine-specific overrides that should not be committed, use the [`hook-config.local.json` overlay](state-files.qmd#hook-config-local-json) -- same schema, shallow-merged on top.
 
 ## Configuration file
 
@@ -95,6 +95,217 @@ The hook checks if the bash command starts with any of these prefixes. To allow 
 Bash commands that bypass the issue-required check. These are typically read-only or infrastructure commands that don't require issue tracking.
 
 The hook splits chained commands (using `&&`, `;`, `|`) and checks that **every** component matches an allowed prefix. A command like `crosslink list && rm -rf /` would be blocked because `rm -rf /` doesn't match any allowed prefix.
+
+### `tracker_remote`
+
+Git remote name used for crosslink's `hub` and `knowledge` coordination branches. String. Default: `"origin"`. Override when your coordination remote differs from your code remote -- e.g. `crosslink config set tracker_remote upstream`.
+
+### `external-cache-ttl`
+
+TTL in seconds for cached external-repo metadata (used by `crosslink issue` commands that reach into another project's hub branch). Integer. Default: `300` (5 minutes). Lower for fast-moving coordination repos, higher to reduce network round-trips.
+
+### `external-url-ttl`
+
+TTL in seconds for cached URL → repo resolution results (e.g. parsing `https://github.com/owner/repo` into the canonical alias). Integer. Default: `86400` (24 hours).
+
+### `repo-alias`
+
+Map of named aliases for external repositories, used by commands that accept `--repo <alias>`. Stored as `repo-alias.<name>` keys -- set with `crosslink config set repo-alias.upstream https://github.com/owner/repo`. Default: `{}` (none).
+
+### `crosslink_binary`
+
+Explicit absolute path to the `crosslink` binary used by the Python hook scripts when shelling out. String. Default: unset (hooks fall back to `$PATH`, then common install locations like `~/.cargo/bin/crosslink`). Set this when `crosslink` lives somewhere unusual or when multiple installs need disambiguating -- e.g. `crosslink config set crosslink_binary /opt/forecast/bin/crosslink`.
+
+### `context_budget_chars`
+
+Estimated character budget the `prompt-guard.py` hook uses to warn before context exhaustion. Integer. Default: `1000000` (1M chars, roughly aligned with a 200k-token window). Set to `0` (or any non-positive value) to disable the guard entirely.
+
+### `kickoff.allowed_tools`
+
+Extra `--allowedTools` patterns appended to the kickoff agent's CLI invocation. String array. Default: `[]`. Use when convention detection misses a tool the agent needs (e.g. manifests buried more than one directory deep, custom build wrappers, MCP server tool names). The list is *additive* to the auto-detected toolset -- it adds, it does not replace -- and entries should be in Claude Code's allowedTools pattern format:
+
+```bash
+crosslink config set kickoff.allowed_tools '["Bash(cargo *)", "Bash(make deploy *)", "mcp__tidewave__execute_sql_query"]'
+```
+
+Auto-detection already handles `Bash(cargo *)`, `Bash(npm *)`, `Bash(uv *)`, `Bash(pytest *)`, `Bash(go *)`, `Bash(just *)`, and `Bash(make *)` when the corresponding manifest exists at the repo root or one directory level deep -- reach for this key when your layout puts manifests deeper, or when you need a pattern detection doesn't cover.
+
+### `sandbox.command` {#sandbox-command}
+
+Optional sandbox-wrapper command applied to local kickoff launches. String. Default: unset (no sandboxing). When set, the kickoff agent's `claude` invocation is prefixed with this command; the value must be a binary on `$PATH` accepting the command to run as its trailing argument. See [Local sandbox alternative](../guides/container-agents.qmd#local-sandbox-alternative) in the container-agents guide for usage notes.
+
+&nbsp;
+
+---
+
+## Agent overrides
+
+The `agent_overrides` object lets kickoff agents run under a different policy from interactive sessions in the same repo. When a key appears under `agent_overrides`, it shadows the same-named top-level key **only for agent processes** -- interactive `claude` sessions and human shells still see the top-level value. Two additional keys (`agent_lint_commands`, `agent_test_commands`) have no top-level counterpart and only exist here.
+
+```json
+{
+  "agent_overrides": {
+    "tracking_mode": "relaxed",
+    "blocked_git_commands": [
+      "git push --force", "git push -f",
+      "git reset --hard",
+      "git clean -f", "git clean -fd", "git clean -fdx",
+      "git checkout .", "git restore ."
+    ],
+    "gated_git_commands": [],
+    "agent_lint_commands": [],
+    "agent_test_commands": []
+  }
+}
+```
+
+### `agent_overrides.tracking_mode`
+
+Tracking mode applied to kickoff agents (overrides the top-level `tracking_mode`). Values: `"strict"`, `"normal"`, `"relaxed"`. Default: `"relaxed"`. Agents typically run under `"relaxed"` so they aren't blocked by the issue-required check during long autonomous loops, while humans in the same repo stay under `"strict"`.
+
+### `agent_overrides.blocked_git_commands`
+
+Git mutation commands blocked for agents only. Same prefix-matching semantics as the top-level `blocked_git_commands`. Default: a narrower destructive-only list (`git push --force`, `git reset --hard`, `git clean -f`, `git checkout .`, `git restore .`) so agents can still push to feature branches but cannot destroy history or wipe the worktree.
+
+### `agent_overrides.gated_git_commands`
+
+Git commands requiring an active issue for agents only. Default: `[]` (empty) -- the gated-list is intentionally empty for agents since they always run with an active issue claimed.
+
+### `agent_overrides.agent_lint_commands`
+
+Lint commands the agent runs as part of its self-validation pass at the end of a kickoff. Auto-populated during `crosslink init` from detected project conventions (e.g. `["cargo clippy", "npm run lint"]`); leave empty to disable. Default: `[]`.
+
+### `agent_overrides.agent_test_commands`
+
+Test commands the agent runs as part of its self-validation pass. Auto-populated during `crosslink init` from detected project conventions (e.g. `["cargo test", "npm test"]`); leave empty to disable. Default: `[]`.
+
+&nbsp;
+
+---
+
+## Watchdog configuration
+
+The `watchdog` block controls the per-kickoff sidecar that detects stalled local agents and sends a "continue" nudge to their tmux session. It applies only to local (non-container) kickoffs -- container agents have their own timeout enforcement via `--stop-timeout`. The block is read by `read_watchdog_config` in the kickoff launcher; omitting any sub-key keeps its default.
+
+```json
+{
+  "watchdog": {
+    "enabled": true,
+    "staleness_secs": 300,
+    "max_nudges": 5,
+    "check_interval_secs": 120,
+    "grace_period_secs": 300
+  }
+}
+```
+
+### `watchdog.enabled`
+
+Master switch for the per-kickoff watchdog sidecar. Bool. Default: `true`. When `false`, no watchdog process is spawned alongside local kickoffs and stalled agents are left alone until the overall `--timeout` fires.
+
+### `watchdog.staleness_secs`
+
+Seconds without a heartbeat before the watchdog considers an agent stalled and sends a nudge. Integer. Default: `300` (5 minutes). Heartbeats are written by the `PostToolUse` hook on every tool call, so a healthy agent refreshes this every few seconds.
+
+### `watchdog.max_nudges`
+
+Maximum number of "continue" nudges the watchdog will send before giving up and exiting. Integer. Default: `5`. Once exhausted, the watchdog leaves the tmux session running but stops trying to revive it -- the surrounding `--timeout` will eventually clean up.
+
+### `watchdog.check_interval_secs`
+
+Seconds between watchdog poll cycles. Integer. Default: `120` (2 minutes). Lower values catch stalls faster at the cost of slightly more shell wake-ups; this is rarely worth tuning.
+
+### `watchdog.grace_period_secs`
+
+Seconds the watchdog waits after launch before its first check, giving the agent time to start up and write its first heartbeat. Integer. Default: `300` (5 minutes). If your kickoffs are reliably idle for longer than this at the start (e.g. slow toolchain installs in the worktree), raise it.
+
+&nbsp;
+
+---
+
+## Sentinel configuration
+
+The `sentinel` block configures the autonomous sentinel daemon, which polls configured sources (e.g. GitHub label changes) and dispatches kickoff agents in response. Disabled by default. The full block:
+
+```json
+{
+  "sentinel": {
+    "enabled": false,
+    "interval_minutes": 10,
+    "max_concurrent_agents": 3,
+    "sources": {
+      "github_labels": {
+        "enabled": true,
+        "labels": ["agent-todo: replicate", "agent-todo: fix"]
+      }
+    },
+    "default_agent": {
+      "model": "claude-sonnet-4-6",
+      "timeout_minutes": 30,
+      "verify": "local"
+    },
+    "escalation": {
+      "enabled": true,
+      "model": "claude-opus-4-6",
+      "cooldown_minutes": 30,
+      "max_attempts": 2,
+      "timeout_multiplier_pct": 150
+    }
+  }
+}
+```
+
+### `sentinel.enabled` {#sentinel-enabled}
+
+Master switch for the sentinel daemon. Bool. Default: `false`. When `false`, `crosslink daemon start` will run the heartbeat/coordination loop but skip sentinel polling entirely.
+
+### `sentinel.interval_minutes`
+
+Minutes between sentinel poll cycles. Integer (1-1440). Default: `10`. Lower values pick up new signals faster at the cost of API rate-limit headroom.
+
+### `sentinel.max_concurrent_agents`
+
+Maximum number of agents sentinel may have running simultaneously. Integer (1-10). Default: `3`. Excess signals queue until in-flight agents finish.
+
+### `sentinel.sources.github_labels.enabled`
+
+Enable the GitHub-label polling source. Bool. Default: `true`. The label source watches the project's GitHub issues for any of the configured `labels` and dispatches an agent per matching issue.
+
+### `sentinel.sources.github_labels.labels`
+
+Labels that trigger sentinel dispatch when applied to a GitHub issue. String array. Default: `["agent-todo: replicate", "agent-todo: fix"]`. Add a label here, apply it on an issue, and sentinel will pick it up on the next poll cycle.
+
+### `sentinel.default_agent.model`
+
+Model used for sentinel's first-attempt agent dispatch. String. Default: `"claude-sonnet-4-6"`. Sentinel uses Sonnet by default for cost; escalation (below) bumps to Opus on failure.
+
+### `sentinel.default_agent.timeout_minutes`
+
+Per-agent timeout in minutes for sentinel-dispatched runs. Integer (5-480). Default: `30`.
+
+### `sentinel.default_agent.verify`
+
+Verification level for sentinel agents. Values: `"local"`, `"ci"`, `"thorough"`. Default: `"local"`. Matches the `--verify` flag on `crosslink kickoff run`.
+
+### `sentinel.escalation.enabled`
+
+Enable automatic model escalation on first-attempt failure. Bool. Default: `true`. When `true`, sentinel retries failed dispatches with `sentinel.escalation.model` after the cooldown.
+
+### `sentinel.escalation.model`
+
+Model used for escalated retries. String. Default: `"claude-opus-4-6"`.
+
+### `sentinel.escalation.cooldown_minutes`
+
+Minutes to wait after a failed attempt before re-dispatching with the escalation model. Integer (5-1440). Default: `30`. Gives the system time for transient failures (rate limits, flaky CI) to clear.
+
+### `sentinel.escalation.max_attempts`
+
+Maximum number of dispatch attempts per signal across initial + escalation runs. Integer (1-5). Default: `2`. After this many failures, sentinel marks the signal failed and stops retrying.
+
+### `sentinel.escalation.timeout_multiplier_pct`
+
+Timeout multiplier for escalation attempts, expressed as a percentage of the default agent timeout. Integer. Default: `150` (1.5×). With the default 30-minute base, escalated retries get 45 minutes.
 
 &nbsp;
 

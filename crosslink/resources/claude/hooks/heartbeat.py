@@ -18,13 +18,18 @@ HEARTBEAT_INTERVAL_SECONDS = 120  # 2 minutes
 
 
 def main():
-    # Find .crosslink directory
+    # Find the INITIALIZED .crosslink directory (GH#625-safe): candidates
+    # without hook-config.json are strays seeded by cwd drift and are skipped,
+    # never bound — binding one would throttle/cache heartbeats in the wrong
+    # place.
     cwd = os.getcwd()
     crosslink_dir = None
     current = cwd
     for _ in range(10):
         candidate = os.path.join(current, ".crosslink")
-        if os.path.isdir(candidate):
+        if os.path.isdir(candidate) and os.path.isfile(
+            os.path.join(candidate, "hook-config.json")
+        ):
             crosslink_dir = candidate
             break
         parent = os.path.dirname(current)

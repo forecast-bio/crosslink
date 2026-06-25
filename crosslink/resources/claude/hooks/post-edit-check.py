@@ -432,11 +432,17 @@ def main():
     test_reminder = None
 
     if not is_agent:
-        # Debounced linting: only run linter if no edits in last 10 seconds
+        # Debounced linting: only run linter if no edits in last 10 seconds.
+        # GH#625: the debounce marker must live in the INITIALIZED crosslink
+        # dir (found via find_crosslink_dir, which requires hook-config.json),
+        # NEVER derived from project_root — in monorepos, project_root is the
+        # nearest package root (e.g. web/ with its package.json), and writing
+        # the marker there seeded stray `web/.crosslink/` directories that the
+        # CLI then bound to, silently splitting the database. With no
+        # initialized crosslink dir, skip debounce rather than create one.
         lint_marker = None
-        if project_root:
-            crosslink_cache = os.path.join(project_root, '.crosslink', '.cache')
-            lint_marker = os.path.join(crosslink_cache, 'last-edit-time')
+        if crosslink_dir:
+            lint_marker = os.path.join(crosslink_dir, '.cache', 'last-edit-time')
 
         should_lint = True
         if lint_marker:

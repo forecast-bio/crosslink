@@ -20,12 +20,15 @@ pub fn block(
     }
 
     if let Some(w) = writer {
-        w.add_blocker(db, issue_id, blocker_id)?;
-        println!(
-            "Issue {} is now blocked by {}",
-            format_issue_id(issue_id),
-            format_issue_id(blocker_id)
-        );
+        if w.add_blocker(db, issue_id, blocker_id)? {
+            println!(
+                "Issue {} is now blocked by {}",
+                format_issue_id(issue_id),
+                format_issue_id(blocker_id)
+            );
+        } else {
+            println!("Dependency already exists");
+        }
     } else if db.add_dependency(issue_id, blocker_id)? {
         println!(
             "Issue {} is now blocked by {}",
@@ -45,12 +48,15 @@ pub fn unblock(
     blocker_id: i64,
 ) -> Result<()> {
     if let Some(w) = writer {
-        w.remove_blocker(db, issue_id, blocker_id)?;
-        println!(
-            "Removed: {} no longer blocked by {}",
-            format_issue_id(issue_id),
-            format_issue_id(blocker_id)
-        );
+        if w.remove_blocker(db, issue_id, blocker_id)? {
+            println!(
+                "Removed: {} no longer blocked by {}",
+                format_issue_id(issue_id),
+                format_issue_id(blocker_id)
+            );
+        } else {
+            println!("No such dependency found");
+        }
     } else if db.remove_dependency(issue_id, blocker_id)? {
         println!(
             "Removed: {} no longer blocked by {}",

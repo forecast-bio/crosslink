@@ -42,15 +42,21 @@
 // See https://github.com/rust-lang/rust-clippy/issues for the underlying span bug.
 #![allow(clippy::large_stack_arrays)]
 
+mod agent_flags;
+mod agent_requests;
 mod checkpoint;
 mod clock_skew;
 mod commands;
 mod compaction;
 mod daemon;
+mod dashboard;
 mod db;
 mod events;
 mod external;
 mod findings;
+mod git_compat;
+mod hub_source;
+mod hub_v3;
 mod hydration;
 mod identity;
 mod issue_file;
@@ -349,7 +355,20 @@ enum Commands {
         #[arg(long, default_value = "tiled")]
         layout: String,
     },
-    /// Start the crosslink web dashboard server
+    /// Multi-project SCADA-style control panel (GH #429).
+    ///
+    /// Group command: `crosslink dashboard serve` runs the local server,
+    /// `track`/`untrack`/`list` manage the tracked-project set. See
+    /// DESIGN-CROSSLINK-DASHBOARD.md for the architecture.
+    Dashboard {
+        #[command(subcommand)]
+        action: DashboardCommands,
+    },
+    /// Deprecated: alias for `crosslink dashboard`.
+    ///
+    /// Will be removed in a future release. See GH #429 and
+    /// DESIGN-CROSSLINK-DASHBOARD.md §17 for the deprecation timeline.
+    #[command(hide = true)]
     Serve {
         /// Port to listen on
         #[arg(long, default_value = "3100")]
@@ -388,9 +407,18 @@ enum Commands {
         /// Skip compaction after creation (batch mode -- display ID assigned later)
         #[arg(long)]
         defer_id: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// Quick-create an issue (shortcut for `issue quick`)
@@ -410,9 +438,18 @@ enum Commands {
         /// Add labels to the issue
         #[arg(short, long)]
         label: Vec<String>,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// List issues (shortcut for `issue list`)
@@ -495,12 +532,18 @@ enum Commands {
         /// Priority (low, medium, high, critical)
         #[arg(short, long, default_value = "medium")]
         priority: String,
+        /// Template (bug, feature, refactor, research)
+        #[arg(short, long)]
+        template: Option<String>,
         /// Add labels to the subissue
         #[arg(short, long)]
         label: Vec<String>,
         /// Set as current session work item
         #[arg(short, long)]
         work: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Alias for `timer start`
@@ -554,9 +597,18 @@ enum IssueCommands {
         /// Skip compaction after creation (batch mode -- display ID assigned later)
         #[arg(long)]
         defer_id: bool,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// Quick-create an issue and start working on it (create + label + session work)
@@ -575,9 +627,18 @@ enum IssueCommands {
         /// Add labels to the issue
         #[arg(short, long)]
         label: Vec<String>,
+        /// Bypass `template_required_fields` content validation (gh#658)
+        #[arg(long)]
+        force: bool,
         /// Parent issue ID (creates a subissue)
         #[arg(long, value_parser = parse_issue_id_clap)]
         parent: Option<i64>,
+        /// When the issue becomes actionable (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Hard deadline (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
     },
 
     /// List issues
@@ -638,6 +699,18 @@ enum IssueCommands {
         /// New priority
         #[arg(short, long)]
         priority: Option<String>,
+        /// Set scheduled-at (YYYY-MM-DD -> start of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_scheduled_date)]
+        scheduled: Option<chrono::DateTime<chrono::Utc>>,
+        /// Clear scheduled-at (mutually exclusive with --scheduled)
+        #[arg(long, conflicts_with = "scheduled")]
+        no_scheduled: bool,
+        /// Set due-at (YYYY-MM-DD -> end of day, or RFC 3339)
+        #[arg(long, value_parser = crate::utils::parse_due_date)]
+        due: Option<chrono::DateTime<chrono::Utc>>,
+        /// Clear due-at (mutually exclusive with --due)
+        #[arg(long, conflicts_with = "due")]
+        no_due: bool,
     },
 
     /// Close an issue
@@ -816,6 +889,120 @@ enum MigrateCommands {
     FromShared,
     /// Rename coordination branch from crosslink/locks to crosslink/hub
     RenameBranch,
+    /// Convert a v2 hub to the v3 per-agent-ref layout (one-shot, verified).
+    ///
+    /// Without `--finalize`: seeds per-agent refs + a genesis checkpoint from
+    /// the current hub state, runs the AC-6 full-state verification gate, and
+    /// pushes the v3 refs. The legacy crosslink/hub branch is left intact as a
+    /// read-only escape hatch.
+    ///
+    /// With `--finalize --yes-delete-v2`: re-verifies, then deletes the legacy
+    /// crosslink/hub branch locally and on the remote (the hard cutover).
+    ///
+    /// With `--remigrate-from-v2`: regenerates the v3 genesis from the CURRENT
+    /// crosslink/hub tip and force-pushes it, superseding a stale remote v3 hub
+    /// (the recovery path when a v2-only binary kept writing after an earlier
+    /// migration — forecast-bio/crosslink#653).
+    HubV3 {
+        /// Delete the legacy crosslink/hub branch (destructive cutover).
+        #[arg(long)]
+        finalize: bool,
+        /// Required confirmation for `--finalize` (it deletes the v2 branch).
+        #[arg(long)]
+        yes_delete_v2: bool,
+        /// Adopt a remote v3 hub even when it is STALE relative to the live
+        /// crosslink/hub (v2) branch. Without this flag, adopting a v3 hub that
+        /// is behind the v2 branch is refused (it would hide newer issues).
+        #[arg(long)]
+        adopt_stale: bool,
+        /// Regenerate v3 from the CURRENT crosslink/hub (v2) tip and force-push
+        /// it, superseding any existing (stale) remote v3 hub.
+        #[arg(long)]
+        remigrate_from_v2: bool,
+    },
+    /// Move the v3 hub refs to VISIBLE branches (#767), one-shot per machine.
+    ///
+    /// Renames every old hidden ref (`refs/crosslink/agents/*`,
+    /// `refs/crosslink/checkpoint`, `refs/crosslink/meta`) to the matching branch
+    /// under `refs/heads/crosslink/*` at the same SHA — local and on the remote —
+    /// then deletes the old refs and runs one compaction so the browsable state
+    /// tree materializes. Idempotent: a second run (or a hub already on visible
+    /// branches) is a clean no-op.
+    HubBranches,
+}
+
+/// Subcommands for `crosslink dashboard` (GH #429).
+#[derive(Subcommand)]
+enum DashboardCommands {
+    /// Start the dashboard server (binds 127.0.0.1:3100 by default).
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "3100")]
+        port: u16,
+        /// Override bundled dashboard assets with a local build output
+        /// (development only — bundled assets are preferred otherwise)
+        #[arg(long)]
+        dashboard_dir: Option<PathBuf>,
+        /// Force-rotate the persisted auth token at
+        /// `~/.crosslink/.dashboard-token`. Without this flag the
+        /// server reuses the existing token so open browser tabs keep
+        /// working across binary rebuilds.
+        #[arg(long)]
+        rotate_token: bool,
+    },
+    /// Track a repository by pointing at your existing local working copy.
+    ///
+    /// The dashboard reads hub state and shells out to the real
+    /// `crosslink` CLI in this workspace for write operations — so no
+    /// extra setup is needed beyond a normal `git clone` +
+    /// `crosslink init` of the target project.
+    ///
+    /// Pass `--init --agent-id <ID>` to run `crosslink init` +
+    /// `crosslink agent init` in the workspace after tracking, so
+    /// dashboard write actions (close, release, etc.) work without
+    /// a manual bootstrap step.
+    Track {
+        /// Path to a locally-cloned crosslink-managed repository.
+        path: PathBuf,
+        /// Override the owner/repo slug (default: derived from origin URL).
+        #[arg(long)]
+        slug: Option<String>,
+        /// Run `crosslink init --defaults` + `crosslink agent init` in
+        /// the workspace after tracking. Requires `--agent-id`.
+        #[arg(long)]
+        init: bool,
+        /// Agent identifier for `crosslink agent init`. Required when
+        /// `--init` is passed.
+        #[arg(long)]
+        agent_id: Option<String>,
+    },
+    /// Stop tracking a repository. The user's working copy is left
+    /// untouched — only the dashboard's DB row is removed.
+    Untrack {
+        /// Repository slug to stop tracking
+        slug: String,
+    },
+    /// List tracked repositories.
+    List,
+    /// Scan local filesystem for crosslink-enabled repos and
+    /// (optionally) track the hits. Looks for directories that are
+    /// both git repos and have a `.crosslink/` directory at the root.
+    ///
+    /// Roots are bounded by `--depth` and skip standard noise
+    /// directories (`node_modules`, `target`, hidden dirs, etc.) so
+    /// a full `$HOME` scan typically finishes in under a second.
+    Discover {
+        /// Root directory to walk. Repeatable. Defaults to `$HOME`.
+        #[arg(long)]
+        root: Vec<PathBuf>,
+        /// Maximum directory depth below each root. Default 4.
+        #[arg(long, default_value_t = crate::dashboard::discover::DEFAULT_DEPTH)]
+        depth: usize,
+        /// Track every discovered repo that isn't already tracked.
+        /// Without this flag the command only reports.
+        #[arg(long)]
+        track: bool,
+    },
 }
 
 /// Helper enum for `crosslink issues <subcommand>` alias
@@ -837,12 +1024,19 @@ enum IssuesAliasCommands {
 
 #[derive(Subcommand)]
 enum ContainerCommands {
-    /// Build the crosslink agent container image
+    /// Build the crosslink agent container image locally.
+    ///
+    /// Produces `ghcr.io/forecast-bio/crosslink-agent:<tag>` (default tag
+    /// `local`) so it composes with `crosslink kickoff run --container
+    /// docker|podman --image ghcr.io/forecast-bio/crosslink-agent:<tag>`.
+    /// For routine use prefer `docker pull ghcr.io/forecast-bio/crosslink-agent:latest`
+    /// or `:nightly` — this command exists for offline / Dockerfile-iteration work.
     Build {
         /// Rebuild from scratch (no cache)
         #[arg(long)]
         force: bool,
-        /// Image tag (default: latest)
+        /// Image tag suffix (default: `local`). Image is always namespaced
+        /// `ghcr.io/forecast-bio/crosslink-agent:<tag>`.
         #[arg(long)]
         tag: Option<String>,
         /// Path to a custom Dockerfile
@@ -1059,6 +1253,15 @@ enum AgentCommands {
         /// Overwrite existing agent configuration
         #[arg(long)]
         force: bool,
+        /// Role this identity plays — `driver` for the main human-
+        /// operated workspace (commits sign with the driver's
+        /// GitHub-registered key), `agent` for subagent worktrees
+        /// spawned by kickoff/swarm (commits sign with the agent's
+        /// own key for attribution). Default: `agent` — preserves
+        /// pre-#718 behaviour for kickoff/swarm flows; dashboard
+        /// retrofits pass `--role driver` explicitly.
+        #[arg(long, value_parser = ["driver", "agent"])]
+        role: Option<String>,
     },
     /// Show current agent identity
     Status,
@@ -1092,6 +1295,46 @@ enum AgentCommands {
         /// Target directory (default: current directory)
         #[arg(long, default_value = ".")]
         target: String,
+    },
+    /// Send a control request to an agent via the hub branch
+    ///
+    /// Writes a signed JSON file under `agents/<target>/requests/` on
+    /// `crosslink/hub`. The target agent's poll loop picks it up and
+    /// acts (kill / pause / resume / reprioritise). See design doc §9.
+    Request {
+        /// Target agent ID (the one that should act, not this driver)
+        target: String,
+        /// What to do: kill | pause | resume | reprioritise
+        kind: String,
+        /// Issue display-id to attach as request subject
+        #[arg(long)]
+        subject_issue: Option<i64>,
+        /// Human-readable reason recorded alongside the request
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// List agent control requests on the hub branch
+    Requests {
+        /// Target agent to filter by (omit to list for all agents)
+        #[arg(long)]
+        target: Option<String>,
+        /// Only show pending (unacknowledged) requests
+        #[arg(long)]
+        pending: bool,
+    },
+    /// Process pending control requests for this agent (applies
+    /// pause/kill/reprioritise flags locally, writes acks to the hub)
+    PollRequests,
+    /// Show local agent control flag state (paused / kill / reprioritise)
+    ///
+    /// Designed for hooks: `--json` output is `{paused, kill, reprioritise}`
+    /// where each value is a boolean (or null for `reprioritise`'s hint
+    /// payload). Exit code is non-zero only when --strict is set and a
+    /// blocking flag is active.
+    Flags {
+        /// Exit non-zero if `paused` or `kill` is set (use from `PreToolUse` hooks).
+        #[arg(long)]
+        strict: bool,
     },
 }
 
@@ -1221,6 +1464,10 @@ enum KnowledgeCommands {
         /// Import from a design document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// Attribute the page to this contributor instead of the local
+        /// agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
         /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,
@@ -1282,6 +1529,10 @@ enum KnowledgeCommands {
         /// Replace content from a document file
         #[arg(long, value_name = "PATH")]
         from_doc: Option<PathBuf>,
+        /// Attribute this edit to this contributor instead of the local
+        /// agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
         /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,
@@ -1313,6 +1564,10 @@ enum KnowledgeCommands {
         /// Preview imports without writing
         #[arg(long = "dry-run")]
         dry_run: bool,
+        /// Attribute imported pages to this contributor instead of the
+        /// local agent identity (repeatable; GH#628)
+        #[arg(long = "contributor", value_name = "AGENT_ID")]
+        contributor: Vec<String>,
         /// (Rejected — external sources are read-only)
         #[arg(long, hide = true)]
         repo: Option<String>,
@@ -1355,9 +1610,17 @@ enum IntegrityCommands {
     },
     /// Verify `SQLite` matches JSON issue files
     Hydration {
-        /// Re-hydrate `SQLite` from JSON
+        /// Re-hydrate `SQLite` from JSON. Tries to re-emit SQLite-only
+        /// state back to JSON first; falls back to refusing destructive
+        /// repair unless `--accept-data-loss` is also given.
         #[arg(long)]
         repair: bool,
+        /// Allow `--repair` to destroy `SQLite` rows that have no `JSON`
+        /// representation (comments, time entries). A snapshot of the
+        /// pre-repair database is always written under
+        /// `.crosslink/integrity/` regardless of this flag.
+        #[arg(long)]
+        accept_data_loss: bool,
     },
     /// Check for stale or orphaned locks
     Locks {
@@ -1421,12 +1684,34 @@ enum KickoffCommands {
         /// Path to a design document (markdown) with structured requirements
         #[arg(long, value_name = "PATH")]
         doc: Option<PathBuf>,
-        /// Pass --dangerously-skip-permissions to the claude CLI (for sandboxed agents)
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// One-shot override that bypasses ALL Claude permission prompts for
+        /// this launch. Persistent policy lives in the worktree's
+        /// .claude/settings.json (allowedTools / permissions blocks); reach
+        /// for that instead of this flag for repeatable configuration.
         #[arg(long)]
         skip_permissions: bool,
         /// Agent runtime to launch: claude (default), antigravity (agy), both
         #[arg(long, default_value = "claude")]
         runtime: String,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions`. Claude
+        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
+        /// `default`, `dontAsk`, `plan`. `auto` is the common choice
+        /// for unattended runs on the host (`--container none`) — the
+        /// permission classifier stays active for anomalous calls.
+        /// Mutually exclusive with `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
     },
     /// Check status of a running kickoff agent (no args = pipeline overview)
     Status {
@@ -1544,12 +1829,31 @@ enum KickoffCommands {
         /// Print the prompt without launching
         #[arg(long = "dry-run")]
         dry_run: bool,
-        /// Pass --dangerously-skip-permissions to the claude CLI
+        /// Per-invocation: pass --dangerously-skip-permissions to claude CLI.
+        ///
+        /// One-shot override that bypasses ALL Claude permission prompts.
+        /// Persistent policy lives in the worktree's .claude/settings.json
+        /// (allowedTools / permissions blocks).
         #[arg(long)]
         skip_permissions: bool,
         /// Agent runtime to launch: claude (default), antigravity (agy), both
         #[arg(long, default_value = "claude")]
         runtime: String,
+        /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
+        ///
+        /// Finer-grained alternative to `--skip-permissions`. Claude
+        /// supports `acceptEdits`, `auto`, `bypassPermissions`,
+        /// `default`, `dontAsk`, `plan`. Mutually exclusive with
+        /// `--skip-permissions`.
+        #[arg(
+            long,
+            value_parser = clap::builder::PossibleValuesParser::new([
+                "acceptEdits", "auto", "bypassPermissions",
+                "default", "dontAsk", "plan",
+            ]),
+            conflicts_with = "skip_permissions"
+        )]
+        permission_mode: Option<String>,
     },
 }
 
@@ -1879,14 +2183,43 @@ fn init_tracing(log_level: &str, log_format: &str) {
 }
 
 fn find_crosslink_dir() -> Result<PathBuf> {
-    let mut current = env::current_dir()?;
+    find_crosslink_dir_from(&env::current_dir()?)
+}
 
-    // First, walk up from cwd looking for .crosslink (works in main repo)
-    let start = current.clone();
+/// Whether a `.crosslink` candidate is an initialized crosslink project dir.
+///
+/// `crosslink init` always writes `hook-config.json`, and agent worktrees
+/// carry it (committed on their branch or written by the worktree init).
+/// Stray `.crosslink/` directories seeded by cwd drift (GH#625) lack it —
+/// they contain only hydration caches (`issues.db`, `.cache/`). Binding to
+/// a stray silently splits the database, so candidates without the marker
+/// are skipped with a warning instead of bound.
+fn is_initialized_crosslink_dir(candidate: &std::path::Path) -> bool {
+    candidate.join("hook-config.json").is_file()
+}
+
+fn find_crosslink_dir_from(start: &std::path::Path) -> Result<PathBuf> {
+    let mut current = start.to_path_buf();
+    let mut skipped_strays: Vec<PathBuf> = Vec::new();
+
+    // First, walk up from the start dir looking for an INITIALIZED
+    // .crosslink (works in main repo). Stray dirs are skipped, not bound.
     loop {
         let candidate = current.join(".crosslink");
         if candidate.is_dir() {
-            return Ok(candidate);
+            if is_initialized_crosslink_dir(&candidate) {
+                for stray in &skipped_strays {
+                    tracing::warn!(
+                        "ignoring stray .crosslink at {} (no hook-config.json — likely \
+                         created by cwd drift, GH#625); using {} — consider deleting \
+                         the stray",
+                        stray.display(),
+                        candidate.display()
+                    );
+                }
+                return Ok(candidate);
+            }
+            skipped_strays.push(candidate);
         }
 
         if !current.pop() {
@@ -1895,14 +2228,36 @@ fn find_crosslink_dir() -> Result<PathBuf> {
     }
 
     // Not found — check if we're in a git worktree and look in the main repo root
-    if let Some(main_root) = utils::resolve_main_repo_root(&start) {
+    if let Some(main_root) = utils::resolve_main_repo_root(start) {
         let candidate = main_root.join(".crosslink");
-        if candidate.is_dir() {
+        if candidate.is_dir() && is_initialized_crosslink_dir(&candidate) {
             return Ok(candidate);
         }
     }
 
-    bail!("Not a crosslink repository (or any parent). Run 'crosslink init' first.");
+    if skipped_strays.is_empty() {
+        bail!("Not a crosslink repository (or any parent). Run 'crosslink init' first.");
+    }
+    bail!(
+        "Not a crosslink repository (or any parent). Found stray uninitialized \
+         .crosslink director{} (no hook-config.json) at: {} — likely created by \
+         cwd drift (GH#625). Delete {} or run 'crosslink init' at the project root.",
+        if skipped_strays.len() == 1 {
+            "y"
+        } else {
+            "ies"
+        },
+        skipped_strays
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+        if skipped_strays.len() == 1 {
+            "it"
+        } else {
+            "them"
+        },
+    );
 }
 
 fn get_db() -> Result<Database> {
@@ -1964,6 +2319,24 @@ fn hint(quiet: bool, msg: &str) {
     }
 }
 
+/// Fold a (set, clear-flag) pair from clap into a `FieldUpdate` for the
+/// shared-writer update path. Used by the `Update` dispatch to translate
+/// `--scheduled` / `--no-scheduled` (and `--due` / `--no-due`) into a
+/// single three-valued update (GH #361).
+const fn scheduled_update(
+    set: Option<chrono::DateTime<chrono::Utc>>,
+    clear: bool,
+) -> shared_writer::FieldUpdate<chrono::DateTime<chrono::Utc>> {
+    use shared_writer::FieldUpdate;
+    if clear {
+        FieldUpdate::Clear
+    } else if let Some(dt) = set {
+        FieldUpdate::Set(dt)
+    } else {
+        FieldUpdate::Unchanged
+    }
+}
+
 /// Dispatch an `IssueCommands` variant.
 fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> {
     match action {
@@ -1975,7 +2348,10 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             label,
             work,
             defer_id,
+            force,
             parent,
+            scheduled,
+            due,
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
@@ -1986,31 +2362,37 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 quiet,
                 crosslink_dir: Some(&crosslink_dir),
                 defer_id: parent.is_none() && defer_id,
+                force,
             };
-            parent.map_or_else(
-                || {
-                    commands::create::run(
-                        &db,
-                        writer.as_ref(),
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        template.as_deref(),
-                        &opts,
-                    )
-                },
-                |parent_id| {
-                    commands::create::run_subissue(
-                        &db,
-                        writer.as_ref(),
-                        parent_id,
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        &opts,
-                    )
-                },
-            )
+            // Subissues don't carry scheduling dates (GH #361 REQ-12); the
+            // command handler rejects the combination with a clear error.
+            if let Some(parent_id) = parent {
+                if scheduled.is_some() || due.is_some() {
+                    anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
+                }
+                commands::create::run_subissue(
+                    &db,
+                    writer.as_ref(),
+                    parent_id,
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    &opts,
+                )
+            } else {
+                commands::create::run(
+                    &db,
+                    writer.as_ref(),
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    scheduled,
+                    due,
+                    &opts,
+                )
+            }
         }
 
         IssueCommands::Quick {
@@ -2019,7 +2401,10 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             priority,
             template,
             label,
+            force,
             parent,
+            scheduled,
+            due,
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
@@ -2030,31 +2415,35 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
                 quiet,
                 crosslink_dir: Some(&crosslink_dir),
                 defer_id: false,
+                force,
             };
-            parent.map_or_else(
-                || {
-                    commands::create::run(
-                        &db,
-                        writer.as_ref(),
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        template.as_deref(),
-                        &opts,
-                    )
-                },
-                |parent_id| {
-                    commands::create::run_subissue(
-                        &db,
-                        writer.as_ref(),
-                        parent_id,
-                        &title,
-                        description.as_deref(),
-                        &priority,
-                        &opts,
-                    )
-                },
-            )
+            if let Some(parent_id) = parent {
+                if scheduled.is_some() || due.is_some() {
+                    anyhow::bail!("Scheduling dates apply to parent issues, not subissues.");
+                }
+                commands::create::run_subissue(
+                    &db,
+                    writer.as_ref(),
+                    parent_id,
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    &opts,
+                )
+            } else {
+                commands::create::run(
+                    &db,
+                    writer.as_ref(),
+                    &title,
+                    description.as_deref(),
+                    &priority,
+                    template.as_deref(),
+                    scheduled,
+                    due,
+                    &opts,
+                )
+            }
         }
 
         IssueCommands::List {
@@ -2142,18 +2531,27 @@ fn dispatch_issue(action: IssueCommands, quiet: bool, json: bool) -> Result<()> 
             title,
             description,
             priority,
+            scheduled,
+            no_scheduled,
+            due,
+            no_due,
         } => {
             let db = get_db()?;
             let crosslink_dir = find_crosslink_dir()?;
             let writer = get_writer(&crosslink_dir);
-            commands::update::run(
-                &db,
-                writer.as_ref(),
-                id,
-                title.as_deref(),
-                description.as_deref(),
-                priority.as_deref(),
-            )
+            let update = shared_writer::IssueUpdate {
+                title: title.as_deref(),
+                description: description
+                    .as_deref()
+                    .map_or(shared_writer::DescriptionUpdate::Unchanged, |s| {
+                        shared_writer::DescriptionUpdate::Set(s)
+                    }),
+                status: None,
+                priority: priority.as_deref(),
+                scheduled_at: scheduled_update(scheduled, no_scheduled),
+                due_at: scheduled_update(due, no_due),
+            };
+            commands::update::run(&db, writer.as_ref(), id, update)
         }
 
         IssueCommands::Close { id, no_changelog } => {
@@ -2311,7 +2709,14 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let log_format = match &cli.command {
-        Commands::Serve { .. } if cli.log_format == "text" => "json",
+        Commands::Dashboard {
+            action: DashboardCommands::Serve { .. },
+        }
+        | Commands::Serve { .. }
+            if cli.log_format == "text" =>
+        {
+            "json"
+        }
         _ => cli.log_format.as_str(),
     };
     init_tracing(&cli.log_level, log_format);
@@ -2379,6 +2784,25 @@ fn main() -> Result<()> {
                 let crosslink_dir = find_crosslink_dir()?;
                 commands::migrate::rename_branch(&crosslink_dir)
             }
+            MigrateCommands::HubV3 {
+                finalize,
+                yes_delete_v2,
+                adopt_stale,
+                remigrate_from_v2,
+            } => {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::migrate_hub_v3::hub_v3(
+                    &crosslink_dir,
+                    finalize,
+                    yes_delete_v2,
+                    adopt_stale,
+                    remigrate_from_v2,
+                )
+            }
+            MigrateCommands::HubBranches => {
+                let crosslink_dir = find_crosslink_dir()?;
+                commands::migrate_hub_v3::hub_branches(&crosslink_dir)
+            }
         },
 
         // === Hidden top-level shortcuts ===
@@ -2390,7 +2814,10 @@ fn main() -> Result<()> {
             label,
             work,
             defer_id,
+            force,
             parent,
+            scheduled,
+            due,
         } => dispatch_issue(
             IssueCommands::Create {
                 title,
@@ -2400,7 +2827,10 @@ fn main() -> Result<()> {
                 label,
                 work,
                 defer_id,
+                force,
                 parent,
+                scheduled,
+                due,
             },
             cli.quiet,
             cli.json,
@@ -2412,7 +2842,10 @@ fn main() -> Result<()> {
             priority,
             template,
             label,
+            force,
             parent,
+            scheduled,
+            due,
         } => dispatch_issue(
             IssueCommands::Quick {
                 title,
@@ -2420,7 +2853,10 @@ fn main() -> Result<()> {
                 priority,
                 template,
                 label,
+                force,
                 parent,
+                scheduled,
+                due,
             },
             cli.quiet,
             cli.json,
@@ -2481,7 +2917,10 @@ fn main() -> Result<()> {
                     label,
                     work,
                     defer_id: false,
+                    force: false,
                     parent,
+                    scheduled: None,
+                    due: None,
                 },
                 cli.quiet,
                 cli.json,
@@ -2530,8 +2969,10 @@ fn main() -> Result<()> {
             title,
             description,
             priority,
+            template,
             label,
             work,
+            force,
         } => {
             hint(
                 cli.quiet,
@@ -2542,11 +2983,14 @@ fn main() -> Result<()> {
                     title,
                     description,
                     priority,
-                    template: None,
+                    template,
                     label,
                     work,
                     defer_id: false,
+                    force,
                     parent: Some(parent),
+                    scheduled: None,
+                    due: None,
                 },
                 cli.quiet,
                 cli.json,
@@ -2773,6 +3217,7 @@ fn main() -> Result<()> {
                 dry_run: false,
                 skip_permissions: false,
                 runtime: "claude".to_string(),
+                permission_mode: None,
             });
             commands::kickoff::dispatch(
                 action,
@@ -2963,10 +3408,114 @@ fn main() -> Result<()> {
             let crosslink_dir = find_crosslink_dir()?;
             commands::mission_control::run(&crosslink_dir, &layout)
         }
+        Commands::Dashboard { action } => match action {
+            DashboardCommands::Serve {
+                port,
+                dashboard_dir,
+                rotate_token,
+            } => {
+                let crosslink_dir = find_crosslink_dir()?;
+                let db = get_db()?;
+                // Bootstrap the per-user dashboard index at
+                // ~/.crosslink/dashboard.db. Schema is applied idempotently.
+                let dashboard_db_path = dashboard::db::DashboardDb::default_path()?;
+                dashboard::db::DashboardDb::open(&dashboard_db_path)?;
+                if rotate_token {
+                    // Discard the cached token so the next AppState::new
+                    // generates a fresh one.
+                    let _ = crate::server::state::rotate_auth_token();
+                    println!("auth token rotated at ~/.crosslink/.dashboard-token");
+                }
+
+                // Server owns the poll loop + shutdown coordination
+                // now (see `server::run_with_dashboard_db`) — that's
+                // where the broadcast sender that the poll loop
+                // publishes to lives alongside the WS fanout.
+                tokio::runtime::Runtime::new()?.block_on(server::run_with_dashboard_db(
+                    port,
+                    dashboard_dir,
+                    db,
+                    crosslink_dir,
+                    Some(dashboard_db_path),
+                ))
+            }
+            DashboardCommands::Track {
+                path,
+                slug,
+                init,
+                agent_id,
+            } => {
+                if init {
+                    let id = agent_id.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--init requires --agent-id <ID> \
+                             (alphanumeric, hyphens, underscores)"
+                        )
+                    })?;
+                    dashboard::projects::track_with_init(&path, slug.as_deref(), &id)
+                } else {
+                    dashboard::projects::track(&path, slug.as_deref())
+                }
+            }
+            DashboardCommands::Untrack { slug } => dashboard::projects::untrack(&slug),
+            DashboardCommands::List => dashboard::projects::list(),
+            DashboardCommands::Discover { root, depth, track } => {
+                let opts = if root.is_empty() {
+                    let mut o = dashboard::discover::DiscoverOptions::defaults();
+                    o.depth = depth;
+                    o
+                } else {
+                    dashboard::discover::DiscoverOptions { roots: root, depth }
+                };
+                let db_path = dashboard::db::DashboardDb::default_path()?;
+                let db = dashboard::db::DashboardDb::open(&db_path)?;
+                let hits = dashboard::discover::discover(&db, &opts)?;
+                if hits.is_empty() {
+                    println!(
+                        "No crosslink-enabled repos found under: {}",
+                        opts.roots
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    return Ok(());
+                }
+                println!("{:<40} {:<10} PATH", "SLUG", "TRACKED?");
+                for h in &hits {
+                    println!(
+                        "{:<40} {:<10} {}",
+                        h.slug,
+                        if h.already_tracked { "yes" } else { "no" },
+                        h.path.display()
+                    );
+                }
+                if track {
+                    let to_track: Vec<_> = hits.iter().filter(|h| !h.already_tracked).collect();
+                    if to_track.is_empty() {
+                        println!("\nAll {} hits already tracked.", hits.len());
+                    } else {
+                        println!("\nTracking {} new repo(s)…", to_track.len());
+                        for h in to_track {
+                            if let Err(e) = dashboard::projects::track(&h.path, None) {
+                                eprintln!("  {}: {e}", h.slug);
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+        },
         Commands::Serve {
             port,
             dashboard_dir,
         } => {
+            eprintln!(
+                "warning: `crosslink serve` is deprecated. \
+                 Use `crosslink dashboard` instead. \
+                 See https://github.com/forecast-bio/crosslink/issues/429. \
+                 This alias will be removed in a future release."
+            );
             let crosslink_dir = find_crosslink_dir()?;
             let db = get_db()?;
             tokio::runtime::Runtime::new()?.block_on(server::run(
@@ -2976,5 +3525,81 @@ fn main() -> Result<()> {
                 crosslink_dir,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod find_crosslink_dir_tests {
+    use super::find_crosslink_dir_from;
+
+    fn mk_initialized(dir: &std::path::Path) {
+        let cl = dir.join(".crosslink");
+        std::fs::create_dir_all(&cl).unwrap();
+        std::fs::write(cl.join("hook-config.json"), "{}").unwrap();
+    }
+
+    fn mk_stray(dir: &std::path::Path) {
+        // GH#625 stray shape: hydration cache only, no hook-config.json.
+        let cl = dir.join(".crosslink");
+        std::fs::create_dir_all(cl.join(".cache")).unwrap();
+        std::fs::write(cl.join("issues.db"), b"sqlite").unwrap();
+    }
+
+    #[test]
+    fn binds_initialized_dir_directly() {
+        let root = tempfile::tempdir().unwrap();
+        mk_initialized(root.path());
+        let found = find_crosslink_dir_from(root.path()).unwrap();
+        assert_eq!(found, root.path().join(".crosslink"));
+    }
+
+    #[test]
+    fn skips_stray_in_subdir_and_binds_root() {
+        // The GH#625 scenario: cwd drifted to web/, which holds a stray.
+        let root = tempfile::tempdir().unwrap();
+        mk_initialized(root.path());
+        let web = root.path().join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        mk_stray(&web);
+
+        let found = find_crosslink_dir_from(&web).unwrap();
+        assert_eq!(
+            found,
+            root.path().join(".crosslink"),
+            "must bind the initialized root, not the stray"
+        );
+    }
+
+    #[test]
+    fn stray_only_errors_naming_the_stray() {
+        let root = tempfile::tempdir().unwrap();
+        let web = root.path().join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        mk_stray(&web);
+
+        let err = find_crosslink_dir_from(&web).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("stray") && msg.contains("GH#625"),
+            "error must explain the stray, got: {msg}"
+        );
+        assert!(
+            msg.contains(&web.join(".crosslink").display().to_string()),
+            "error must name the stray path, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn nested_initialized_dir_still_wins_over_parent() {
+        // An intentionally initialized nested project (has hook-config.json)
+        // must keep binding locally -- the marker, not depth, decides.
+        let root = tempfile::tempdir().unwrap();
+        mk_initialized(root.path());
+        let sub = root.path().join("subproject");
+        std::fs::create_dir_all(&sub).unwrap();
+        mk_initialized(&sub);
+
+        let found = find_crosslink_dir_from(&sub).unwrap();
+        assert_eq!(found, sub.join(".crosslink"));
     }
 }

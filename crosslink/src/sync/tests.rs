@@ -1,7 +1,5 @@
 use super::*;
-use crate::identity::AgentConfig;
-use crate::locks::{Heartbeat, Keyring, LocksFile};
-use crate::sync::LockMode;
+use crate::identity::{AgentConfig, AgentRole};
 use chrono::Utc;
 use std::path::Path;
 use std::process::Command;
@@ -43,383 +41,6 @@ fn test_read_locks_no_cache() {
     assert!(!locks_path.exists());
 }
 
-#[test]
-fn test_read_heartbeats_no_dir() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    std::fs::create_dir_all(&crosslink_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    // Manually create cache dir without heartbeats subdir
-    std::fs::create_dir_all(&manager.cache_dir).unwrap();
-    let heartbeats = manager.read_heartbeats().unwrap();
-    assert!(heartbeats.is_empty());
-}
-
-#[test]
-fn test_read_heartbeats_with_files() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let hb_dir = cache_dir.join("heartbeats");
-    std::fs::create_dir_all(&hb_dir).unwrap();
-
-    let hb = Heartbeat {
-        agent_id: "worker-1".to_string(),
-        last_heartbeat: Utc::now(),
-        active_issue_id: Some(5),
-        machine_id: "test-host".to_string(),
-    };
-    let json = serde_json::to_string_pretty(&hb).unwrap();
-    std::fs::write(hb_dir.join("worker-1.json"), json).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let heartbeats = manager.read_heartbeats().unwrap();
-    assert_eq!(heartbeats.len(), 1);
-    assert_eq!(heartbeats[0].agent_id, "worker-1");
-    assert_eq!(heartbeats[0].active_issue_id, Some(5));
-}
-
-#[test]
-fn test_read_heartbeats_v2_no_dir() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    std::fs::create_dir_all(&crosslink_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    std::fs::create_dir_all(&manager.cache_dir).unwrap();
-    let heartbeats = manager.read_heartbeats_v2().unwrap();
-    assert!(heartbeats.is_empty());
-}
-
-#[test]
-fn test_read_heartbeats_v2_with_native_format() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let agent_dir = cache_dir.join("agents").join("worker-v2");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-
-    // Write a native Heartbeat format file in the V2 location
-    let hb = Heartbeat {
-        agent_id: "worker-v2".to_string(),
-        last_heartbeat: Utc::now(),
-        active_issue_id: Some(10),
-        machine_id: "host-v2".to_string(),
-    };
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&hb).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let heartbeats = manager.read_heartbeats_v2().unwrap();
-    assert_eq!(heartbeats.len(), 1);
-    assert_eq!(heartbeats[0].agent_id, "worker-v2");
-    assert_eq!(heartbeats[0].active_issue_id, Some(10));
-}
-
-#[test]
-fn test_read_heartbeats_v2_with_v2_json_format() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let agent_dir = cache_dir.join("agents").join("worker-v2b");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-
-    // Write V2 format: { agent_id, timestamp, status }
-    let heartbeat = serde_json::json!({
-        "agent_id": "worker-v2b",
-        "timestamp": Utc::now().to_rfc3339(),
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let heartbeats = manager.read_heartbeats_v2().unwrap();
-    assert_eq!(heartbeats.len(), 1);
-    assert_eq!(heartbeats[0].agent_id, "worker-v2b");
-    assert!(heartbeats[0].active_issue_id.is_none());
-}
-
-#[test]
-fn test_read_heartbeats_auto_merges_v1_and_v2() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // Set up V2 layout marker
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    // Write V1 heartbeat
-    let hb_dir = cache_dir.join("heartbeats");
-    std::fs::create_dir_all(&hb_dir).unwrap();
-    let hb1 = Heartbeat {
-        agent_id: "worker-v1".to_string(),
-        last_heartbeat: Utc::now(),
-        active_issue_id: Some(1),
-        machine_id: "host-1".to_string(),
-    };
-    std::fs::write(
-        hb_dir.join("worker-v1.json"),
-        serde_json::to_string_pretty(&hb1).unwrap(),
-    )
-    .unwrap();
-
-    // Write V2 heartbeat
-    let agent_dir = cache_dir.join("agents").join("worker-v2");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let heartbeat = serde_json::json!({
-        "agent_id": "worker-v2",
-        "timestamp": Utc::now().to_rfc3339(),
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let heartbeats = manager.read_heartbeats_auto().unwrap();
-    assert_eq!(heartbeats.len(), 2);
-
-    let ids: std::collections::HashSet<String> =
-        heartbeats.iter().map(|h| h.agent_id.clone()).collect();
-    assert!(ids.contains("worker-v1"));
-    assert!(ids.contains("worker-v2"));
-}
-
-#[test]
-fn test_find_stale_locks_empty() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    // Write empty locks.json
-    let locks = LocksFile::empty();
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks().unwrap();
-    assert!(stale.is_empty());
-}
-
-#[test]
-fn test_find_stale_locks_with_stale() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let hb_dir = cache_dir.join("heartbeats");
-    std::fs::create_dir_all(&hb_dir).unwrap();
-
-    // Create a lock
-    let mut locks_map = std::collections::HashMap::new();
-    locks_map.insert(
-        5i64,
-        crate::locks::Lock {
-            agent_id: "worker-1".to_string(),
-            branch: None,
-            claimed_at: Utc::now(),
-            signed_by: "ABC".to_string(),
-        },
-    );
-    let locks = LocksFile {
-        version: 1,
-        locks: locks_map,
-        settings: crate::locks::LockSettings {
-            stale_lock_timeout_minutes: 60,
-        },
-    };
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    // No heartbeat file for worker-1 -> stale
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0], (5, "worker-1".to_string()));
-}
-
-#[test]
-fn test_find_stale_locks_with_fresh_heartbeat() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let hb_dir = cache_dir.join("heartbeats");
-    std::fs::create_dir_all(&hb_dir).unwrap();
-
-    // Create a lock
-    let mut locks_map = std::collections::HashMap::new();
-    locks_map.insert(
-        5i64,
-        crate::locks::Lock {
-            agent_id: "worker-1".to_string(),
-            branch: None,
-            claimed_at: Utc::now(),
-            signed_by: "ABC".to_string(),
-        },
-    );
-    let locks = LocksFile {
-        version: 1,
-        locks: locks_map,
-        settings: crate::locks::LockSettings {
-            stale_lock_timeout_minutes: 60,
-        },
-    };
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    // Fresh heartbeat
-    let hb = Heartbeat {
-        agent_id: "worker-1".to_string(),
-        last_heartbeat: Utc::now(),
-        active_issue_id: Some(5),
-        machine_id: "test".to_string(),
-    };
-    let json = serde_json::to_string(&hb).unwrap();
-    std::fs::write(hb_dir.join("worker-1.json"), json).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks().unwrap();
-    assert!(stale.is_empty());
-}
-
-#[test]
-fn test_find_stale_locks_v2_fresh_heartbeat() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // Set up V2 layout
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    // Write a lock file
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 5,
-        agent_id: "worker-1".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("5.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Write a fresh heartbeat (now)
-    let agent_dir = cache_dir.join("agents").join("worker-1");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let heartbeat = serde_json::json!({
-        "agent_id": "worker-1",
-        "timestamp": Utc::now().to_rfc3339(),
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks().unwrap();
-    assert!(stale.is_empty(), "Fresh heartbeat should not be stale");
-}
-
-#[test]
-fn test_find_stale_locks_v2_old_heartbeat() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // Set up V2 layout
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    // Write a lock file
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 10,
-        agent_id: "worker-2".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("10.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Write a stale heartbeat (2 hours ago)
-    let agent_dir = cache_dir.join("agents").join("worker-2");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let old_timestamp = Utc::now() - chrono::Duration::hours(2);
-    let heartbeat = serde_json::json!({
-        "agent_id": "worker-2",
-        "timestamp": old_timestamp.to_rfc3339(),
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0], (10, "worker-2".to_string()));
-}
-
-#[test]
-fn test_find_stale_locks_v2_missing_heartbeat() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // Set up V2 layout
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    // Write a lock file but NO heartbeat
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 7,
-        agent_id: "ghost-agent".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("7.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // No agents/ghost-agent/heartbeat.json exists
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0], (7, "ghost-agent".to_string()));
-}
-
 /// Helper: create a git repo with an initial commit.
 fn init_git_repo(path: &Path) {
     let p = path.to_string_lossy();
@@ -440,115 +61,6 @@ fn init_git_repo(path: &Path) {
 }
 
 #[test]
-fn test_read_locks_v2_empty_dir() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let locks = manager.read_locks_v2().unwrap();
-    assert!(locks.locks.is_empty());
-    assert_eq!(locks.version, 2);
-}
-
-#[test]
-fn test_read_locks_v2_no_locks_dir() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    std::fs::create_dir_all(&crosslink_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let locks = manager.read_locks_v2().unwrap();
-    assert!(locks.locks.is_empty());
-}
-
-#[test]
-fn test_read_locks_v2_with_files() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 5,
-        agent_id: "worker-1".to_string(),
-        branch: Some("feature/x".to_string()),
-        claimed_at: Utc::now(),
-        signed_by: Some("SHA256:abc".to_string()),
-    };
-    let json = serde_json::to_string_pretty(&lock).unwrap();
-    std::fs::write(locks_dir.join("5.json"), &json).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let locks = manager.read_locks_v2().unwrap();
-    assert_eq!(locks.locks.len(), 1);
-    assert!(locks.is_locked(5));
-    let l = locks.get_lock(5).unwrap();
-    assert_eq!(l.agent_id, "worker-1");
-    assert_eq!(l.branch, Some("feature/x".to_string()));
-    assert_eq!(l.signed_by, "SHA256:abc");
-}
-
-#[test]
-fn test_read_locks_v2_skips_non_json() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-
-    // Write a non-json file that should be ignored
-    std::fs::write(locks_dir.join("README.md"), "ignore me").unwrap();
-
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 3,
-        agent_id: "worker-2".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("3.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let locks = manager.read_locks_v2().unwrap();
-    assert_eq!(locks.locks.len(), 1);
-    assert!(locks.is_locked(3));
-}
-
-#[test]
-fn test_read_locks_v2_signed_by_none_defaults_empty() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 7,
-        agent_id: "worker-3".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("7.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let locks = manager.read_locks_v2().unwrap();
-    let l = locks.get_lock(7).unwrap();
-    assert_eq!(l.signed_by, "");
-}
-
-#[test]
 fn test_read_locks_auto_v1_default() {
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
@@ -562,18 +74,20 @@ fn test_read_locks_auto_v1_default() {
 }
 
 #[test]
-fn test_read_locks_auto_v2_dispatch() {
+fn test_read_locks_auto_frozen_v2_is_empty() {
+    // 754b: the v2 lock READ path is gone. A non-v3 (frozen / pre-migration)
+    // hub has no live lock state — `read_locks_auto` returns empty. Migration
+    // reads locks from the compacted checkpoint, not from `locks/*.json`.
     let dir = tempdir().unwrap();
     let crosslink_dir = dir.path().join(".crosslink");
     let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
     std::fs::create_dir_all(&cache_dir).unwrap();
 
-    // Write V2 layout version
+    // Even with a V2 layout marker and a per-issue lock file present, the read
+    // path no longer materializes them.
     let meta_dir = cache_dir.join("meta");
     std::fs::create_dir_all(&meta_dir).unwrap();
     crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    // Write a lock file
     let locks_dir = cache_dir.join("locks");
     std::fs::create_dir_all(&locks_dir).unwrap();
     let lock = crate::issue_file::LockFileV2 {
@@ -591,85 +105,7 @@ fn test_read_locks_auto_v2_dispatch() {
 
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     let locks = manager.read_locks_auto().unwrap();
-    assert_eq!(locks.locks.len(), 1);
-    assert!(locks.is_locked(3));
-}
-
-#[test]
-fn test_read_locks_auto_v1_explicit() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    // Write V1 layout version explicitly
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 1).unwrap();
-
-    // Write a locks.json (V1 format)
-    let locks = LocksFile::empty();
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let result = manager.read_locks_auto().unwrap();
-    assert!(result.locks.is_empty());
-}
-
-#[test]
-fn test_ensure_agent_dir_creates_directory() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let created = manager.create_agent_dir_files("worker-42").unwrap();
-    assert!(created);
-
-    let agent_dir = cache_dir.join("agents").join("worker-42");
-    assert!(agent_dir.exists());
-    assert!(agent_dir.join("heartbeat.json").exists());
-}
-
-#[test]
-fn test_ensure_agent_dir_idempotent() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let first = manager.create_agent_dir_files("worker-42").unwrap();
-    assert!(first);
-
-    let second = manager.create_agent_dir_files("worker-42").unwrap();
-    assert!(!second);
-}
-
-#[test]
-fn test_ensure_agent_dir_heartbeat_valid_json() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.create_agent_dir_files("test-agent").unwrap();
-
-    let heartbeat_path = cache_dir
-        .join("agents")
-        .join("test-agent")
-        .join("heartbeat.json");
-    let content = std::fs::read_to_string(&heartbeat_path).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-    assert_eq!(parsed["agent_id"], "test-agent");
-    assert_eq!(parsed["status"], "active");
-    assert!(parsed["timestamp"].is_string());
-    // Verify timestamp is valid RFC3339
-    let ts = parsed["timestamp"].as_str().unwrap();
-    chrono::DateTime::parse_from_rfc3339(ts).expect("timestamp should be valid RFC3339");
+    assert!(locks.locks.is_empty());
 }
 
 // resolve_main_repo_root tests are in utils::tests
@@ -840,6 +276,152 @@ fn test_read_tracker_remote_custom_value() {
     assert_eq!(remote, "upstream");
 }
 
+// ── GH#611: silent inference from git remotes ────────────────────
+
+/// `git remote add` a name pointing at a placeholder URL on `repo`.
+/// The URL value doesn't matter for `git remote` (the listing command),
+/// so we just need a syntactically valid string.
+fn add_git_remote(repo: &Path, name: &str) {
+    let url = format!("https://example.invalid/{name}.git");
+    let status = Command::new("git")
+        .current_dir(repo)
+        .args(["remote", "add", name, &url])
+        .status()
+        .expect("git remote add failed to spawn");
+    assert!(status.success(), "git remote add {name} failed");
+}
+
+#[test]
+fn test_read_tracker_remote_single_origin_no_warn() {
+    // The single most common project shape: one git remote called "origin",
+    // hook-config.json has no `tracker_remote` field. Before GH#611 this
+    // path emitted a WARN once per process; after, it must be silent.
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    // hook-config.json from setup_sync_env only sets {"remote":"origin"},
+    // intentionally NOT a tracker_remote field — so we drop into inference.
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(remote, "origin");
+}
+
+#[test]
+fn test_read_tracker_remote_single_non_origin_remote() {
+    // One remote, not called "origin" — inferred verbatim.
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    add_git_remote(dir.path(), "upstream");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    // hook-config.json exists but has no tracker_remote field
+    std::fs::write(crosslink_dir.join("hook-config.json"), "{}").unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "upstream",
+        "single non-origin remote should be inferred as the tracker_remote"
+    );
+}
+
+#[test]
+fn test_read_tracker_remote_multi_remotes_prefers_origin() {
+    // Multiple remotes including "origin" — origin wins regardless of order.
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    // Add in non-alphabetical order to confirm origin wins on name, not order.
+    add_git_remote(dir.path(), "zzz");
+    add_git_remote(dir.path(), "origin");
+    add_git_remote(dir.path(), "fork");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(remote, "origin", "origin must win in multi-remote setups");
+}
+
+#[test]
+fn test_read_tracker_remote_multi_remotes_no_origin_picks_first_alphabetical() {
+    // Multiple remotes, none called origin → first alphabetically (deterministic).
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    add_git_remote(dir.path(), "upstream");
+    add_git_remote(dir.path(), "alice");
+    add_git_remote(dir.path(), "bob");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "alice",
+        "with no origin and multiple remotes, picks the alphabetically first one"
+    );
+}
+
+#[test]
+fn test_read_tracker_remote_explicit_config_wins_over_inference() {
+    // hook-config.json's explicit value beats whatever git remotes say.
+    let dir = tempdir().unwrap();
+    Command::new("git")
+        .current_dir(dir.path())
+        .args(["init", "-b", "main"])
+        .output()
+        .unwrap();
+    add_git_remote(dir.path(), "origin");
+    add_git_remote(dir.path(), "upstream");
+
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(
+        crosslink_dir.join("hook-config.json"),
+        r#"{"tracker_remote":"upstream"}"#,
+    )
+    .unwrap();
+
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "upstream",
+        "explicit hook-config.json value must take precedence over inference"
+    );
+}
+
+#[test]
+fn test_read_tracker_remote_falls_back_when_corrupt_placeholder() {
+    // GH#739: older builds of the init walkthrough wrote the literal
+    // UI placeholder "(text)" into hook-config.json for every
+    // ConfigType::String key. read_tracker_remote() must detect this
+    // corrupt sentinel and fall back to "origin" so push/sync don't
+    // fail with the (correct but unhelpful) RemoteMisconfigured("(text)")
+    // error. The permanent fix is `crosslink config set tracker_remote
+    // <name>` or `crosslink init --force`.
+    let dir = tempdir().unwrap();
+    let crosslink_dir = dir.path().join(".crosslink");
+    std::fs::create_dir_all(&crosslink_dir).unwrap();
+    std::fs::write(
+        crosslink_dir.join("hook-config.json"),
+        r#"{"tracker_remote":"(text)"}"#,
+    )
+    .unwrap();
+    let remote = read_tracker_remote(&crosslink_dir);
+    assert_eq!(
+        remote, "origin",
+        "corrupt '(text)' placeholder must fall back to 'origin'"
+    );
+}
+
 // ------------------------------------------------------------------
 // SyncManager::new() with hook-config.json having a tracker_remote key
 // ------------------------------------------------------------------
@@ -903,11 +485,11 @@ fn test_remote_accessor() {
 }
 
 // ------------------------------------------------------------------
-// init_cache -- creates orphan hub branch with initial structure
+// init_cache -- a fresh hub bootstraps directly into v3 (754b REQ-10)
 // ------------------------------------------------------------------
 
 #[test]
-fn test_init_cache_creates_hub_worktree() {
+fn test_init_cache_bootstraps_v3() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
@@ -916,8 +498,15 @@ fn test_init_cache_creates_hub_worktree() {
     manager.init_cache().unwrap();
     assert!(manager.is_initialized());
 
-    // Should have locks.json
-    assert!(manager.cache_dir.join("locks.json").exists());
+    // Fresh hub is v3: marker refs exist, no legacy locks.json is written.
+    assert!(manager.hub_mode().is_v3());
+    assert_eq!(
+        crate::hub_v3::detect_hub_version(&manager.cache_dir).unwrap(),
+        crate::hub_v3::HubVersion::V3 {
+            v2_branch_present: false
+        }
+    );
+    assert!(!manager.cache_dir.join("locks.json").exists());
 }
 
 #[test]
@@ -930,38 +519,35 @@ fn test_init_cache_idempotent() {
     // Second call should be a no-op (cache_dir exists)
     manager.init_cache().unwrap();
     assert!(manager.is_initialized());
+    assert!(manager.hub_mode().is_v3());
 }
 
 #[test]
-fn test_init_cache_creates_directory_structure() {
+fn test_init_cache_bootstrap_pushes_refs_to_remote() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
-
     manager.init_cache().unwrap();
 
-    let cache = &manager.cache_dir;
-    assert!(cache.join("locks.json").exists());
-    assert!(cache.join("heartbeats").exists());
-    assert!(cache.join("trust").exists());
-    assert!(cache.join("issues").exists());
-    assert!(cache.join("locks").exists());
+    // The genesis refs were pushed to the configured remote (best-effort).
+    let remote_version =
+        crate::hub_v3::detect_remote_hub_version(&manager.repo_root, "origin").unwrap();
+    assert!(matches!(
+        remote_version,
+        crate::hub_v3::HubVersion::V3 { .. }
+    ));
 }
 
 #[test]
-fn test_init_cache_from_existing_remote_branch() {
-    // Set up env, init cache to push branch to remote, then reinit from remote
+fn test_init_cache_fresh_clone_joins_v3_remote() {
+    // Machine 1 bootstraps a v3 hub and pushes its refs.
     let (work_dir, remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
+    assert!(manager.hub_mode().is_v3());
 
-    // Push hub branch to remote
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Now create a fresh work dir cloned from same remote
+    // Machine 2: a fresh clone of the same remote.
     let work_dir2 = tempfile::tempdir().unwrap();
     Command::new("git")
         .current_dir(work_dir2.path())
@@ -984,7 +570,6 @@ fn test_init_cache_from_existing_remote_branch() {
             .output()
             .unwrap();
     }
-    // fetch main so repo isn't completely empty
     Command::new("git")
         .current_dir(work_dir2.path())
         .args(["fetch", "origin", "main"])
@@ -1004,9 +589,211 @@ fn test_init_cache_from_existing_remote_branch() {
     )
     .unwrap();
 
+    // init_cache on machine 2 must JOIN the existing v3 hub (fetch refs), not
+    // bootstrap a conflicting genesis.
     let manager2 = SyncManager::new(&crosslink_dir2).unwrap();
     manager2.init_cache().unwrap();
     assert!(manager2.is_initialized());
+    assert!(manager2.hub_mode().is_v3());
+    assert_eq!(
+        crate::hub_v3::detect_hub_version(&manager2.cache_dir).unwrap(),
+        crate::hub_v3::HubVersion::V3 {
+            v2_branch_present: false
+        }
+    );
+}
+
+#[test]
+fn test_fresh_v3_hub_create_issue_end_to_end() {
+    // Fresh repo bootstraps v3; a SharedWriter create_issue then yields an id
+    // from the deterministic reduction (REQ-4), proving the event-only write +
+    // reduction path works on a brand-new hub.
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    let agent = make_agent("issuer");
+    std::fs::write(
+        crosslink_dir.join("agent.json"),
+        serde_json::to_string_pretty(&agent).unwrap(),
+    )
+    .unwrap();
+
+    let sync = SyncManager::new(&crosslink_dir).unwrap();
+    sync.init_cache().unwrap();
+    assert!(sync.hub_mode().is_v3());
+
+    let db = crate::db::Database::open(&crosslink_dir.join("issues.db")).unwrap();
+    let writer = crate::shared_writer::SharedWriter::new(&crosslink_dir)
+        .unwrap()
+        .unwrap();
+    let id = writer
+        .create_issue(&db, "First v3 issue", None, "high", None, None)
+        .unwrap();
+    assert_eq!(id, 1, "first reduction-assigned display id must be 1");
+
+    // The id is materialized by reducing the agent ref (not a counter file).
+    let source = crate::hub_source::RefHubSource::new(sync.cache_path()).unwrap();
+    let state = crate::compaction::reduce(&source).unwrap().state;
+    assert!(
+        state.issues.values().any(|i| i.title == "First v3 issue"),
+        "the created issue must surface through the v3 reduction"
+    );
+}
+
+#[test]
+fn test_two_machine_v3_join_round_trip() {
+    // Machine 1 bootstraps + creates an issue + pushes. Machine 2 clones, joins
+    // the v3 hub, creates its own issue, pushes. Machine 1 fetches and sees it.
+    let (work_dir, remote_dir) = setup_sync_env();
+    let cl1 = work_dir.path().join(".crosslink");
+    std::fs::write(
+        cl1.join("agent.json"),
+        serde_json::to_string_pretty(&make_agent("machine-1")).unwrap(),
+    )
+    .unwrap();
+    let sync1 = SyncManager::new(&cl1).unwrap();
+    sync1.init_cache().unwrap();
+    let db1 = crate::db::Database::open(&cl1.join("issues.db")).unwrap();
+    let w1 = crate::shared_writer::SharedWriter::new(&cl1)
+        .unwrap()
+        .unwrap();
+    w1.create_issue(&db1, "from m1", None, "high", None, None)
+        .unwrap();
+
+    // Machine 2: fresh clone of the same remote.
+    let work2 = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["init", "-b", "main"],
+        vec!["config", "user.email", "test@test.local"],
+        vec!["config", "user.name", "Test"],
+        vec![
+            "remote",
+            "add",
+            "origin",
+            remote_dir.path().to_str().unwrap(),
+        ],
+        vec!["fetch", "origin", "main"],
+        vec!["checkout", "-b", "main", "origin/main"],
+    ] {
+        Command::new("git")
+            .current_dir(work2.path())
+            .args(&args)
+            .output()
+            .unwrap();
+    }
+    let cl2 = work2.path().join(".crosslink");
+    std::fs::create_dir_all(&cl2).unwrap();
+    std::fs::write(cl2.join("hook-config.json"), r#"{"remote":"origin"}"#).unwrap();
+    std::fs::write(
+        cl2.join("agent.json"),
+        serde_json::to_string_pretty(&make_agent("machine-2")).unwrap(),
+    )
+    .unwrap();
+    let sync2 = SyncManager::new(&cl2).unwrap();
+    sync2.init_cache().unwrap();
+    assert!(sync2.hub_mode().is_v3(), "m2 must join the v3 hub");
+    let db2 = crate::db::Database::open(&cl2.join("issues.db")).unwrap();
+    let w2 = crate::shared_writer::SharedWriter::new(&cl2)
+        .unwrap()
+        .unwrap();
+    w2.create_issue(&db2, "from m2", None, "medium", None, None)
+        .unwrap();
+
+    // Machine 1 fetches and reduces: it must now see machine 2's issue.
+    sync1.fetch().unwrap();
+    let source = crate::hub_source::RefHubSource::new(sync1.cache_path()).unwrap();
+    let state = crate::compaction::reduce(&source).unwrap().state;
+    assert!(
+        state.issues.values().any(|i| i.title == "from m1"),
+        "m1 must still see its own issue"
+    );
+    assert!(
+        state.issues.values().any(|i| i.title == "from m2"),
+        "m1 must see m2's issue after fetch"
+    );
+}
+
+#[test]
+fn test_v2_fetch_is_read_only_no_new_commits() {
+    // A frozen v2 hub's fetch must NOT create any commit on the v2 branch — it
+    // is a read-only mirror update only (754b).
+    let (work_dir, _remote_dir) = setup_sync_env();
+    let crosslink_dir = work_dir.path().join(".crosslink");
+    let wp = work_dir.path();
+
+    // Build an explicit v2 `crosslink/hub` worktree (a fresh init would bootstrap
+    // v3) so the hub resolves to V2 mode.
+    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
+    for args in [
+        vec![
+            "worktree",
+            "add",
+            "--orphan",
+            "-b",
+            "crosslink/hub",
+            cache_dir.to_str().unwrap(),
+        ],
+        vec![
+            "-C",
+            cache_dir.to_str().unwrap(),
+            "config",
+            "user.email",
+            "t@t",
+        ],
+        vec![
+            "-C",
+            cache_dir.to_str().unwrap(),
+            "config",
+            "user.name",
+            "t",
+        ],
+    ] {
+        Command::new("git")
+            .current_dir(wp)
+            .args(&args)
+            .output()
+            .unwrap();
+    }
+    std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+    std::fs::write(cache_dir.join("locks.json"), "{}").unwrap();
+    Command::new("git")
+        .current_dir(&cache_dir)
+        .args(["add", "-A"])
+        .output()
+        .unwrap();
+    Command::new("git")
+        .current_dir(&cache_dir)
+        .args(["commit", "-m", "v2 init", "--no-gpg-sign"])
+        .output()
+        .unwrap();
+
+    let manager = SyncManager::new(&crosslink_dir).unwrap();
+    assert!(!manager.hub_mode().is_v3(), "must be a v2 hub");
+
+    let tip_before = String::from_utf8(
+        Command::new("git")
+            .current_dir(&cache_dir)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+
+    manager.fetch().unwrap();
+
+    let tip_after = String::from_utf8(
+        Command::new("git")
+            .current_dir(&cache_dir)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(
+        tip_before, tip_after,
+        "v2 fetch must not create any new commit on the frozen v2 branch"
+    );
 }
 
 // ------------------------------------------------------------------
@@ -1025,81 +812,21 @@ fn test_fetch_on_initialized_cache() {
 }
 
 #[test]
-fn test_fetch_from_remote_with_hub_branch() {
+fn test_fetch_v3_after_bootstrap_pushed_refs() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
+    // Bootstrap pushes the v3 refs to the remote during init_cache.
     manager.init_cache().unwrap();
+    assert!(manager.hub_mode().is_v3());
 
-    // Push hub branch to remote so fetch has something to fetch
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Now fetch again
+    // A subsequent fetch takes the v3 ref-adoption path and succeeds.
     manager.fetch().unwrap();
 }
 
 // ------------------------------------------------------------------
-// clean_dirty_state
+// read_allowed_signers
 // ------------------------------------------------------------------
-
-#[test]
-fn test_clean_dirty_state_no_dirty() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Stage and commit everything so there's a truly clean state
-    let _ = manager.git_in_cache(&["add", "-A"]);
-    let _ = manager.git_in_cache(&["commit", "-m", "cleanup for test"]);
-
-    // Nothing dirty -> returns false
-    let cleaned = manager.clean_dirty_state().unwrap();
-    assert!(!cleaned);
-}
-
-#[test]
-fn test_clean_dirty_state_with_dirty_file() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Write an untracked file to make the state dirty
-    std::fs::write(manager.cache_dir.join("dirty.txt"), "dirty").unwrap();
-
-    let cleaned = manager.clean_dirty_state().unwrap();
-    assert!(cleaned);
-}
-
-// ------------------------------------------------------------------
-// read_locks, read_keyring, read_allowed_signers
-// ------------------------------------------------------------------
-
-#[test]
-fn test_read_locks_with_initialized_cache() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let locks = manager.read_locks().unwrap();
-    assert!(locks.locks.is_empty());
-}
-
-#[test]
-fn test_read_keyring_no_file() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let keyring = manager.read_keyring().unwrap();
-    assert!(keyring.is_none());
-}
 
 #[test]
 fn test_read_allowed_signers_no_file() {
@@ -1116,365 +843,12 @@ fn test_read_allowed_signers_no_file() {
 }
 
 // ------------------------------------------------------------------
-// upgrade_to_v2
+// find_stale_locks_with_age
 // ------------------------------------------------------------------
-
-#[test]
-fn test_upgrade_to_v2_already_v2_is_noop() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // init_cache writes v2 layout marker for new hubs
-    let migrated = manager.upgrade_to_v2().unwrap();
-    assert_eq!(migrated, 0);
-}
-
-#[test]
-fn test_upgrade_to_v2_from_v1() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Overwrite the layout version to V1 to simulate a V1 hub
-    let meta_dir = manager.cache_dir.join("meta");
-    crate::issue_file::write_layout_version(&meta_dir, 1).unwrap();
-    manager.git_in_cache(&["add", "-A"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "downgrade to v1 for test"])
-        .unwrap();
-
-    assert!(!manager.is_v2_layout());
-    let migrated = manager.upgrade_to_v2().unwrap();
-    // 0 inline comments to migrate
-    assert_eq!(migrated, 0);
-    // Now should be V2
-    assert!(manager.is_v2_layout());
-}
-
-// ------------------------------------------------------------------
-// find_stale_locks_with_age (V1 path)
-// ------------------------------------------------------------------
-
-#[test]
-fn test_find_stale_locks_with_age_empty() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    let locks = LocksFile::empty();
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert!(stale.is_empty());
-}
-
-#[test]
-fn test_find_stale_locks_with_age_stale_lock_no_heartbeat() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    std::fs::create_dir_all(cache_dir.join("heartbeats")).unwrap();
-
-    // Lock claimed 2 hours ago
-    let old_time = Utc::now() - chrono::Duration::hours(2);
-    let mut locks_map = std::collections::HashMap::new();
-    locks_map.insert(
-        42i64,
-        crate::locks::Lock {
-            agent_id: "stale-agent".to_string(),
-            branch: None,
-            claimed_at: old_time,
-            signed_by: String::new(),
-        },
-    );
-    let locks = LocksFile {
-        version: 1,
-        locks: locks_map,
-        settings: crate::locks::LockSettings {
-            stale_lock_timeout_minutes: 60,
-        },
-    };
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    // No heartbeat for stale-agent
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].0, 42);
-    assert_eq!(stale[0].1, "stale-agent");
-    assert!(stale[0].2 >= 60); // at least 60 minutes old
-}
-
-#[test]
-fn test_find_stale_locks_with_age_fresh_heartbeat_not_stale() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let hb_dir = cache_dir.join("heartbeats");
-    std::fs::create_dir_all(&hb_dir).unwrap();
-
-    let mut locks_map = std::collections::HashMap::new();
-    locks_map.insert(
-        10i64,
-        crate::locks::Lock {
-            agent_id: "fresh-agent".to_string(),
-            branch: None,
-            claimed_at: Utc::now(),
-            signed_by: String::new(),
-        },
-    );
-    let locks = LocksFile {
-        version: 1,
-        locks: locks_map,
-        settings: crate::locks::LockSettings {
-            stale_lock_timeout_minutes: 60,
-        },
-    };
-    locks.save(&cache_dir.join("locks.json")).unwrap();
-
-    // Fresh heartbeat just now
-    let hb = Heartbeat {
-        agent_id: "fresh-agent".to_string(),
-        last_heartbeat: Utc::now(),
-        active_issue_id: None,
-        machine_id: "host".to_string(),
-    };
-    std::fs::write(
-        hb_dir.join("fresh-agent.json"),
-        serde_json::to_string(&hb).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert!(stale.is_empty());
-}
 
 // ------------------------------------------------------------------
 // find_stale_locks_with_age (V2 path)
 // ------------------------------------------------------------------
-
-#[test]
-fn test_find_stale_locks_with_age_v2_stale() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // V2 layout
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 99,
-        agent_id: "v2-agent".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("99.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Old heartbeat (2 hours ago)
-    let agent_dir = cache_dir.join("agents").join("v2-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let old_ts = Utc::now() - chrono::Duration::hours(2);
-    let heartbeat = serde_json::json!({
-        "agent_id": "v2-agent",
-        "timestamp": old_ts.to_rfc3339(),
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].0, 99);
-    assert_eq!(stale[0].1, "v2-agent");
-    assert!(stale[0].2 >= 60);
-}
-
-#[test]
-fn test_find_stale_locks_with_age_v2_fresh() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // V2 layout
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 55,
-        agent_id: "v2-fresh".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("55.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Fresh heartbeat (just now)
-    let agent_dir = cache_dir.join("agents").join("v2-fresh");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let heartbeat = serde_json::json!({
-        "agent_id": "v2-fresh",
-        "timestamp": Utc::now().to_rfc3339(),
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert!(stale.is_empty());
-}
-
-#[test]
-fn test_find_stale_locks_with_age_v2_no_heartbeat_file() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 33,
-        agent_id: "no-heartbeat-agent".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("33.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-    // No agents/ directory at all
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].0, 33);
-    assert_eq!(stale[0].2, u64::MAX);
-}
-
-#[test]
-fn test_find_stale_locks_with_age_v2_invalid_timestamp() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 11,
-        agent_id: "bad-ts-agent".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("11.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Write a heartbeat with unparseable timestamp
-    let agent_dir = cache_dir.join("agents").join("bad-ts-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let heartbeat = serde_json::json!({
-        "agent_id": "bad-ts-agent",
-        "timestamp": "not-a-date",
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    // Bad timestamp -> stale with MAX age
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].2, u64::MAX);
-}
-
-#[test]
-fn test_find_stale_locks_with_age_v2_missing_timestamp_field() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 22,
-        agent_id: "no-ts-agent".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("22.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Heartbeat file with no timestamp field
-    let agent_dir = cache_dir.join("agents").join("no-ts-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let heartbeat = serde_json::json!({
-        "agent_id": "no-ts-agent",
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager.find_stale_locks_with_age().unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].2, u64::MAX);
-}
 
 // ------------------------------------------------------------------
 // claim_lock / release_lock (needs a real git repo + hub cache)
@@ -1485,216 +859,40 @@ fn make_agent(id: &str) -> AgentConfig {
         agent_id: id.to_string(),
         machine_id: "test-host".to_string(),
         description: None,
+        role: AgentRole::Driver,
         ssh_key_path: None,
         ssh_fingerprint: None,
         ssh_public_key: None,
     }
 }
 
-#[test]
-fn test_claim_and_release_lock() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent = make_agent("test-agent");
-
-    // Claim lock on issue 1
-    let claimed = manager
-        .claim_lock(&agent, 1, None, LockMode::Normal)
-        .unwrap();
-    assert!(claimed);
-
-    // Claiming again for same agent should return false (already held by self)
-    let claimed_again = manager
-        .claim_lock(&agent, 1, None, LockMode::Normal)
-        .unwrap();
-    assert!(!claimed_again);
-
-    // Check lock is set
-    let locks = manager.read_locks().unwrap();
-    assert!(locks.is_locked(1));
-
-    // Release lock
-    let released = manager.release_lock(&agent, 1, LockMode::Normal).unwrap();
-    assert!(released);
-
-    // Check lock is gone
-    let locks = manager.read_locks().unwrap();
-    assert!(!locks.is_locked(1));
-}
-
-#[test]
-fn test_release_lock_not_locked_returns_false() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent = make_agent("test-agent");
-
-    // No lock exists -> returns false
-    let released = manager.release_lock(&agent, 999, LockMode::Normal).unwrap();
-    assert!(!released);
-}
-
-#[test]
-fn test_claim_lock_already_locked_by_other_fails() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent1 = make_agent("agent-1");
-    let agent2 = make_agent("agent-2");
-
-    // Agent 1 claims
-    manager
-        .claim_lock(&agent1, 5, None, LockMode::Normal)
-        .unwrap();
-
-    // Agent 2 tries to claim without force -> error
-    let result = manager.claim_lock(&agent2, 5, None, LockMode::Normal);
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("locked by 'agent-1'"));
-}
-
-#[test]
-fn test_claim_lock_force_steals() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent1 = make_agent("agent-1");
-    let agent2 = make_agent("agent-2");
-
-    manager
-        .claim_lock(&agent1, 7, None, LockMode::Normal)
-        .unwrap();
-
-    // Agent 2 steals with force=true
-    let stolen = manager
-        .claim_lock(&agent2, 7, None, LockMode::Steal)
-        .unwrap();
-    assert!(stolen);
-
-    let locks = manager.read_locks().unwrap();
-    let lock = locks.get_lock(7).unwrap();
-    assert_eq!(lock.agent_id, "agent-2");
-}
-
-#[test]
-fn test_release_lock_by_different_agent_fails() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent1 = make_agent("agent-1");
-    let agent2 = make_agent("agent-2");
-
-    manager
-        .claim_lock(&agent1, 3, None, LockMode::Normal)
-        .unwrap();
-
-    // Agent 2 tries to release without force -> error
-    let result = manager.release_lock(&agent2, 3, LockMode::Normal);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_release_lock_by_different_agent_with_force() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent1 = make_agent("agent-1");
-    let agent2 = make_agent("agent-2");
-
-    manager
-        .claim_lock(&agent1, 4, None, LockMode::Normal)
-        .unwrap();
-
-    // Agent 2 force-releases
-    let released = manager.release_lock(&agent2, 4, LockMode::Steal).unwrap();
-    assert!(released);
-}
-
-#[test]
-fn test_claim_lock_with_branch() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent = make_agent("test-agent");
-    manager
-        .claim_lock(&agent, 6, Some("feature/test"), LockMode::Normal)
-        .unwrap();
-
-    let locks = manager.read_locks().unwrap();
-    let lock = locks.get_lock(6).unwrap();
-    assert_eq!(lock.branch, Some("feature/test".to_string()));
-}
-
 // ------------------------------------------------------------------
 // ensure_agent_dir (needs a git repo)
 // ------------------------------------------------------------------
-
-#[test]
-fn test_ensure_agent_dir_with_git_repo() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let created = manager.ensure_agent_dir("my-agent").unwrap();
-    assert!(created);
-
-    let agent_dir = manager.cache_dir.join("agents").join("my-agent");
-    assert!(agent_dir.exists());
-    assert!(agent_dir.join("heartbeat.json").exists());
-}
-
-#[test]
-fn test_ensure_agent_dir_idempotent_with_git() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let first = manager.ensure_agent_dir("my-agent").unwrap();
-    assert!(first);
-
-    // Second call should return false (already exists)
-    let second = manager.ensure_agent_dir("my-agent").unwrap();
-    assert!(!second);
-}
 
 // ------------------------------------------------------------------
 // push_heartbeat (needs a git repo)
 // ------------------------------------------------------------------
 
 #[test]
-fn test_push_heartbeat_writes_and_commits() {
+fn test_push_heartbeat_writes_to_agent_ref() {
+    // A fresh hub bootstraps v3 (754b), so the heartbeat lands on the agent's
+    // own ref, not a worktree `heartbeats/*.json` file.
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
+    assert!(manager.hub_mode().is_v3(), "fresh hub must bootstrap v3");
 
     let agent = make_agent("hb-agent");
     manager.push_heartbeat(&agent, Some(42)).unwrap();
 
-    let hb_path = manager.cache_dir.join("heartbeats").join("hb-agent.json");
-    assert!(hb_path.exists());
-    let content = std::fs::read_to_string(&hb_path).unwrap();
-    let hb: Heartbeat = serde_json::from_str(&content).unwrap();
+    let beats = crate::hub_v3::read_heartbeats_from_refs(&manager.cache_dir).unwrap();
+    let hb = beats
+        .iter()
+        .find(|(id, _)| id == "hb-agent")
+        .map(|(_, hb)| hb)
+        .expect("heartbeat for hb-agent must be on its agent ref");
     assert_eq!(hb.agent_id, "hb-agent");
     assert_eq!(hb.active_issue_id, Some(42));
 }
@@ -1717,21 +915,6 @@ fn test_push_heartbeat_no_change_is_ok() {
 // ------------------------------------------------------------------
 
 #[test]
-fn test_verify_recent_commits_returns_result() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let results = manager.verify_recent_commits(1).unwrap();
-    assert_eq!(results.len(), 1);
-    // Depending on whether global git signing is configured, the commit
-    // may be Valid, Unsigned, or Invalid -- just check it returns something.
-    let (commit_hash, _verification) = &results[0];
-    assert!(!commit_hash.is_empty());
-}
-
-#[test]
 fn test_verify_locks_signature_on_initialized_cache() {
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
@@ -1746,44 +929,25 @@ fn test_verify_locks_signature_on_initialized_cache() {
 }
 
 #[test]
-fn test_verify_locks_signature_no_commits() {
-    // No cache -> git_in_cache will fail, but verify_locks_signature
-    // returns NoCommits when commit hash is empty.
-    // We test this by creating a cache with a commit that doesn't touch locks.json
+fn test_verify_locks_signature_no_commits_on_v3_hub() {
+    // A fresh v3 hub (754b) has no `locks.json` history on its host branch, so
+    // `verify_locks_signature` (which looks for the commit touching locks.json)
+    // reports NoCommits.
     let (work_dir, _remote_dir) = setup_sync_env();
     let crosslink_dir = work_dir.path().join(".crosslink");
     let manager = SyncManager::new(&crosslink_dir).unwrap();
     manager.init_cache().unwrap();
 
-    // Remove locks.json and commit to simulate a hub with no locks history
-    std::fs::remove_file(manager.cache_dir.join("locks.json")).unwrap();
-    manager.git_in_cache(&["add", "-A"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "remove locks for test"])
-        .unwrap();
-
     let result = manager.verify_locks_signature().unwrap();
-    // After removal, there's a commit touching locks.json (the delete)
-    // so it won't be NoCommits -- but it also won't be Valid
-    let _ = result;
+    assert!(matches!(
+        result,
+        crate::sync::SignatureVerification::NoCommits
+    ));
 }
 
 // ------------------------------------------------------------------
 // verify_entry_signatures
 // ------------------------------------------------------------------
-
-#[test]
-fn test_verify_entry_signatures_no_issues() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let (verified, failed, unsigned) = manager.verify_entry_signatures().unwrap();
-    assert_eq!(verified, 0);
-    assert_eq!(failed, 0);
-    assert_eq!(unsigned, 0);
-}
 
 // ------------------------------------------------------------------
 // propagate_claude_hooks
@@ -1854,17 +1018,6 @@ fn test_ensure_cache_git_identity_sets_identity() {
 // ------------------------------------------------------------------
 // check_divergence / count_unpushed_commits
 // ------------------------------------------------------------------
-
-#[test]
-fn test_check_divergence_not_diverged() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // 0 commits ahead -> no error
-    manager.check_divergence().unwrap();
-}
 
 // ------------------------------------------------------------------
 // migrate_from_locks_branch -- no old branch case
@@ -1938,981 +1091,3 @@ fn test_ensure_agent_key_published_no_agent_config() {
 // ------------------------------------------------------------------
 // find_stale_locks_v2 direct
 // ------------------------------------------------------------------
-
-#[test]
-fn test_find_stale_locks_v2_invalid_json_heartbeat() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock = crate::issue_file::LockFileV2 {
-        issue_id: 77,
-        agent_id: "invalid-json-agent".to_string(),
-        branch: None,
-        claimed_at: Utc::now(),
-        signed_by: None,
-    };
-    std::fs::write(
-        locks_dir.join("77.json"),
-        serde_json::to_string_pretty(&lock).unwrap(),
-    )
-    .unwrap();
-
-    // Write invalid JSON heartbeat
-    let agent_dir = cache_dir.join("agents").join("invalid-json-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    std::fs::write(agent_dir.join("heartbeat.json"), "{ not valid json").unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager
-        .find_stale_locks_v2(chrono::Duration::minutes(30))
-        .unwrap();
-    assert_eq!(stale.len(), 1);
-    assert_eq!(stale[0].0, 77);
-}
-
-// ------------------------------------------------------------------
-// read_keyring with real keyring.json file
-// ------------------------------------------------------------------
-
-#[test]
-fn test_read_keyring_with_file() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let trust_dir = cache_dir.join("trust");
-    std::fs::create_dir_all(&trust_dir).unwrap();
-
-    let keyring = Keyring {
-        trusted_fingerprints: vec!["SHA256:abc".to_string()],
-    };
-    let json = serde_json::to_string(&keyring).unwrap();
-    std::fs::write(trust_dir.join("keyring.json"), json).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let loaded = manager.read_keyring().unwrap();
-    assert!(loaded.is_some());
-    let k = loaded.unwrap();
-    assert_eq!(k.trusted_fingerprints.len(), 1);
-    assert_eq!(k.trusted_fingerprints[0], "SHA256:abc");
-}
-
-// ------------------------------------------------------------------
-// verify_entry_signatures with issues having unsigned comments
-// ------------------------------------------------------------------
-
-#[test]
-fn test_verify_entry_signatures_unsigned_comments() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Write an issue file with unsigned comments
-    use crate::issue_file::{CommentEntry, IssueFile};
-    use uuid::Uuid;
-
-    let issue = IssueFile {
-        uuid: Uuid::new_v4(),
-        display_id: Some(1),
-        title: "Test issue".to_string(),
-        description: None,
-        status: crate::models::IssueStatus::Open,
-        priority: crate::models::Priority::Medium,
-        parent_uuid: None,
-        created_by: "test-agent".to_string(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        closed_at: None,
-        labels: vec![],
-        comments: vec![
-            CommentEntry {
-                id: 1,
-                author: "test-agent".to_string(),
-                content: "Hello world".to_string(),
-                created_at: Utc::now(),
-                kind: "note".to_string(),
-                trigger_type: None,
-                intervention_context: None,
-                driver_key_fingerprint: None,
-                signed_by: None, // unsigned
-                signature: None,
-            },
-            CommentEntry {
-                id: 2,
-                author: "test-agent".to_string(),
-                content: "Another comment".to_string(),
-                created_at: Utc::now(),
-                kind: "note".to_string(),
-                trigger_type: None,
-                intervention_context: None,
-                driver_key_fingerprint: None,
-                signed_by: None, // unsigned
-                signature: None,
-            },
-        ],
-        blockers: vec![],
-        related: vec![],
-        milestone_uuid: None,
-        time_entries: vec![],
-    };
-
-    let issues_dir = manager.cache_dir.join("issues");
-    std::fs::create_dir_all(&issues_dir).unwrap();
-    let issue_path = issues_dir.join(format!("{}.json", issue.uuid));
-    crate::issue_file::write_issue_file(&issue_path, &issue).unwrap();
-
-    let (verified, failed, unsigned) = manager.verify_entry_signatures().unwrap();
-    assert_eq!(verified, 0);
-    assert_eq!(failed, 0);
-    assert_eq!(unsigned, 2);
-}
-
-#[test]
-fn test_verify_entry_signatures_with_fake_signature_no_allowed_signers() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    use crate::issue_file::{CommentEntry, IssueFile};
-    use uuid::Uuid;
-
-    let issue = IssueFile {
-        uuid: Uuid::new_v4(),
-        display_id: Some(2),
-        title: "Signed issue".to_string(),
-        description: None,
-        status: crate::models::IssueStatus::Open,
-        priority: crate::models::Priority::Medium,
-        parent_uuid: None,
-        created_by: "test-agent".to_string(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        closed_at: None,
-        labels: vec![],
-        comments: vec![CommentEntry {
-            id: 1,
-            author: "test-agent".to_string(),
-            content: "Signed comment".to_string(),
-            created_at: Utc::now(),
-            kind: "note".to_string(),
-            trigger_type: None,
-            intervention_context: None,
-            driver_key_fingerprint: None,
-            // Both signed_by and signature are set (fake values)
-            signed_by: Some("SHA256:fakefingerprint".to_string()),
-            signature: Some("fakesig".to_string()),
-        }],
-        blockers: vec![],
-        related: vec![],
-        milestone_uuid: None,
-        time_entries: vec![],
-    };
-
-    let issues_dir = manager.cache_dir.join("issues");
-    std::fs::create_dir_all(&issues_dir).unwrap();
-    let issue_path = issues_dir.join(format!("{}.json", issue.uuid));
-    crate::issue_file::write_issue_file(&issue_path, &issue).unwrap();
-
-    // No allowed_signers file -> should count as unsigned (verification unavailable)
-    let (verified, failed, unsigned) = manager.verify_entry_signatures().unwrap();
-    // When allowed_signers doesn't exist, the Err branch counts as unsigned
-    assert_eq!(verified, 0);
-    // Either failed or unsigned depending on whether ssh-keygen is available
-    assert_eq!(verified + failed + unsigned, 1);
-}
-
-// ------------------------------------------------------------------
-// init_cache: has_local branch path (line 317)
-// This covers the case where the hub branch exists locally but
-// the worktree doesn't
-// ------------------------------------------------------------------
-
-#[test]
-fn test_init_cache_with_existing_local_hub_branch() {
-    let (work_dir, remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-
-    // First init: creates the hub branch and worktree
-    manager.init_cache().unwrap();
-
-    // Push hub branch to remote so second repo can fetch it
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Set up second work repo
-    let work_dir2 = tempfile::tempdir().unwrap();
-    Command::new("git")
-        .current_dir(work_dir2.path())
-        .args(["init", "-b", "main"])
-        .output()
-        .unwrap();
-    for args in [
-        vec!["config", "user.email", "test@test.local"],
-        vec!["config", "user.name", "Test"],
-        vec![
-            "remote",
-            "add",
-            "origin",
-            remote_dir.path().to_str().unwrap(),
-        ],
-    ] {
-        Command::new("git")
-            .current_dir(work_dir2.path())
-            .args(&args)
-            .output()
-            .unwrap();
-    }
-    // Fetch everything including hub branch
-    Command::new("git")
-        .current_dir(work_dir2.path())
-        .args(["fetch", "origin"])
-        .output()
-        .unwrap();
-    // Create a local main branch
-    Command::new("git")
-        .current_dir(work_dir2.path())
-        .args(["checkout", "-b", "main", "origin/main"])
-        .output()
-        .unwrap();
-    // Create local hub branch (tracking remote)
-    Command::new("git")
-        .current_dir(work_dir2.path())
-        .args([
-            "checkout",
-            "-b",
-            HUB_BRANCH,
-            &format!("origin/{HUB_BRANCH}"),
-        ])
-        .output()
-        .unwrap();
-    // Switch back to main so we can add the worktree
-    Command::new("git")
-        .current_dir(work_dir2.path())
-        .args(["checkout", "main"])
-        .output()
-        .unwrap();
-
-    let crosslink_dir2 = work_dir2.path().join(".crosslink");
-    std::fs::create_dir_all(&crosslink_dir2).unwrap();
-    std::fs::write(
-        crosslink_dir2.join("hook-config.json"),
-        r#"{"remote":"origin"}"#,
-    )
-    .unwrap();
-
-    let manager2 = SyncManager::new(&crosslink_dir2).unwrap();
-    // hub branch exists both locally and remotely: exercises the has_local=true path
-    manager2.init_cache().unwrap();
-    assert!(manager2.is_initialized());
-}
-
-// ------------------------------------------------------------------
-// fetch: with unpushed local commits (rebase path)
-// ------------------------------------------------------------------
-
-#[test]
-fn test_fetch_with_unpushed_local_commits_and_remote() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Push hub branch to remote
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Make a local commit (not pushed)
-    std::fs::write(manager.cache_dir.join("test-local.txt"), "local change\n").unwrap();
-    manager.git_in_cache(&["add", "test-local.txt"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "local unpushed commit"])
-        .unwrap();
-
-    // fetch should trigger the rebase path (unpushed commits exist)
-    manager.fetch().unwrap();
-}
-
-// ------------------------------------------------------------------
-// find_stale_locks_v2: no locks dir -> empty
-// ------------------------------------------------------------------
-
-#[test]
-fn test_find_stale_locks_v2_empty_locks_dir() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    // No locks dir at all
-    std::fs::create_dir_all(&cache_dir).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager
-        .find_stale_locks_v2(chrono::Duration::minutes(30))
-        .unwrap();
-    assert!(stale.is_empty());
-}
-
-// ------------------------------------------------------------------
-// check_divergence with many unpushed commits
-// ------------------------------------------------------------------
-
-#[test]
-fn test_check_divergence_with_many_commits_fails() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Push so remote ref exists
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Create MAX_DIVERGENCE + 1 local commits without pushing
-    for i in 0..=MAX_DIVERGENCE {
-        std::fs::write(
-            manager.cache_dir.join(format!("diverge-{i}.txt")),
-            format!("content {i}"),
-        )
-        .unwrap();
-        manager
-            .git_in_cache(&["add", &format!("diverge-{i}.txt")])
-            .unwrap();
-        manager
-            .git_in_cache(&["commit", "-m", &format!("diverge commit {i}")])
-            .unwrap();
-    }
-
-    // check_divergence should fail
-    let result = manager.check_divergence();
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Hub branch has diverged"));
-}
-
-// ------------------------------------------------------------------
-// migrate_from_locks_branch -- old remote branch exists
-// Covers lines 109-180 (the migration path).
-// ------------------------------------------------------------------
-
-#[test]
-fn test_migrate_from_locks_branch_with_old_remote_branch() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-
-    // Create the old crosslink/locks branch on the remote by pushing it from
-    // a fresh orphan branch in the work repo.
-    Command::new("git")
-        .current_dir(work_dir.path())
-        .args(["checkout", "--orphan", "locks-init"])
-        .output()
-        .unwrap();
-    Command::new("git")
-        .current_dir(work_dir.path())
-        .args(["reset", "--hard"])
-        .output()
-        .unwrap();
-    std::fs::write(
-        work_dir.path().join("locks.json"),
-        r#"{"version":1,"locks":{}}"#,
-    )
-    .unwrap();
-    Command::new("git")
-        .current_dir(work_dir.path())
-        .args(["add", "locks.json"])
-        .output()
-        .unwrap();
-    Command::new("git")
-        .current_dir(work_dir.path())
-        .args(["commit", "-m", "init locks branch", "--no-gpg-sign"])
-        .output()
-        .unwrap();
-    // Push as crosslink/locks to the remote
-    Command::new("git")
-        .current_dir(work_dir.path())
-        .args(["push", "origin", &format!("HEAD:{OLD_BRANCH}")])
-        .output()
-        .unwrap();
-    // Switch back to main
-    Command::new("git")
-        .current_dir(work_dir.path())
-        .args(["checkout", "main"])
-        .output()
-        .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-
-    // Old remote branch exists -> migration should run
-    let migrated = manager.migrate_from_locks_branch().unwrap();
-    assert!(migrated, "expected migration to run");
-
-    // After migration, crosslink/hub should exist on remote
-    let has_hub = manager
-        .git_in_repo(&["ls-remote", "--heads", "origin", HUB_BRANCH])
-        .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
-        .unwrap_or(false);
-    assert!(
-        has_hub,
-        "crosslink/hub should exist on remote after migration"
-    );
-
-    // Old branch should be gone from remote
-    let has_old = manager
-        .git_in_repo(&["ls-remote", "--heads", "origin", OLD_BRANCH])
-        .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
-        .unwrap_or(false);
-    assert!(!has_old, "crosslink/locks should be deleted from remote");
-}
-
-#[test]
-fn test_migrate_from_locks_branch_with_old_local_cache() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-
-    // Create old .locks-cache directory (simulates leftover from old version)
-    let old_cache = crosslink_dir.join(OLD_CACHE_DIR);
-    std::fs::create_dir_all(&old_cache).unwrap();
-    std::fs::write(old_cache.join("locks.json"), r#"{"version":1,"locks":{}}"#).unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-
-    // Old local cache exists -> migration runs (even without remote old branch)
-    let migrated = manager.migrate_from_locks_branch().unwrap();
-    assert!(
-        migrated,
-        "expected migration to run when old local cache exists"
-    );
-
-    // Old cache directory should be gone
-    assert!(
-        !old_cache.exists(),
-        "old .locks-cache should be removed after migration"
-    );
-}
-
-// ------------------------------------------------------------------
-// configure_signing -- with agent config having a real key file
-// ------------------------------------------------------------------
-
-#[test]
-fn test_configure_signing_with_key() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Create a fake private key file under .crosslink/keys/
-    let keys_dir = crosslink_dir.join("keys");
-    std::fs::create_dir_all(&keys_dir).unwrap();
-    let key_file = keys_dir.join("agent_ed25519");
-    std::fs::write(&key_file, "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n").unwrap();
-
-    // Write agent.json with ssh_key_path and ssh_fingerprint
-    let agent = AgentConfig {
-        agent_id: "signing-test-agent".to_string(),
-        machine_id: "test-host".to_string(),
-        description: None,
-        ssh_key_path: Some("keys/agent_ed25519".to_string()),
-        ssh_fingerprint: Some("SHA256:fakefingerprint".to_string()),
-        ssh_public_key: Some(
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAfake signing-test-agent".to_string(),
-        ),
-    };
-    let agent_json = serde_json::to_string_pretty(&agent).unwrap();
-    std::fs::write(crosslink_dir.join("agent.json"), agent_json).unwrap();
-
-    // configure_signing should succeed (key file exists)
-    manager.configure_signing(&crosslink_dir).unwrap();
-
-    // Verify git config was written in the cache worktree
-    let output = Command::new("git")
-        .current_dir(&manager.cache_dir)
-        .args(["config", "gpg.format"])
-        .output()
-        .unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "ssh",
-        "gpg.format should be set to ssh"
-    );
-
-    let output = Command::new("git")
-        .current_dir(&manager.cache_dir)
-        .args(["config", "commit.gpgsign"])
-        .output()
-        .unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        "true",
-        "commit.gpgsign should be true"
-    );
-}
-
-#[test]
-fn test_configure_signing_key_file_missing() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Write agent.json pointing at a non-existent key
-    let agent = AgentConfig {
-        agent_id: "missing-key-agent".to_string(),
-        machine_id: "test-host".to_string(),
-        description: None,
-        ssh_key_path: Some("keys/nonexistent".to_string()),
-        ssh_fingerprint: Some("SHA256:missing".to_string()),
-        ssh_public_key: None,
-    };
-    let agent_json = serde_json::to_string_pretty(&agent).unwrap();
-    std::fs::write(crosslink_dir.join("agent.json"), agent_json).unwrap();
-
-    // Should return Ok(()) without configuring (key file missing -> early return)
-    manager.configure_signing(&crosslink_dir).unwrap();
-}
-
-#[test]
-fn test_configure_signing_agent_has_no_key_fields() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // agent.json exists but ssh_key_path / ssh_fingerprint are None
-    let agent = AgentConfig {
-        agent_id: "no-key-agent".to_string(),
-        machine_id: "test-host".to_string(),
-        description: None,
-        ssh_key_path: None,
-        ssh_fingerprint: None,
-        ssh_public_key: None,
-    };
-    let agent_json = serde_json::to_string_pretty(&agent).unwrap();
-    std::fs::write(crosslink_dir.join("agent.json"), agent_json).unwrap();
-
-    // Should be a no-op (missing key fields -> early return)
-    manager.configure_signing(&crosslink_dir).unwrap();
-}
-
-// ------------------------------------------------------------------
-// ensure_agent_key_published -- with agent config having ssh_public_key
-// ------------------------------------------------------------------
-
-#[test]
-fn test_ensure_agent_key_published_with_public_key() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Write agent.json with ssh_public_key
-    let agent = AgentConfig {
-        agent_id: "pub-key-agent".to_string(),
-        machine_id: "test-host".to_string(),
-        description: None,
-        ssh_key_path: None,
-        ssh_fingerprint: None,
-        ssh_public_key: Some(
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAfakepubkey pub-key-agent".to_string(),
-        ),
-    };
-    let agent_json = serde_json::to_string_pretty(&agent).unwrap();
-    std::fs::write(crosslink_dir.join("agent.json"), agent_json).unwrap();
-
-    // Publish key
-    let published = manager.ensure_agent_key_published(&crosslink_dir).unwrap();
-    assert!(published, "key should be published");
-
-    // Verify the key file was created in the cache
-    let key_file = manager
-        .cache_dir
-        .join("trust")
-        .join("keys")
-        .join("pub-key-agent.pub");
-    assert!(
-        key_file.exists(),
-        "trust/keys/pub-key-agent.pub should exist"
-    );
-    let content = std::fs::read_to_string(&key_file).unwrap();
-    assert!(
-        content.contains("AAAAC3NzaC1lZDI1NTE5AAAAfakepubkey"),
-        "key file should contain the public key"
-    );
-}
-
-#[test]
-fn test_ensure_agent_key_published_idempotent() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent = AgentConfig {
-        agent_id: "idempotent-pub-agent".to_string(),
-        machine_id: "test-host".to_string(),
-        description: None,
-        ssh_key_path: None,
-        ssh_fingerprint: None,
-        ssh_public_key: Some(
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAidempotent idempotent-pub-agent".to_string(),
-        ),
-    };
-    let agent_json = serde_json::to_string_pretty(&agent).unwrap();
-    std::fs::write(crosslink_dir.join("agent.json"), &agent_json).unwrap();
-
-    // First publish
-    let first = manager.ensure_agent_key_published(&crosslink_dir).unwrap();
-    assert!(first);
-
-    // Second publish (key already exists) -> returns false
-    let second = manager.ensure_agent_key_published(&crosslink_dir).unwrap();
-    assert!(!second, "second publish should be a no-op");
-}
-
-#[test]
-fn test_ensure_agent_key_published_no_public_key_field() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // agent.json exists but ssh_public_key is None
-    let agent = AgentConfig {
-        agent_id: "no-pub-key-agent".to_string(),
-        machine_id: "test-host".to_string(),
-        description: None,
-        ssh_key_path: None,
-        ssh_fingerprint: None,
-        ssh_public_key: None,
-    };
-    let agent_json = serde_json::to_string_pretty(&agent).unwrap();
-    std::fs::write(crosslink_dir.join("agent.json"), agent_json).unwrap();
-
-    // No public key -> returns false
-    let published = manager.ensure_agent_key_published(&crosslink_dir).unwrap();
-    assert!(!published);
-}
-
-// ------------------------------------------------------------------
-// fetch: error path when reset --hard hits "unknown revision"
-// ------------------------------------------------------------------
-
-#[test]
-fn test_fetch_with_empty_hub_branch_no_remote_ref() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Do NOT push hub branch to remote. The hub branch exists locally but has
-    // no remote tracking ref. Fetching crosslink/hub from origin will give
-    // "couldn't find remote ref" (handled as no-op) or succeed but leave
-    // origin/crosslink/hub nonexistent. Either way, reset --hard would get
-    // "unknown revision" for the remote ref -- this must not crash.
-    manager.fetch().unwrap();
-}
-
-#[test]
-fn test_fetch_rebase_path_handles_unknown_revision() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Push hub branch so remote ref exists
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Add a local unpushed commit to exercise the rebase path
-    std::fs::write(manager.cache_dir.join("rebase-test.txt"), "content").unwrap();
-    manager.git_in_cache(&["add", "rebase-test.txt"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "local commit for rebase test"])
-        .unwrap();
-
-    // fetch should succeed -- the rebase should work cleanly
-    manager.fetch().unwrap();
-
-    // Local file should still be present after rebase
-    assert!(manager.cache_dir.join("rebase-test.txt").exists());
-}
-
-#[test]
-fn test_fetch_rebase_conflict_aborts_preserving_local() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Push initial hub state
-    manager
-        .git_in_cache(&["push", "-u", "origin", HUB_BRANCH])
-        .unwrap();
-
-    // Create a conflicting file on remote: simulate another agent pushing
-    // a change to the same file.
-    std::fs::write(
-        manager.cache_dir.join("conflict-file.txt"),
-        "remote content\n",
-    )
-    .unwrap();
-    manager.git_in_cache(&["add", "conflict-file.txt"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "remote change"])
-        .unwrap();
-    manager
-        .git_in_cache(&["push", "origin", HUB_BRANCH])
-        .unwrap();
-    // Reset back so the "remote change" is only on origin
-    manager
-        .git_in_cache(&["reset", "--hard", "HEAD~1"])
-        .unwrap();
-
-    // Now make a LOCAL conflicting change to the same file
-    std::fs::write(
-        manager.cache_dir.join("conflict-file.txt"),
-        "local content\n",
-    )
-    .unwrap();
-    manager.git_in_cache(&["add", "conflict-file.txt"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "local close event"])
-        .unwrap();
-
-    // fetch should succeed (rebase conflict is caught and aborted)
-    manager.fetch().unwrap();
-
-    // Local commit should be preserved (rebase was aborted, not applied)
-    let content = std::fs::read_to_string(manager.cache_dir.join("conflict-file.txt")).unwrap();
-    assert_eq!(content, "local content\n");
-}
-
-#[test]
-fn test_fetch_git_log_failure_preserves_local_state() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    // Write a local file (simulating a local-only close event)
-    std::fs::write(manager.cache_dir.join("local-close.txt"), "closed\n").unwrap();
-    manager.git_in_cache(&["add", "local-close.txt"]).unwrap();
-    manager
-        .git_in_cache(&["commit", "-m", "close issue #-1"])
-        .unwrap();
-
-    // Do NOT push to remote. The remote ref origin/crosslink/hub doesn't
-    // exist, so git log origin/crosslink/hub..HEAD will fail.
-    // fetch should keep local state instead of resetting.
-    manager.fetch().unwrap();
-
-    // Local file should still exist
-    assert!(manager.cache_dir.join("local-close.txt").exists());
-    let content = std::fs::read_to_string(manager.cache_dir.join("local-close.txt")).unwrap();
-    assert_eq!(content, "closed\n");
-}
-
-// ------------------------------------------------------------------
-// push_heartbeat
-// ------------------------------------------------------------------
-
-#[test]
-fn test_push_heartbeat_writes_file_and_pushes() {
-    let (work_dir, _remote) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent = AgentConfig {
-        agent_id: "hb-agent".to_string(),
-        machine_id: "hb-machine".to_string(),
-        description: None,
-        ssh_key_path: None,
-        ssh_fingerprint: None,
-        ssh_public_key: None,
-    };
-
-    manager.push_heartbeat(&agent, Some(42)).unwrap();
-
-    // Verify heartbeat file was written
-    let hb_path = manager.cache_dir.join("heartbeats").join("hb-agent.json");
-    assert!(hb_path.exists());
-    let content: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&hb_path).unwrap()).unwrap();
-    assert_eq!(content["agent_id"], "hb-agent");
-    assert_eq!(content["active_issue_id"], 42);
-}
-
-#[test]
-fn test_push_heartbeat_second_call_nothing_to_commit() {
-    let (work_dir, _remote) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent = AgentConfig {
-        agent_id: "hb2-agent".to_string(),
-        machine_id: "hb2-machine".to_string(),
-        description: None,
-        ssh_key_path: None,
-        ssh_fingerprint: None,
-        ssh_public_key: None,
-    };
-
-    manager.push_heartbeat(&agent, None).unwrap();
-    // Second call with same content - nothing to commit, should still succeed
-    // (exercises the "nothing to commit" early return)
-    manager.push_heartbeat(&agent, None).unwrap();
-}
-
-// ------------------------------------------------------------------
-// #362: read_heartbeats_v2 should skip corrupt timestamps
-// ------------------------------------------------------------------
-
-#[test]
-fn test_read_heartbeats_v2_skips_corrupt_timestamp() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let agent_dir = cache_dir.join("agents").join("corrupt-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-
-    // Write V2 format with a corrupt timestamp
-    let heartbeat = serde_json::json!({
-        "agent_id": "corrupt-agent",
-        "timestamp": "not-a-valid-timestamp",
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let heartbeats = manager.read_heartbeats_v2().unwrap();
-    // Should skip the corrupt entry instead of falling back to Utc::now()
-    assert!(heartbeats.is_empty());
-}
-
-#[test]
-fn test_read_heartbeats_v2_skips_missing_timestamp_field() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-    let agent_dir = cache_dir.join("agents").join("no-ts-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-
-    // Write V2 format without a timestamp field
-    let heartbeat = serde_json::json!({
-        "agent_id": "no-ts-agent",
-        "status": "active"
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string_pretty(&heartbeat).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let heartbeats = manager.read_heartbeats_v2().unwrap();
-    assert!(heartbeats.is_empty());
-}
-
-// ------------------------------------------------------------------
-// #350/#355: parse_v2_heartbeat_timestamp helper via stale lock detection
-// ------------------------------------------------------------------
-
-#[test]
-fn test_find_stale_locks_v2_uses_helper() {
-    let dir = tempdir().unwrap();
-    let crosslink_dir = dir.path().join(".crosslink");
-    let cache_dir = crosslink_dir.join(HUB_CACHE_DIR);
-
-    // Set up V2 layout
-    let meta_dir = cache_dir.join("meta");
-    std::fs::create_dir_all(&meta_dir).unwrap();
-    crate::issue_file::write_layout_version(&meta_dir, 2).unwrap();
-
-    // Create V2 lock file
-    let locks_dir = cache_dir.join("locks");
-    std::fs::create_dir_all(&locks_dir).unwrap();
-    let lock_v2 = serde_json::json!({
-        "issue_id": 10,
-        "agent_id": "fresh-agent",
-        "branch": null,
-        "claimed_at": Utc::now().to_rfc3339(),
-        "signed_by": null
-    });
-    std::fs::write(
-        locks_dir.join("10.json"),
-        serde_json::to_string(&lock_v2).unwrap(),
-    )
-    .unwrap();
-
-    // Create a fresh heartbeat for the agent
-    let agent_dir = cache_dir.join("agents").join("fresh-agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    let hb = serde_json::json!({
-        "timestamp": Utc::now().to_rfc3339()
-    });
-    std::fs::write(
-        agent_dir.join("heartbeat.json"),
-        serde_json::to_string(&hb).unwrap(),
-    )
-    .unwrap();
-
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    let stale = manager
-        .find_stale_locks_v2(chrono::Duration::minutes(30))
-        .unwrap();
-    // Fresh heartbeat — should NOT be stale
-    assert!(stale.is_empty());
-}
-
-// ------------------------------------------------------------------
-// #364: LockMode enum replaces bool force parameter
-// ------------------------------------------------------------------
-
-#[test]
-fn test_lock_mode_enum_in_claim_and_release() {
-    let (work_dir, _remote_dir) = setup_sync_env();
-    let crosslink_dir = work_dir.path().join(".crosslink");
-    let manager = SyncManager::new(&crosslink_dir).unwrap();
-    manager.init_cache().unwrap();
-
-    let agent1 = make_agent("lm-agent-1");
-    let agent2 = make_agent("lm-agent-2");
-
-    // Normal claim
-    assert!(manager
-        .claim_lock(&agent1, 100, None, LockMode::Normal)
-        .unwrap());
-
-    // Normal claim by another agent should fail
-    assert!(manager
-        .claim_lock(&agent2, 100, None, LockMode::Normal)
-        .is_err());
-
-    // Steal should succeed
-    assert!(manager
-        .claim_lock(&agent2, 100, None, LockMode::Steal)
-        .unwrap());
-
-    // Normal release by wrong agent should fail
-    assert!(manager
-        .release_lock(&agent1, 100, LockMode::Normal)
-        .is_err());
-
-    // Steal release should succeed
-    assert!(manager.release_lock(&agent1, 100, LockMode::Steal).unwrap());
-}

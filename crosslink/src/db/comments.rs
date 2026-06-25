@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::params;
 
@@ -58,6 +58,23 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Look up a comment's display id by its UUID.
+    ///
+    /// Used by the v3 comment path to read back the reduction-assigned id after
+    /// hydration when the in-memory reduced state has not yet frozen it.
+    ///
+    /// # Errors
+    /// Returns an error if no comment with the given UUID exists.
+    pub fn get_comment_id_by_uuid(&self, uuid: &str) -> Result<i64> {
+        self.conn
+            .query_row(
+                "SELECT id FROM comments WHERE uuid = ?1",
+                params![uuid],
+                |row| row.get(0),
+            )
+            .context("Comment with given UUID not found")
+    }
+
     /// Get all comments for an issue.
     ///
     /// # Errors
@@ -86,8 +103,12 @@ impl Database {
 
     /// Update the content of a comment.
     ///
+    /// Retained as a tested DB primitive; its production caller (the offline
+    /// reference-rewrite path) was removed with the v2 write machinery (#754).
+    ///
     /// # Errors
     /// Returns an error if the database update fails.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn update_comment_content(&self, comment_id: i64, content: &str) -> Result<bool> {
         let rows = self.conn.execute(
             "UPDATE comments SET content = ?1 WHERE id = ?2",

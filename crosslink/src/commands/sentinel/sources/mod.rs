@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub mod ci;
+pub mod cpitd;
 pub mod github;
 pub mod internal;
 pub mod maintenance;
@@ -21,6 +22,8 @@ pub enum SignalKind {
     LabelAdded,
     StaleIssue,
     CIFailure,
+    /// A duplicated-code clone detected by cpitd and filed as a clone issue.
+    CodeClone,
 }
 
 /// A maintenance signal detected by a source adapter.

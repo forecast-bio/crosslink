@@ -2,13 +2,21 @@
 //!
 //! This module exposes the core functionality for use in fuzzing and testing.
 
+pub mod agent_flags;
+pub mod agent_requests;
 pub mod checkpoint;
 pub mod clock_skew;
 pub mod compaction;
+pub mod dashboard;
 pub mod db;
 pub mod events;
 pub mod external;
 pub mod findings;
+pub mod git_compat;
+pub mod hub_source;
+pub mod hub_v3;
+#[cfg(test)]
+mod hub_v3_operation_tests;
 pub mod hydration;
 pub mod identity;
 pub mod issue_file;

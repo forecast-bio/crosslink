@@ -173,8 +173,8 @@ impl AgentsTab {
             }
         };
 
-        // Find heartbeat for this agent
-        let heartbeats = sync.read_heartbeats().unwrap_or_default();
+        // Find heartbeat for this agent (mode-aware: V1 dir, V2 agent dirs, V3 refs)
+        let heartbeats = sync.read_heartbeats_auto().unwrap_or_default();
         let heartbeat = heartbeats.into_iter().find(|h| h.agent_id == agent_id);
 
         // Find locks held by this agent
@@ -1071,6 +1071,188 @@ mod tests {
         terminal
             .draw(|frame| tab.render(frame, frame.area()))
             .unwrap();
+    }
+
+    fn git_ok() -> bool {
+        std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?} failed");
+    }
+
+    /// State-level (not rendering) v3 reroute test: `load_agents_data` must
+    /// surface a lock from the v3 checkpoint state and a heartbeat from a v3
+    /// agent ref, proving the agents-tab loader routes through the mode-aware
+    /// `read_locks_auto` / `read_heartbeats_auto` helpers on a v3 hub.
+    ///
+    /// Builds an authentic v3 hub via the real `migrate hub-v3` command (so the
+    /// agent refs carry real events and survive `fetch`'s re-reduce), then
+    /// claims a lock and beats once before loading.
+    #[test]
+    fn test_load_agents_data_v3_reads_from_refs() {
+        use crate::db::Database;
+        use crate::identity::{AgentConfig, AgentRole};
+        use crate::shared_writer::SharedWriter;
+
+        if !git_ok() {
+            return;
+        }
+        let remote = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        git(remote.path(), &["init", "--bare", "-b", "main"]);
+        let wp = work.path().to_path_buf();
+        git(&wp, &["init", "-b", "main"]);
+        git(&wp, &["config", "user.email", "t@t.local"]);
+        git(&wp, &["config", "user.name", "T"]);
+        git(&wp, &["config", "commit.gpgsign", "false"]);
+        git(
+            &wp,
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        std::fs::write(wp.join("README.md"), "# t\n").unwrap();
+        git(&wp, &["add", "."]);
+        git(&wp, &["commit", "-m", "init", "--no-gpg-sign"]);
+        git(&wp, &["push", "-u", "origin", "main"]);
+
+        let crosslink_dir = wp.join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        std::fs::write(
+            crosslink_dir.join("hook-config.json"),
+            r#"{"remote":"origin","layout":"v2"}"#,
+        )
+        .unwrap();
+        let agent = AgentConfig {
+            agent_id: "alpha".to_string(),
+            machine_id: "m".to_string(),
+            description: Some("t".to_string()),
+            role: AgentRole::Driver,
+            ssh_key_path: None,
+            ssh_fingerprint: None,
+            ssh_public_key: None,
+        };
+        std::fs::write(
+            crosslink_dir.join("agent.json"),
+            serde_json::to_string_pretty(&agent).unwrap(),
+        )
+        .unwrap();
+
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+        let cache_dir = sync.cache_path().to_path_buf();
+        // Since 754b a fresh `init_cache` bootstraps v3, but this test migrates
+        // FROM a v2 hub, so build the legacy `crosslink/hub` worktree explicitly.
+        git(
+            &wp,
+            &[
+                "worktree",
+                "add",
+                "--orphan",
+                "-b",
+                "crosslink/hub",
+                cache_dir.to_str().unwrap(),
+            ],
+        );
+        git(&cache_dir, &["config", "user.email", "t@t.local"]);
+        git(&cache_dir, &["config", "user.name", "T"]);
+        git(&cache_dir, &["config", "commit.gpgsign", "false"]);
+        let meta_dir = cache_dir.join("meta");
+        std::fs::create_dir_all(meta_dir.join("milestones")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("issues")).unwrap();
+        std::fs::create_dir_all(cache_dir.join("locks")).unwrap();
+        crate::issue_file::write_layout_version(
+            &meta_dir,
+            crate::issue_file::CURRENT_LAYOUT_VERSION,
+        )
+        .unwrap();
+        std::fs::write(
+            cache_dir.join("locks.json"),
+            serde_json::to_string(&serde_json::json!({"version":1,"locks":{},"settings":{"stale_lock_timeout_minutes":60}})).unwrap(),
+        )
+        .unwrap();
+        git(&cache_dir, &["add", "-A"]);
+        git(
+            &cache_dir,
+            &[
+                "commit",
+                "-m",
+                "Initialize crosslink/hub branch",
+                "--no-gpg-sign",
+            ],
+        );
+
+        let db = Database::open(&crosslink_dir.join("issues.db")).unwrap();
+        // Populate the pre-migration v2 hub by writing the agent event log
+        // directly (the v2 SharedWriter write path is deleted, #754), then
+        // materialize with `compaction::compact` (kept for migration).
+        {
+            use crate::events::{append_event, Event, EventEnvelope};
+            let env = EventEnvelope {
+                agent_id: "alpha".to_string(),
+                agent_seq: 1,
+                timestamp: chrono::Utc::now() - chrono::Duration::seconds(60),
+                event: Event::IssueCreated {
+                    uuid: uuid::Uuid::new_v4(),
+                    title: "First".to_string(),
+                    description: None,
+                    priority: "high".to_string(),
+                    labels: vec![],
+                    parent_uuid: None,
+                    created_by: "alpha".to_string(),
+                    display_id: Some(1),
+                    scheduled_at: None,
+                    due_at: None,
+                },
+                signed_by: None,
+                signature: None,
+            };
+            append_event(
+                &cache_dir.join("agents").join("alpha").join("events.log"),
+                &env,
+            )
+            .unwrap();
+        }
+        let lock = sync.acquire_lock().unwrap();
+        crate::compaction::compact(&cache_dir, "alpha", true, &lock).unwrap();
+        drop(lock);
+        crate::commands::migrate_hub_v3::hub_v3(&crosslink_dir, false, false, false, false)
+            .unwrap();
+
+        // Reconstruct the writer AFTER migration so it operates in V3 mode
+        // (SharedWriter caches its hub mode at construction).
+        let writer = SharedWriter::new(&crosslink_dir).unwrap().unwrap();
+        // Claim a lock (event-only) and beat once on the agent ref.
+        let id = writer
+            .create_issue(&db, "Lockable", None, "high", None, None)
+            .unwrap();
+        writer.claim_lock_v2(id, None).unwrap();
+        let beat_sync = SyncManager::new(&crosslink_dir).unwrap();
+        beat_sync.push_heartbeat(&agent, Some(id)).unwrap();
+
+        assert!(SyncManager::new(&crosslink_dir).unwrap().hub_mode().is_v3());
+
+        let result = load_agents_data(&crosslink_dir);
+        assert!(
+            result.error_msg.is_none(),
+            "load failed: {:?}",
+            result.error_msg
+        );
+        assert!(
+            result.lock_rows.iter().any(|l| l.agent_id == "alpha"),
+            "v3 lock from checkpoint must surface in the agents tab ({} rows)",
+            result.lock_rows.len()
+        );
+        assert!(
+            result.agents.iter().any(|a| a.agent_id == "alpha"),
+            "v3 heartbeat from the agent ref must surface in the agents tab"
+        );
     }
 
     #[test]

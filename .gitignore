@@ -28,6 +28,11 @@ crosslink-enterprise/
 .worktrees/
 OPUS_4_6_SUGGESTIONS.md
 
+# Container build context: binaries dropped here by `just build-image` and CI.
+# Dockerfile and entrypoint.sh are intentionally tracked.
+crosslink/resources/container/crosslink
+crosslink/resources/container/crosslink-*
+
 # Pipeline state files (machine-local, ephemeral)
 *.pipeline.json
 *.plan.json

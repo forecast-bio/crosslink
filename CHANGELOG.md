@@ -6,6 +6,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `crosslink migrate hub-v3 --remigrate-from-v2` - regenerates the v3 genesis
+  from the current `crosslink/hub` (v2) tip and force-pushes it, superseding a
+  stale remote v3 hub. The discoverable recovery path when a v2-only binary
+  kept writing after an earlier migration (forecast-bio/crosslink#653).
+
+### Changed
+
+- `crosslink migrate hub-v3` now guards against silently adopting a **stale**
+  remote v3 hub. Before adopting, it compares the remote's genesis against the
+  live `crosslink/hub` (v2) tip; if v2 has advanced past the genesis, adoption
+  is refused (with the issue/commit delta and the `--remigrate-from-v2`
+  remedy) unless `--adopt-stale` is passed. `--finalize` applies the same check
+  and refuses to delete the v2 branch while it is ahead of v3, so a stale adopt
+  can never escalate to real data loss (forecast-bio/crosslink#653).
+
+### Fixed
+
+- `crosslink sync` / `crosslink init` no longer fail on Git < 2.42.0 (e.g.
+  Ubuntu 22.04 LTS, which ships Git 2.34.1) with `unknown option 'orphan'`.
+  Hub-v3 and knowledge cache setup used `git worktree add --orphan` (added in
+  Git 2.42.0); on older Git they now fall back to an equivalent sequence
+  (detached worktree + `git checkout --orphan` + clearing the tree) that yields
+  the same empty unborn orphan branch (forecast-bio/crosslink#655).
+
+## [0.9.0-beta.1] - 2026-06-13
+
+> First beta of the 0.9 line. The 0.6.0-0.8.0 sections below were authored on
+> their release branches and are reconciled into this shared history by this cut.
+
+### Breaking
+
+- **Hub v3: per-agent-ref coordination storage.** The shared `crosslink/hub`
+  branch with mutable JSON state is replaced by single-writer git refs -
+  visible branches `crosslink/agents/<id>`, `crosslink/checkpoint`,
+  `crosslink/meta` - carrying append-only signed event logs reduced
+  deterministically to materialized state. Pushes to your own ref are always
+  fast-forward; the conflict can no longer occur, and ~10,000 lines of
+  rebase-retry/recovery machinery were deleted outright (guarded by a
+  permanent regression test). Mutations on un-migrated v2 hubs refuse with a
+  migrate prompt; v2 hubs remain readable forever for inspection and
+  migration. The checkpoint branch carries a browsable state tree (per-issue
+  JSON with inline comments, README, milestones) and each agent's branch is
+  its own visible activity/heartbeat feed.
+- `crosslink serve` is deprecated in favor of `crosslink dashboard serve`.
+
+### Added
+
+- `crosslink migrate hub-v3` - verified one-shot migration (full-state gate
+  with automatic rollback; idempotent re-run doubles as push retry), adoption
+  path for machines whose remote was already migrated, `--finalize
+  --yes-delete-v2` hard cutover (survives corrupt legacy worktree
+  registrations), and `migrate hub-branches` for the hidden-refs-to-branches
+  rename.
+- Full event sourcing: every issue/milestone mutation emits a signed event;
+  new event variants for comments, time entries, deletion tombstones,
+  milestones, and schedule changes, with deterministic display-id assignment.
+- Dashboard - multi-project control panel (`crosslink dashboard serve`):
+  SCADA-style aggregation of every tracked project with live tiles, alerts
+  (stale locks, silent agents, overdue issues), full write surface with audit
+  trail, webhook alerting (Slack/Discord/JSON), CSV export, GitHub PAT
+  management, filesystem autodiscovery, and a git-native agent control
+  protocol (`crosslink agent request/poll-requests/requests`).
+- Sentinel cpitd source: scheduled code-clone scans filing triage issues
+  (`sentinel.sources.cpitd.*`, default off) - plus pipx-first cpitd install
+  with actionable PEP 668 guidance (GH#621).
+- `--contributor` attribution override on `knowledge add/edit/import`
+  (GH#628).
+- `argument-hint` frontmatter on all arg-taking command templates (GH#626).
+
+### Fixed
+
+- Hook blocking messages now reach the model: exit-2 messages write to
+  stderr per the Claude Code hook contract (GH#624).
+- Stray `.crosslink/` directories from cwd drift: hooks can no longer seed
+  them and discovery refuses to bind them (GH#625).
+- Kickoff pipeline `runs` records are reconciled on completion instead of
+  accumulating stale `running` rows forever (GH#614).
+- Hub-sync concurrency hardening: unique fsynced temp files, no live-holder
+  lock stealing, unified worktree locking (#750); plumbing ref writes pinned
+  immune to git signing config (GH#627).
+- Hub-state recovery could rewrite a feature branch with hub contents when
+  the cache worktree link broke (GH#574); corrupt-JSON-committed-over-good-
+  history class eliminated by architecture (GH#616); unrelated-histories
+  divergence error eliminated (GH#629).
+- `/design` first-run zsh glob failure - fixed templates; refresh deployed
+  copies with `crosslink init --force` (GH#615).
+
 ## [0.8.0] - 2026-04-17
 
 ### Added
@@ -128,6 +217,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Known Issues
 - `crosslink serve` dashboard frontend is not included in `cargo install crosslink` — build from source or use release binaries ([GH-429])
+
 ## [0.5.2] - 2026-03-19
 
 ### Added
@@ -161,6 +251,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Auto-discover rule files and command files from resources directories in `build.rs` ([CL-387])
 
 ### Fixed
+- investigate two mcp server failures reported by user (#722)
+- Signing: human key always signs hub commits; agent keys only for identity (#718)
+- Fix piped shell commands in skill templates that fail permission checks (#254)
+- Fix hub cache recovery loop caused by tracked .hub-write-lock file (#634)
+- Fix auth token refresh (#146)
+- Alert lock actions: surface holder + disambiguate Release vs Steal (#716)
+- Dashboard InitBanner doesn't refresh on init success + track-all init fails on subset of repos (#715)
+- Clone target should be $HOME/<repo>, not $HOME/<owner>/<repo> (#714)
+- Resolve crosslink binary via PATH first, not current_exe (#713)
+- InitBanner error 'spawn crosslink init' hides the real underlying cause (#712)
+- Change default clone_root from ~/crosslink-tracked to $HOME (#711)
+- Alerts page mutations don't invalidate alerts query; orphan_subissue close appears to no-op (#709)
+- Dashboard polish: token refresh UX + issue ordering + remote-repo hub data missing (#707)
+- Dashboard: project detail page blank on click + gh CLI auth fallback (#706)
+- Fix crosslink init: deploy agent-prompt-server.py (GH#554) (#677)
+- Fix kickoff env propagation: CLAUDE_CONFIG_DIR not reaching tmux agent (GH#555) (#676)
+- Fix dashboard auth: wire API client to bearer token (GH#556) (#675)
 
 #### Hub & Sync
 - V1/V2 hub layout coexistence — resolve inconsistent write paths and cache corruption ([GH-428])
@@ -189,6 +296,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add `INTENTIONAL` comments to deliberate error suppression patterns ([CL-419])
 
 ### Changed
+- Release v0.6.0 — version bump, changelog, docs, tests (#258)
+- Add VHS tape and screenshot scripts for docs visuals (#131)
+- Manual test container-based agent execution (#73)
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
+- Configure GitHub rulesets for release/* branches and create RELEASING.md (#170)
+- Repo cleanup: migrate design docs to knowledge, move docs, remove root scripts (#171)
+- P1.11: agent request protocol — hub-branch agents/<id>/requests/*.json + agent-side polling lib + kill/pause/resume/reprioritise verbs + audit log (#700)
+- P1.10: lock controls — claim, release, steal (#699)
+- P1.9: write surface — milestones + relations + blockers (#698)
+- P1.8: write surface — issues + labels (close, reopen, comment, update, label, unlabel) (#697)
+- P1.7: alert UI — banner, sidebar rail, /alerts page, desktop notifications (#696)
+- P1.6: alert engine — derived alerts (stale_lock, silent_agent, overdue_issue, ci_failure, unreachable, signature_invalid, orphan_subissue, hub_diverged, hub_parse_error, untrusted_signer, pending_request, compaction_lag) (#695)
+- P1.5: WebSocket live updates — push change notifications, frontend refetch-on-signal (#694)
+- P1.4: project grid (read-only frontend) — tile component, fetch projects, show counts (#693)
+- P1.3: REST API — projects + activity endpoints, bearer auth (#692)
+- P1.2: poll loop + single-project index — git-fetch every 5s, populate projects/project_state/activity (#691)
+- P1.1: scaffolding — crosslink dashboard subcommand + serve deprecation + empty SPA + SQLite bootstrap (#690)
+- Manual QA for PR #553 sentinel run + webhook tests (#678)
+- Manual QA for PR #553 sentinel run + webhook tests (#678)
 
 #### Codebase Decomposition
 - Decompose 6 god files into focused submodules — `shared_writer.rs`, `kickoff.rs`, `db.rs`, `sync.rs`, `knowledge.rs`, `commands/knowledge.rs` ([CL-413])
@@ -382,6 +513,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Skip worktree agent init and tmux/claude prerequisite checks in dry-run mode
 
 ### Security
+- Security check: verify allowed_signers on meta branch is public-key-only (#768)
 - VS Code extension security hardening (E1-E3) ([GH-169], [GH-175])
 - CI/CD fuzz testing improvements (T1-T5) ([GH-168])
 

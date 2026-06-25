@@ -146,6 +146,7 @@ fn test_build_prompt_contains_essentials() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
 
@@ -179,6 +180,7 @@ fn test_build_prompt_ci_verification() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
 
@@ -209,6 +211,7 @@ fn test_build_prompt_thorough_verification() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
 
@@ -259,6 +262,140 @@ fn test_detect_conventions_node() {
     let conv = detect_conventions(dir.path());
     assert_eq!(conv.test_command.as_deref(), Some("npm test"));
     assert!(conv.allowed_tools.contains(&"Bash(npm *)".to_string()));
+}
+
+// --- GH#584: convention detection scans one level deep ---
+
+#[test]
+fn test_detect_conventions_rust_in_subdir() {
+    // Monorepo layout: Cargo.toml lives one directory level deep. Detection
+    // should still light up Rust tools. This is the santana-style case
+    // GH#584 calls out -- where the previous narrow detection missed
+    // anything outside the repo root.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("santana-core")).unwrap();
+    std::fs::write(dir.path().join("santana-core/Cargo.toml"), "[package]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "expected Bash(cargo *) when Cargo.toml is one level deep, got {:?}",
+        conv.allowed_tools
+    );
+}
+
+#[test]
+fn test_detect_conventions_rust_two_levels_deep_not_detected() {
+    // Contract: only ONE level deep matches. Two levels deep would risk
+    // false positives from vendored crates in unusual structures.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("crates/foo")).unwrap();
+    std::fs::write(dir.path().join("crates/foo/Cargo.toml"), "[package]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        !conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "two-levels-deep Cargo.toml should not trigger detection; got {:?}",
+        conv.allowed_tools
+    );
+}
+
+#[test]
+fn test_detect_conventions_python_in_subdir_with_pytest() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("python-svc")).unwrap();
+    std::fs::write(dir.path().join("python-svc/pyproject.toml"), "[project]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(conv.allowed_tools.contains(&"Bash(uv *)".to_string()));
+    assert!(
+        conv.allowed_tools.contains(&"Bash(pytest *)".to_string()),
+        "GH#584 explicitly mentioned pytest as a missing tool"
+    );
+}
+
+#[test]
+fn test_detect_conventions_skips_node_modules() {
+    // A stray Cargo.toml inside node_modules/ must NOT enable cargo tools
+    // for the parent project. SKIP_SCAN_DIRS guards against this.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir_all(dir.path().join("node_modules/weird-pkg")).unwrap();
+    std::fs::write(
+        dir.path().join("node_modules/weird-pkg/Cargo.toml"),
+        "[package]",
+    )
+    .unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        !conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "Cargo.toml inside node_modules/ must not enable cargo tools"
+    );
+}
+
+#[test]
+fn test_detect_conventions_skips_hidden_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".cache/leaky")).unwrap();
+    std::fs::write(dir.path().join(".cache/leaky/Cargo.toml"), "[package]").unwrap();
+
+    let conv = detect_conventions(dir.path());
+    assert!(
+        !conv.allowed_tools.contains(&"Bash(cargo *)".to_string()),
+        "manifests under hidden dirs must not enable tooling"
+    );
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_returns_empty_when_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    // No hook-config.json present.
+    assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_returns_configured_array() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("hook-config.json"),
+        r#"{
+          "kickoff": {
+            "allowed_tools": ["Bash(cargo *)", "Bash(make deploy *)"]
+          }
+        }"#,
+    )
+    .unwrap();
+
+    let tools = read_kickoff_allowed_tools(dir.path());
+    assert_eq!(
+        tools,
+        vec![
+            "Bash(cargo *)".to_string(),
+            "Bash(make deploy *)".to_string()
+        ]
+    );
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_returns_empty_when_key_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("hook-config.json"),
+        r#"{"tracking_mode": "strict"}"#,
+    )
+    .unwrap();
+
+    assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
+}
+
+#[test]
+fn test_read_kickoff_allowed_tools_tolerates_malformed_json() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hook-config.json"), "not valid json").unwrap();
+
+    // Best-effort: malformed config silently yields empty, doesn't panic.
+    assert!(read_kickoff_allowed_tools(dir.path()).is_empty());
 }
 
 #[test]
@@ -383,6 +520,7 @@ fn test_missing_exclude_patterns_empty_file() {
             ".kickoff-status",
             ".kickoff-slug",
             ".kickoff-metadata.json",
+            ".kickoff-doc.json",
             "PLAN_KICKOFF.md",
             ".kickoff-plan.json",
             ".kickoff-criteria.json",
@@ -406,7 +544,7 @@ fn test_missing_exclude_patterns_one_present() {
 #[test]
 fn test_missing_exclude_patterns_all_present() {
     let patterns = missing_exclude_patterns(
-        "KICKOFF.md\n.kickoff-status\n.kickoff-slug\n.kickoff-metadata.json\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
+        "KICKOFF.md\n.kickoff-status\n.kickoff-slug\n.kickoff-metadata.json\n.kickoff-doc.json\nPLAN_KICKOFF.md\n.kickoff-plan.json\n.kickoff-criteria.json\n.kickoff-report.json\n",
     );
     assert!(patterns.is_empty());
 }
@@ -414,9 +552,110 @@ fn test_missing_exclude_patterns_all_present() {
 #[test]
 fn test_missing_exclude_patterns_with_whitespace() {
     let patterns = missing_exclude_patterns(
-        "  KICKOFF.md  \n  .kickoff-status  \n  .kickoff-slug  \n  .kickoff-metadata.json  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
+        "  KICKOFF.md  \n  .kickoff-status  \n  .kickoff-slug  \n  .kickoff-metadata.json  \n  .kickoff-doc.json  \n  PLAN_KICKOFF.md  \n  .kickoff-plan.json  \n  .kickoff-criteria.json  \n  .kickoff-report.json  \n",
     );
     assert!(patterns.is_empty());
+}
+
+// ==================== Design-doc integrity (GH#580) ====================
+
+#[test]
+fn test_verify_protected_doc_not_protected_without_breadcrumb() {
+    let tmp = tempfile::tempdir().unwrap();
+    // No .kickoff-doc.json present → NotProtected.
+    assert!(matches!(
+        verify_protected_doc(tmp.path()),
+        DocIntegrity::NotProtected
+    ));
+}
+
+#[test]
+fn test_verify_protected_doc_match_on_unchanged_doc() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc_rel = ".design/foo.md";
+    let body = "# Foo design\n\nContents.\n";
+    std::fs::write(tmp.path().join(doc_rel), body).unwrap();
+
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: doc_rel.to_string(),
+        doc_hash: super::pipeline::compute_doc_hash(body),
+    };
+    std::fs::write(
+        tmp.path().join(".kickoff-doc.json"),
+        serde_json::to_string(&breadcrumb).unwrap(),
+    )
+    .unwrap();
+
+    match verify_protected_doc(tmp.path()) {
+        DocIntegrity::Match { rel_path } => assert_eq!(rel_path, doc_rel),
+        other => panic!("expected Match, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_verify_protected_doc_mismatch_on_edited_doc() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc_rel = ".design/foo.md";
+    let original = "# Foo design\n\nOriginal contents.\n";
+    let modified = "# Foo design\n\nAgent rewrote this section.\n";
+
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: doc_rel.to_string(),
+        doc_hash: super::pipeline::compute_doc_hash(original),
+    };
+    std::fs::write(
+        tmp.path().join(".kickoff-doc.json"),
+        serde_json::to_string(&breadcrumb).unwrap(),
+    )
+    .unwrap();
+    // On-disk file diverges from the recorded hash.
+    std::fs::write(tmp.path().join(doc_rel), modified).unwrap();
+
+    match verify_protected_doc(tmp.path()) {
+        DocIntegrity::Mismatch {
+            rel_path,
+            expected,
+            actual,
+        } => {
+            assert_eq!(rel_path, doc_rel);
+            assert_eq!(expected, super::pipeline::compute_doc_hash(original));
+            assert_eq!(actual, super::pipeline::compute_doc_hash(modified));
+        }
+        other => panic!("expected Mismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_verify_protected_doc_missing_when_doc_deleted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let doc_rel = ".design/foo.md";
+    // Write breadcrumb but never create the doc itself.
+    let breadcrumb = KickoffDocBreadcrumb {
+        rel_path: doc_rel.to_string(),
+        doc_hash: super::pipeline::compute_doc_hash("placeholder"),
+    };
+    std::fs::write(
+        tmp.path().join(".kickoff-doc.json"),
+        serde_json::to_string(&breadcrumb).unwrap(),
+    )
+    .unwrap();
+
+    match verify_protected_doc(tmp.path()) {
+        DocIntegrity::Missing { rel_path, .. } => assert_eq!(rel_path, doc_rel),
+        other => panic!("expected Missing, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_verify_protected_doc_missing_on_malformed_breadcrumb() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join(".kickoff-doc.json"), "not json").unwrap();
+    assert!(matches!(
+        verify_protected_doc(tmp.path()),
+        DocIntegrity::Missing { .. }
+    ));
 }
 
 #[test]
@@ -653,6 +892,7 @@ fn test_build_prompt_local_has_no_ci_or_adversarial() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
 
@@ -683,6 +923,7 @@ fn test_build_prompt_contains_blocked_actions() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -714,6 +955,7 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
 
@@ -745,6 +987,7 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
 
@@ -788,6 +1031,7 @@ fn test_build_prompt_with_design_doc() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
 
@@ -934,6 +1178,7 @@ fn test_build_prompt_with_design_doc_open_questions() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
 
@@ -1106,6 +1351,7 @@ fn test_build_prompt_with_criteria_includes_validation() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(prompt.contains("Spec Validation"));
@@ -1147,6 +1393,7 @@ fn test_build_prompt_without_criteria_no_validation() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     assert!(!prompt.contains("Spec Validation"));
@@ -1185,6 +1432,7 @@ fn test_build_prompt_validation_ordering() {
         doc_path: None,
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
     let test_pos = prompt.find("Run tests").expect("should have test section");
@@ -1540,6 +1788,7 @@ fn test_build_agent_command_without_sandbox() {
         Path::new("/tmp/worktree"),
         false,
         None,
+        None,
     );
     assert_eq!(
         cmd,
@@ -1559,6 +1808,7 @@ fn test_build_agent_command_with_sandbox() {
         Path::new("/tmp/my-worktree"),
         false,
         None,
+        None,
     );
     assert!(cmd.starts_with("timeout 3600s bwrap --bind '/tmp/my-worktree' /workspace --"));
     assert!(cmd.contains("env -u CLAUDECODE claude"));
@@ -1576,12 +1826,93 @@ fn test_build_agent_command_with_skip_permissions() {
         Path::new("/tmp/worktree"),
         true,
         None,
+        None,
     );
     assert!(
         cmd.contains("--dangerously-skip-permissions"),
         "Should include skip permissions flag"
     );
     assert!(cmd.contains("claude --dangerously-skip-permissions --model 'opus'"));
+}
+
+#[test]
+fn test_build_agent_command_with_permission_mode_auto() {
+    // GH#603: --permission-mode <mode> emits claude's --permission-mode flag
+    // with the value shell-escaped.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+        None,
+        Some("auto"),
+    );
+    assert!(
+        cmd.contains("--permission-mode 'auto'"),
+        "permission_mode=auto should emit --permission-mode 'auto', got: {cmd}"
+    );
+    assert!(
+        !cmd.contains("--dangerously-skip-permissions"),
+        "permission_mode must not coexist with --dangerously-skip-permissions"
+    );
+}
+
+#[test]
+fn test_build_agent_command_permission_mode_wins_over_skip_permissions() {
+    // Defense in depth: even if both flags are set (CLI parsing should
+    // reject this via conflicts_with, but internal callers might not),
+    // permission_mode takes precedence and skip_permissions's
+    // --dangerously-skip-permissions is suppressed.
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        true,
+        None,
+        Some("acceptEdits"),
+    );
+    assert!(
+        cmd.contains("--permission-mode 'acceptEdits'"),
+        "permission_mode should win over skip_permissions, got: {cmd}"
+    );
+    assert!(
+        !cmd.contains("--dangerously-skip-permissions"),
+        "skip_permissions must be suppressed when permission_mode is set, got: {cmd}"
+    );
+}
+
+#[test]
+fn test_build_agent_command_empty_permission_mode_treated_as_none() {
+    // An empty string should be treated the same as None — falling back
+    // to skip_permissions resolution (or no flag).
+    let cmd = build_agent_command(
+        "timeout",
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        true,
+        None,
+        Some(""),
+    );
+    assert!(
+        !cmd.contains("--permission-mode"),
+        "empty permission_mode must not emit the flag, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--dangerously-skip-permissions"),
+        "with skip_permissions=true and empty permission_mode, the legacy flag wins, got: {cmd}"
+    );
 }
 
 #[test]
@@ -1596,6 +1927,7 @@ fn test_build_agent_command_plan_kickoff() {
         Path::new("/tmp/worktree"),
         false,
         None,
+        None,
     );
     assert!(cmd.starts_with("gtimeout 1800s"));
     assert!(cmd.contains("$(cat 'PLAN_KICKOFF.md')"));
@@ -1603,9 +1935,11 @@ fn test_build_agent_command_plan_kickoff() {
 
 #[test]
 fn test_build_agent_command_propagates_claude_config_dir() {
-    // When the caller has CLAUDE_CONFIG_DIR set, it should be baked into the
-    // shell command string as a prefix assignment — this bypasses tmux's
-    // frozen-at-startup env (#555).
+    // When the caller has CLAUDE_CONFIG_DIR set, it must be baked into the
+    // shell command string so it bypasses tmux's frozen-at-startup env
+    // (#555). GH#587 required folding the assignment into env(1)'s argv
+    // rather than emitting it as a shell prefix — see build_agent_command
+    // docstring for why.
     let cmd = build_agent_command(
         "timeout",
         3600,
@@ -1616,10 +1950,11 @@ fn test_build_agent_command_propagates_claude_config_dir() {
         Path::new("/tmp/worktree"),
         false,
         Some("/Users/me/.claude-work"),
+        None,
     );
     assert_eq!(
         cmd,
-        "timeout 3600s CLAUDE_CONFIG_DIR='/Users/me/.claude-work' env -u CLAUDECODE claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
+        "timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude --model 'opus' --allowedTools 'Read,Write' -- \"$(cat 'KICKOFF.md')\""
     );
 }
 
@@ -1637,6 +1972,7 @@ fn test_build_agent_command_omits_empty_claude_config_dir() {
         Path::new("/tmp/worktree"),
         false,
         Some(""),
+        None,
     );
     assert!(!cmd.contains("CLAUDE_CONFIG_DIR="));
     assert!(cmd.starts_with("timeout 3600s env -u CLAUDECODE claude"));
@@ -1657,15 +1993,16 @@ fn test_build_agent_command_escapes_claude_config_dir_with_quotes() {
         Path::new("/tmp/worktree"),
         false,
         Some("/weird/it's-a-path"),
+        None,
     );
     assert!(cmd.contains("CLAUDE_CONFIG_DIR='/weird/it'\\''s-a-path'"));
 }
 
 #[test]
 fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
-    // The env prefix must live on the claude side of the sandbox boundary
-    // so the sandboxed claude process inherits the variable, not the
-    // sandbox wrapper itself.
+    // The env assignment must live on the claude side of the sandbox
+    // boundary so the sandboxed claude process inherits the variable, not
+    // the sandbox wrapper itself. Folded into env(1)'s argv per GH#587.
     let cmd = build_agent_command(
         "timeout",
         3600,
@@ -1676,10 +2013,210 @@ fn test_build_agent_command_with_sandbox_includes_claude_config_dir() {
         Path::new("/tmp/my-worktree"),
         false,
         Some("/Users/me/.claude-work"),
+        None,
     );
     assert!(cmd.contains(
-        "bwrap --bind '/tmp/my-worktree' /workspace -- CLAUDE_CONFIG_DIR='/Users/me/.claude-work' env -u CLAUDECODE claude"
+        "bwrap --bind '/tmp/my-worktree' /workspace -- env -u CLAUDECODE CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude"
     ));
+}
+
+// ============================================================================
+// GH#587: integration tests that actually parse the constructed command line
+// through a shell. The string-shape unit tests above check what we emit; these
+// tests check that what we emit is what a shell will execute correctly. The
+// 0.8.0 regression would have been caught here — the shell-prefix form
+// `timeout 3600s CCD=val env ... claude ...` parsed as a literal positional
+// arg to timeout and never reached claude.
+// ============================================================================
+
+/// Stub `claude` shim used by the integration tests. Prints
+/// `CCD=<CLAUDE_CONFIG_DIR>` to stdout and exits 0. Ignores all CLI args so
+/// the real flag plumbing doesn't interfere with the assertion.
+#[cfg(unix)]
+fn write_claude_stub(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let stub = dir.join("claude");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf 'CCD=%s\\n' \"$CLAUDE_CONFIG_DIR\"\nexit 0\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// Find a timeout binary the test host actually has. macOS without
+/// `brew install coreutils` has neither `timeout` nor `gtimeout`; some
+/// minimal CI images strip them too. Returns `None` when no usable
+/// candidate exists so callers can skip cleanly instead of false-failing.
+#[cfg(unix)]
+fn resolve_test_timeout_cmd() -> Option<&'static str> {
+    ["timeout", "gtimeout"].into_iter().find(|cmd| {
+        std::process::Command::new(cmd)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    })
+}
+
+#[cfg(unix)]
+fn run_built_command_in_bash(
+    cmd: &str,
+    cwd: &std::path::Path,
+    extra_path: &std::path::Path,
+) -> std::process::Output {
+    let path = format!(
+        "{}:{}",
+        extra_path.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    std::process::Command::new("bash")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(cwd)
+        .env("PATH", &path)
+        .output()
+        .expect("failed to spawn bash")
+}
+
+#[test]
+#[cfg(unix)]
+fn test_build_agent_command_env_var_actually_reaches_claude() {
+    // GH#587 regression test: the command string must parse correctly when
+    // executed through a shell, with CLAUDE_CONFIG_DIR landing in the env
+    // that the (stub) `claude` process sees. The 0.8.0 build placed the
+    // assignment after `timeout` where shell grammar treats it as a
+    // literal positional arg — `timeout` then tried to exec
+    // `CLAUDE_CONFIG_DIR=...` as a binary and bailed with ENOENT.
+    let Some(timeout_cmd) = resolve_test_timeout_cmd() else {
+        eprintln!("skipping: neither `timeout` nor `gtimeout` available on test host");
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    write_claude_stub(tmp.path());
+    std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
+
+    let cmd = build_agent_command(
+        timeout_cmd,
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        tmp.path(),
+        false,
+        Some("/expected/value"),
+        None,
+    );
+
+    let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "command failed:\n  status: {:?}\n  stdout: {stdout}\n  stderr: {stderr}\n  cmd: {cmd}",
+        output.status
+    );
+    assert!(
+        stdout.contains("CCD=/expected/value"),
+        "CLAUDE_CONFIG_DIR did not reach claude:\n  stdout: {stdout}\n  cmd: {cmd}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_build_agent_command_env_var_reaches_claude_through_sandbox() {
+    // Same parse-and-execute test but with a sandbox wrapper. The wrapper
+    // sits between `timeout` and the env+claude pair, so the env
+    // assignment must still ride along on env(1)'s argv (not as a
+    // shell prefix that would silently degenerate to a positional arg).
+    let Some(timeout_cmd) = resolve_test_timeout_cmd() else {
+        eprintln!("skipping: neither `timeout` nor `gtimeout` available on test host");
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    write_claude_stub(tmp.path());
+    std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
+
+    // Trivial pass-through "sandbox" — a shell script that just execs its
+    // tail. Avoids depending on `env --` (which BSD env may reject) or on
+    // bwrap/firejail being installed on the test host.
+    use std::os::unix::fs::PermissionsExt;
+    let sandbox = tmp.path().join("noop-sandbox");
+    std::fs::write(&sandbox, "#!/bin/sh\nexec \"$@\"\n").unwrap();
+    std::fs::set_permissions(&sandbox, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let cmd = build_agent_command(
+        timeout_cmd,
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        Some(&sandbox.to_string_lossy()),
+        tmp.path(),
+        false,
+        Some("/sandbox-passthrough/value"),
+        None,
+    );
+
+    let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "command failed:\n  status: {:?}\n  stdout: {stdout}\n  stderr: {stderr}\n  cmd: {cmd}",
+        output.status
+    );
+    assert!(
+        stdout.contains("CCD=/sandbox-passthrough/value"),
+        "CLAUDE_CONFIG_DIR did not reach claude through sandbox:\n  stdout: {stdout}\n  cmd: {cmd}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_build_agent_command_omitted_env_var_does_not_break_launch() {
+    // When CLAUDE_CONFIG_DIR isn't set on the host, the constructed command
+    // must still execute cleanly — no stray empty assignment that confuses
+    // env(1), and the stub claude reports an empty CCD value.
+    let Some(timeout_cmd) = resolve_test_timeout_cmd() else {
+        eprintln!("skipping: neither `timeout` nor `gtimeout` available on test host");
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    write_claude_stub(tmp.path());
+    std::fs::write(tmp.path().join("KICKOFF.md"), "noop").unwrap();
+
+    let cmd = build_agent_command(
+        timeout_cmd,
+        3600,
+        "opus",
+        "Read,Write",
+        "KICKOFF.md",
+        None,
+        tmp.path(),
+        false,
+        None,
+        None,
+    );
+
+    let output = run_built_command_in_bash(&cmd, tmp.path(), tmp.path());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "command failed:\n  status: {:?}\n  stdout: {stdout}\n  stderr: {stderr}\n  cmd: {cmd}",
+        output.status
+    );
+    assert!(
+        stdout.contains("CCD="),
+        "expected stub to print CCD= line:\n  stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -1946,6 +2483,7 @@ fn test_build_prompt_contains_report_json_schema() {
         doc_path: Some("test.md"),
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
 
@@ -1994,6 +2532,7 @@ fn test_build_prompt_contains_validation_section() {
         doc_path: Some("test.md"),
         skip_permissions: false,
         runtime: KickoffRuntime::Claude,
+        permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
 
@@ -2227,4 +2766,381 @@ fn test_build_agy_command_plan_kickoff() {
     );
     assert!(cmd.starts_with("gtimeout 1800s"));
     assert!(cmd.contains("$(cat 'PLAN_KICKOFF.md')"));
+}
+
+// ---------------------------------------------------------------------------
+// GH#614: pipeline `runs` reconciliation
+// ---------------------------------------------------------------------------
+
+use super::pipeline::{self, PipelineState, RunProbe, RunRecord};
+
+/// Build a minimal `PipelineState` carrying the supplied run rows.
+fn pipeline_with_runs(stage: &str, runs: Vec<RunRecord>) -> PipelineState {
+    PipelineState {
+        schema_version: 1,
+        design_doc: ".design/foo.md".to_string(),
+        doc_hash: "sha256:deadbeef".to_string(),
+        stage: stage.to_string(),
+        plans: Vec::new(),
+        runs,
+    }
+}
+
+fn running_row(agent_id: &str, worktree: &str, started_at: &str) -> RunRecord {
+    RunRecord {
+        agent_id: agent_id.to_string(),
+        worktree: worktree.to_string(),
+        issue_id: Some(1),
+        started_at: started_at.to_string(),
+        completed_at: None,
+        status: "running".to_string(),
+    }
+}
+
+#[test]
+fn test_mark_running_writes_real_identity_no_pending() {
+    // The launch path's unit-testable portion: mark_running given a real
+    // agent_id and worktree records exactly those, never "pending".
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/foo.md");
+    std::fs::write(&doc, "# Foo\n").unwrap();
+
+    let wt = tmp.path().join(".worktrees/repo--abcd--foo");
+    let state =
+        pipeline::mark_running(&doc, "repo--abcd--foo", &wt.to_string_lossy(), Some(7)).unwrap();
+
+    let row = state.runs.last().unwrap();
+    assert_eq!(row.agent_id, "repo--abcd--foo");
+    assert_ne!(row.agent_id, "pending");
+    assert_eq!(row.worktree, wt.to_string_lossy());
+    assert_ne!(row.worktree, "pending");
+    assert_eq!(row.status, "running");
+    assert_eq!(row.issue_id, Some(7));
+    assert_eq!(state.stage, "running");
+}
+
+#[test]
+fn test_reconcile_done_sentinel_marks_completed_with_timestamp() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (
+            RunProbe::SentinelDone,
+            Some("2026-05-13T10:00:00+00:00".to_string()),
+        )
+    });
+    assert!(changed);
+    let row = &state.runs[0];
+    assert_eq!(row.status, "completed");
+    assert_eq!(
+        row.completed_at.as_deref(),
+        Some("2026-05-13T10:00:00+00:00")
+    );
+    // No row still running, no plan → stage collapses to "complete".
+    assert_eq!(state.stage, "complete");
+}
+
+#[test]
+fn test_reconcile_failed_sentinel_marks_failed() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::SentinelFailed, None)
+    });
+    assert!(changed);
+    assert_eq!(state.runs[0].status, "failed");
+    // Fallback to injected `now` when sentinel mtime is unreadable.
+    assert_eq!(
+        state.runs[0].completed_at.as_deref(),
+        Some("2026-06-12T00:00:00+00:00")
+    );
+}
+
+#[test]
+fn test_reconcile_missing_worktree_marks_aborted() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/gone", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::Gone, None)
+    });
+    assert!(changed);
+    assert_eq!(state.runs[0].status, "aborted");
+    assert_eq!(
+        state.runs[0].completed_at.as_deref(),
+        Some("2026-06-12T00:00:00+00:00")
+    );
+    // No plan, last row aborted → stage falls back to "designed".
+    assert_eq!(state.stage, "designed");
+}
+
+#[test]
+fn test_reconcile_live_agent_row_untouched() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00")],
+    );
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::LiveRunning, None)
+    });
+    assert!(!changed);
+    assert_eq!(state.runs[0].status, "running");
+    assert!(state.runs[0].completed_at.is_none());
+    assert_eq!(state.stage, "running");
+}
+
+#[test]
+fn test_reconcile_all_rows_not_just_last() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![
+            running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00"),
+            running_row("a2", "/wt/a2", "2026-05-13T20:22:43+00:00"),
+            running_row("a3", "/wt/a3", "2026-05-14T20:22:43+00:00"),
+        ],
+    );
+    // Mark every row gone.
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::Gone, None)
+    });
+    assert!(changed);
+    assert!(state.runs.iter().all(|r| r.status == "aborted"));
+}
+
+#[test]
+fn test_probe_pending_worktree_is_gone_when_no_live_agent() {
+    // Legacy "pending"/"pending" rows resolve to Gone.
+    let row = running_row("pending", "pending", "2026-05-12T20:22:43+00:00");
+    let (verdict, _mtime) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::Gone);
+}
+
+#[test]
+fn test_probe_done_sentinel_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt-done");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".kickoff-status"), "DONE\n").unwrap();
+    let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
+    let (verdict, mtime) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::SentinelDone);
+    assert!(mtime.is_some());
+}
+
+#[test]
+fn test_probe_failed_sentinel_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt-fail");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".kickoff-status"), "CI_FAILED\n").unwrap();
+    let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
+    let (verdict, _mtime) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::SentinelFailed);
+}
+
+#[test]
+fn test_probe_live_worktree_running_status() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt-run");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".kickoff-status"), "RUNNING\n").unwrap();
+    let row = running_row("a1", &wt.to_string_lossy(), "2026-05-12T20:22:43+00:00");
+    // Live agent vouches for it.
+    let (verdict, _) = pipeline::probe_run_worktree(&row, &["a1".to_string()]);
+    assert_eq!(verdict, RunProbe::LiveRunning);
+    // No live agent and non-terminal sentinel → indeterminate (left untouched).
+    let (verdict, _) = pipeline::probe_run_worktree(&row, &[]);
+    assert_eq!(verdict, RunProbe::Indeterminate);
+}
+
+/// The exact rot shape from GH#614 — a `runs` array of pending/pending/running
+/// rows pasted verbatim from the issue evidence.
+const GH614_LEGACY_PIPELINE_JSON: &str = r#"{
+  "schema_version": 1,
+  "design_doc": ".design/forecast-decode.md",
+  "doc_hash": "sha256:abc",
+  "stage": "running",
+  "plans": [],
+  "runs": [
+    {
+      "agent_id": "pending",
+      "worktree": "pending",
+      "issue_id": 1,
+      "started_at": "2026-05-12T20:22:43.929777+00:00",
+      "status": "running"
+    },
+    {
+      "agent_id": "pending",
+      "worktree": "pending",
+      "issue_id": 1,
+      "started_at": "2026-05-14T09:10:00.000000+00:00",
+      "status": "running"
+    }
+  ]
+}"#;
+
+#[test]
+fn test_legacy_pending_file_reconciles_to_aborted_and_persists() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/forecast-decode.md");
+    std::fs::write(&doc, "# Forecast decode\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/forecast-decode.pipeline.json");
+    std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
+
+    // Old file parses despite its shape (serde defaults tolerate it).
+    let mut state = pipeline::read_pipeline_state(&doc).expect("legacy file must parse");
+    assert_eq!(state.runs.len(), 2);
+    assert!(state.runs.iter().all(|r| r.status == "running"));
+
+    // No live agents → both pending rows are stale → aborted, and persisted.
+    let changed = pipeline::reconcile_runs_for_display(&doc, &mut state, &[]);
+    assert!(changed);
+    assert!(state.runs.iter().all(|r| r.status == "aborted"));
+    assert!(state.runs.iter().all(|r| r.completed_at.is_some()));
+    // "pending" agent_id is left as-is (we never invent identities).
+    assert!(state.runs.iter().all(|r| r.agent_id == "pending"));
+    // Stage no longer claims "running".
+    assert_ne!(state.stage, "running");
+
+    // runs.last()-based display no longer reports running.
+    let display = pipeline::stage_display(&state, &doc);
+    assert!(!display.contains("running"));
+
+    // Persisted to disk: a fresh read sees the reconciled state.
+    let reread = pipeline::read_pipeline_state(&doc).unwrap();
+    assert!(reread.runs.iter().all(|r| r.status == "aborted"));
+}
+
+#[test]
+fn test_reconcile_is_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/forecast-decode.md");
+    std::fs::write(&doc, "# Forecast decode\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/forecast-decode.pipeline.json");
+    std::fs::write(&pipeline_file, GH614_LEGACY_PIPELINE_JSON).unwrap();
+
+    let mut state = pipeline::read_pipeline_state(&doc).unwrap();
+    assert!(pipeline::reconcile_runs_for_display(&doc, &mut state, &[]));
+
+    // Second pass changes nothing and does not rewrite the file.
+    let before = std::fs::read_to_string(&pipeline_file).unwrap();
+    let changed_again = pipeline::reconcile_runs_for_display(&doc, &mut state, &[]);
+    assert!(!changed_again);
+    let after = std::fs::read_to_string(&pipeline_file).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn test_stage_transition_aborted_with_plan_falls_back_to_planned() {
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![running_row("a1", "/wt/gone", "2026-05-12T20:22:43+00:00")],
+    );
+    state.plans.push(super::pipeline::PlanRecord {
+        agent_id: "p1".to_string(),
+        worktree: "/wt/p1".to_string(),
+        started_at: "2026-05-10T00:00:00+00:00".to_string(),
+        completed_at: Some("2026-05-10T01:00:00+00:00".to_string()),
+        status: "done".to_string(),
+        blocking_gaps: 0,
+        advisory_gaps: 0,
+        plan_file: Some(".design/foo.plan.json".to_string()),
+    });
+    let changed = pipeline::reconcile_runs(&mut state, "2026-06-12T00:00:00+00:00", |_r| {
+        (RunProbe::Gone, None)
+    });
+    assert!(changed);
+    assert_eq!(state.runs[0].status, "aborted");
+    // A plan exists → fall back to "planned" rather than "designed".
+    assert_eq!(state.stage, "planned");
+}
+
+#[test]
+fn test_mark_run_finished_matches_by_worktree() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/foo.md");
+    std::fs::write(&doc, "# Foo\n").unwrap();
+    let pipeline_file = tmp.path().join(".design/foo.pipeline.json");
+
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![
+            running_row("a1", "/wt/a1", "2026-05-12T20:22:43+00:00"),
+            running_row("a2", "/wt/a2", "2026-05-13T20:22:43+00:00"),
+        ],
+    );
+    std::fs::write(
+        &pipeline_file,
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    let updated = pipeline::mark_run_finished(&doc, &mut state, "/wt/a2", None, "completed");
+    assert!(updated);
+    assert_eq!(state.runs[0].status, "running"); // a1 untouched
+    assert_eq!(state.runs[1].status, "completed");
+    assert!(state.runs[1].completed_at.is_some());
+    // Still a running row → stage stays "running".
+    assert_eq!(state.stage, "running");
+}
+
+#[test]
+fn test_mark_run_finished_legacy_fallback_by_started_at() {
+    let doc = Path::new("/nonexistent/.design/foo.md");
+    let mut state = pipeline_with_runs(
+        "running",
+        vec![
+            running_row("pending", "pending", "2026-05-12T20:22:43+00:00"),
+            running_row("pending", "pending", "2026-05-14T09:10:00+00:00"),
+        ],
+    );
+    // worktree "pending" can't path-match; fall back to started_at proximity.
+    let updated = pipeline::mark_run_finished(
+        doc,
+        &mut state,
+        "pending",
+        Some("2026-05-14T09:11:00+00:00"),
+        "completed",
+    );
+    assert!(updated);
+    assert_eq!(state.runs[0].status, "running");
+    assert_eq!(state.runs[1].status, "completed");
+}
+
+#[test]
+fn test_reconcile_completion_by_worktree_scans_design_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".design")).unwrap();
+    let doc = tmp.path().join(".design/foo.md");
+    std::fs::write(&doc, "# Foo\n").unwrap();
+    let wt = tmp.path().join(".worktrees/repo--abcd--foo");
+    let state = pipeline_with_runs(
+        "running",
+        vec![running_row(
+            "repo--abcd--foo",
+            &wt.to_string_lossy(),
+            "2026-05-12T20:22:43+00:00",
+        )],
+    );
+    std::fs::write(
+        tmp.path().join(".design/foo.pipeline.json"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    let hit =
+        pipeline::reconcile_completion_by_worktree(tmp.path(), &wt.to_string_lossy(), "completed");
+    assert!(hit);
+    let reread = pipeline::read_pipeline_state(&doc).unwrap();
+    assert_eq!(reread.runs[0].status, "completed");
+    assert_eq!(reread.stage, "complete");
 }

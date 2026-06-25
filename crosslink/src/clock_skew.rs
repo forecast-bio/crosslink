@@ -102,12 +102,14 @@ pub fn write_skew_violations(cache_dir: &Path, violations: &[SkewViolation]) -> 
     crate::utils::atomic_write(&path, content.as_bytes())
 }
 
-/// Read skew violations from `checkpoint/skew_warnings.json`.
+/// Read back skew violations written by [`write_skew_violations`].
 ///
-/// # Errors
-///
-/// Returns an error if the file exists but cannot be read or parsed.
-pub fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
+/// Test-only: the production reader was removed with the v2 `crosslink compact`
+/// path (#754); only [`write_skew_violations`] remains live (the migration's
+/// internal compaction emits the file). This helper keeps the writer's
+/// round-trip under test.
+#[cfg(test)]
+fn read_skew_violations(cache_dir: &Path) -> Result<Vec<SkewViolation>> {
     let path = cache_dir.join("checkpoint").join("skew_warnings.json");
     if !path.exists() {
         return Ok(Vec::new());
@@ -228,6 +230,25 @@ fn describe_event(event: &Event) -> String {
         Event::ParentChanged { issue_uuid, .. } => {
             format!("ParentChanged({issue_uuid})")
         }
+        Event::CommentAdded {
+            issue_uuid,
+            comment_uuid,
+            ..
+        } => format!("CommentAdded({issue_uuid}, {comment_uuid})"),
+        Event::TimeEntryAdded {
+            issue_uuid,
+            entry_uuid,
+            ..
+        } => format!("TimeEntryAdded({issue_uuid}, {entry_uuid})"),
+        Event::IssueDeleted { uuid } => format!("IssueDeleted({uuid})"),
+        Event::MilestoneCreated { uuid, name, .. } => {
+            format!("MilestoneCreated({uuid}, {name})")
+        }
+        Event::MilestoneClosed { uuid, .. } => format!("MilestoneClosed({uuid})"),
+        Event::MilestoneDeleted { uuid } => format!("MilestoneDeleted({uuid})"),
+        Event::ScheduleChanged { issue_uuid, .. } => {
+            format!("ScheduleChanged({issue_uuid})")
+        }
     }
 }
 
@@ -319,6 +340,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.timestamp = now;
@@ -356,6 +380,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.timestamp = event_time;
@@ -401,6 +428,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env1.timestamp = commit_time + Duration::seconds(5);
@@ -420,6 +450,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-2".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env2.timestamp = commit_time + Duration::seconds(120);
@@ -490,6 +523,9 @@ mod tests {
                     labels: vec![],
                     parent_uuid: None,
                     created_by: "agent-1".to_string(),
+                    display_id: None,
+                    scheduled_at: None,
+                    due_at: None,
                 },
                 format!("IssueCreated({uuid}, Test)"),
             ),
@@ -537,6 +573,9 @@ mod tests {
                 labels: vec![],
                 parent_uuid: None,
                 created_by: "agent-1".to_string(),
+                display_id: None,
+                scheduled_at: None,
+                due_at: None,
             },
         );
         env.timestamp = event_time;
@@ -569,6 +608,9 @@ mod tests {
                     labels: vec![],
                     parent_uuid: None,
                     created_by: "agent-1".to_string(),
+                    display_id: None,
+                    scheduled_at: None,
+                    due_at: None,
                 },
                 "IssueCreated(",
             ),

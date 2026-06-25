@@ -8,3 +8,11 @@ integrations/
 # Machine-local overrides
 hook-config.local.json
 rules.local/
+
+# Machine-local runtime state (never commit — regenerated per machine)
+.active-issue
+.last-hydrated-ref
+.promoted-uuids
+promotion-log.json
+hub-v3-shadow-stats.json
+sentinel.log

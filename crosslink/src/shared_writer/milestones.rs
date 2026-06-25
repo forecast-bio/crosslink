@@ -2,11 +2,9 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use std::cell::Cell;
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::issue_file::MilestoneEntry;
 
 use super::core::{SharedWriter, WriteSet};
 
@@ -27,34 +25,30 @@ impl SharedWriter {
         let now = Utc::now();
         let name_owned = name.to_string();
         let desc_owned = description.map(std::string::ToString::to_string);
-        let display_id = Cell::new(0i64);
 
         let _ = self.write_commit_push(
-            |writer| {
-                let (id, counters) = writer.claim_milestone_id()?;
-                display_id.set(id);
-                let entry = MilestoneEntry {
+            |_writer| {
+                let event = crate::events::Event::MilestoneCreated {
                     uuid,
-                    display_id: id,
+                    display_id: None,
                     name: name_owned.clone(),
                     description: desc_owned.clone(),
-                    status: crate::models::IssueStatus::Open,
                     created_at: now,
-                    closed_at: None,
                 };
-                let mut json = Vec::new();
-                serde_json::to_writer_pretty(&mut json, &entry)?;
                 Ok(WriteSet {
-                    files: vec![(format!("meta/milestones/{uuid}.json"), json)],
-                    counters: Some(counters),
-                    use_git_rm: false,
+                    events: vec![event],
                 })
             },
             &format!("create milestone: {name}"),
         )?;
 
         self.hydrate_with_retry(db);
-        Ok(display_id.get())
+        // The milestone id is reduction-assigned (REQ-4); read it from the
+        // cached reduced state, falling back to a SQLite lookup when provisional.
+        if let Some(id) = self.v3_assigned_milestone_id(&uuid) {
+            return Ok(id);
+        }
+        db.get_milestone_id_by_uuid(&uuid.to_string())
     }
 
     /// Close a milestone on the coordination branch.
@@ -64,15 +58,14 @@ impl SharedWriter {
     pub fn close_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
-                let mut entry = writer.load_milestone_by_id(milestone_id)?;
-                entry.status = crate::models::IssueStatus::Closed;
-                entry.closed_at = Some(Utc::now());
-                let mut json = Vec::new();
-                serde_json::to_writer_pretty(&mut json, &entry)?;
+                let entry = writer.load_milestone_by_id(milestone_id)?;
+                let closed_at = Utc::now();
+                let event = crate::events::Event::MilestoneClosed {
+                    uuid: entry.uuid,
+                    closed_at,
+                };
                 Ok(WriteSet {
-                    files: vec![(format!("meta/milestones/{}.json", entry.uuid), json)],
-                    counters: None,
-                    use_git_rm: false,
+                    events: vec![event],
                 })
             },
             &format!("close milestone #{milestone_id}"),
@@ -88,22 +81,12 @@ impl SharedWriter {
     /// Returns an error if the milestone cannot be loaded or the write fails.
     pub fn delete_milestone(&self, db: &Database, milestone_id: i64) -> Result<()> {
         let entry = self.load_milestone_by_id(milestone_id)?;
-        let rel_path = format!("meta/milestones/{}.json", entry.uuid);
 
         let _ = self.write_commit_push(
-            |writer| {
-                let path = writer
-                    .cache_dir
-                    .join("meta")
-                    .join("milestones")
-                    .join(format!("{}.json", entry.uuid));
-                if path.exists() {
-                    std::fs::remove_file(&path)?;
-                }
+            |_writer| {
+                let event = crate::events::Event::MilestoneDeleted { uuid: entry.uuid };
                 Ok(WriteSet {
-                    files: vec![(rel_path.clone(), vec![])],
-                    counters: None,
-                    use_git_rm: true,
+                    events: vec![event],
                 })
             },
             &format!("delete milestone #{milestone_id}"),
@@ -132,20 +115,15 @@ impl SharedWriter {
         let ids: Vec<i64> = issue_ids.to_vec();
         let _ = self.write_commit_push(
             |writer| {
-                let mut files = Vec::new();
+                let mut events = Vec::new();
                 for &issue_id in &ids {
-                    let mut issue = writer.load_issue_by_id(issue_id, db)?;
-                    issue.milestone_uuid = Some(ms_uuid);
-                    issue.updated_at = Utc::now();
-                    let json = serde_json::to_vec_pretty(&issue)?;
-                    let rel_path = writer.issue_rel_path(&issue.uuid);
-                    files.push((rel_path, json));
+                    let issue = writer.load_issue_by_id(issue_id, db)?;
+                    events.push(crate::events::Event::MilestoneAssigned {
+                        issue_uuid: issue.uuid,
+                        milestone_uuid: Some(ms_uuid),
+                    });
                 }
-                Ok(WriteSet {
-                    files,
-                    counters: None,
-                    use_git_rm: false,
-                })
+                Ok(WriteSet { events })
             },
             &format!("add {} issue(s) to milestone #{}", ids.len(), milestone_id),
         )?;
@@ -161,15 +139,13 @@ impl SharedWriter {
     pub fn clear_milestone_on_issue(&self, db: &Database, issue_id: i64) -> Result<()> {
         let _ = self.write_commit_push(
             |writer| {
-                let mut issue = writer.load_issue_by_id(issue_id, db)?;
-                issue.milestone_uuid = None;
-                issue.updated_at = Utc::now();
-                let json = serde_json::to_vec_pretty(&issue)?;
-                let rel_path = writer.issue_rel_path(&issue.uuid);
+                let issue = writer.load_issue_by_id(issue_id, db)?;
+                let event = crate::events::Event::MilestoneAssigned {
+                    issue_uuid: issue.uuid,
+                    milestone_uuid: None,
+                };
                 Ok(WriteSet {
-                    files: vec![(rel_path, json)],
-                    counters: None,
-                    use_git_rm: false,
+                    events: vec![event],
                 })
             },
             &format!("remove issue #{issue_id} from milestone"),

@@ -5,6 +5,25 @@ use std::path::Path;
 use crate::signing;
 use crate::utils::is_windows_reserved_name;
 
+/// Session role recorded in `agent.json`.
+///
+/// `Driver` means the identity exists for hub-cache signing on a human-driven
+/// main repo — hooks should apply strict, human-oriented rules. `Agent` means
+/// the identity belongs to an autonomous agent worktree (kickoff, swarm, or
+/// Claude Code sub-agent) and hooks should apply the relaxed agent overrides.
+///
+/// Deserializing an `agent.json` without a `role` field yields `Driver`,
+/// which is the safe default: existing main-repo identities auto-created by
+/// `crosslink init` before this field existed keep their strict hook
+/// treatment. See GH #566.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRole {
+    #[default]
+    Driver,
+    Agent,
+}
+
 /// Machine-local agent identity. Lives at `.crosslink/agent.json`.
 /// This file is gitignored — each machine has its own.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -13,7 +32,20 @@ pub struct AgentConfig {
     pub machine_id: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// Path to SSH private key, relative to .crosslink/ (e.g. "`keys/agent_ed25519`").
+    /// Session role: `driver` for main-repo signing identity, `agent` for
+    /// autonomous agent worktrees. Missing field defaults to `driver`.
+    #[serde(default)]
+    pub role: AgentRole,
+    /// Path to SSH private key, relative to the **main repo's**
+    /// `.crosslink/` (e.g. "`keys/agent_ed25519`").
+    ///
+    /// GH#610: new agents store keys under the main repo's
+    /// `.crosslink/keys/` so they survive `git worktree remove` of a
+    /// kickoff agent worktree. Legacy agents (pre-#610) wrote this
+    /// path relative to the worktree's own `.crosslink/`; the
+    /// resolver in `sync::trust::resolve_agent_key` tries the host
+    /// path first and falls back to the worktree path for legacy
+    /// keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_key_path: Option<String>,
     /// SSH public key fingerprint (e.g. "SHA256:...").
@@ -43,17 +75,36 @@ impl AgentConfig {
         Ok(Some(config))
     }
 
-    /// Create and write a new agent config.
+    /// Create and write a new agent config with the default `Driver` role.
+    ///
+    /// Used by `crosslink init` to mint a hub-cache signing identity on a
+    /// human-driven main repo. For autonomous agent worktrees use
+    /// [`Self::init_with_role`] with [`AgentRole::Agent`].
     ///
     /// # Errors
     ///
     /// Returns an error if the agent ID fails validation or the config file cannot be written.
     pub fn init(crosslink_dir: &Path, agent_id: &str, description: Option<&str>) -> Result<Self> {
+        Self::init_with_role(crosslink_dir, agent_id, description, AgentRole::Driver)
+    }
+
+    /// Create and write a new agent config with an explicit role.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the agent ID fails validation or the config file cannot be written.
+    pub fn init_with_role(
+        crosslink_dir: &Path,
+        agent_id: &str,
+        description: Option<&str>,
+        role: AgentRole,
+    ) -> Result<Self> {
         let machine_id = detect_hostname();
         let config = Self {
             agent_id: agent_id.to_string(),
             machine_id,
             description: description.map(std::string::ToString::to_string),
+            role,
             ssh_key_path: None,
             ssh_fingerprint: None,
             ssh_public_key: None,
@@ -84,6 +135,7 @@ impl AgentConfig {
             agent_id: format!("anon-{short}"),
             machine_id: detect_hostname(),
             description: Some("Anonymous agent (pre-init)".to_string()),
+            role: AgentRole::Driver,
             ssh_key_path: None,
             ssh_fingerprint: None,
             ssh_public_key: None,
@@ -190,6 +242,7 @@ mod tests {
             agent_id: agent_id.to_string(),
             machine_id: "test".to_string(),
             description: None,
+            role: AgentRole::Driver,
             ssh_key_path: None,
             ssh_fingerprint: None,
             ssh_public_key: None,
@@ -274,6 +327,59 @@ mod tests {
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.agent_id, "worker-1");
         assert!(config.ssh_key_path.is_none());
+    }
+
+    #[test]
+    fn test_json_backward_compat_no_role_field_defaults_driver() {
+        // agent.json written before the role field existed (e.g. by crosslink
+        // init on 2026-03-30..2026-04-20) must load as Driver so hooks don't
+        // silently classify main-repo sessions as agents. See GH #566.
+        let json = r#"{"agent_id": "worker-1", "machine_id": "host"}"#;
+        let config: AgentConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.role, AgentRole::Driver);
+    }
+
+    #[test]
+    fn test_role_serde_roundtrip_driver() {
+        let config = AgentConfig {
+            role: AgentRole::Driver,
+            ..test_config("worker-1")
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"role\":\"driver\""));
+        let parsed: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.role, AgentRole::Driver);
+    }
+
+    #[test]
+    fn test_role_serde_roundtrip_agent() {
+        let config = AgentConfig {
+            role: AgentRole::Agent,
+            ..test_config("worker-1")
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"role\":\"agent\""));
+        let parsed: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.role, AgentRole::Agent);
+    }
+
+    #[test]
+    fn test_init_defaults_to_driver_role() {
+        let dir = tempdir().unwrap();
+        let config = AgentConfig::init(dir.path(), "worker-1", None).unwrap();
+        assert_eq!(config.role, AgentRole::Driver);
+        let loaded = AgentConfig::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.role, AgentRole::Driver);
+    }
+
+    #[test]
+    fn test_init_with_role_agent_persists() {
+        let dir = tempdir().unwrap();
+        let config =
+            AgentConfig::init_with_role(dir.path(), "worker-1", None, AgentRole::Agent).unwrap();
+        assert_eq!(config.role, AgentRole::Agent);
+        let loaded = AgentConfig::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.role, AgentRole::Agent);
     }
 
     #[test]
@@ -393,6 +499,10 @@ mod tests {
     proptest! {
         #[test]
         fn prop_valid_ids_roundtrip(id in "[a-zA-Z0-9_-]{3,64}") {
+            // The alphanumeric regex can produce Windows-reserved names
+            // ("NUL", "CON", "NuL", ...) which validate() rejects by design.
+            // Skip those — this test is about roundtrip of *valid* ids.
+            prop_assume!(!is_windows_reserved_name(&id));
             let config = test_config(&id);
             prop_assert!(config.validate().is_ok());
             let json = serde_json::to_string(&config).unwrap();

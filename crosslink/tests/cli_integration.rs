@@ -3075,6 +3075,50 @@ fn test_init_deploys_skill_files_integration() {
     assert!(commands_dir.join("design.md").exists());
 }
 
+#[test]
+fn test_init_deploys_claude_skills() {
+    // Bundled Claude skills (resources/claude/skills/) should be deployed to
+    // .claude/skills/<name>/ on init so collaborators get the same skill
+    // surface without manual installation.
+    let dir = test_dir();
+    init_crosslink(dir.path());
+
+    let skills_dir = dir.path().join(".claude/skills");
+    assert!(skills_dir.is_dir(), ".claude/skills/ directory not created");
+
+    // Spot-check a few representative skills from the bundled set
+    for skill in [
+        "architect",
+        "commit",
+        "crosslink-guide",
+        "kickoff",
+        "rust-quality",
+        "workflow",
+    ] {
+        let skill_md = skills_dir.join(skill).join("SKILL.md");
+        assert!(skill_md.exists(), "skill not deployed: {}/SKILL.md", skill);
+        let content = std::fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            !content.is_empty(),
+            "deployed skill {}/SKILL.md is empty",
+            skill
+        );
+    }
+
+    // rust-gpu-discipline ships multiple files — verify the per-skill
+    // subdirectory structure preserves all of them, not just SKILL.md.
+    let gpu_skill = skills_dir.join("rust-gpu-discipline");
+    assert!(gpu_skill.join("SKILL.md").exists());
+    assert!(gpu_skill.join("anti-patterns.md").exists());
+    assert!(gpu_skill.join("ferrotorch-stack.md").exists());
+    assert!(gpu_skill.join("verification-script.md").exists());
+
+    // Force re-init should overwrite without error
+    let (success, _, _) = run_crosslink(dir.path(), &["init", "--force"]);
+    assert!(success, "Force init failed");
+    assert!(skills_dir.join("architect/SKILL.md").exists());
+}
+
 // ==================== Tier 3 Smoke Tests (GH issue #242) ====================
 // These tests need git repo fixtures with remotes.
 
@@ -3815,9 +3859,15 @@ fn test_sentinel_schema_migration() {
         .unwrap_or(false);
     assert!(has_dispatches, "sentinel_dispatches table should exist");
 
-    // Verify schema version is 16
+    // Verify schema is at least the version this test originally pinned
+    // (v16 sentinel tables). Bumping the overall schema version for later
+    // migrations is expected; the test only cares that the sentinel tables
+    // were installed.
     let version: i32 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 16, "Schema version should be 16");
+    assert!(
+        version >= 16,
+        "Schema version should be >= 16 (sentinel migration), got {version}"
+    );
 }

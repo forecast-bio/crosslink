@@ -64,6 +64,7 @@ pub fn dispatch(
             doc,
             skip_permissions,
             runtime,
+            permission_mode,
         } => {
             let parsed_doc = if let Some(ref path) = doc {
                 let content = std::fs::read_to_string(path)
@@ -91,12 +92,11 @@ pub fn dispatch(
                 doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
                 skip_permissions,
                 runtime: parse_kickoff_runtime(&runtime)?,
+                permission_mode: permission_mode.as_deref(),
             };
-            // Update pipeline state if launching from a design doc
-            if let Some(ref doc_path) = doc {
-                // pipeline state update is best-effort — don't fail the launch
-                let _ = pipeline::mark_running(doc_path, "pending", "pending", issue);
-            }
+            // The pipeline "running" row is now written from inside `run()`
+            // once the real worktree + agent identity exist (GH#614) — no more
+            // "pending" placeholder rows appended at dispatch time.
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
         }
@@ -172,6 +172,7 @@ pub fn dispatch(
             dry_run,
             skip_permissions,
             runtime,
+            permission_mode,
         } => dispatch_launch(
             crosslink_dir,
             db,
@@ -189,6 +190,7 @@ pub fn dispatch(
             dry_run,
             skip_permissions,
             &runtime,
+            permission_mode.as_deref(),
         ),
     }
 }
@@ -215,6 +217,7 @@ fn dispatch_launch(
     dry_run: bool,
     skip_permissions: bool,
     runtime: &str,
+    permission_mode: Option<&str>,
 ) -> Result<()> {
     // Non-interactive: --plan or --run flag provided
     if do_plan {
@@ -279,10 +282,9 @@ fn dispatch_launch(
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
             skip_permissions,
             runtime: parse_kickoff_runtime(runtime)?,
+            permission_mode,
         };
-        if let Some(ref doc_path) = doc {
-            let _ = pipeline::mark_running(doc_path, "pending", "pending", issue);
-        }
+        // mark_running is now invoked from inside run() with the real identity.
         run(crosslink_dir, db, writer, &opts)?;
         return Ok(());
     }
@@ -363,6 +365,7 @@ fn dispatch_launch(
                 doc_path: doc_path_str.as_deref(),
                 skip_permissions: false,
                 runtime: parse_kickoff_runtime(runtime)?,
+                permission_mode: None,
             };
             run(crosslink_dir, db, writer, &opts)?;
             Ok(())
@@ -392,8 +395,20 @@ fn pipeline_status_overview(crosslink_dir: &Path, json: bool) -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine repo root"))?;
 
-    let states = pipeline::scan_pipeline_states(root);
+    let mut states = pipeline::scan_pipeline_states(root);
     let agents = monitor::discover_agents(crosslink_dir).unwrap_or_default();
+
+    // Reconcile stale "running" rows against the real world before display so
+    // the RUN column never reports a launch that finished or vanished (GH#614).
+    // An agent counts as live only while it still has a session/container.
+    let live_ids: Vec<String> = agents
+        .iter()
+        .filter(|a| a.session.is_some() || a.docker.is_some())
+        .map(|a| a.id.clone())
+        .collect();
+    for (doc_path, state) in &mut states {
+        pipeline::reconcile_runs_for_display(doc_path, state, &live_ids);
+    }
 
     if states.is_empty() {
         println!("No pipeline state files found in .design/");

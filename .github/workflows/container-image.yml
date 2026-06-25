@@ -1,0 +1,296 @@
+name: Container Image
+
+# Builds and publishes the crosslink-agent container image to GHCR.
+#
+# Triggers:
+#   - push to develop  -> :nightly (floating) and :nightly-<short-sha> (immutable)
+#   - push tag v*      -> :<version> and :latest
+#   - PR touching the container build context or this workflow -> build only,
+#     no push (validates the change before merge).
+#
+# Architecture: linux/amd64 + linux/arm64. The static musl crosslink binary is
+# built per-arch in the build-binary matrix job, uploaded as an artifact, then
+# placed in the docker build context as crosslink-<arch>. The Dockerfile picks
+# the correct one via the buildx-provided TARGETARCH ARG.
+#
+# After publish, smoke-verify pulls the published tag for both platforms and
+# runs `crosslink --version`. This is the discipline that turns "green CI" into
+# "the documented happy path actually works at the user's hand."
+
+on:
+  push:
+    branches: [develop]
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'crosslink/resources/container/**'
+      - '.github/workflows/container-image.yml'
+      - 'crosslink/Cargo.toml'
+      - 'crosslink/Cargo.lock'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: forecast-bio/crosslink-agent
+
+jobs:
+  # ===========================================
+  # Build static musl binaries (amd64 + arm64)
+  # ===========================================
+  build-binary:
+    name: Build binary (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # amd64 builds natively on the runner via musl-tools — no cross
+          # toolchain needed and avoids the docker-in-docker overhead.
+          - arch: amd64
+            target: x86_64-unknown-linux-musl
+            use_cross: false
+          # arm64 must use cross-rs/cross. Stock `gcc-aarch64-linux-gnu` is a
+          # GLIBC cross-compiler — when the libsqlite3-sys build script
+          # compiles sqlite3.c with it, the object emits glibc-only symbols
+          # (open64/stat64/fcntl64/pread64/... + _FORTIFY_SOURCE __memcpy_chk
+          # variants) that musl libc doesn't define, so ld fails with
+          # `undefined reference`. cross-rs runs cargo inside a docker image
+          # carrying a real aarch64-musl toolchain, which produces
+          # musl-correct object files.
+          - arch: arm64
+            target: aarch64-unknown-linux-musl
+            use_cross: true
+    defaults:
+      run:
+        working-directory: crosslink
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl-tools (amd64 native build)
+        if: matrix.use_cross == false
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (arm64 only)
+        if: matrix.use_cross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            crosslink/target/
+          key: ${{ runner.os }}-cargo-container-${{ matrix.target }}-${{ hashFiles('crosslink/Cargo.lock') }}
+
+      - name: Build release binary (native)
+        if: matrix.use_cross == false
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Build release binary (cross)
+        if: matrix.use_cross == true
+        run: cross build --locked --release --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosslink-${{ matrix.arch }}
+          path: crosslink/target/${{ matrix.target }}/release/crosslink
+          if-no-files-found: error
+          retention-days: 1
+
+  # ===========================================
+  # Build and (conditionally) push multi-arch image
+  # ===========================================
+  publish-image:
+    name: Build & publish image
+    needs: build-binary
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.tags.outputs.primary_tag }}
+      version: ${{ steps.tags.outputs.version }}
+      pushed: ${{ steps.tags.outputs.pushed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: crosslink-amd64
+          path: artifacts/amd64
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: crosslink-arm64
+          path: artifacts/arm64
+
+      - name: Stage binaries into build context
+        run: |
+          cp artifacts/amd64/crosslink crosslink/resources/container/crosslink-amd64
+          cp artifacts/arm64/crosslink crosslink/resources/container/crosslink-arm64
+          chmod +x crosslink/resources/container/crosslink-amd64
+          chmod +x crosslink/resources/container/crosslink-arm64
+          ls -lah crosslink/resources/container/
+
+      - name: Compute tags
+        id: tags
+        run: |
+          set -euo pipefail
+          REF="${GITHUB_REF}"
+          EVENT="${GITHUB_EVENT_NAME}"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          BASE="${REGISTRY}/${IMAGE_NAME}"
+          TAGS=()
+          PUSH=false
+          PRIMARY=""
+          VERSION=""
+
+          if [ "$EVENT" = "pull_request" ]; then
+            # PR: build only, no push. Tag exists only locally to satisfy buildx.
+            TAGS=("${BASE}:pr-${{ github.event.pull_request.number }}")
+            PRIMARY="${BASE}:pr-${{ github.event.pull_request.number }}"
+            VERSION="pr-${{ github.event.pull_request.number }}"
+          elif [[ "$REF" == refs/tags/v* ]]; then
+            VERSION="${REF#refs/tags/v}"
+            TAGS=("${BASE}:${VERSION}" "${BASE}:latest")
+            PRIMARY="${BASE}:${VERSION}"
+            PUSH=true
+          elif [ "$REF" = "refs/heads/develop" ]; then
+            VERSION="nightly-${SHORT_SHA}"
+            TAGS=("${BASE}:nightly" "${BASE}:nightly-${SHORT_SHA}")
+            PRIMARY="${BASE}:nightly"
+            PUSH=true
+          else
+            echo "::error::Unexpected ref/event combination: ref=${REF} event=${EVENT}"
+            exit 1
+          fi
+
+          {
+            echo "tags<<EOF"
+            for t in "${TAGS[@]}"; do echo "$t"; done
+            echo "EOF"
+            echo "push=${PUSH}"
+            echo "primary_tag=${PRIMARY}"
+            echo "version=${VERSION}"
+            echo "pushed=${PUSH}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.tags.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: crosslink/resources/container
+          file: crosslink/resources/container/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.tags.outputs.push == 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: false
+          # Push registry cache only when we have write access (push events).
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: ${{ steps.tags.outputs.push == 'true' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
+
+  # ===========================================
+  # Smoke-verify the published image is pullable + runnable on both arches.
+  # This is the discipline that catches "CI green but `docker pull` broken."
+  # ===========================================
+  smoke-verify:
+    name: Smoke verify (${{ matrix.platform }})
+    needs: publish-image
+    if: needs.publish-image.outputs.pushed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - name: Set up QEMU (for non-native arch)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      # GHCR creates new packages as PRIVATE by default on first publish,
+      # regardless of repo visibility. Until the package is manually flipped
+      # to public via Settings -> Packages, even pulling a tag we just
+      # pushed in the same workflow requires auth — hence the login here.
+      # When the package is public this step is harmless (login still works,
+      # subsequent pulls just don't need it).
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image
+        run: docker pull --platform ${{ matrix.platform }} ${{ needs.publish-image.outputs.primary_tag }}
+
+      - name: Inspect manifest covers both arches (once per matrix is fine)
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker manifest inspect ${{ needs.publish-image.outputs.primary_tag }} \
+            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | sort | . == ["linux/amd64","linux/arm64"]'
+
+      - name: Run crosslink --version
+        id: version
+        run: |
+          set -euo pipefail
+          # Override the entrypoint — entrypoint.sh expects bind mounts and root
+          # privilege handling; for smoke we just want the binary to run.
+          OUT=$(docker run --rm --platform ${{ matrix.platform }} \
+            --entrypoint /usr/local/bin/crosslink \
+            ${{ needs.publish-image.outputs.primary_tag }} --version)
+          echo "version output: $OUT"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          # Sanity: must contain "crosslink" and a semver-like substring.
+          echo "$OUT" | grep -E '^crosslink [0-9]+\.[0-9]+\.[0-9]+'
+
+      - name: Verify version matches tag (release tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          EXPECTED="${{ needs.publish-image.outputs.version }}"
+          # Extract the version field and strip git build metadata (+<sha>[-dirty]).
+          # Keep any semver prerelease suffix (e.g. -beta.1) — the old
+          # `grep -oE '[0-9]+\.[0-9]+\.[0-9]+'` matched only the X.Y.Z core and
+          # dropped `-beta.1`, failing every prerelease tag (the first one was
+          # v0.9.0-beta.1). Cargo.toml's version carries the prerelease but not
+          # the +build metadata, so EXPECTED has no `+` to strip.
+          ACTUAL=$(echo "${{ steps.version.outputs.out }}" | awk '{print $2}' | sed 's/+.*//')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::Tag version ($EXPECTED) does not match binary version ($ACTUAL)"
+            exit 1
+          fi
+          echo "Version match: $EXPECTED"

@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{read_tracker_remote, HUB_BRANCH, HUB_CACHE_DIR, MAX_DIVERGENCE};
+use super::{read_tracker_remote, HUB_CACHE_DIR};
 use crate::signing;
 use crate::utils::resolve_main_repo_root;
 
@@ -19,6 +19,14 @@ pub struct SyncManager {
     pub(super) repo_root: PathBuf,
     /// Git remote name for the hub branch (from config, defaults to "origin").
     pub(super) remote: String,
+    /// Operation mode, resolved at construction (754a PASS 2) and re-resolved
+    /// after a fresh-hub bootstrap (754b). `V3` routes mutations to per-agent
+    /// refs with state-based hydration; `V2` keeps the worktree-file flow.
+    /// Cached so the per-call hot paths (`fetch`, `lock_check`) do not re-probe
+    /// refs on every invocation. Interior mutability lets [`Self::init_cache`]
+    /// flip a fresh `Absent`-resolved `V2` to `V3` once it bootstraps the v3
+    /// marker refs, without invalidating the `&self` API surface.
+    pub(super) hub_mode: std::cell::Cell<crate::hub_v3::HubMode>,
 }
 
 impl SyncManager {
@@ -46,12 +54,28 @@ impl SyncManager {
         let cache_dir = repo_root.join(".crosslink").join(HUB_CACHE_DIR);
         let remote = read_tracker_remote(crosslink_dir);
 
+        // Resolve the operation mode ONCE (754a PASS 2). Probe the hub-cache
+        // worktree: its `.git` link shares the main repository's ref namespace,
+        // so the v3 marker refs (`refs/heads/crosslink/meta` + `/checkpoint`) resolve
+        // there. When the cache is absent (fresh repo, never synced) detection
+        // returns `Absent` ⇒ `V2`, preserving today's init behavior.
+        let hub_mode = crate::hub_v3::HubMode::resolve(&cache_dir);
+
         Ok(Self {
             crosslink_dir: crosslink_dir.to_path_buf(),
             cache_dir,
             repo_root,
             remote,
+            hub_mode: std::cell::Cell::new(hub_mode),
         })
+    }
+
+    /// The resolved operation mode for this hub (V2 worktree-file or V3
+    /// event-only). Decided at construction and re-resolved after a fresh-hub
+    /// bootstrap; see [`crate::hub_v3::HubMode`].
+    #[must_use]
+    pub fn hub_mode(&self) -> crate::hub_v3::HubMode {
+        self.hub_mode.get()
     }
 
     /// Get the configured git remote name for the hub branch.
@@ -136,10 +160,22 @@ impl SyncManager {
     /// was only inherited from the user's global git config, bypass it to avoid
     /// failures when the global key isn't usable in the cache context.
     ///
+    /// Before committing, self-heals a stale `user.signingkey` left over from
+    /// a deleted agent worktree (GH #565) — a repair failure is logged but
+    /// doesn't abort the commit, so the existing signing error still surfaces
+    /// to the caller if auto-repair can't fix things.
+    ///
     /// # Errors
     ///
     /// Returns an error if the git commit command fails.
     pub(super) fn git_commit_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
+        // Best-effort self-heal for stale signingkey configs (GH #565).
+        // If this fails, let the commit proceed — it may still succeed, or
+        // the real signing error will surface below with full context.
+        if let Err(e) = self.repair_stale_signingkey() {
+            tracing::warn!("signingkey self-heal failed (non-fatal): {e}");
+        }
+
         let local_configured = Command::new("git")
             .current_dir(&self.cache_dir)
             .args(["config", "--local", "commit.gpgsign"])
@@ -161,16 +197,19 @@ impl SyncManager {
             .output()
             .with_context(|| format!("Failed to run git commit {args:?} in cache"))?;
         if !output.status.success() {
+            // Capture BOTH streams (#601). `git commit`'s "nothing to
+            // commit" status message goes to stdout, not stderr — without
+            // this, "nothing to commit" failures surfaced as empty errors.
+            let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git commit {args:?} in cache failed: {stderr}");
+            bail!(
+                "git commit {args:?} in cache failed ({}):\nstdout: {}\nstderr: {}",
+                output.status,
+                stdout.trim(),
+                stderr.trim(),
+            );
         }
         Ok(output)
-    }
-
-    /// Get the subject line of a commit in the cache worktree.
-    pub fn commit_message(&self, commit: &str) -> Result<String> {
-        let output = self.git_in_cache(&["log", "-1", "--format=%s", commit])?;
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
     pub(super) fn git_in_cache(&self, args: &[&str]) -> Result<std::process::Output> {
@@ -180,8 +219,17 @@ impl SyncManager {
             .output()
             .with_context(|| format!("Failed to run git {args:?} in cache"))?;
         if !output.status.success() {
+            // Capture BOTH streams (#601). Some git diagnostics — including
+            // hook output and certain push rejections — go to stdout, not
+            // stderr; capturing only stderr drops those details.
+            let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git {args:?} in cache failed: {stderr}");
+            bail!(
+                "git {args:?} in cache failed ({}):\nstdout: {}\nstderr: {}",
+                output.status,
+                stdout.trim(),
+                stderr.trim(),
+            );
         }
         Ok(output)
     }
@@ -279,38 +327,6 @@ impl SyncManager {
                      git config set succeeded but user.email is not readable"
                 );
             }
-        }
-        Ok(())
-    }
-
-    /// Count how many commits the local hub branch is ahead of the remote.
-    /// Returns 0 if the remote ref doesn't exist or the count can't be determined.
-    pub(super) fn count_unpushed_commits(&self) -> usize {
-        let remote_ref = format!("{}/{}", self.remote, HUB_BRANCH);
-        let range = format!("{remote_ref}..HEAD");
-        match self.git_in_cache(&["rev-list", "--count", &range]) {
-            Ok(output) => String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse::<usize>()
-                .unwrap_or(0),
-            Err(_) => 0,
-        }
-    }
-
-    /// Check if local has diverged too far from remote and bail if so.
-    pub(crate) fn check_divergence(&self) -> Result<()> {
-        let ahead = self.count_unpushed_commits();
-        if ahead > MAX_DIVERGENCE {
-            bail!(
-                "Hub branch has diverged: {} local commits ahead of remote \
-                 (threshold: {}). This likely indicates a rebase loop. \
-                 Resolve manually with: cd {} && git log --oneline {}/{}..HEAD",
-                ahead,
-                MAX_DIVERGENCE,
-                self.cache_dir.display(),
-                self.remote,
-                HUB_BRANCH
-            );
         }
         Ok(())
     }

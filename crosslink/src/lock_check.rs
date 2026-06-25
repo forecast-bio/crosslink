@@ -129,7 +129,7 @@ fn auto_steal_if_configured(
     }
 
     // Perform the steal
-    if sync.is_v2_layout() {
+    if sync.hub_mode().is_v3() {
         if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
             writer.steal_lock_v2(issue_id, stale_agent_id, None)?;
             let comment = format!(
@@ -142,16 +142,9 @@ fn auto_steal_if_configured(
             return Ok(false);
         }
     } else {
-        let Some(agent) = AgentConfig::load(crosslink_dir)? else {
-            return Ok(false);
-        };
-        sync.claim_lock(&agent, issue_id, None, crate::sync::LockMode::Steal)?;
-        let comment = format!(
-            "[auto-steal] Lock auto-stolen from agent '{stale_agent_id}' (stale for {stale_minutes} min, threshold: {auto_steal_threshold} min)"
-        );
-        if let Err(e) = db.add_comment(issue_id, &comment, "system") {
-            tracing::warn!("could not add audit comment for lock steal: {e}");
-        }
+        // Legacy v2 hub (frozen): stealing requires the deleted v2 write path
+        // (#754); nothing to steal.
+        return Ok(false);
     }
 
     Ok(true)
@@ -209,35 +202,29 @@ pub fn enforce_lock(crosslink_dir: &Path, issue_id: i64, db: &Database) -> Resul
     }
 }
 
-/// Best-effort lock release for an issue. Dispatches between V1 and V2 hub layouts.
+/// Best-effort lock release for an issue.
 ///
 /// Logs warnings on failure but never returns an error — callers use this when
-/// lock release is a courtesy, not a hard requirement (e.g., after closing an issue).
+/// lock release is a courtesy, not a hard requirement (e.g., after closing an
+/// issue). Only v3 hubs release (event-only); a frozen v2 hub has nothing to
+/// release (the v2 write path is gone, #754).
 pub fn release_lock_best_effort(crosslink_dir: &Path, issue_id: i64) {
-    if let Ok(Some(agent)) = AgentConfig::load(crosslink_dir) {
-        if let Ok(sync) = SyncManager::new(crosslink_dir) {
-            if sync.is_initialized() {
-                if sync.is_v2_layout() {
-                    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir)
-                    {
-                        if let Err(e) = writer.release_lock_v2(issue_id) {
-                            tracing::warn!(
-                                "Could not release lock on {}: {}",
-                                crate::utils::format_issue_id(issue_id),
-                                e
-                            );
-                        }
-                    }
-                } else if let Err(e) =
-                    sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal)
-                {
-                    tracing::warn!(
-                        "Could not release lock on {}: {}",
-                        crate::utils::format_issue_id(issue_id),
-                        e
-                    );
-                }
-            }
+    let Ok(Some(_agent)) = AgentConfig::load(crosslink_dir) else {
+        return;
+    };
+    let Ok(sync) = SyncManager::new(crosslink_dir) else {
+        return;
+    };
+    if !sync.is_initialized() || !sync.hub_mode().is_v3() {
+        return;
+    }
+    if let Ok(Some(writer)) = crate::shared_writer::SharedWriter::new(crosslink_dir) {
+        if let Err(e) = writer.release_lock_v2(issue_id) {
+            tracing::warn!(
+                "Could not release lock on {}: {}",
+                crate::utils::format_issue_id(issue_id),
+                e
+            );
         }
     }
 }
@@ -268,7 +255,7 @@ pub fn try_claim_lock(
     issue_id: i64,
     branch: Option<&str>,
 ) -> Result<ClaimResult> {
-    let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+    let Some(_agent) = AgentConfig::load(crosslink_dir)? else {
         return Ok(ClaimResult::NotConfigured);
     };
     let sync = match SyncManager::new(crosslink_dir) {
@@ -276,7 +263,7 @@ pub fn try_claim_lock(
         _ => return Ok(ClaimResult::NotConfigured),
     };
 
-    if sync.is_v2_layout() {
+    if sync.hub_mode().is_v3() {
         let Some(writer) = crate::shared_writer::SharedWriter::new(crosslink_dir)? else {
             return Ok(ClaimResult::NotConfigured);
         };
@@ -287,10 +274,12 @@ pub fn try_claim_lock(
                 Ok(ClaimResult::Contended { winner_agent_id })
             }
         }
-    } else if sync.claim_lock(&agent, issue_id, branch, crate::sync::LockMode::Normal)? {
-        Ok(ClaimResult::Claimed)
     } else {
-        Ok(ClaimResult::AlreadyHeld)
+        // Legacy v2 hub (frozen): the lock write path is deleted (#754).
+        // Implicit session lock-claim degrades to a no-op so local workflows
+        // keep working; the explicit `crosslink locks claim` command still
+        // refuses with the migrate prompt.
+        Ok(ClaimResult::NotConfigured)
     }
 }
 
@@ -303,7 +292,7 @@ pub fn try_claim_lock(
 ///
 /// Returns an error if the agent config or sync system fails unexpectedly.
 pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
-    let Some(agent) = AgentConfig::load(crosslink_dir)? else {
+    let Some(_agent) = AgentConfig::load(crosslink_dir)? else {
         return Ok(false);
     };
     let sync = match SyncManager::new(crosslink_dir) {
@@ -311,13 +300,15 @@ pub fn try_release_lock(crosslink_dir: &Path, issue_id: i64) -> Result<bool> {
         _ => return Ok(false),
     };
 
-    if sync.is_v2_layout() {
+    if sync.hub_mode().is_v3() {
         let Some(writer) = crate::shared_writer::SharedWriter::new(crosslink_dir)? else {
             return Ok(false);
         };
         writer.release_lock_v2(issue_id)
     } else {
-        sync.release_lock(&agent, issue_id, crate::sync::LockMode::Normal)
+        // Legacy v2 hub (frozen): lock release is a no-op — the v2 write path
+        // is gone (#754); there is nothing materialized to release.
+        Ok(false)
     }
 }
 
@@ -341,6 +332,91 @@ mod tests {
             serde_json::to_string(&agent_json).unwrap(),
         )
         .unwrap();
+    }
+
+    /// Build a real, bootstrapped **v3** hub in a fresh git repo and seed it with
+    /// `self_agent`'s identity, an optional lock on `issue_id` held by
+    /// `lock_holder`, and a fresh heartbeat for the holder when `holder_fresh`.
+    ///
+    /// Returns `(tempdir, crosslink_dir)`. Returns `None` when git is unavailable.
+    /// Locks are seeded into the v3 checkpoint `state.json` (REQ-5: locks are
+    /// reduced into the checkpoint), which is what `read_locks_v3` reads.
+    #[allow(clippy::too_many_arguments)]
+    fn seed_v3_hub(
+        self_agent: &str,
+        issue_id: i64,
+        lock_holder: Option<&str>,
+        holder_fresh: bool,
+    ) -> Option<(tempfile::TempDir, std::path::PathBuf)> {
+        let dir = tempdir().unwrap();
+        let repo_root = dir.path();
+        let ok = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo_root)
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            return None;
+        }
+        for cfg in [["user.email", "t@t.local"], ["user.name", "t"]] {
+            let _ = std::process::Command::new("git")
+                .args(["config", cfg[0], cfg[1]])
+                .current_dir(repo_root)
+                .status();
+        }
+
+        let crosslink_dir = repo_root.join(".crosslink");
+        std::fs::create_dir_all(&crosslink_dir).unwrap();
+        write_agent_config(&crosslink_dir, self_agent);
+
+        let sync = SyncManager::new(&crosslink_dir).unwrap();
+        sync.init_cache().unwrap();
+        assert!(sync.hub_mode().is_v3(), "seed helper must produce a v3 hub");
+        let cache_dir = sync.cache_path();
+
+        if let Some(holder) = lock_holder {
+            // A non-fresh holder models a stale lock: claimed long ago AND with
+            // no heartbeat, so it is both detected as stale and past any
+            // reasonable auto-steal age threshold.
+            let claimed_at = if holder_fresh {
+                chrono::Utc::now()
+            } else {
+                chrono::Utc::now() - chrono::Duration::minutes(200)
+            };
+            let mut state = crate::checkpoint::CheckpointState {
+                watermark: Some(crate::hub_v3::genesis_sentinel_watermark()),
+                ..Default::default()
+            };
+            state.locks.insert(
+                issue_id,
+                crate::checkpoint::LockEntry {
+                    agent_id: holder.to_string(),
+                    branch: None,
+                    claimed_at,
+                },
+            );
+            let bytes = serde_json::to_vec_pretty(&state).unwrap();
+            crate::hub_v3::commit_blob_to_ref(
+                cache_dir,
+                crate::hub_v3::CHECKPOINT_REF,
+                "state.json",
+                &bytes,
+                "test: seed v3 lock",
+            )
+            .unwrap();
+
+            if holder_fresh {
+                let hb = crate::locks::Heartbeat {
+                    agent_id: holder.to_string(),
+                    last_heartbeat: claimed_at,
+                    active_issue_id: Some(issue_id),
+                    machine_id: "holder-machine".to_string(),
+                };
+                crate::hub_v3::write_heartbeat_to_ref(cache_dir, holder, &hb).unwrap();
+            }
+        }
+
+        Some((dir, crosslink_dir))
     }
 
     // ─── LockStatus trait tests ───────────────────────────────────────────────
@@ -689,66 +765,11 @@ mod tests {
     /// `read_locks_auto` all succeed and return the prepared lock data.
     #[test]
     fn test_enforce_lock_locked_by_other_non_stale_returns_error() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        // Initialise a bare-minimum git repo so SyncManager can resolve paths.
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
-            // git not available in this environment; skip gracefully
-            return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        std::fs::create_dir_all(&crosslink_dir).unwrap();
-
-        // Write agent.json identifying us as "agent-self"
-        write_agent_config(&crosslink_dir, "agent-self");
-
-        // Create the hub cache dir manually so is_initialized() returns true.
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("locks")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("meta")).unwrap();
-
         // A fresh heartbeat for "other-agent" keeps its lock non-stale.
-        let claimed_at = chrono::Utc::now();
-        let heartbeat_json = serde_json::json!({
-            "agent_id": "other-agent",
-            "last_heartbeat": claimed_at.to_rfc3339(),
-            "active_issue_id": 7,
-            "machine_id": "other-machine"
-        });
-        std::fs::write(
-            hub_cache.join("heartbeats").join("other-agent.json"),
-            serde_json::to_string_pretty(&heartbeat_json).unwrap(),
-        )
-        .unwrap();
-
-        // Write locks.json with a lock held by "other-agent" on issue 7.
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                "7": {
-                    "agent_id": "other-agent",
-                    "branch": null,
-                    "claimed_at": claimed_at.to_rfc3339(),
-                    "signed_by": ""
-                }
-            },
-            "settings": {
-                "stale_lock_timeout_minutes": 60
-            }
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string_pretty(&locks_json).unwrap(),
-        )
-        .unwrap();
-
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 7, Some("other-agent"), true)
+        else {
+            return; // git unavailable
+        };
         let db = temp_db();
         let result = enforce_lock(&crosslink_dir, 7, &db);
         // Should bail because the lock is not stale
@@ -772,7 +793,7 @@ mod tests {
             .args(["init", "-q"])
             .current_dir(repo_root)
             .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
+        if init_status.map_or(true, |s| !s.success()) {
             return;
         }
 
@@ -844,7 +865,7 @@ mod tests {
             .args(["init", "-q"])
             .current_dir(repo_root)
             .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
+        if init_status.map_or(true, |s| !s.success()) {
             return;
         }
 
@@ -892,7 +913,7 @@ mod tests {
             .args(["init", "-q"])
             .current_dir(repo_root)
             .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
+        if init_status.map_or(true, |s| !s.success()) {
             return;
         }
 
@@ -926,43 +947,10 @@ mod tests {
     /// `check_lock` returns `LockedBySelf` when the current agent holds the lock.
     #[test]
     fn test_check_lock_locked_by_self() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
-            return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        std::fs::create_dir_all(&crosslink_dir).unwrap();
-        write_agent_config(&crosslink_dir, "agent-self");
-
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("locks")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("meta")).unwrap();
-
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                "5": {
-                    "agent_id": "agent-self",
-                    "branch": null,
-                    "claimed_at": chrono::Utc::now().to_rfc3339(),
-                    "signed_by": ""
-                }
-            },
-            "settings": {"stale_lock_timeout_minutes": 60}
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string_pretty(&locks_json).unwrap(),
-        )
-        .unwrap();
-
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 5, Some("agent-self"), true)
+        else {
+            return; // git unavailable
+        };
         let status = check_lock(&crosslink_dir, 5).unwrap();
         assert_eq!(status, LockStatus::LockedBySelf);
     }
@@ -970,97 +958,21 @@ mod tests {
     /// `check_lock` returns Available when no lock exists for the issue.
     #[test]
     fn test_check_lock_available() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
-            return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        std::fs::create_dir_all(&crosslink_dir).unwrap();
-        write_agent_config(&crosslink_dir, "agent-self");
-
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("locks")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("meta")).unwrap();
-
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {},
-            "settings": {"stale_lock_timeout_minutes": 60}
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string_pretty(&locks_json).unwrap(),
-        )
-        .unwrap();
-
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 5, None, false) else {
+            return; // git unavailable
+        };
         let status = check_lock(&crosslink_dir, 99).unwrap();
         assert_eq!(status, LockStatus::Available);
     }
 
     /// `check_lock` returns `LockedByOther` (non-stale) when a different agent holds the
-    /// lock and has a recent heartbeat.
+    /// lock and has a recent heartbeat on its agent ref.
     #[test]
     fn test_check_lock_locked_by_other_non_stale() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
-            return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        std::fs::create_dir_all(&crosslink_dir).unwrap();
-        write_agent_config(&crosslink_dir, "agent-self");
-
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("locks")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("meta")).unwrap();
-
-        // Lock by a different agent, very recent (not stale).
-        // We also write a fresh heartbeat so find_stale_locks() does NOT mark it stale.
-        let claimed_at = chrono::Utc::now();
-        let heartbeat_json = serde_json::json!({
-            "agent_id": "other-agent",
-            "last_heartbeat": claimed_at.to_rfc3339(),
-            "active_issue_id": 3,
-            "machine_id": "other-machine"
-        });
-        std::fs::write(
-            hub_cache.join("heartbeats").join("other-agent.json"),
-            serde_json::to_string_pretty(&heartbeat_json).unwrap(),
-        )
-        .unwrap();
-
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                "3": {
-                    "agent_id": "other-agent",
-                    "branch": null,
-                    "claimed_at": claimed_at.to_rfc3339(),
-                    "signed_by": ""
-                }
-            },
-            "settings": {"stale_lock_timeout_minutes": 60}
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string_pretty(&locks_json).unwrap(),
-        )
-        .unwrap();
-
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 3, Some("other-agent"), true)
+        else {
+            return; // git unavailable
+        };
         let status = check_lock(&crosslink_dir, 3).unwrap();
         match status {
             LockStatus::LockedByOther { agent_id, stale } => {
@@ -1071,69 +983,20 @@ mod tests {
         }
     }
 
-    /// `check_lock` returns `LockedByOther` with stale=true when the heartbeat is old.
+    /// `check_lock` returns `LockedByOther` with stale=true when the holder has no
+    /// fresh heartbeat.
     #[test]
     fn test_check_lock_locked_by_other_stale() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
-            return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        std::fs::create_dir_all(&crosslink_dir).unwrap();
-        write_agent_config(&crosslink_dir, "agent-self");
-
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("locks")).unwrap();
-        std::fs::create_dir_all(hub_cache.join("meta")).unwrap();
-
-        // Lock and heartbeat both very old → stale
-        let old_time = chrono::Utc::now() - chrono::Duration::minutes(120);
-
-        let heartbeat_json = serde_json::json!({
-            "agent_id": "other-agent",
-            "last_heartbeat": old_time.to_rfc3339(),
-            "active_issue_id": 4,
-            "machine_id": "other-machine"
-        });
-        std::fs::write(
-            hub_cache.join("heartbeats").join("other-agent.json"),
-            serde_json::to_string_pretty(&heartbeat_json).unwrap(),
-        )
-        .unwrap();
-
-        let locks_json = serde_json::json!({
-            "version": 1,
-            "locks": {
-                "4": {
-                    "agent_id": "other-agent",
-                    "branch": null,
-                    "claimed_at": old_time.to_rfc3339(),
-                    "signed_by": ""
-                }
-            },
-            "settings": {"stale_lock_timeout_minutes": 60}
-        });
-        std::fs::write(
-            hub_cache.join("locks.json"),
-            serde_json::to_string_pretty(&locks_json).unwrap(),
-        )
-        .unwrap();
-
+        // No heartbeat for the holder → the lock is stale.
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 4, Some("other-agent"), false)
+        else {
+            return; // git unavailable
+        };
         let status = check_lock(&crosslink_dir, 4).unwrap();
         match status {
             LockStatus::LockedByOther { agent_id, stale } => {
                 assert_eq!(agent_id, "other-agent");
-                // stale may or may not be true depending on find_stale_locks impl;
-                // what matters is that we get LockedByOther (not a panic/error).
-                let _ = stale;
+                assert!(stale, "lock with no fresh heartbeat must be stale");
             }
             other => panic!("Expected LockedByOther, got {other:?}"),
         }
@@ -1229,39 +1092,24 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_steal_claim_lock_fails_returns_err() {
-        let dir = tempdir().unwrap();
-        let repo_root = dir.path();
-
-        let init_status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(repo_root)
-            .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
-            return;
-        }
-
-        let crosslink_dir = repo_root.join(".crosslink");
-        let hub_cache = crosslink_dir.join(".hub-cache");
-        std::fs::create_dir_all(&hub_cache).unwrap();
-        std::fs::create_dir_all(hub_cache.join("heartbeats")).unwrap();
-
-        write_agent_config(&crosslink_dir, "agent-self");
-
+    fn test_auto_steal_stale_lock_is_stolen_via_v3() {
+        // A stale v3 lock (no fresh heartbeat) past the auto-steal threshold is
+        // force-released + reclaimed through the event-only writer path. Without
+        // a remote the steal completes locally.
+        let Some((_dir, crosslink_dir)) = seed_v3_hub("agent-self", 55, Some("other-agent"), false)
+        else {
+            return; // git unavailable
+        };
         std::fs::write(
             crosslink_dir.join("hook-config.json"),
             r#"{"auto_steal_stale_locks": 1}"#,
         )
         .unwrap();
 
-        write_v1_locks_json(&hub_cache, 55, "other-agent", 200, 60);
-
         let db = temp_db();
         let result = auto_steal_if_configured(&crosslink_dir, 55, "other-agent", &db);
-        assert!(
-            result.is_err(),
-            "claim_lock should fail without a remote git repo"
-        );
+        // The steal is attempted (the lock is stale) and completes locally.
+        assert!(matches!(result, Ok(true)), "expected steal, got {result:?}");
     }
 
     #[test]
@@ -1273,7 +1121,7 @@ mod tests {
             .args(["init", "-q"])
             .current_dir(repo_root)
             .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
+        if init_status.map_or(true, |s| !s.success()) {
             return;
         }
 
@@ -1432,7 +1280,10 @@ mod tests {
     /// `check_lock` returns `NotConfigured` when `read_locks_auto` would fail
     /// due to a corrupt locks.json (exercises line 50).
     #[test]
-    fn test_check_lock_corrupt_locks_json_returns_not_configured() {
+    fn test_check_lock_on_frozen_v2_hub_is_available() {
+        // 754b: a non-v3 (frozen / pre-migration) hub no longer materializes any
+        // lock state, so `check_lock` sees no lock and reports Available. Even a
+        // leftover corrupt `locks.json` is ignored.
         let dir = tempdir().unwrap();
         let repo_root = dir.path();
 
@@ -1440,7 +1291,7 @@ mod tests {
             .args(["init", "-q"])
             .current_dir(repo_root)
             .status();
-        if init_status.map(|s| !s.success()).unwrap_or(true) {
+        if init_status.map_or(true, |s| !s.success()) {
             return;
         }
 
@@ -1448,15 +1299,13 @@ mod tests {
         std::fs::create_dir_all(&crosslink_dir).unwrap();
         write_agent_config(&crosslink_dir, "agent-self");
 
-        // Create hub cache dir so is_initialized() returns true
+        // Create a non-v3 hub cache dir so is_initialized() returns true but the
+        // mode resolves to V2 (no v3 marker refs).
         let hub_cache = crosslink_dir.join(".hub-cache");
         std::fs::create_dir_all(&hub_cache).unwrap();
-
-        // Write an invalid (corrupt) locks.json so read_locks_auto fails
         std::fs::write(hub_cache.join("locks.json"), b"not valid json!!!").unwrap();
 
-        // read_locks_auto should fail → line 50 → NotConfigured
         let status = check_lock(&crosslink_dir, 1).unwrap();
-        assert_eq!(status, LockStatus::NotConfigured);
+        assert_eq!(status, LockStatus::Available);
     }
 }

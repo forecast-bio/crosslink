@@ -1,90 +1,151 @@
+// App shell for the multi-project dashboard (GH #429).
+// Wires the QueryClient + BrowserRouter and hands off to the
+// top-level routes. Real SCADA layout (sidebar, global alert rail,
+// terminal list) lands in later P1.* subissues.
+
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router";
-import { Sidebar } from "@/components/Sidebar";
-import { Dashboard } from "@/pages/Dashboard";
-import { Agents } from "@/pages/Agents";
-import { AgentDetail } from "@/pages/AgentDetail";
-import { Issues } from "@/pages/Issues";
-import { IssueDetail } from "@/pages/IssueDetail";
-import { Sessions } from "@/pages/Sessions";
-import { Milestones } from "@/pages/Milestones";
-import { Knowledge } from "@/pages/Knowledge";
-import { KnowledgeDetail } from "@/pages/KnowledgeDetail";
-import { Sync } from "@/pages/Sync";
-import { Config } from "@/pages/Config";
-import { Orchestrator } from "@/pages/Orchestrator";
-import { Execution } from "@/pages/Execution";
-import { CommandPalette } from "@/components/CommandPalette";
-import { ThemeProvider } from "@/components/ThemeProvider";
-import { Usage } from "@/pages/Usage";
-import { Appearance } from "@/pages/Appearance";
-import { wsClient } from "@/api/ws";
-import { useAgentsStore } from "@/stores/agents";
-import { useIssuesStore } from "@/stores/issues";
-import { useOrchestratorStore } from "@/stores/orchestrator";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
-function WsListener() {
-  const { applyHeartbeat, applyStatus } = useAgentsStore();
-  const { invalidate } = useIssuesStore();
-  const { applyProgress } = useOrchestratorStore();
+import { Link, NavLink } from "react-router-dom";
 
+import { connectDashboardWs } from "@/api/ws";
+import { AlertRail } from "@/components/AlertRail";
+import { installAlertSoundBridge } from "@/lib/alertSound";
+import {
+  patchPreferences,
+  usePreferences,
+  type ThemePreference,
+} from "@/lib/preferences";
+import { resolveTheme, useThemeBridge } from "@/lib/theme";
+import { Alerts } from "@/pages/Alerts";
+import { ProjectDetail } from "@/pages/ProjectDetail";
+import { ProjectGrid } from "@/pages/ProjectGrid";
+import { SettingsGithub } from "@/pages/SettingsGithub";
+import { SettingsPreferences } from "@/pages/SettingsPreferences";
+import { SettingsWebhooks } from "@/pages/SettingsWebhooks";
+import { Terminals } from "@/pages/Terminals";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Errors bubble to components; no auto-retry on 4xx noise.
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+/// Keeps a WebSocket subscription alive for the app's lifetime.
+/// Any server-emitted dashboard event invalidates the relevant
+/// React Query cache entries so tiles refresh without waiting for
+/// the 5-second polling fallback.
+function DashboardWsBridge() {
+  const client = useQueryClient();
   useEffect(() => {
-    wsClient.connect(["agents", "issues", "execution"]);
-    const off = wsClient.on((msg) => {
-      switch (msg.type) {
-        case "heartbeat":
-          applyHeartbeat(msg.agent_id, msg.timestamp, msg.active_issue_id ?? undefined);
-          break;
-        case "agent_status":
-          applyStatus(msg.agent_id, msg.status);
-          break;
-        case "issue_updated":
-          invalidate(msg.issue_id);
-          break;
-        case "execution_progress":
-          applyProgress(msg.phase_id, msg.stage_id, msg.status, msg.agent_id);
-          break;
-        default:
-          break;
-      }
-    });
-    return () => {
-      off();
-      wsClient.disconnect();
-    };
-  }, [applyHeartbeat, applyStatus, invalidate, applyProgress]);
-
+    return connectDashboardWs(client);
+  }, [client]);
   return null;
+}
+
+/// Mounts the alert-sound bridge for the app lifetime. Split from
+/// DashboardWsBridge so it can be disabled in isolation during tests.
+function AlertSoundBridge() {
+  useEffect(() => installAlertSoundBridge(), []);
+  return null;
+}
+
+/// One-click light/dark toggle in the nav. Leaves "system" mode alone
+/// unless the user wanted it; first click from "system" picks the
+/// opposite of what's currently rendered so the visible change is
+/// immediate.
+function ThemeToggleButton() {
+  const prefs = usePreferences();
+  const resolved = resolveTheme(prefs.theme);
+  const next: ThemePreference = resolved === "dark" ? "light" : "dark";
+  const label = resolved === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  return (
+    <button
+      type="button"
+      onClick={() => patchPreferences({ theme: next })}
+      aria-label={label}
+      title={label}
+      className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent/10"
+    >
+      {resolved === "dark" ? "☀︎" : "☾"}
+    </button>
+  );
+}
+
+function TopNav() {
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    `rounded px-2 py-1 text-xs uppercase tracking-wide hover:bg-accent/10 ${
+      isActive ? "bg-accent/20 font-semibold" : "text-muted-foreground"
+    }`;
+  return (
+    <nav className="border-b border-border bg-card/60">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-2 text-sm">
+        <Link to="/" className="font-semibold tracking-tight">
+          crosslink dashboard
+        </Link>
+        <span className="ml-4 flex items-center gap-1">
+          <NavLink to="/" end className={linkClass}>
+            Projects
+          </NavLink>
+          <NavLink to="/alerts" className={linkClass}>
+            Alerts
+          </NavLink>
+          <NavLink to="/terminals" className={linkClass}>
+            Terminals
+          </NavLink>
+          <NavLink to="/settings/github" className={linkClass}>
+            GitHub
+          </NavLink>
+          <NavLink to="/settings/webhooks" className={linkClass}>
+            Webhooks
+          </NavLink>
+          <NavLink to="/settings/preferences" className={linkClass}>
+            Preferences
+          </NavLink>
+        </span>
+        <span className="ml-auto">
+          <ThemeToggleButton />
+        </span>
+      </div>
+    </nav>
+  );
+}
+
+function AppShell() {
+  useThemeBridge();
+  return (
+    <BrowserRouter>
+      <div className="min-h-screen bg-background text-foreground">
+        <TopNav />
+        <AlertRail />
+        <Routes>
+          <Route path="/" element={<ProjectGrid />} />
+          <Route path="/project/*" element={<ProjectDetail />} />
+          <Route path="/alerts" element={<Alerts />} />
+          <Route path="/terminals" element={<Terminals />} />
+          <Route path="/settings/github" element={<SettingsGithub />} />
+          <Route path="/settings/webhooks" element={<SettingsWebhooks />} />
+          <Route
+            path="/settings/preferences"
+            element={<SettingsPreferences />}
+          />
+        </Routes>
+      </div>
+    </BrowserRouter>
+  );
 }
 
 export function App() {
   return (
-    <BrowserRouter>
-      <WsListener />
-      <ThemeProvider />
-      <CommandPalette />
-      <div className="flex h-screen overflow-hidden bg-background text-foreground">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/agents" element={<Agents />} />
-            <Route path="/agents/:id" element={<AgentDetail />} />
-            <Route path="/issues" element={<Issues />} />
-            <Route path="/issues/:id" element={<IssueDetail />} />
-            <Route path="/sessions" element={<Sessions />} />
-            <Route path="/milestones" element={<Milestones />} />
-            <Route path="/knowledge" element={<Knowledge />} />
-            <Route path="/knowledge/:slug" element={<KnowledgeDetail />} />
-            <Route path="/sync" element={<Sync />} />
-            <Route path="/config" element={<Config />} />
-            <Route path="/orchestrator" element={<Orchestrator />} />
-            <Route path="/execution" element={<Execution />} />
-            <Route path="/usage" element={<Usage />} />
-            <Route path="/appearance" element={<Appearance />} />
-          </Routes>
-        </main>
-      </div>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <DashboardWsBridge />
+      <AlertSoundBridge />
+      <AppShell />
+    </QueryClientProvider>
   );
 }

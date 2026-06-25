@@ -144,15 +144,25 @@ pub(super) fn spawn_watchdog(
 /// so any `CLAUDE_CONFIG_DIR` set by the caller is silently lost (#555).
 /// Baking it into the command string bypasses tmux env handling entirely.
 ///
+/// The `CLAUDE_CONFIG_DIR=val` assignment is folded into the existing `env`
+/// argv (between `-u CLAUDECODE` and `claude`) rather than placed as a shell
+/// prefix. Shell prefix assignments (`VAR=val cmd`) are positional — they
+/// only take effect when `VAR=val` precedes the *leading* command name. With
+/// `timeout` (or any other wrapper) at column zero, a shell-prefix assignment
+/// degenerates into a literal positional arg and `timeout` tries to exec it
+/// as a binary path (`ENOENT`). Folding the assignment into `env`'s argv is
+/// robust to additional wrappers prepended later (nice, chrt, bwrap, etc.).
+/// See GH#587.
+///
 /// When `sandbox_command` is set, the claude invocation is wrapped:
 /// ```text
-/// timeout 3600s my-sandbox --project-dir /path -- CLAUDE_CONFIG_DIR='/p' env -u CLAUDECODE claude ...
+/// timeout 3600s my-sandbox --project-dir /path -- env -u CLAUDECODE CLAUDE_CONFIG_DIR='/p' claude ...
 /// ```
 /// Without sandbox:
 /// ```text
-/// timeout 3600s CLAUDE_CONFIG_DIR='/p' env -u CLAUDECODE claude ...
+/// timeout 3600s env -u CLAUDECODE CLAUDE_CONFIG_DIR='/p' claude ...
 /// ```
-/// When `claude_config_dir` is `None`, the prefix is omitted.
+/// When `claude_config_dir` is `None`, the assignment is omitted.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_agent_command(
     timeout_cmd: &str,
@@ -164,18 +174,35 @@ pub(super) fn build_agent_command(
     worktree_dir: &Path,
     skip_permissions: bool,
     claude_config_dir: Option<&str>,
+    permission_mode: Option<&str>,
 ) -> String {
     use crate::utils::shell_escape_arg;
 
-    let skip_flag = if skip_permissions {
-        " --dangerously-skip-permissions"
-    } else {
-        ""
+    // Resolve permission posture for the spawned claude session:
+    //   1. `permission_mode`, if given, emits `--permission-mode <value>`.
+    //      Claude supports `acceptEdits`, `auto`, `bypassPermissions`,
+    //      `default`, `dontAsk`, `plan` (see GH#603).
+    //   2. Otherwise, `skip_permissions = true` emits the legacy
+    //      `--dangerously-skip-permissions` (full bypass).
+    //   3. Otherwise no flag — claude prompts for every tool.
+    // CLI parsing in main.rs marks `--permission-mode` as
+    // `conflicts_with("skip_permissions")` so reaching case 1 with
+    // `skip_permissions = true` is impossible from the public surface;
+    // internal callers (the wizard's WizardStage::Run path) pass both
+    // as defaults (None / false) and let this resolution stand.
+    let permission_flag_owned: String = match (permission_mode, skip_permissions) {
+        (Some(mode), _) if !mode.is_empty() => {
+            format!(" --permission-mode {}", shell_escape_arg(mode))
+        }
+        (_, true) => " --dangerously-skip-permissions".to_string(),
+        _ => String::new(),
     };
-    // Shell prefix assignments (`VAR=value command`) set the variable in the
-    // environment passed to `command` only — they don't mutate the outer
-    // shell's env, so this is a per-invocation override.
-    let env_prefix = claude_config_dir
+    let skip_flag = permission_flag_owned.as_str();
+    // Fold `CLAUDE_CONFIG_DIR=val` into env(1)'s argv so the assignment takes
+    // effect regardless of what wraps the resulting command (timeout, sandbox
+    // wrappers, etc.). `env` accepts `KEY=val` between options and the
+    // command, mutating only the environment passed to the exec'd process.
+    let env_assignment = claude_config_dir
         .filter(|v| !v.is_empty())
         .map(|v| format!("CLAUDE_CONFIG_DIR={} ", shell_escape_arg(v)))
         .unwrap_or_default();
@@ -183,7 +210,7 @@ pub(super) fn build_agent_command(
     let escaped_tools = shell_escape_arg(allowed_tools);
     let escaped_kickoff = shell_escape_arg(kickoff_file);
     let claude_cmd = format!(
-        "{env_prefix}env -u CLAUDECODE claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
+        "env -u CLAUDECODE {env_assignment}claude{skip_flag} --model {escaped_model} --allowedTools {escaped_tools} -- \"$(cat {escaped_kickoff})\""
     );
     sandbox_command.map_or_else(
         || format!("{timeout_cmd} {timeout_secs}s {claude_cmd}"),
@@ -483,10 +510,17 @@ pub(super) fn init_worktree_agent(
     crosslink_dir: &Path,
     compact_name: &str,
 ) -> Result<String> {
-    // Run crosslink init --force in the worktree
+    // Run `crosslink init` in the worktree. Plain init (no --force) is
+    // idempotent: it short-circuits when `.crosslink/` and `.claude/` already
+    // exist, which is the common case for a worktree freshly checked out
+    // from a branch that has both committed. We keep `--skip-signing` and
+    // `--defaults` to suppress the TUI walkthrough on the rare path where
+    // init actually has work to do. Dropping `--force` here prevents the
+    // worktree's `hook-config.json` from being re-templated and leaking a
+    // spurious diff into every agent-produced PR. See GH#583.
     let output = Command::new("crosslink")
         .current_dir(worktree_dir)
-        .args(["init", "--force", "--skip-signing", "--defaults"])
+        .args(["init", "--skip-signing", "--defaults"])
         .output()
         .context("Failed to run crosslink init in worktree")?;
 
@@ -507,12 +541,16 @@ pub(super) fn init_worktree_agent(
     if wt_crosslink.exists() {
         // Only init if not already configured
         if AgentConfig::load(&wt_crosslink)?.is_none() {
+            // Kickoff subagent worktree → `AgentRole::Agent` so hub
+            // commits from this worktree sign with the agent's own
+            // key and attribute distinctly. See #718.
             if let Err(e) = super::super::agent::init(
                 &wt_crosslink,
                 &agent_id,
                 Some(&format!("Kickoff agent for: {compact_name}")),
                 false, // generate dedicated signing key
                 false,
+                crate::identity::AgentRole::Agent,
             ) {
                 tracing::warn!("could not initialize agent identity in worktree: {e} — agent will work without its own identity");
             }
@@ -591,6 +629,7 @@ pub(super) fn launch_local(
     crosslink_dir: &Path,
     skip_permissions: bool,
     runtime: super::types::KickoffRuntime,
+    permission_mode: Option<&str>,
 ) -> Result<()> {
     use super::types::KickoffRuntime;
 
@@ -646,6 +685,7 @@ pub(super) fn launch_local(
             worktree_dir,
             skip_permissions,
             claude_config_dir.as_deref(),
+            permission_mode,
         )
     };
 
@@ -682,14 +722,28 @@ pub(super) fn launch_local(
 }
 
 /// Launch the agent in a Docker or Podman container.
+///
+/// `protected_doc_rel`, when `Some`, is the worktree-relative path of the design
+/// document passed via `--doc`. It is overlay-bind-mounted read-only on top of
+/// the writable workspace mount so the agent physically cannot edit the
+/// canonical design input. See GH#580.
+///
+/// `host_repo_root` is the host path to the main repo (the worktree's parent
+/// repo). The main repo's `.git/` directory is bind-mounted at its host
+/// absolute path inside the container so the worktree's `.git` file -- which
+/// contains an absolute `gitdir: <host>/.git/worktrees/<branch>/` reference
+/// -- resolves and git operations inside the container work. See GH#584.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn launch_container(
     runtime: &ContainerMode,
     worktree_dir: &Path,
+    host_repo_root: &Path,
     image: &str,
     agent_id: &str,
     model: &str,
     allowed_tools: &str,
     timeout: Duration,
+    protected_doc_rel: Option<&Path>,
 ) -> Result<String> {
     let runtime_cmd = match runtime {
         ContainerMode::Docker => "docker",
@@ -743,6 +797,22 @@ pub(super) fn launch_container(
         format!("AGENT_ID={}", agent_id),
     ];
 
+    // Bind-mount the main repo's `.git/` at its host absolute path. The
+    // worktree's `.git` is a single file containing an absolute
+    // `gitdir: <host>/.git/worktrees/<branch>/` pointer; without this mount
+    // that pointer dangles inside the container and every git operation
+    // (status, diff, commit, sync) fails. We mount rw because the per-
+    // worktree subdir under `.git/worktrees/<branch>/` legitimately needs
+    // writes (HEAD, index, refs) for the agent to commit. Hook policy still
+    // blocks the genuinely destructive ops (`push --force`, `reset --hard`,
+    // etc.) regardless of mount mode. See GH#584.
+    let host_git_dir = host_repo_root.join(".git");
+    if host_git_dir.exists() {
+        let git_path = host_git_dir.to_string_lossy();
+        args.push("-v".to_string());
+        args.push(format!("{git_path}:{git_path}:rw"));
+    }
+
     // Pass UID/GID to container for user remapping (non-Windows only)
     if let Some((uid, gid)) = &uid_gid {
         args.extend([
@@ -751,6 +821,34 @@ pub(super) fn launch_container(
             "-e".to_string(),
             format!("HOST_GID={gid}"),
         ]);
+    }
+
+    // Forward Claude auth env vars from the host when set. Using the
+    // `-e NAME` form (no value) tells the runtime to pull the value from
+    // the parent process env, so tokens don't appear in `ps`. macOS hosts
+    // — where the Keychain holds the OAuth credential rather than
+    // `~/.claude/.credentials.json` — rely on this passthrough. See GH#580.
+    for var in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"] {
+        if std::env::var(var).is_ok_and(|v| !v.is_empty()) {
+            args.push("-e".to_string());
+            args.push(var.to_string());
+        }
+    }
+
+    // Overlay-bind the design doc read-only so the agent cannot rewrite the
+    // canonical `--doc` input. Mounting a single file on top of a writable
+    // parent mount is supported by both docker and podman. See GH#580.
+    if let Some(rel) = protected_doc_rel {
+        let host_doc = worktree_dir.join(rel);
+        if host_doc.is_file() {
+            let container_path = format!("/workspaces/repo/{}", rel.display());
+            args.push("-v".to_string());
+            args.push(format!(
+                "{}:{}:ro",
+                host_doc.to_string_lossy(),
+                container_path
+            ));
+        }
     }
 
     // Image and command
@@ -768,9 +866,108 @@ pub(super) fn launch_container(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("{} container launch failed: {}", runtime_cmd, stderr.trim());
+        bail!(format_container_launch_error(runtime_cmd, image, &stderr));
     }
 
     let container_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(container_id)
+}
+
+/// URL of the published GHCR package — surfaced in the launch-failure hint so
+/// users can confirm whether the image they're requesting actually exists.
+const AGENT_IMAGE_PACKAGE_URL: &str =
+    "https://github.com/forecast-bio/crosslink/pkgs/container/crosslink-agent";
+
+/// Format the error message emitted when `docker run` / `podman run` fails.
+///
+/// Detects pull-failure substrings in the runtime's stderr and appends a
+/// hint pointing at `just build-image` (for local builds) and the GHCR
+/// package page (to confirm what's actually published). For other failure
+/// modes (e.g. invalid mount, OOM), the original stderr is returned without
+/// the hint to avoid misdirection.
+fn format_container_launch_error(runtime_cmd: &str, image: &str, stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    let lowered = trimmed.to_ascii_lowercase();
+    let pull_failure = ["not found", "denied", "manifest unknown", "no such image"]
+        .iter()
+        .any(|needle| lowered.contains(needle));
+
+    if pull_failure {
+        format!(
+            "{runtime_cmd} container launch failed: {trimmed}\n\n\
+             Hint: the image `{image}` could not be pulled. Either:\n  \
+               * Build it locally:  just build-image       (tags as :local)\n  \
+               * Or pick a published tag from {AGENT_IMAGE_PACKAGE_URL}\n  \
+                 and pass it via `--image ghcr.io/forecast-bio/crosslink-agent:<tag>`."
+        )
+    } else {
+        format!("{runtime_cmd} container launch failed: {trimmed}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pull_failure_not_found_yields_hint() {
+        let stderr = "Unable to find image 'ghcr.io/forecast-bio/crosslink-agent:latest' locally\nError response from daemon: manifest unknown";
+        let msg = format_container_launch_error(
+            "docker",
+            "ghcr.io/forecast-bio/crosslink-agent:latest",
+            stderr,
+        );
+        assert!(msg.contains("docker container launch failed"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("just build-image"));
+        assert!(msg.contains(AGENT_IMAGE_PACKAGE_URL));
+        assert!(msg.contains("ghcr.io/forecast-bio/crosslink-agent:latest"));
+    }
+
+    #[test]
+    fn pull_failure_denied_yields_hint() {
+        let stderr = "Error response from daemon: pull access denied for some/image, repository does not exist or may require 'docker login'";
+        let msg = format_container_launch_error(
+            "podman",
+            "ghcr.io/forecast-bio/crosslink-agent:nightly",
+            stderr,
+        );
+        assert!(msg.contains("podman container launch failed"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("just build-image"));
+    }
+
+    #[test]
+    fn pull_failure_no_such_image_yields_hint() {
+        let stderr = "Error: No such image: ghcr.io/forecast-bio/crosslink-agent:does-not-exist";
+        let msg = format_container_launch_error(
+            "docker",
+            "ghcr.io/forecast-bio/crosslink-agent:does-not-exist",
+            stderr,
+        );
+        assert!(msg.contains("Hint:"));
+    }
+
+    #[test]
+    fn non_pull_failure_omits_hint() {
+        let stderr = "docker: Error response from daemon: invalid mount config for type \"bind\": bind source path does not exist";
+        let msg = format_container_launch_error(
+            "docker",
+            "ghcr.io/forecast-bio/crosslink-agent:latest",
+            stderr,
+        );
+        assert!(msg.contains("docker container launch failed"));
+        assert!(
+            !msg.contains("Hint:"),
+            "non-pull errors must not get the build-image hint (would misdirect): {msg}"
+        );
+        assert!(!msg.contains("just build-image"));
+    }
+
+    #[test]
+    fn pull_failure_is_case_insensitive() {
+        let stderr = "Error: NOT FOUND";
+        let msg = format_container_launch_error("docker", "image:tag", stderr);
+        assert!(msg.contains("Hint:"));
+    }
 }

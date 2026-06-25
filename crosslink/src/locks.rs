@@ -87,16 +87,6 @@ impl LocksFile {
         Ok(locks)
     }
 
-    /// Save to a file using atomic write (temp + rename) to prevent corruption.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be serialized or written atomically.
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        crate::utils::atomic_write(path, json.as_bytes())
-    }
-
     /// Check if a specific issue is locked.
     #[must_use]
     pub fn is_locked(&self, issue_id: i64) -> bool {
@@ -138,39 +128,15 @@ impl LocksFile {
     }
 }
 
-/// Heartbeat file for an agent (lives at `heartbeats/{agent_id}.json`).
+/// Heartbeat for an agent. In v3 the serialized form lives at `heartbeat.json`
+/// at the root of the agent's own ref (`refs/heads/crosslink/agents/<id>`); the legacy
+/// v2/V1 worktree heartbeat files used the same schema.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Heartbeat {
     pub agent_id: String,
     pub last_heartbeat: DateTime<Utc>,
     pub active_issue_id: Option<i64>,
     pub machine_id: String,
-}
-
-/// Trust keyring — list of trusted GPG key fingerprints.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Keyring {
-    pub trusted_fingerprints: Vec<String>,
-}
-
-impl Keyring {
-    /// Load and parse a keyring.json file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read or parsed as valid JSON.
-    pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read {}", path.display()))?;
-        serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse {}", path.display()))
-    }
-
-    /// Check if a fingerprint is trusted.
-    #[must_use]
-    pub fn is_trusted(&self, fingerprint: &str) -> bool {
-        self.trusted_fingerprints.iter().any(|f| f == fingerprint)
-    }
 }
 
 #[cfg(test)]
@@ -256,12 +222,12 @@ mod tests {
     }
 
     #[test]
-    fn test_save_and_load_roundtrip() {
+    fn test_serialize_and_load_roundtrip() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("locks.json");
 
         let original = sample_locks_file();
-        original.save(&path).unwrap();
+        std::fs::write(&path, serde_json::to_string_pretty(&original).unwrap()).unwrap();
 
         let loaded = LocksFile::load(&path).unwrap();
         assert_eq!(loaded.version, original.version);
@@ -355,42 +321,6 @@ mod tests {
         let json = serde_json::to_string(&hb).unwrap();
         let parsed: Heartbeat = serde_json::from_str(&json).unwrap();
         assert!(parsed.active_issue_id.is_none());
-    }
-
-    // ==================== Keyring Tests ====================
-
-    #[test]
-    fn test_keyring_is_trusted() {
-        let keyring = Keyring {
-            trusted_fingerprints: vec!["ABC123".to_string(), "DEF456".to_string()],
-        };
-        assert!(keyring.is_trusted("ABC123"));
-        assert!(keyring.is_trusted("DEF456"));
-        assert!(!keyring.is_trusted("XYZ999"));
-        assert!(!keyring.is_trusted(""));
-    }
-
-    #[test]
-    fn test_keyring_empty() {
-        let keyring = Keyring {
-            trusted_fingerprints: vec![],
-        };
-        assert!(!keyring.is_trusted("anything"));
-    }
-
-    #[test]
-    fn test_keyring_save_and_load() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("keyring.json");
-
-        let keyring = Keyring {
-            trusted_fingerprints: vec!["ABC".to_string(), "DEF".to_string()],
-        };
-        let json = serde_json::to_string_pretty(&keyring).unwrap();
-        std::fs::write(&path, json).unwrap();
-
-        let loaded = Keyring::load(&path).unwrap();
-        assert_eq!(loaded, keyring);
     }
 
     // ==================== Property-Based Tests ====================

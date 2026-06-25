@@ -113,6 +113,17 @@ For each finding, decide:
 - **Fix now** if it's a quick cleanup (remove unused import, delete dead code)
 - **File issue** if it requires more work: `crosslink issue create "<description>" -p low --label maintenance`
 
+#### Code clones (cpitd)
+
+If the `cpitd` binary is present, scan for duplicated code and review existing clone issues:
+
+```bash
+command -v cpitd >/dev/null 2>&1 && crosslink cpitd scan || echo "cpitd not installed — skip (optional; install via pipx install cpitd)"
+crosslink cpitd status
+```
+
+`crosslink cpitd scan` files each detected clone as a `cpitd`-labelled crosslink issue (existing clones get a rescan comment), and `cpitd status` lists the open clone issues. Review the reported clones the same way as other debt: extract shared logic for quick wins, or leave the filed issue for larger refactors.
+
 ### 5. Documentation freshness
 
 Check that key documentation files exist and aren't stale:

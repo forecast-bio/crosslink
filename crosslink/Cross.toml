@@ -1,0 +1,31 @@
+# cross-rs configuration. Used by `.github/workflows/container-image.yml`'s
+# arm64 leg (`cross build --target aarch64-unknown-linux-musl`); native amd64
+# builds via plain `cargo build` and never load this file.
+#
+# Why this file exists:
+#   `crosslink/src/server/embedded.rs` has
+#       #[derive(RustEmbed)]
+#       #[folder = "../dashboard/dist/"]
+#   which rust-embed resolves at compile time, expecting
+#   `<repo>/dashboard/dist/` to exist. `build.rs` writes a placeholder there
+#   if the real frontend bundle isn't built (so plain `cargo build` works
+#   without first running `npm --prefix dashboard run build`).
+#
+#   Inside the `cross` docker container, only the crate dir (`crosslink/`)
+#   is mounted as `/project`. From `/project`, `../dashboard/` resolves to
+#   `/dashboard/` — outside the mount, and not present in the cross base
+#   image. build.rs's placeholder write also fails silently (the path is
+#   on the container filesystem, not the bind-mount, and ownership/perms
+#   differ from the host).
+#
+#   pre-build commands run at image-build time when cross materializes the
+#   custom image, and the result persists in that image. We pre-create
+#   `/dashboard/dist/` with permissive perms so build.rs can write its
+#   placeholder into it on every subsequent `cross build`, satisfying
+#   rust-embed without touching the source layout or the embed path.
+
+[target.aarch64-unknown-linux-musl]
+pre-build = [
+    "mkdir -p /dashboard/dist",
+    "chmod 0777 /dashboard /dashboard/dist",
+]

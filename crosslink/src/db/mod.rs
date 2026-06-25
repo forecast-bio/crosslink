@@ -8,6 +8,7 @@ mod milestones;
 mod relations;
 pub mod sentinel;
 mod sessions;
+pub mod snapshot;
 mod time_entries;
 mod token_usage;
 

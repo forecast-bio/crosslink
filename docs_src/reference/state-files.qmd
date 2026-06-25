@@ -1,0 +1,224 @@
+---
+title: "State and config files"
+---
+
+`.crosslink/` holds the per-repo configuration and coordination state that crosslink reads at runtime. [`hook-config.json`](hook-config.qmd) has its own reference page; this page documents the remaining files in that directory. Each is either user-editable (configuration) or written by crosslink as a mirror of internal state (read-only for users, but documented here so the format is auditable).
+
+&nbsp;
+
+---
+
+## `hook-config.local.json` {#hook-config-local-json}
+
+Per-developer overlay for [`hook-config.json`](hook-config.qmd). Same schema, same keys, **same precedence rules**. Optional -- omit the file entirely when you don't need overrides.
+
+The hook scripts and the Rust `crosslink config` plumbing both load `hook-config.json` first, then shallow-merge `hook-config.local.json` on top. A key set in the local file wins; everything else falls through to the shared config. Use this when you want to keep machine-specific tweaks (a different `crosslink_binary` path, a tighter `tracking_mode`, custom `allowed_bash_prefixes`) out of the committed config.
+
+```bash
+# Write to the local overlay instead of the shared file:
+crosslink config set --local tracking_mode relaxed
+crosslink config set --local crosslink_binary /opt/forecast/bin/crosslink
+```
+
+This file is intentionally ignored by `crosslink init --force` so resets won't clobber your local preferences. Add `.crosslink/hook-config.local.json` to your project `.gitignore` (init does this for you) so it stays out of version control.
+
+&nbsp;
+
+---
+
+## `agent.json`
+
+Machine-local agent identity. Written by `crosslink agent init` (and updated by `crosslink kickoff run` for spawned agents). Gitignored -- every machine and every worktree has its own.
+
+```json
+{
+  "agent_id": "driver--my-feature-abc123",
+  "machine_id": "dollspace",
+  "description": "Driver agent for forecast-bio/crosslink",
+  "role": "driver",
+  "ssh_key_path": "keys/driver_ed25519",
+  "ssh_fingerprint": "SHA256:abc123...",
+  "ssh_public_key": "ssh-ed25519 AAAA... driver@crosslink"
+}
+```
+
+### `agent_id`
+
+Stable identifier for this agent in the coordination hub. String. Format depends on role: `"driver--<name>"` for a main-repo signing identity, `"<parent>--<slug>"` for a kickoff agent inside a worktree (where `<parent>` is the driver that spawned it).
+
+### `machine_id`
+
+Short hostname/handle that disambiguates same-named agents across machines. String. Defaults to `$HOSTNAME` at `crosslink agent init` time; safe to edit by hand if you want a different label in the hub UI.
+
+### `description`
+
+Free-text description shown in `crosslink agent status` and on the coordination dashboard. String, optional.
+
+### `role`
+
+Session role. Values: `"driver"` (main-repo signing identity, owns the SSH key), `"agent"` (autonomous worktree agent, inherits the driver's key). Default: `"driver"`. The role controls whether `crosslink agent init` generates a new SSH key or reuses the parent's.
+
+### `ssh_key_path`
+
+Path to the agent's SSH private key, relative to `.crosslink/`. String, typically `"keys/<agent_id>_ed25519"`. Used by `crosslink commit` and any other path that signs hub commits. Leave unset when an agent has no key (e.g. a worktree agent inheriting from its driver).
+
+### `ssh_fingerprint`
+
+SSH public-key fingerprint (`SHA256:...`). String, optional. Surfaced by `crosslink agent status` and used by `crosslink trust check`.
+
+### `ssh_public_key`
+
+Full SSH public-key line (`ssh-ed25519 AAAA... comment`). String, optional. Published to the hub via `crosslink trust approve` so other agents can verify this agent's signatures.
+
+&nbsp;
+
+---
+
+## `locks.json`
+
+Coordination locks tracking which agents currently hold which issues. Lives on the shared `crosslink/hub` branch but cached locally at `.crosslink/.hub-cache/locks.json` for fast reads. Most fields are written by `crosslink locks claim` / `release` / `steal`; the only user-tunable knob is `settings.stale_lock_timeout_minutes`.
+
+```json
+{
+  "version": 1,
+  "locks": {
+    "42": {
+      "agent_id": "driver--my-feature-abc123",
+      "branch": "feature/my-feature",
+      "claimed_at": "2026-05-11T17:30:00Z",
+      "signed_by": "SHA256:abc123..."
+    }
+  },
+  "settings": {
+    "stale_lock_timeout_minutes": 60
+  }
+}
+```
+
+### `version`
+
+Schema version of the locks file. Integer. Current: `1`. Bumped only on incompatible schema changes.
+
+### `locks`
+
+Map from issue ID (string-encoded integer) to the active lock. Each entry has the four fields below. Written by `crosslink locks claim` and friends; do not hand-edit -- use the CLI so signatures stay consistent.
+
+### `locks.<issue_id>.agent_id`
+
+The agent currently holding the lock. String. Set by `crosslink locks claim` and verified against the SSH signature on each operation.
+
+### `locks.<issue_id>.branch`
+
+Branch the agent is working on for this issue. String, optional. Surfaced by `crosslink locks list` so you can map locks to in-flight worktrees.
+
+### `locks.<issue_id>.claimed_at`
+
+ISO-8601 UTC timestamp of the claim. Compared against `settings.stale_lock_timeout_minutes` for stale-lock detection.
+
+### `locks.<issue_id>.signed_by`
+
+SSH fingerprint of the signing key. Used to verify the claim was made by an agent crosslink trusts -- see [`signing_enforcement`](hook-config.qmd#signing_enforcement) for how strictness is configured.
+
+### `settings.stale_lock_timeout_minutes`
+
+Minutes after which a lock is considered stale and eligible for `crosslink locks steal` (or auto-steal when [`auto_steal_stale_locks`](hook-config.qmd#auto_steal_stale_locks) is on). Integer. Default: `60`. Lower for fast-moving solo work, raise when agents legitimately run long without heartbeats.
+
+&nbsp;
+
+---
+
+## `swarm.toml`
+
+Trust model configuration consumed by `crosslink swarm review` and related ADIHQ-style review passes. Written by `crosslink trust-model init <model>`; safe to hand-edit afterwards. Optional -- when absent, every command behaves as if the file contains the default `"local-only"` profile.
+
+```toml
+[trust]
+model = "local-only"
+description = "Single-tenant dev box; no external attackers in threat model."
+
+[ignore]
+patterns = ["timing attack", "side-channel"]
+reason = "By design — out of scope for local-only deployments."
+
+[boundaries]
+external = []
+internal = ["http", "ws", "cli"]
+```
+
+### `[trust].model`
+
+Trust model identifier. String. Values: `"local-only"`, `"multi-tenant"`, `"public-api"`, `"custom"`. Default: `"local-only"`. Drives the priors that review agents apply when triaging findings.
+
+### `[trust].description`
+
+Free-text description of the threat model surfaced to review agents as context. String, optional.
+
+### `[ignore].patterns`
+
+Substrings (case-insensitive) matched against finding titles. Matches are auto-triaged as `by-design`. String array, optional. Use to suppress noise from finding classes that don't apply to your deployment (e.g. timing attacks for a local-only tool).
+
+### `[ignore].reason`
+
+Reason string attached to findings auto-triaged by the `patterns` list. String, optional. Shown in the review report so suppressions are auditable.
+
+### `[boundaries].external`
+
+Interfaces crossing your trust boundary (HTTP, websocket, gRPC, CLI input, file). String array, optional. Review agents treat untrusted-input checks as higher priority when an interface is listed here.
+
+### `[boundaries].internal`
+
+Interfaces inside your trust boundary. String array, optional. Findings on these surfaces may be downgraded depending on the trust model.
+
+&nbsp;
+
+---
+
+## `session.json`
+
+Mirror of the current session row from `issues.db`, written by the crosslink daemon every 30 seconds. Lets external tooling (status-line scripts, IDE plugins, the TUI) read the current session without opening the SQLite database.
+
+```json
+{
+  "session_id": 47,
+  "started_at": "2026-05-11T17:06:23Z",
+  "active_issue_id": 731
+}
+```
+
+### `session_id`
+
+Database primary key of the active session. Integer.
+
+### `started_at`
+
+ISO-8601 UTC timestamp of `crosslink session start`.
+
+### `active_issue_id`
+
+Issue currently set as focus via `crosslink session work <id>`. Integer or `null` when no issue is claimed.
+
+This file is read-only from a user's perspective -- editing it doesn't change the session, since the daemon overwrites it on the next flush. Use `crosslink session work <id>` / `end` to change state.
+
+&nbsp;
+
+---
+
+## Other files in `.crosslink/`
+
+These exist for completeness; they're internal state with no user-tunable fields and don't need editing.
+
+| File | Purpose |
+|---|---|
+| `issues.db` | SQLite database — issues, comments, sessions, heartbeats. Use the `crosslink` CLI, not direct SQL. |
+| `daemon.log`, `daemon.pid` | Output and PID of `crosslink daemon`. |
+| `sentinel.log`, `sentinel.pid` | Output and PID of the sentinel loop (when enabled via [`sentinel.enabled`](hook-config.qmd#sentinel-enabled)). |
+| `driver-key.pub` | Cached copy of the driver's SSH public key for trust lookups. |
+| `heartbeats/` | Per-agent heartbeat JSON written by the `PostToolUse` hook. Ephemeral. |
+| `keys/` | Generated SSH keypairs for `crosslink agent init`. Never edit by hand. |
+| `last_test_run` | Single-line timestamp set by `crosslink issue tested`, consumed by the test-reminder hook. |
+| `repo-id` | Single-line opaque repo identifier used in compact agent IDs. |
+| `promotion-log.json` | Audit log of `L<n>` → `#<n>` issue promotions across sync. |
+| `.gitignore` | Lists state files that should not be committed (managed by `crosslink init`). |
+| `.hub-cache/`, `hub-cache/`, `.external-cache/`, `.style-cache/` | Read-through caches for hub branches, external repos, and the style sync source. Safe to delete; they rebuild on next sync. |
+| `rules/`, `rules.local/` | Project rules injected into agent context. Edit via `crosslink workflow` or directly as Markdown -- see [Rules reference](rules.qmd). |
+| `meta/`, `orchestrator/`, `locks/` | Internal subsystem state managed by `crosslink sync`, `crosslink swarm`, and the lock subsystem respectively. |

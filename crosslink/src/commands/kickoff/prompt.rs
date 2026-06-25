@@ -263,6 +263,13 @@ these, ask the user to run it manually:
         if let Some(escalation) = super::super::design_doc::build_open_questions_escalation(doc) {
             prompt.push_str(&escalation);
         }
+        // When the doc came from an on-disk path (i.e. `--doc <path>` rather
+        // than an inline description), state plainly that the file is
+        // canonical input and must not be edited. Pairs with the chmod 0444
+        // + read-only bind mount applied by `kickoff run`. See GH#580.
+        if let Some(path) = opts.doc_path {
+            prompt.push_str(&build_canonical_doc_stanza(path));
+        }
     }
 
     // Inject plan context if a prior gap analysis exists for this design doc
@@ -293,6 +300,35 @@ these, ask the user to run it manually:
     prompt.push_str(build_final_steps_section());
 
     prompt
+}
+
+/// Build the "## Design Document — Canonical Input" stanza.
+///
+/// Surfaced in KICKOFF.md whenever `--doc <path>` is provided so the agent is
+/// told, in-prompt, that the design file is read-only input. The file system
+/// also gets chmod 0444 and (in container mode) a read-only bind mount —
+/// this stanza is the prompt-level leg of that defense. See GH#580.
+fn build_canonical_doc_stanza(doc_path: &str) -> String {
+    format!(
+        r"
+## Design Document — Canonical Input
+
+The design document at `{doc_path}` was passed via `--doc` and is **canonical,
+read-only input** to this kickoff run.
+
+- **Do not edit** this file. Its sections, headings, OPEN-question markers,
+  and surrounding prose are deliberate and may be referenced by reviewers.
+- The full content is already inlined above; you do not need to re-read the
+  file to act on it.
+- The file is mounted read-only inside the container (and chmod'd 0444 in
+  the worktree). A post-run SHA-256 check compares the on-disk hash to a
+  launch-time snapshot; mismatches will be flagged in `crosslink kickoff
+  report` / `status`.
+- If you believe the design needs to change, surface the proposed delta in
+  your final report or in a crosslink comment on the issue. Do not rewrite
+  the source.
+"
+    )
 }
 
 /// Build a "## Plan Context" section from a prior gap analysis JSON file.

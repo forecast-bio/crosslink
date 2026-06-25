@@ -21,6 +21,22 @@ pub struct CheckpointState {
     pub display_id_map: BTreeMap<Uuid, i64>,
     pub locks: BTreeMap<i64, LockEntry>,
     pub issues: BTreeMap<Uuid, CompactIssue>,
+    /// Milestones, keyed by uuid. Mirrors the `meta/milestones/{uuid}.json`
+    /// (`MilestoneEntry`) file schema. `#[serde(default)]` so checkpoints
+    /// written before PR3.5 parse with an empty map.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub milestones: BTreeMap<Uuid, CompactMilestone>,
+    /// Tombstones: uuids of deleted issues. Deletion wins forever — any event
+    /// for a uuid in this set (including a later-ordered `IssueCreated`) is
+    /// ignored, so a deleted issue can never be resurrected. `#[serde(default)]`
+    /// for backward compatibility with pre-PR3.5 checkpoints.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub deleted_issues: BTreeSet<Uuid>,
+    /// Next milestone display id to allocate. Mirrors `counters.json`'s
+    /// `next_milestone_id`. Carried-id adoption (first-claim-wins by
+    /// `OrderingKey`) bumps this past adopted ids, exactly like `next_display_id`.
+    #[serde(default = "default_next_id")]
+    pub next_milestone_id: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skew_warnings: Vec<SkewWarning>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,6 +49,12 @@ pub struct CheckpointState {
     pub watermark: Option<OrderingKey>,
 }
 
+/// Default for `next_*_id` counters when absent from a serialized checkpoint
+/// (display ids start at 1).
+const fn default_next_id() -> i64 {
+    1
+}
+
 impl Default for CheckpointState {
     fn default() -> Self {
         Self {
@@ -41,6 +63,9 @@ impl Default for CheckpointState {
             display_id_map: BTreeMap::new(),
             locks: BTreeMap::new(),
             issues: BTreeMap::new(),
+            milestones: BTreeMap::new(),
+            deleted_issues: BTreeSet::new(),
+            next_milestone_id: 1,
             skew_warnings: Vec::new(),
             compaction_lease: None,
             unsigned_event_warnings: Vec::new(),
@@ -76,6 +101,12 @@ pub struct CompactIssue {
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
+    /// When the issue becomes actionable (GH #361).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<DateTime<Utc>>,
+    /// Hard deadline (GH #361).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub labels: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -84,6 +115,71 @@ pub struct CompactIssue {
     pub related: BTreeSet<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub milestone_uuid: Option<Uuid>,
+    /// Comments, keyed by comment uuid for deterministic order + idempotency.
+    /// Mirrors the `CommentEntry` / `CommentFile` file schema. `#[serde(default)]`
+    /// so pre-PR3.5 checkpoints parse with an empty map.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub comments: BTreeMap<Uuid, CompactComment>,
+    /// Time entries, keyed by entry uuid (event-only identity) for deterministic
+    /// order + idempotency. Mirrors the `TimeEntry` file schema.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub time_entries: BTreeMap<Uuid, CompactTimeEntry>,
+}
+
+/// A reduced comment mirroring `CommentEntry` / `CommentFile` (`issue_file.rs`).
+///
+/// `display_id` is the counter-claimed `i64` comment id (the `id` field of
+/// `CommentEntry`); the keying uuid lives on `CompactIssue::comments`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompactComment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_id: Option<i64>,
+    pub author: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intervention_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver_key_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+}
+
+/// A reduced time entry mirroring `TimeEntry` (`issue_file.rs`).
+///
+/// `display_id` is the counter-claimed `i64` id; the keying entry uuid lives on
+/// `CompactIssue::time_entries` (event-only identity, not in the file schema).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompactTimeEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_id: Option<i64>,
+    pub started_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<i64>,
+}
+
+/// A reduced milestone mirroring `MilestoneEntry` (`issue_file.rs`).
+///
+/// `display_id` is the counter-claimed milestone id, adopted first-claim-wins.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompactMilestone {
+    pub uuid: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_id: Option<i64>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub status: crate::models::IssueStatus,
+    pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<DateTime<Utc>>,
 }
 
 /// Advisory compaction lease to prevent concurrent compaction.
@@ -114,6 +210,25 @@ pub struct UnsignedEventWarning {
 }
 
 // ── Checkpoint I/O ───────────────────────────────────────────────────
+
+impl CheckpointState {
+    /// Parse a `CheckpointState` from raw JSON bytes.
+    ///
+    /// Used by `ObjectStoreSource` to deserialize checkpoint blobs read from
+    /// the git object store without going through a temporary file. Shares the
+    /// same serde path as `read_checkpoint`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bytes are not valid UTF-8 or cannot be
+    /// deserialized as `CheckpointState`.
+    // PR2+ consumer API: used by ObjectStoreSource (lib consumers and tests),
+    // not by the bin, whose duplicate module tree flags it as dead code.
+    #[allow(dead_code)]
+    pub fn from_slice(bytes: &[u8]) -> Result<Self> {
+        serde_json::from_slice(bytes).context("Failed to parse checkpoint state from bytes")
+    }
+}
 
 const CHECKPOINT_FILE: &str = "state.json";
 const WATERMARK_FILE: &str = "watermark.json";
@@ -235,10 +350,14 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
                 closed_at: None,
+                scheduled_at: None,
+                due_at: None,
                 labels: BTreeSet::from(["bug".to_string()]),
                 blockers: BTreeSet::new(),
                 related: BTreeSet::new(),
                 milestone_uuid: None,
+                comments: BTreeMap::new(),
+                time_entries: BTreeMap::new(),
             },
         );
         state.locks.insert(
@@ -331,10 +450,14 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
             labels: BTreeSet::from(["a".to_string(), "b".to_string()]),
             blockers: BTreeSet::from([Uuid::new_v4()]),
             related: BTreeSet::new(),
             milestone_uuid: None,
+            comments: BTreeMap::new(),
+            time_entries: BTreeMap::new(),
         };
         let json = serde_json::to_string(&issue).unwrap();
         let parsed: CompactIssue = serde_json::from_str(&json).unwrap();

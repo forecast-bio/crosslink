@@ -142,6 +142,8 @@ pub fn to_shared(crosslink_dir: &Path, db: &Database) -> Result<()> {
             created_at: issue.created_at,
             updated_at: issue.updated_at,
             closed_at: issue.closed_at,
+            scheduled_at: issue.scheduled_at,
+            due_at: issue.due_at,
             labels,
             comments: comment_entries,
             blockers: blocker_uuids,
@@ -392,6 +394,8 @@ mod tests {
             created_at: issue.created_at,
             updated_at: issue.updated_at,
             closed_at: issue.closed_at,
+            scheduled_at: issue.scheduled_at,
+            due_at: issue.due_at,
             labels,
             comments: comments
                 .iter()
@@ -450,6 +454,8 @@ mod tests {
             created_at: now,
             updated_at: now,
             closed_at: None,
+            scheduled_at: None,
+            due_at: None,
             labels: vec!["test".to_string()],
             comments: vec![],
             blockers: vec![],

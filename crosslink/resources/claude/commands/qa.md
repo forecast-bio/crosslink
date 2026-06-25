@@ -1,3 +1,8 @@
+---
+description: Automated architectural code review against SOLID, security, and complexity heuristics
+argument-hint: [path | "current diff"]
+---
+
 # SKILL: Automated Architectural Code Review (QA Agent)
 
 ## 1. Role Definition

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-/* CSS custom properties for the dark theme */
+/* CSS custom properties for the dark theme (default). The light
+ * theme lives under `.theme-light` — `lib/theme.ts` toggles the class
+ * on <html> based on the user's preference. */
 @layer base {
   :root {
     --background: 224 71% 4%;
@@ -31,6 +33,36 @@
     --sidebar-primary: 210 40% 98%;
     --sidebar-primary-foreground: 222.2 47.4% 1.2%;
     --sidebar-ring: 216 34% 17%;
+  }
+
+  :root.theme-light {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 210 40% 92%;
+    --accent-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --border: 214 32% 86%;
+    --input: 214 32% 86%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 222 47% 11%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --destructive: 0 84% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 214 32% 86%;
+    --sidebar-background: 210 40% 96%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-border: 214 32% 82%;
+    --sidebar-accent: 214 32% 86%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-primary: 222 47% 11%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-ring: 214 32% 86%;
   }
 }
 

@@ -37,8 +37,18 @@ pub fn run(command: ContainerCommands) -> Result<()> {
     }
 }
 
-const IMAGE_NAME: &str = "crosslink-agent";
+// GHCR-namespaced image name so this command composes with `crosslink kickoff
+// run --container docker|podman` (which defaults to the same registry path).
+// Built images, lookup paths, and snapshot tags all live under this name.
+const IMAGE_NAME: &str = "ghcr.io/forecast-bio/crosslink-agent";
+// Default tag when starting a container or checking staleness — matches
+// kickoff's `--image` default so a `docker pull` of the published image
+// satisfies both code paths.
 const IMAGE_TAG: &str = "latest";
+// Default tag emitted by `crosslink container build`. Distinct from
+// IMAGE_TAG so a local rebuild doesn't shadow a pulled `:latest` —
+// matches the `:local` convention used by the `just build-image` recipe.
+const BUILD_DEFAULT_TAG: &str = "local";
 const CONTAINER_PREFIX: &str = "crosslink-task-";
 const LABEL_AGENT: &str = "crosslink-agent=true";
 
@@ -191,7 +201,8 @@ fn check_staleness() {
     if let Some(image_hash) = get_image_hash() {
         if image_hash != binary_hash {
             tracing::warn!(
-                "container image is stale (built from a different crosslink binary). Run 'crosslink container build' to update."
+                "container image {IMAGE_NAME}:{IMAGE_TAG} is stale relative to your installed crosslink binary. \
+                 Pull the latest published image (`docker pull {IMAGE_NAME}:{IMAGE_TAG}`) or rebuild locally (`just build-image` or `crosslink container build`)."
             );
         }
     }
@@ -216,7 +227,7 @@ pub fn build(force: bool, tag: Option<&str>, dockerfile: Option<&str>) -> Result
         bail!("Docker is not available. Install Docker and ensure the daemon is running.");
     }
 
-    let tag = tag.unwrap_or(IMAGE_TAG);
+    let tag = tag.unwrap_or(BUILD_DEFAULT_TAG);
     let image = format!("{IMAGE_NAME}:{tag}");
 
     // Create temp build context
@@ -626,4 +637,39 @@ pub fn snapshot(name: &str, tag: Option<&str>) -> Result<()> {
     println!("Snapshot saved: {image}");
     println!("Use with: crosslink container start --image {image}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The container subcommands MUST address the same registry-qualified
+    /// image name as `crosslink kickoff run --container docker|podman`.
+    /// Regressing `IMAGE_NAME` back to the bare `crosslink-agent` form
+    /// silently un-composes the two code paths and re-opens GH#576.
+    #[test]
+    fn image_name_is_ghcr_namespaced() {
+        assert_eq!(IMAGE_NAME, "ghcr.io/forecast-bio/crosslink-agent");
+        assert_eq!(
+            IMAGE_NAME,
+            crate::commands::kickoff::DEFAULT_AGENT_IMAGE
+                .rsplit_once(':')
+                .map_or(IMAGE_NAME, |(name, _)| name),
+            "container.rs IMAGE_NAME diverged from kickoff DEFAULT_AGENT_IMAGE — \
+             re-opens the GH#576 compose-failure between `crosslink container build` \
+             and `crosslink kickoff run --container …`"
+        );
+    }
+
+    /// `build()` must default to a tag distinct from the lookup tag so a
+    /// local rebuild doesn't shadow a `docker pull`ed `:latest`.
+    #[test]
+    fn build_default_tag_is_distinct_from_lookup_tag() {
+        assert_eq!(BUILD_DEFAULT_TAG, "local");
+        assert_ne!(
+            BUILD_DEFAULT_TAG, IMAGE_TAG,
+            "BUILD_DEFAULT_TAG and IMAGE_TAG must differ — otherwise `crosslink container build` \
+             clobbers the published `:latest` users pulled from GHCR"
+        );
+    }
 }

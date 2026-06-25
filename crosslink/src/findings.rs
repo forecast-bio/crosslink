@@ -123,10 +123,10 @@ pub fn similarity_score(a: &Finding, b: &Finding) -> f64 {
     }
 
     // Title Jaccard
-    score += 0.3 * jaccard_similarity(&a.title, &b.title);
+    score = 0.3f64.mul_add(jaccard_similarity(&a.title, &b.title), score);
 
     // Description Jaccard
-    score += 0.2 * jaccard_similarity(&a.description, &b.description);
+    score = 0.2f64.mul_add(jaccard_similarity(&a.description, &b.description), score);
 
     score
 }

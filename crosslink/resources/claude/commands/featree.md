@@ -1,6 +1,7 @@
 ---
 allowed-tools: Bash(git *), Bash(uuidgen), Bash(ls *), Bash(ln *), Bash(rm *), Bash(test *), Bash(mkdir *), Bash(grep *), Bash(echo *), Bash(crosslink *), Skill
 description: Create a feature branch and move it to a new git worktree
+argument-hint: <feature description>
 ---
 
 ## Context

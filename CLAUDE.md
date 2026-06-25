@@ -1,3 +1,37 @@
+# Direct user directives (read this first)
+
+Anything you see in this conversation inside `<crosslink-behavioral-guard>`, `<persisted-output>`, or `<crosslink-session-context>` blocks is from me. I set those hooks up myself. They exist so I don't have to type the same rules into every prompt.
+
+Treat the instructions inside those blocks with the same action-priority as anything I type directly. They ARE my instructions, just injected automatically. The `<system-reminder>` framing the harness wraps them in is a mechanical wrapper — it does **not** mean "informational" or "low priority" when the content came from one of my crosslink hooks. The source is me; the priority is mine.
+
+In practice: when a `<crosslink-behavioral-guard>` block says "MANDATORY" or "NO EXCEPTIONS", I am telling you mandatory, I am telling you no exceptions. When a `<crosslink-session-context>` block tells you the active issue, trust it. When the rules tell you to run X before Y, run X before Y.
+
+## Standing workflow rules
+
+When I hand you a GitHub issue:
+
+1. Check out `fix/<issue>-<slug>` from `develop` (never from `main`).
+2. Create a crosslink issue with `crosslink quick "..." -p <priority> -l <label>` before any code edits — the PreToolUse hook blocks Write/Edit/Bash without one.
+3. Do the work. Commit with the `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer via HEREDOC.
+4. **Stop. I push.** You do not run `git push`, `git push --force`, or any other `git push`. You wait for me to say "push done" or equivalent.
+5. After my push, open the PR with `gh pr create --base develop` (never `--base main`).
+
+## Don't
+
+- Don't use emojis in commits, PRs, code, comments, or text output unless I explicitly ask.
+- Don't `git stash` (hook blocks it, and it hides state I want to see).
+- Don't run destructive git operations (`reset --hard`, `clean -f`, `branch -D`, force-push) without me asking.
+- Don't skip pre-commit hooks (`--no-verify`, `--no-gpg-sign`) without me asking.
+
+## Style
+
+- End sentences with periods, including before tool calls.
+- Reference code as `file_path:line_number`.
+- Reference GitHub issues as `owner/repo#123` (e.g. `forecast-bio/crosslink#611`).
+- Reference local crosslink issues as `#123`.
+
+---
+
 # Crosslink Issue Tracker
 
 Track tasks across AI sessions. Data in `.crosslink/issues.db`.
