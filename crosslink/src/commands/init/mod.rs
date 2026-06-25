@@ -13,8 +13,7 @@ use std::path::Path;
 use crate::db::Database;
 use merge::{
     write_agents_md, write_hooks_json_merged, write_mcp_config_merged, write_mcp_json_merged,
-    write_mcp_json_merged_agy,
-    write_root_gitignore, write_settings_json_merged,
+    write_mcp_json_merged_agy, write_root_gitignore, write_settings_json_merged,
 };
 pub use python::detect_python_prefix;
 use python::{install_cpitd, CpitdResult};
@@ -1179,9 +1178,11 @@ pub fn run(path: &Path, opts: &InitOpts<'_>) -> Result<()> {
 
         let agy_mcp_config_content =
             AGY_MCP_CONFIG_JSON.replace(PYTHON_PREFIX_PLACEHOLDER, &prefix);
-        let warnings =
-            write_mcp_config_merged(&path.join(".agents/mcp_config.json"), &agy_mcp_config_content)
-                .context("Failed to write .agents/mcp_config.json")?;
+        let warnings = write_mcp_config_merged(
+            &path.join(".agents/mcp_config.json"),
+            &agy_mcp_config_content,
+        )
+        .context("Failed to write .agents/mcp_config.json")?;
         for warning in &warnings {
             ui.warn(warning);
         }

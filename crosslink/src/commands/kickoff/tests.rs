@@ -1490,7 +1490,12 @@ fn test_preflight_check_passes_when_commands_available() {
     // For container mode with a non-existent runtime, it should fail.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path(), KickoffRuntime::Claude);
+    let result = preflight_check(
+        &ContainerMode::Docker,
+        &VerifyLevel::Local,
+        dir.path(),
+        KickoffRuntime::Claude,
+    );
     // Docker may or may not be installed — just verify it doesn't panic.
     let _ = result;
 }
@@ -1502,7 +1507,12 @@ fn test_preflight_check_missing_command_includes_hint() {
     // We test the error format rather than specific availability.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    let result = preflight_check(&ContainerMode::Podman, &VerifyLevel::Thorough, dir.path(), KickoffRuntime::Claude);
+    let result = preflight_check(
+        &ContainerMode::Podman,
+        &VerifyLevel::Thorough,
+        dir.path(),
+        KickoffRuntime::Claude,
+    );
     if let Err(e) = result {
         let msg = e.to_string();
         // If podman is missing, the error should mention it with a hint
@@ -1713,7 +1723,12 @@ fn test_preflight_check_validates_sandbox_binary() {
         r#"{"sandbox": {"command": "crosslink_nonexistent_sandbox_xyz --isolate --"}}"#,
     )
     .unwrap();
-    let result = preflight_check(&ContainerMode::None, &VerifyLevel::Local, dir.path(), KickoffRuntime::Claude);
+    let result = preflight_check(
+        &ContainerMode::None,
+        &VerifyLevel::Local,
+        dir.path(),
+        KickoffRuntime::Claude,
+    );
     if let Err(e) = result {
         let msg = e.to_string();
         assert!(msg.contains("crosslink_nonexistent_sandbox_xyz"));
