@@ -290,7 +290,7 @@ def check_control_flags(crosslink_dir):
         return
     if proc.returncode == 0:
         return
-    if proc.returncode == 2:
+    if proc.returncode == 2 and proc.stdout.strip():
         try:
             state = json.loads(proc.stdout.strip())
         except (json.JSONDecodeError, ValueError):
@@ -333,6 +333,18 @@ def main():
             file=sys.stderr,
         )
         sys.exit(2)
+
+    # Normalize Antigravity tool names and input fields for cross-compatibility
+    if tool_name in ('replace_file_content', 'multi_replace_file_content', 'write_to_file'):
+        tool_name = 'Edit'
+    elif tool_name == 'run_command':
+        tool_name = 'Bash'
+
+    tool_input = input_data.setdefault('tool_input', {})
+    if 'CommandLine' in tool_input and 'command' not in tool_input:
+        tool_input['command'] = tool_input['CommandLine']
+    if 'TargetFile' in tool_input and 'file_path' not in tool_input:
+        tool_input['file_path'] = tool_input['TargetFile']
 
     # Only check on Write, Edit, Bash
     if tool_name not in ('Write', 'Edit', 'Bash'):

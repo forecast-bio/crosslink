@@ -61,6 +61,37 @@ pub struct KickoffMetadata {
     pub timeout_secs: u64,
 }
 
+/// Which agent runtime to use when launching via kickoff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KickoffRuntime {
+    /// Launch using the `claude` CLI (Claude Code). This is the default.
+    #[default]
+    Claude,
+    /// Launch using the `agy` CLI (Google Antigravity).
+    Antigravity,
+    /// Launch both runtimes (reserved for future multi-agent support).
+    Both,
+}
+
+impl KickoffRuntime {
+    pub const fn wants_claude(self) -> bool {
+        matches!(self, Self::Claude | Self::Both)
+    }
+    pub const fn wants_antigravity(self) -> bool {
+        matches!(self, Self::Antigravity | Self::Both)
+    }
+}
+
+/// Parse a runtime string into `KickoffRuntime`.
+pub fn parse_kickoff_runtime(s: &str) -> Result<KickoffRuntime> {
+    match s.to_lowercase().as_str() {
+        "claude" | "cc" => Ok(KickoffRuntime::Claude),
+        "antigravity" | "agy" => Ok(KickoffRuntime::Antigravity),
+        "both" => Ok(KickoffRuntime::Both),
+        _ => bail!("Unknown runtime '{s}'. Use: claude, antigravity, both"),
+    }
+}
+
 /// Breadcrumb written at launch when `--doc <path>` is supplied
 /// (`.kickoff-doc.json`).
 ///
@@ -92,6 +123,8 @@ pub struct KickoffOpts<'a> {
     pub design_doc: Option<&'a super::super::design_doc::DesignDoc>,
     pub doc_path: Option<&'a str>,
     pub skip_permissions: bool,
+    /// Which agent runtime binary to launch (claude, antigravity, both).
+    pub runtime: KickoffRuntime,
     /// Optional claude `--permission-mode <mode>` (GH#603). When set,
     /// overrides `skip_permissions`'s `--dangerously-skip-permissions`
     /// with the finer-grained mode (acceptEdits/auto/bypassPermissions/

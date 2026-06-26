@@ -222,6 +222,49 @@ pub(super) fn build_agent_command(
     )
 }
 
+/// Build the shell command string for launching an `agy` (Google Antigravity CLI) agent.
+///
+/// The `agy` binary accepts:
+/// - `-p 'prompt'` for non-interactive mode (analogous to `claude --print`)
+/// - `--dangerously-skip-permissions` (same flag as Claude Code)
+/// - `-m <model>` for model selection
+///
+/// No `CLAUDE_CONFIG_DIR` equivalent is needed — `.agents/` lives in the
+/// working tree, so worktree isolation is automatic.
+///
+/// When `sandbox_command` is set, the agy invocation is wrapped:
+/// ```text
+/// timeout 3600s my-sandbox --project-dir /path -- agy --dangerously-skip-permissions -m 'model' -p "$(cat 'KICKOFF.md')"
+/// ```
+pub(super) fn build_agy_command(
+    timeout_cmd: &str,
+    timeout_secs: u64,
+    model: &str,
+    kickoff_file: &str,
+    sandbox_command: Option<&str>,
+    worktree_dir: &Path,
+    skip_permissions: bool,
+) -> String {
+    use crate::utils::shell_escape_arg;
+
+    let skip_flag = if skip_permissions {
+        " --dangerously-skip-permissions"
+    } else {
+        ""
+    };
+    let escaped_model = shell_escape_arg(model);
+    let escaped_kickoff = shell_escape_arg(kickoff_file);
+    let agy_cmd = format!("agy{skip_flag} -m {escaped_model} -p \"$(cat {escaped_kickoff})\"");
+    sandbox_command.map_or_else(
+        || format!("{timeout_cmd} {timeout_secs}s {agy_cmd}"),
+        |cmd| {
+            let escaped_worktree = shell_escape_arg(&worktree_dir.to_string_lossy());
+            let expanded = cmd.replace("{{worktree}}", &escaped_worktree);
+            format!("{timeout_cmd} {timeout_secs}s {expanded} {agy_cmd}")
+        },
+    )
+}
+
 /// Pre-flight check: verify all required external commands are present before
 /// creating worktrees, branches, or sessions. Emits clear errors with install
 /// instructions for any missing command.
@@ -229,6 +272,7 @@ pub(super) fn preflight_check(
     container: &ContainerMode,
     verify: &VerifyLevel,
     crosslink_dir: &Path,
+    runtime: super::types::KickoffRuntime,
 ) -> Result<PreflightResult> {
     let platform = detect_platform();
     let mut missing: Vec<String> = Vec::new();
@@ -256,9 +300,15 @@ pub(super) fn preflight_check(
         }
     }
 
-    // claude CLI — required for local mode
-    if *container == ContainerMode::None && !command_available("claude") {
+    // claude CLI — required for local mode when runtime includes claude
+    if *container == ContainerMode::None && runtime.wants_claude() && !command_available("claude") {
         missing.push(install_hint("claude", &platform));
+    }
+
+    // agy CLI — required for local mode when runtime includes antigravity
+    if *container == ContainerMode::None && runtime.wants_antigravity() && !command_available("agy")
+    {
+        missing.push(install_hint("agy", &platform));
     }
 
     // gh — required for CI/thorough verification
@@ -578,8 +628,18 @@ pub(super) fn launch_local(
     sandbox_command: Option<&str>,
     crosslink_dir: &Path,
     skip_permissions: bool,
+    runtime: super::types::KickoffRuntime,
     permission_mode: Option<&str>,
 ) -> Result<()> {
+    use super::types::KickoffRuntime;
+
+    if runtime == KickoffRuntime::Both {
+        bail!(
+            "Runtime 'both' is not yet supported for `kickoff run`. \
+             Use 'claude' or 'antigravity'."
+        );
+    }
+
     // Create the tmux session
     let output = Command::new("tmux")
         .args([
@@ -598,25 +658,36 @@ pub(super) fn launch_local(
         bail!("Failed to create tmux session: {}", stderr.trim());
     }
 
-    // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session by
-    // baking it into the command string. `tmux new-session` would otherwise
-    // inherit env from the tmux server's frozen-at-startup environment
-    // rather than the caller's shell (#555).
-    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
-
-    // Build the claude command (with optional sandbox wrapping)
-    let cmd = build_agent_command(
-        timeout_cmd,
-        timeout.as_secs(),
-        model,
-        allowed_tools,
-        "KICKOFF.md",
-        sandbox_command,
-        worktree_dir,
-        skip_permissions,
-        claude_config_dir.as_deref(),
-        permission_mode,
-    );
+    // Build the agent command based on the selected runtime
+    let cmd = if runtime.wants_antigravity() {
+        build_agy_command(
+            timeout_cmd,
+            timeout.as_secs(),
+            model,
+            "KICKOFF.md",
+            sandbox_command,
+            worktree_dir,
+            skip_permissions,
+        )
+    } else {
+        // Propagate the caller's CLAUDE_CONFIG_DIR into the tmux session by
+        // baking it into the command string. `tmux new-session` would otherwise
+        // inherit env from the tmux server's frozen-at-startup environment
+        // rather than the caller's shell (#555).
+        let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        build_agent_command(
+            timeout_cmd,
+            timeout.as_secs(),
+            model,
+            allowed_tools,
+            "KICKOFF.md",
+            sandbox_command,
+            worktree_dir,
+            skip_permissions,
+            claude_config_dir.as_deref(),
+            permission_mode,
+        )
+    };
 
     // Write initial status sentinel BEFORE sending the command.
     // This ensures we never have a worktree in limbo with no status.

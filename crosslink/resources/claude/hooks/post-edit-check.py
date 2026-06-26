@@ -387,7 +387,14 @@ def main():
         sys.exit(0)
 
     tool_name = input_data.get("tool_name", "")
-    tool_input = input_data.get("tool_input", {})
+
+    # Normalize Antigravity tool names and input fields for cross-compatibility
+    if tool_name in ('replace_file_content', 'multi_replace_file_content', 'write_to_file'):
+        tool_name = 'Edit'
+
+    tool_input = input_data.setdefault("tool_input", {})
+    if 'TargetFile' in tool_input and 'file_path' not in tool_input:
+        tool_input['file_path'] = tool_input['TargetFile']
 
     if tool_name not in ("Write", "Edit"):
         sys.exit(0)

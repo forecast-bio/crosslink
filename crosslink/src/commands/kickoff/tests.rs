@@ -145,6 +145,7 @@ fn test_build_prompt_contains_essentials() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 42, "feature/add-retry-logic", &conventions);
@@ -178,6 +179,7 @@ fn test_build_prompt_ci_verification() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-ci", &conventions);
@@ -208,6 +210,7 @@ fn test_build_prompt_thorough_verification() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-thorough", &conventions);
@@ -888,6 +891,7 @@ fn test_build_prompt_local_has_no_ci_or_adversarial() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-local", &conventions);
@@ -918,6 +922,7 @@ fn test_build_prompt_contains_blocked_actions() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -949,6 +954,7 @@ fn test_build_prompt_embeds_issue_id_in_instructions() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 999, "feature/test-refs", &conventions);
@@ -980,6 +986,7 @@ fn test_build_prompt_empty_conventions_uses_generic_instructions() {
         design_doc: None,
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test-generic", &conventions);
@@ -1023,6 +1030,7 @@ fn test_build_prompt_with_design_doc() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/batch-retry", &conventions);
@@ -1169,6 +1177,7 @@ fn test_build_prompt_with_design_doc_open_questions() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/auth", &conventions);
@@ -1341,6 +1350,7 @@ fn test_build_prompt_with_criteria_includes_validation() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -1382,6 +1392,7 @@ fn test_build_prompt_without_criteria_no_validation() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -1420,6 +1431,7 @@ fn test_build_prompt_validation_ordering() {
         design_doc: Some(&doc),
         doc_path: None,
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -1726,7 +1738,12 @@ fn test_preflight_check_passes_when_commands_available() {
     // For container mode with a non-existent runtime, it should fail.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    let result = preflight_check(&ContainerMode::Docker, &VerifyLevel::Local, dir.path());
+    let result = preflight_check(
+        &ContainerMode::Docker,
+        &VerifyLevel::Local,
+        dir.path(),
+        KickoffRuntime::Claude,
+    );
     // Docker may or may not be installed — just verify it doesn't panic.
     let _ = result;
 }
@@ -1738,7 +1755,12 @@ fn test_preflight_check_missing_command_includes_hint() {
     // We test the error format rather than specific availability.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hook-config.json"), "{}").unwrap();
-    let result = preflight_check(&ContainerMode::Podman, &VerifyLevel::Thorough, dir.path());
+    let result = preflight_check(
+        &ContainerMode::Podman,
+        &VerifyLevel::Thorough,
+        dir.path(),
+        KickoffRuntime::Claude,
+    );
     if let Err(e) = result {
         let msg = e.to_string();
         // If podman is missing, the error should mention it with a hint
@@ -2238,7 +2260,12 @@ fn test_preflight_check_validates_sandbox_binary() {
         r#"{"sandbox": {"command": "crosslink_nonexistent_sandbox_xyz --isolate --"}}"#,
     )
     .unwrap();
-    let result = preflight_check(&ContainerMode::None, &VerifyLevel::Local, dir.path());
+    let result = preflight_check(
+        &ContainerMode::None,
+        &VerifyLevel::Local,
+        dir.path(),
+        KickoffRuntime::Claude,
+    );
     if let Err(e) = result {
         let msg = e.to_string();
         assert!(msg.contains("crosslink_nonexistent_sandbox_xyz"));
@@ -2455,6 +2482,7 @@ fn test_build_prompt_contains_report_json_schema() {
         design_doc: Some(&doc),
         doc_path: Some("test.md"),
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/test", &conventions);
@@ -2503,6 +2531,7 @@ fn test_build_prompt_contains_validation_section() {
         design_doc: Some(&doc),
         doc_path: Some("test.md"),
         skip_permissions: false,
+        runtime: KickoffRuntime::Claude,
         permission_mode: None,
     };
     let prompt = build_prompt(&opts, 1, "feature/validated", &conventions);
@@ -2602,6 +2631,141 @@ fn test_build_watchdog_script_contains_key_elements() {
     assert!(script.contains("NUDGES"));
     assert!(script.contains("-gt 300")); // staleness threshold
     assert!(script.contains("-ge 3")); // max nudges
+}
+
+// --- Antigravity (agy) runtime tests ---
+
+#[test]
+fn test_parse_kickoff_runtime_claude() {
+    assert_eq!(
+        parse_kickoff_runtime("claude").unwrap(),
+        KickoffRuntime::Claude
+    );
+    assert_eq!(parse_kickoff_runtime("cc").unwrap(), KickoffRuntime::Claude);
+    assert_eq!(
+        parse_kickoff_runtime("Claude").unwrap(),
+        KickoffRuntime::Claude
+    );
+}
+
+#[test]
+fn test_parse_kickoff_runtime_antigravity() {
+    assert_eq!(
+        parse_kickoff_runtime("antigravity").unwrap(),
+        KickoffRuntime::Antigravity
+    );
+    assert_eq!(
+        parse_kickoff_runtime("agy").unwrap(),
+        KickoffRuntime::Antigravity
+    );
+    assert_eq!(
+        parse_kickoff_runtime("AGY").unwrap(),
+        KickoffRuntime::Antigravity
+    );
+}
+
+#[test]
+fn test_parse_kickoff_runtime_both() {
+    assert_eq!(parse_kickoff_runtime("both").unwrap(), KickoffRuntime::Both);
+}
+
+#[test]
+fn test_parse_kickoff_runtime_invalid() {
+    assert!(parse_kickoff_runtime("unknown").is_err());
+    assert!(parse_kickoff_runtime("").is_err());
+    assert!(parse_kickoff_runtime("openai").is_err());
+}
+
+#[test]
+fn test_kickoff_runtime_wants_claude() {
+    assert!(KickoffRuntime::Claude.wants_claude());
+    assert!(!KickoffRuntime::Antigravity.wants_claude());
+    assert!(KickoffRuntime::Both.wants_claude());
+}
+
+#[test]
+fn test_kickoff_runtime_wants_antigravity() {
+    assert!(!KickoffRuntime::Claude.wants_antigravity());
+    assert!(KickoffRuntime::Antigravity.wants_antigravity());
+    assert!(KickoffRuntime::Both.wants_antigravity());
+}
+
+#[test]
+fn test_build_agy_command_basic() {
+    let cmd = build_agy_command(
+        "timeout",
+        3600,
+        "gemini-2.0-flash",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+    );
+    assert_eq!(
+        cmd,
+        "timeout 3600s agy -m 'gemini-2.0-flash' -p \"$(cat 'KICKOFF.md')\""
+    );
+}
+
+#[test]
+fn test_build_agy_command_skip_permissions() {
+    let cmd = build_agy_command(
+        "timeout",
+        3600,
+        "gemini-2.0-flash",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        true,
+    );
+    assert!(cmd.contains("--dangerously-skip-permissions"));
+    assert!(cmd.contains("agy --dangerously-skip-permissions -m 'gemini-2.0-flash'"));
+}
+
+#[test]
+fn test_build_agy_command_with_sandbox() {
+    let cmd = build_agy_command(
+        "timeout",
+        3600,
+        "gemini-2.0-flash",
+        "KICKOFF.md",
+        Some("bwrap --bind {{worktree}} /workspace --"),
+        Path::new("/tmp/my-worktree"),
+        false,
+    );
+    assert!(cmd.starts_with("timeout 3600s bwrap --bind '/tmp/my-worktree' /workspace --"));
+    assert!(cmd.contains("agy -m 'gemini-2.0-flash'"));
+}
+
+#[test]
+fn test_build_agy_command_no_claude_config_dir() {
+    // agy does not use CLAUDE_CONFIG_DIR — the command must not contain it
+    let cmd = build_agy_command(
+        "timeout",
+        3600,
+        "gemini-2.0-flash",
+        "KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+    );
+    assert!(!cmd.contains("CLAUDE_CONFIG_DIR"));
+    assert!(!cmd.contains("env -u CLAUDECODE"));
+}
+
+#[test]
+fn test_build_agy_command_plan_kickoff() {
+    let cmd = build_agy_command(
+        "gtimeout",
+        1800,
+        "gemini-2.0-pro",
+        "PLAN_KICKOFF.md",
+        None,
+        Path::new("/tmp/worktree"),
+        false,
+    );
+    assert!(cmd.starts_with("gtimeout 1800s"));
+    assert!(cmd.contains("$(cat 'PLAN_KICKOFF.md')"));
 }
 
 // ---------------------------------------------------------------------------

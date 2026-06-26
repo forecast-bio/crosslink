@@ -449,6 +449,7 @@ fn spawn_agent(
         design_doc: None,
         doc_path: None,
         skip_permissions: true,
+        runtime: crate::commands::kickoff::KickoffRuntime::Claude,
         permission_mode: None,
     };
 

@@ -151,6 +151,7 @@ pub fn plan(crosslink_dir: &Path, db: &Database, opts: &PlanOpts) -> Result<()> 
             &ContainerMode::None,
             &VerifyLevel::Local,
             crosslink_dir,
+            super::types::KickoffRuntime::Claude,
         )?)
     };
 

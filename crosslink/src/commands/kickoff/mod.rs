@@ -16,12 +16,12 @@ mod tests;
 
 // Re-export public types used by external callers (swarm, main, etc.)
 pub use types::{
-    ContainerMode, KickoffOpts, KickoffReport, PlanOpts, ReportFormat, VerifyLevel,
+    ContainerMode, KickoffOpts, KickoffReport, KickoffRuntime, PlanOpts, ReportFormat, VerifyLevel,
     DEFAULT_AGENT_IMAGE,
 };
 
 // Re-export parse functions (used by dispatch and swarm)
-pub use types::{parse_container_mode, parse_duration, parse_verify_level};
+pub use types::{parse_container_mode, parse_duration, parse_kickoff_runtime, parse_verify_level};
 
 // Re-export public command functions (used from main.rs dispatch)
 pub use cleanup::cleanup;
@@ -63,6 +63,7 @@ pub fn dispatch(
             branch,
             doc,
             skip_permissions,
+            runtime,
             permission_mode,
         } => {
             let parsed_doc = if let Some(ref path) = doc {
@@ -90,6 +91,7 @@ pub fn dispatch(
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
                 skip_permissions,
+                runtime: parse_kickoff_runtime(&runtime)?,
                 permission_mode: permission_mode.as_deref(),
             };
             // The pipeline "running" row is now written from inside `run()`
@@ -169,6 +171,7 @@ pub fn dispatch(
             issue,
             dry_run,
             skip_permissions,
+            runtime,
             permission_mode,
         } => dispatch_launch(
             crosslink_dir,
@@ -186,6 +189,7 @@ pub fn dispatch(
             issue,
             dry_run,
             skip_permissions,
+            &runtime,
             permission_mode.as_deref(),
         ),
     }
@@ -212,6 +216,7 @@ fn dispatch_launch(
     issue: Option<i64>,
     dry_run: bool,
     skip_permissions: bool,
+    runtime: &str,
     permission_mode: Option<&str>,
 ) -> Result<()> {
     // Non-interactive: --plan or --run flag provided
@@ -276,6 +281,7 @@ fn dispatch_launch(
             design_doc: parsed_doc.as_ref(),
             doc_path: doc.as_ref().map(|p| p.to_str().unwrap_or("unknown")),
             skip_permissions,
+            runtime: parse_kickoff_runtime(runtime)?,
             permission_mode,
         };
         // mark_running is now invoked from inside run() with the real identity.
@@ -358,6 +364,7 @@ fn dispatch_launch(
                 design_doc: parsed_doc.as_ref(),
                 doc_path: doc_path_str.as_deref(),
                 skip_permissions: false,
+                runtime: parse_kickoff_runtime(runtime)?,
                 permission_mode: None,
             };
             run(crosslink_dir, db, writer, &opts)?;

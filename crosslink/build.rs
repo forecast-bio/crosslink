@@ -61,6 +61,11 @@ fn main() {
         }
     }
 
+    // Track antigravity resource files
+    println!("cargo:rerun-if-changed=resources/antigravity/hooks.json");
+    println!("cargo:rerun-if-changed=resources/antigravity/mcp_config.json");
+    println!("cargo:rerun-if-changed=resources/antigravity/skills/");
+
     // Auto-discover and track all skill files in resources/claude/skills/
     // Skills are directories (each with a SKILL.md plus optional reference files)
     // bundled into projects so collaborators get a consistent skill surface.

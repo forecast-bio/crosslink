@@ -151,6 +151,9 @@ enum Commands {
         /// Skip TUI and use opinionated team-mode defaults
         #[arg(long)]
         defaults: bool,
+        /// Agent runtime to configure: claude (default), antigravity, both
+        #[arg(long, default_value = "claude")]
+        runtime: Option<String>,
     },
 
     /// Issue lifecycle commands (create, show, list, close, ...)
@@ -1689,6 +1692,9 @@ enum KickoffCommands {
         /// for that instead of this flag for repeatable configuration.
         #[arg(long)]
         skip_permissions: bool,
+        /// Agent runtime to launch: claude (default), antigravity (agy), both
+        #[arg(long, default_value = "claude")]
+        runtime: String,
         /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
         ///
         /// Finer-grained alternative to `--skip-permissions`. Claude
@@ -1830,6 +1836,9 @@ enum KickoffCommands {
         /// (allowedTools / permissions blocks).
         #[arg(long)]
         skip_permissions: bool,
+        /// Agent runtime to launch: claude (default), antigravity (agy), both
+        #[arg(long, default_value = "claude")]
+        runtime: String,
         /// Per-invocation: pass `--permission-mode <mode>` to claude CLI.
         ///
         /// Finer-grained alternative to `--skip-permissions`. Claude
@@ -2724,8 +2733,14 @@ fn main() -> Result<()> {
             signing_key,
             reconfigure,
             defaults,
+            runtime,
         } => {
             let cwd = env::current_dir()?;
+            let runtime = runtime
+                .as_deref()
+                .map(str::parse::<commands::init::AgentRuntime>)
+                .transpose()?
+                .unwrap_or_default();
             let opts = commands::init::InitOpts {
                 force,
                 update,
@@ -2737,6 +2752,7 @@ fn main() -> Result<()> {
                 signing_key: signing_key.as_deref(),
                 reconfigure,
                 defaults,
+                runtime,
             };
             commands::init::run(&cwd, &opts)
         }
@@ -3200,6 +3216,7 @@ fn main() -> Result<()> {
                 issue: None,
                 dry_run: false,
                 skip_permissions: false,
+                runtime: "claude".to_string(),
                 permission_mode: None,
             });
             commands::kickoff::dispatch(

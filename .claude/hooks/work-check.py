@@ -290,7 +290,7 @@ def check_control_flags(crosslink_dir):
         return
     if proc.returncode == 0:
         return
-    if proc.returncode == 2:
+    if proc.returncode == 2 and proc.stdout.strip():
         try:
             state = json.loads(proc.stdout.strip())
         except (json.JSONDecodeError, ValueError):
